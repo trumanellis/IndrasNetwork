@@ -73,6 +73,7 @@ pub mod topology;
 pub mod simulation;
 pub mod scenarios;
 pub mod bridge;
+pub mod lua;
 
 #[cfg(test)]
 mod integration_scenarios;
@@ -103,6 +104,9 @@ pub use simulation::{
 };
 
 pub use bridge::{MeshBridge, SimulationRouter};
+
+// Re-export Lua runtime
+pub use lua::LuaRuntime;
 
 // Re-export core types for integration
 pub use indras_core::SimulationIdentity;

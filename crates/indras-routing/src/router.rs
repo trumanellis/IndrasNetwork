@@ -18,7 +18,7 @@ use async_trait::async_trait;
 use indras_core::{
     DropReason, NetworkTopology, Packet, PacketStore, PeerIdentity, Router, RoutingDecision,
 };
-use tracing::{debug, trace, warn};
+use tracing::{debug, info, info_span, instrument, trace, warn};
 
 use crate::backprop::BackPropManager;
 use crate::error::RoutingError;
@@ -105,19 +105,25 @@ where
     /// Notify the router that two peers have connected
     ///
     /// This updates the mutual peer cache for routing decisions.
+    #[instrument(skip(self), fields(peer_a = %a, peer_b = %b))]
     pub fn on_peer_connect(&self, a: &I, b: &I) {
+        debug!("Updating mutual peer cache for new connection");
         self.mutual_tracker.on_connect(a, b, self.topology.as_ref());
     }
 
     /// Notify the router that two peers have disconnected
+    #[instrument(skip(self), fields(peer_a = %a, peer_b = %b))]
     pub fn on_peer_disconnect(&self, a: &I, b: &I) {
+        debug!("Removing mutual peer cache for disconnection");
         self.mutual_tracker.on_disconnect(a, b);
     }
 
     /// Store a packet for later delivery
     ///
     /// Used when the destination is offline but we can reach them when they come online.
+    #[instrument(skip(self, packet), fields(packet_id = %packet.id, destination = %packet.destination))]
     pub async fn store_packet(&self, packet: Packet<I>) -> Result<(), RoutingError> {
+        debug!("Storing packet for offline peer");
         self.storage
             .store(packet)
             .await
@@ -127,11 +133,17 @@ where
     /// Get pending packets for a destination
     ///
     /// Called when a peer comes online to deliver stored packets.
+    #[instrument(skip(self), fields(destination = %dest))]
     pub async fn get_pending(&self, dest: &I) -> Result<Vec<Packet<I>>, RoutingError> {
-        self.storage
+        let result = self.storage
             .pending_for(dest)
             .await
-            .map_err(|_| RoutingError::StorageFailed)
+            .map_err(|_| RoutingError::StorageFailed);
+
+        if let Ok(ref packets) = result {
+            debug!(count = packets.len(), "Retrieved pending packets");
+        }
+        result
     }
 
     /// Delete a packet from storage (after delivery)
@@ -143,7 +155,9 @@ where
     }
 
     /// Start back-propagation for a delivered packet
+    #[instrument(skip(self, packet, path), fields(packet_id = %packet.id, path_len = path.len()))]
     pub fn start_backprop(&self, packet: &Packet<I>, path: Vec<I>) {
+        info!("Starting back-propagation");
         self.backprop.start_backprop(packet.id, path);
     }
 
@@ -199,25 +213,31 @@ where
     ) -> Result<RoutingDecision<I>, indras_core::RoutingError> {
         let dest = &packet.destination;
 
-        debug!(
-            current = %current,
-            dest = %dest,
+        // Create span for this routing operation
+        let span = info_span!(
+            "route_packet",
             packet_id = %packet.id,
+            source = %packet.source,
+            destination = %dest,
+            current_peer = %current,
+            correlation_id = ?packet.correlation_id,
             ttl = packet.ttl,
-            "Routing packet"
+            hop_count = packet.hop_count(),
         );
+        let _guard = span.enter();
+
+        debug!("Starting routing decision");
 
         // Check TTL first
         if packet.ttl == 0 {
-            debug!(packet_id = %packet.id, "TTL expired");
+            info!(decision = "drop", reason = "ttl_expired", "TTL expired");
             return Ok(RoutingDecision::drop(DropReason::TtlExpired));
         }
 
         // 1. DIRECT: destination online and directly connected
         if self.topology.is_online(dest) && self.topology.are_connected(current, dest) {
-            debug!(
-                packet_id = %packet.id,
-                dest = %dest,
+            info!(
+                decision = "direct",
                 "Direct delivery: destination online and connected"
             );
             return Ok(RoutingDecision::direct(dest.clone()));
@@ -226,9 +246,8 @@ where
         // 2. HOLD: destination offline but directly connected
         // We can deliver when they come online
         if !self.topology.is_online(dest) && self.topology.are_connected(current, dest) {
-            debug!(
-                packet_id = %packet.id,
-                dest = %dest,
+            info!(
+                decision = "hold",
                 "Hold: destination offline but directly connected"
             );
             // Store the packet for later delivery
@@ -255,19 +274,18 @@ where
         let online_relays = self.filter_relays(candidates, packet);
 
         if !online_relays.is_empty() {
-            debug!(
-                packet_id = %packet.id,
+            info!(
+                decision = "relay",
                 relay_count = online_relays.len(),
-                "Relay: found {} online relay candidates",
-                online_relays.len()
+                "Found relay candidates"
             );
             return Ok(RoutingDecision::relay_multi(online_relays));
         }
 
         // 4. NO ROUTE: no way to reach destination
-        debug!(
-            packet_id = %packet.id,
-            dest = %dest,
+        info!(
+            decision = "drop",
+            reason = "no_route",
             "No route: destination not reachable"
         );
         Ok(RoutingDecision::drop(DropReason::NoRoute))

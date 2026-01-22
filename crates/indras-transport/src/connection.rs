@@ -7,7 +7,7 @@ use iroh::{Endpoint, SecretKey, PublicKey, EndpointAddr};
 use iroh::endpoint::Connection;
 use thiserror::Error;
 use tokio::sync::RwLock;
-use tracing::{debug, info};
+use tracing::{debug, info, instrument, warn};
 
 use indras_core::identity::PeerIdentity;
 
@@ -127,13 +127,14 @@ impl ConnectionManager {
     }
 
     /// Connect to a peer by their endpoint address
+    #[instrument(skip(self, addr), fields(remote_peer = %IrohIdentity::new(addr.id).short_id()))]
     pub async fn connect(&self, addr: EndpointAddr) -> Result<Connection, ConnectionError> {
         let peer_id = IrohIdentity::new(addr.id);
 
         // Check if we already have a connection
         if let Some(conn) = self.connections.get(&peer_id) {
             if conn.close_reason().is_none() {
-                debug!(peer = %peer_id.short_id(), "Reusing existing connection");
+                debug!("Reusing existing connection");
                 return Ok(conn.clone());
             }
             // Remove stale connection
@@ -144,13 +145,14 @@ impl ConnectionManager {
         // Check connection limit
         let current = self.connections.len();
         if current >= self.config.max_connections {
+            warn!(current = current, max = self.config.max_connections, "Connection limit reached");
             return Err(ConnectionError::TooManyConnections {
                 current,
                 max: self.config.max_connections,
             });
         }
 
-        debug!(peer = %peer_id.short_id(), "Connecting to peer");
+        debug!("Establishing new connection");
 
         // Establish connection with timeout
         let connect_future = self.endpoint.connect(addr, ALPN_INDRAS);
@@ -160,10 +162,16 @@ impl ConnectionManager {
             connect_future,
         )
         .await
-        .map_err(|_| ConnectionError::Timeout)?
-        .map_err(|e| ConnectionError::ConnectError(e.to_string()))?;
+        .map_err(|_| {
+            warn!(timeout_ms = self.config.connect_timeout_ms, "Connection timeout");
+            ConnectionError::Timeout
+        })?
+        .map_err(|e| {
+            warn!(error = %e, "Connection failed");
+            ConnectionError::ConnectError(e.to_string())
+        })?;
 
-        info!(peer = %peer_id.short_id(), "Connected to peer");
+        info!("Connection established");
 
         // Store the connection
         self.connections.insert(peer_id, conn.clone());
@@ -182,6 +190,7 @@ impl ConnectionManager {
     /// Accept an incoming connection
     ///
     /// Returns the peer's identity and the connection.
+    #[instrument(skip(self), name = "accept_connection")]
     pub async fn accept(&self) -> Result<(IrohIdentity, Connection), ConnectionError> {
         let incoming = self.endpoint
             .accept()
@@ -190,12 +199,15 @@ impl ConnectionManager {
 
         let conn = incoming
             .await
-            .map_err(|e| ConnectionError::ConnectError(e.to_string()))?;
+            .map_err(|e| {
+                warn!(error = %e, "Failed to accept connection");
+                ConnectionError::ConnectError(e.to_string())
+            })?;
 
         let peer_key = conn.remote_id();
         let peer_id = IrohIdentity::new(peer_key);
 
-        info!(peer = %peer_id.short_id(), "Accepted incoming connection");
+        info!(remote_peer = %peer_id.short_id(), "Accepted incoming connection");
 
         // Store the connection (replacing any existing one from this peer)
         self.connections.insert(peer_id, conn.clone());

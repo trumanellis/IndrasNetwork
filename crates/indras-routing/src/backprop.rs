@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
 use indras_core::{PacketId, PeerIdentity};
+use tracing::{debug, info, instrument, warn};
 
 /// State of an in-progress back-propagation
 #[derive(Debug, Clone)]
@@ -113,13 +114,15 @@ impl<I: PeerIdentity> BackPropManager<I> {
     /// # Arguments
     /// * `packet_id` - The ID of the delivered packet
     /// * `path` - The full path the packet took: [source, relay1, ..., dest]
+    #[instrument(skip(self, path), fields(packet_id = %packet_id, path_len = path.len()))]
     pub fn start_backprop(&self, packet_id: PacketId, path: Vec<I>) {
         if path.len() < 2 {
-            // No backprop needed for direct delivery
+            debug!("No backprop needed for direct delivery");
             return;
         }
         let state = BackPropState::new(path, self.default_timeout);
         self.pending.insert(packet_id, state);
+        debug!("Back-propagation started");
     }
 
     /// Start back-propagation with a custom timeout
@@ -143,16 +146,21 @@ impl<I: PeerIdentity> BackPropManager<I> {
     /// # Arguments
     /// * `packet_id` - The packet being confirmed
     /// * `confirming_peer` - The peer sending the confirmation
+    #[instrument(skip(self), fields(packet_id = %packet_id, confirming_peer = %confirming_peer))]
     pub fn advance(&self, packet_id: &PacketId, confirming_peer: &I) -> BackPropStatus {
         let mut entry = match self.pending.get_mut(packet_id) {
             Some(e) => e,
-            None => return BackPropStatus::NotFound,
+            None => {
+                debug!("Back-propagation not found");
+                return BackPropStatus::NotFound;
+            }
         };
 
         let state = entry.value_mut();
 
         // Check timeout first
         if state.is_timed_out() {
+            warn!(elapsed_ms = ?state.elapsed().as_millis(), "Back-propagation timed out");
             drop(entry);
             self.pending.remove(packet_id);
             return BackPropStatus::TimedOut;
@@ -161,7 +169,7 @@ impl<I: PeerIdentity> BackPropManager<I> {
         // Verify the confirming peer is the expected one
         if let Some(expected) = state.next_confirmer()
             && expected != confirming_peer {
-                // Wrong peer confirming - ignore
+                debug!(expected = %expected, "Wrong peer confirming, ignoring");
                 return BackPropStatus::InProgress(state.current_hop);
             }
 
@@ -170,8 +178,11 @@ impl<I: PeerIdentity> BackPropManager<I> {
             state.current_hop -= 1;
         }
 
+        debug!(current_hop = state.current_hop, "Back-propagation advanced");
+
         // Check if complete
         if state.is_complete() {
+            info!(elapsed_ms = ?state.elapsed().as_millis(), "Back-propagation complete");
             drop(entry);
             self.pending.remove(packet_id);
             BackPropStatus::Complete

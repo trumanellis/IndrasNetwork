@@ -3,9 +3,12 @@
 //! A simulation of peer-to-peer signal propagation with store-and-forward
 //! routing for offline peers, inspired by iroh-examples patterns.
 
-use clap::{Parser, Subcommand};
-use tracing_subscriber::{EnvFilter, fmt, prelude::*};
+use std::path::PathBuf;
 
+use clap::{Parser, Subcommand};
+use tracing::{info, debug};
+
+use indras_logging::{IndrasSubscriberBuilder, LogConfig, FileConfig, RotationStrategy};
 use indras_simulation::{types, topology, simulation, scenarios};
 
 #[derive(Parser)]
@@ -18,6 +21,14 @@ struct Cli {
     /// Enable verbose logging
     #[arg(short, long, global = true)]
     verbose: bool,
+
+    /// Directory for JSONL log files (optional)
+    #[arg(long, global = true)]
+    log_dir: Option<PathBuf>,
+
+    /// Enable OpenTelemetry export (requires OTEL_EXPORTER_OTLP_ENDPOINT)
+    #[arg(long, global = true)]
+    otel: bool,
 
     #[command(subcommand)]
     command: Commands,
@@ -70,16 +81,44 @@ enum Commands {
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    // Set up tracing
-    let filter = if cli.verbose {
-        EnvFilter::new("debug")
-    } else {
-        EnvFilter::new("info")
+    // Set up logging using indras-logging
+    let mut config = LogConfig::default();
+
+    if cli.verbose {
+        config.default_level = "debug".to_string();
+    }
+
+    // Determine scenario name for log file prefix
+    let scenario_name = match &cli.command {
+        Commands::Abc => "abc",
+        Commands::Line => "line",
+        Commands::Broadcast => "broadcast",
+        Commands::Chaos { .. } => "chaos",
+        Commands::Partition => "partition",
+        Commands::Topology { .. } => "topology",
+        Commands::Interactive { .. } => "interactive",
     };
 
-    tracing_subscriber::registry()
-        .with(fmt::layer())
-        .with(filter)
+    // File logging enabled by default to ./logs, override with --log-dir
+    // Disable console output - only write to file
+    config.console.enabled = false;
+
+    let log_dir = cli.log_dir.unwrap_or_else(|| PathBuf::from("./logs"));
+    config.file = Some(FileConfig {
+        directory: log_dir,
+        prefix: format!("indras-{}", scenario_name),
+        rotation: RotationStrategy::Never, // Single file, overwritten each run
+        max_files: None,
+    });
+
+    // Enable OTel if requested
+    if cli.otel {
+        config.otel.enabled = true;
+    }
+
+    // The guard must be kept alive for file logging to work
+    let _guard = IndrasSubscriberBuilder::new()
+        .with_config(config)
         .init();
 
     match cli.command {
@@ -106,11 +145,11 @@ fn main() -> anyhow::Result<()> {
                 "line" => topology::MeshBuilder::new(peers).line(),
                 "star" => topology::MeshBuilder::new(peers).star(),
                 _ => {
-                    eprintln!("Unknown topology: {}. Using ring.", topology);
+                    tracing::warn!(topology = %topology, "Unknown topology, using ring");
                     topology::MeshBuilder::new(peers).ring()
                 }
             };
-            println!("{}", mesh.visualize());
+            info!(topology = %mesh.visualize(), "Mesh topology created");
         }
         Commands::Interactive { peers } => {
             run_interactive(peers)?;
@@ -124,7 +163,7 @@ fn run_interactive(peer_count: usize) -> anyhow::Result<()> {
     use std::io::{self, Write};
 
     let mesh = topology::MeshBuilder::new(peer_count).random(0.5);
-    println!("{}", mesh.visualize());
+    info!(topology = %mesh.visualize(), "Interactive mode: mesh topology created");
 
     let mut sim = simulation::Simulation::new(mesh, simulation::SimConfig {
         wake_probability: 0.0,
@@ -140,6 +179,7 @@ fn run_interactive(peer_count: usize) -> anyhow::Result<()> {
         }
     }
 
+    // User-facing help (keep as println for CLI UX)
     println!("\nInteractive mode. Commands:");
     println!("  online <peer>   - Bring peer online (e.g., 'online A')");
     println!("  offline <peer>  - Take peer offline");
@@ -169,7 +209,7 @@ fn run_interactive(peer_count: usize) -> anyhow::Result<()> {
                     && let Some(c) = peer_str.chars().next()
                         && let Some(peer_id) = types::PeerId::new(c.to_ascii_uppercase()) {
                             sim.force_online(peer_id);
-                            println!("  {} is now online", peer_id);
+                            info!(peer = %peer_id, "Peer is now online");
                         }
             }
             "offline" | "sleep" => {
@@ -177,7 +217,7 @@ fn run_interactive(peer_count: usize) -> anyhow::Result<()> {
                     && let Some(c) = peer_str.chars().next()
                         && let Some(peer_id) = types::PeerId::new(c.to_ascii_uppercase()) {
                             sim.force_offline(peer_id);
-                            println!("  {} is now offline", peer_id);
+                            info!(peer = %peer_id, "Peer is now offline");
                         }
             }
             "send" => {
@@ -188,7 +228,7 @@ fn run_interactive(peer_count: usize) -> anyhow::Result<()> {
 
                     if let (Some(from), Some(to)) = (types::PeerId::new(from_c), types::PeerId::new(to_c)) {
                         sim.send_message(from, to, msg.into_bytes());
-                        println!("  Queued message {} -> {}", from, to);
+                        info!(from = %from, to = %to, "Message queued");
                     }
                 } else {
                     println!("  Usage: send <from> <to> <message>");
@@ -199,41 +239,47 @@ fn run_interactive(peer_count: usize) -> anyhow::Result<()> {
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(1);
                 sim.run_ticks(n);
-                println!("  Advanced {} tick(s). {}", n, sim.state_summary());
+                info!(ticks = n, state = %sim.state_summary(), "Advanced simulation");
             }
             "status" => {
-                println!("  {}", sim.state_summary());
-                println!("  Online peers:");
-                for peer_id in sim.mesh.peer_ids() {
-                    if sim.is_online(peer_id) {
+                let online_peers: Vec<String> = sim.mesh.peer_ids()
+                    .into_iter()
+                    .filter(|&peer_id| sim.is_online(peer_id))
+                    .map(|peer_id| {
                         let peer = sim.mesh.peers.get(&peer_id).unwrap();
-                        println!("    {} - {} relayed packets", peer_id, peer.relay_queue.len());
-                    }
-                }
+                        format!("{}({})", peer_id, peer.relay_queue.len())
+                    })
+                    .collect();
+                info!(
+                    state = %sim.state_summary(),
+                    online_peers = ?online_peers,
+                    "Current status"
+                );
             }
             "stats" => {
-                println!("  Messages sent: {}", sim.stats.messages_sent);
-                println!("  Messages delivered: {}", sim.stats.messages_delivered);
-                println!("  Messages dropped: {}", sim.stats.messages_dropped);
-                println!("  Direct deliveries: {}", sim.stats.direct_deliveries);
-                println!("  Relayed deliveries: {}", sim.stats.relayed_deliveries);
-                println!("  Back-props completed: {}", sim.stats.backprops_completed);
+                info!(
+                    messages_sent = sim.stats.messages_sent,
+                    messages_delivered = sim.stats.messages_delivered,
+                    messages_dropped = sim.stats.messages_dropped,
+                    direct_deliveries = sim.stats.direct_deliveries,
+                    relayed_deliveries = sim.stats.relayed_deliveries,
+                    backprops_completed = sim.stats.backprops_completed,
+                    "Statistics"
+                );
             }
             "events" => {
-                println!("  Event log ({} events):", sim.event_log.len());
+                let event_count = sim.event_log.len();
                 for event in sim.event_log.iter().rev().take(20) {
-                    println!("    {:?}", event);
+                    debug!(event = ?event, "Event log entry");
                 }
-                if sim.event_log.len() > 20 {
-                    println!("    ... ({} more)", sim.event_log.len() - 20);
-                }
+                info!(total_events = event_count, shown = std::cmp::min(20, event_count), "Event log");
             }
             "quit" | "exit" | "q" => {
-                println!("Goodbye!");
+                info!("Interactive session ended");
                 break;
             }
             _ => {
-                println!("  Unknown command: {}", parts[0]);
+                tracing::warn!(command = parts[0], "Unknown command");
             }
         }
     }

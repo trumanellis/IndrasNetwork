@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
+use tracing::{instrument, warn};
 
 use indras_core::PeerIdentity;
 
@@ -115,6 +116,7 @@ impl<I: PeerIdentity> CustodyManager<I> {
     /// Accept custody of a bundle
     ///
     /// Returns an error if we're at capacity or already have custody.
+    #[instrument(skip(self, bundle, from), fields(bundle_id = %bundle.bundle_id, current_count = self.custody_records.len()))]
     pub fn accept_custody(
         &self,
         bundle: &Bundle<I>,
@@ -152,6 +154,7 @@ impl<I: PeerIdentity> CustodyManager<I> {
     /// Offer custody transfer to another node
     ///
     /// Records that we've offered custody and are waiting for a response.
+    #[instrument(skip(self, to), fields(bundle_id = %bundle_id))]
     pub fn offer_custody(&self, bundle_id: BundleId, to: I) -> Result<(), CustodyError> {
         // Verify we have custody
         if !self.custody_records.contains_key(&bundle_id) {
@@ -170,6 +173,7 @@ impl<I: PeerIdentity> CustodyManager<I> {
     }
 
     /// Handle a custody acceptance/refusal response
+    #[instrument(skip(self), fields(bundle_id = %bundle_id, accepted = accepted))]
     pub fn handle_acceptance(
         &self,
         bundle_id: BundleId,

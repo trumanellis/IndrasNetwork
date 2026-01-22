@@ -11,6 +11,7 @@ members = [
     "crates/indras-messaging",
     "crates/indras-dtn",
     "crates/indras-iot",
+    "crates/indras-logging",
     "simulation",
     "examples/chat-app",
     "examples/sync-demo",
@@ -34,6 +35,7 @@ indras-sync = { path = "crates/indras-sync" }
 indras-messaging = { path = "crates/indras-messaging" }
 indras-dtn = { path = "crates/indras-dtn" }
 indras-iot = { path = "crates/indras-iot" }
+indras-logging = { path = "crates/indras-logging" }
 
 # Core iroh stack
 iroh = "0.95"

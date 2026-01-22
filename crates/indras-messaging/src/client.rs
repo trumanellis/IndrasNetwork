@@ -10,6 +10,7 @@ use indras_crypto::InterfaceKey;
 use indras_gossip::{IndrasGossip, TopicHandle};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
+use tracing::instrument;
 
 use crate::error::{MessagingError, MessagingResult};
 use crate::history::MessageHistory;
@@ -83,6 +84,7 @@ impl<I: PeerIdentity + Serialize + for<'de> Deserialize<'de> + Clone> MessagingC
     ///
     /// Returns the interface ID and the shared key that can be given to others
     /// to join the interface.
+    #[instrument(skip(self))]
     pub async fn create_interface(&self) -> MessagingResult<(InterfaceId, InterfaceKey)> {
         let interface_id = InterfaceId::generate();
         let key = InterfaceKey::generate(interface_id);
@@ -112,6 +114,7 @@ impl<I: PeerIdentity + Serialize + for<'de> Deserialize<'de> + Clone> MessagingC
     /// Join an existing interface using a shared key
     ///
     /// The key should be obtained from an existing member of the interface.
+    #[instrument(skip(self, key, bootstrap), fields(interface_id = %key.interface_id(), bootstrap_count = bootstrap.len()))]
     pub async fn join_interface(
         &self,
         key: InterfaceKey,
@@ -162,6 +165,7 @@ impl<I: PeerIdentity + Serialize + for<'de> Deserialize<'de> + Clone> MessagingC
     }
 
     /// Send a message to an interface
+    #[instrument(skip(self, content), fields(interface_id = %interface_id))]
     pub async fn send(
         &self,
         interface_id: &InterfaceId,
@@ -202,6 +206,7 @@ impl<I: PeerIdentity + Serialize + for<'de> Deserialize<'de> + Clone> MessagingC
     }
 
     /// Reply to a message
+    #[instrument(skip(self, content), fields(interface_id = %interface_id, reply_to = ?reply_to))]
     pub async fn reply(
         &self,
         interface_id: &InterfaceId,

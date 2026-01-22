@@ -5,6 +5,7 @@ use indras_core::{InterfaceId, PeerIdentity, TopicId};
 use iroh::{Endpoint, EndpointId, SecretKey};
 use iroh_gossip::net::{Gossip, GOSSIP_ALPN};
 use serde::{Deserialize, Serialize};
+use tracing::instrument;
 
 use crate::error::{GossipError, GossipResult};
 use crate::topic::{SplitTopic, TopicHandle, TopicReceiver};
@@ -57,6 +58,7 @@ impl<I: PeerIdentity + Serialize + for<'de> Deserialize<'de>> IndrasGossip<I> {
     /// Subscribe to an interface's gossip topic
     ///
     /// Returns a split topic with separate sender and receiver handles.
+    #[instrument(skip(self, bootstrap), fields(interface_id = %interface_id, bootstrap_count = bootstrap.len()))]
     pub async fn subscribe(
         &self,
         interface_id: InterfaceId,
@@ -99,6 +101,7 @@ impl<I: PeerIdentity + Serialize + for<'de> Deserialize<'de>> IndrasGossip<I> {
     }
 
     /// Unsubscribe from a topic
+    #[instrument(skip(self), fields(interface_id = %interface_id))]
     pub fn unsubscribe(&self, interface_id: InterfaceId) {
         let topic_id = TopicId::from_interface(interface_id);
         self.topics.remove(&topic_id);

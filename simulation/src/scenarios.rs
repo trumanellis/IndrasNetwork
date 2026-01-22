@@ -2,17 +2,17 @@
 //!
 //! Includes the canonical A-B-C example and other test cases
 
-use tracing::info;
+use tracing::{info, debug};
 
 use crate::topology::from_edges;
 use crate::types::PeerId;
 use crate::simulation::{Simulation, SimConfig};
 
 /// Run the canonical A-B-C scenario from the spec:
-/// 
+///
 /// ```text
 /// A wakes up
-/// B wakes up  
+/// B wakes up
 /// B messages A awake
 /// A needs to send a message to C but C is asleep
 /// A and C know the set of their mutual peers so A passes the message on to B, sealed and addressed to C
@@ -24,7 +24,7 @@ use crate::simulation::{Simulation, SimConfig};
 /// ```
 pub fn run_abc_scenario() -> Simulation {
     info!("=== Running A-B-C Scenario ===");
-    
+
     // Create triangle topology: A - B - C with A-C connected through B
     // Actually, for the mutual peer scenario, A and C should both know B
     // Let's use: A-B, B-C, A-C (triangle)
@@ -34,78 +34,78 @@ pub fn run_abc_scenario() -> Simulation {
         ('A', 'C'),
     ]);
 
-    println!("{}", mesh.visualize());
+    info!(topology = %mesh.visualize(), "Mesh topology created");
 
     let mut sim = Simulation::new(mesh, SimConfig {
         wake_probability: 0.0,  // Manual control
-        sleep_probability: 0.0, // Manual control  
+        sleep_probability: 0.0, // Manual control
         trace_routing: true,
         ..Default::default()
     });
 
     // Initial state: all offline
-    println!("\n--- Initial State: All peers offline ---");
+    info!("Initial state: all peers offline");
 
     // Step 1: A wakes up
-    println!("\n--- Step 1: A wakes up ---");
+    info!(step = 1, action = "A wakes up");
     sim.force_online(PeerId('A'));
     sim.step();
-    println!("  {}", sim.state_summary());
+    debug!(state = %sim.state_summary(), "After step 1");
 
     // Step 2: B wakes up (B messages A awake)
-    println!("\n--- Step 2: B wakes up, signals A ---");
+    info!(step = 2, action = "B wakes up, signals A");
     sim.force_online(PeerId('B'));
     sim.step();
-    println!("  {}", sim.state_summary());
+    debug!(state = %sim.state_summary(), "After step 2");
 
     // Step 3: A needs to send message to C but C is asleep
-    println!("\n--- Step 3: A sends message to C (C is offline) ---");
-    println!("  A and C have mutual peer B, so A passes message to B");
+    info!(step = 3, action = "A sends message to C (C is offline)", note = "A and C have mutual peer B, so A passes message to B");
     sim.send_message(PeerId('A'), PeerId('C'), b"Hello from A to C!".to_vec());
     sim.step();
-    println!("  {}", sim.state_summary());
+    debug!(state = %sim.state_summary(), "After step 3");
 
     // Step 4: A goes to sleep
-    println!("\n--- Step 4: A goes to sleep ---");
+    info!(step = 4, action = "A goes to sleep");
     sim.force_offline(PeerId('A'));
     sim.step();
-    println!("  {}", sim.state_summary());
+    debug!(state = %sim.state_summary(), "After step 4");
 
     // Step 5: C wakes and messages B awake
-    println!("\n--- Step 5: C wakes up, signals B ---");
+    info!(step = 5, action = "C wakes up, signals B");
     sim.force_online(PeerId('C'));
     sim.step();
-    println!("  {}", sim.state_summary());
+    debug!(state = %sim.state_summary(), "After step 5");
 
     // Step 6: B sees packet addressed to C and passes it on
-    println!("\n--- Step 6: B delivers packet to C ---");
+    info!(step = 6, action = "B delivers packet to C");
     sim.step();
-    println!("  {}", sim.state_summary());
+    debug!(state = %sim.state_summary(), "After step 6");
 
     // Step 7: Back-propagation begins
-    println!("\n--- Step 7: Back-propagation (A offline, waiting) ---");
+    info!(step = 7, action = "Back-propagation (A offline, waiting)");
     sim.step();
-    println!("  {}", sim.state_summary());
+    debug!(state = %sim.state_summary(), "After step 7");
 
     // Step 8: A comes back online, back-prop completes
-    println!("\n--- Step 8: A comes online, back-prop completes ---");
+    info!(step = 8, action = "A comes online, back-prop completes");
     sim.force_online(PeerId('A'));
     sim.run_ticks(3);
-    println!("  {}", sim.state_summary());
+    debug!(state = %sim.state_summary(), "After step 8");
 
-    // Print final statistics
-    println!("\n=== Final Statistics ===");
-    println!("  Messages sent: {}", sim.stats.messages_sent);
-    println!("  Messages delivered: {}", sim.stats.messages_delivered);
-    println!("  Direct deliveries: {}", sim.stats.direct_deliveries);
-    println!("  Relayed deliveries: {}", sim.stats.relayed_deliveries);
-    println!("  Back-props completed: {}", sim.stats.backprops_completed);
-    println!("  Total hops: {}", sim.stats.total_hops);
+    // Log final statistics
+    info!(
+        messages_sent = sim.stats.messages_sent,
+        messages_delivered = sim.stats.messages_delivered,
+        direct_deliveries = sim.stats.direct_deliveries,
+        relayed_deliveries = sim.stats.relayed_deliveries,
+        backprops_completed = sim.stats.backprops_completed,
+        total_hops = sim.stats.total_hops,
+        "Final statistics"
+    );
 
-    // Print event log
-    println!("\n=== Event Log ===");
+    // Log event log
     for event in &sim.event_log {
-        println!("  {:?}", event);
+        debug!(event = ?event, "Event log entry");
     }
 
     sim
@@ -116,7 +116,7 @@ pub fn run_abc_scenario() -> Simulation {
 /// A sends to E when only A and B are online
 pub fn run_line_relay_scenario() -> Simulation {
     info!("=== Running Line Relay Scenario ===");
-    
+
     let mesh = from_edges(&[
         ('A', 'B'),
         ('B', 'C'),
@@ -124,7 +124,7 @@ pub fn run_line_relay_scenario() -> Simulation {
         ('D', 'E'),
     ]);
 
-    println!("{}", mesh.visualize());
+    info!(topology = %mesh.visualize(), "Mesh topology created");
 
     let mut sim = Simulation::new(mesh, SimConfig {
         wake_probability: 0.0,
@@ -137,23 +137,25 @@ pub fn run_line_relay_scenario() -> Simulation {
     sim.force_online(PeerId('A'));
     sim.force_online(PeerId('B'));
 
-    println!("\n--- A sends to E (only A, B online) ---");
+    info!(action = "A sends to E (only A, B online)");
     sim.send_message(PeerId('A'), PeerId('E'), b"Multi-hop test".to_vec());
     sim.run_ticks(3);
-    println!("  {}", sim.state_summary());
+    debug!(state = %sim.state_summary(), "After initial send");
 
     // Wake peers one by one
     for peer in ['C', 'D', 'E'] {
-        println!("\n--- {} comes online ---", peer);
+        info!(peer = %peer, action = "comes online");
         sim.force_online(PeerId(peer));
         sim.run_ticks(3);
-        println!("  {}", sim.state_summary());
+        debug!(state = %sim.state_summary(), "After {} online", peer);
     }
 
-    println!("\n=== Final Statistics ===");
-    println!("  Messages delivered: {}", sim.stats.messages_delivered);
-    println!("  Relayed deliveries: {}", sim.stats.relayed_deliveries);
-    println!("  Total hops: {}", sim.stats.total_hops);
+    info!(
+        messages_delivered = sim.stats.messages_delivered,
+        relayed_deliveries = sim.stats.relayed_deliveries,
+        total_hops = sim.stats.total_hops,
+        "Final statistics"
+    );
 
     sim
 }
@@ -166,7 +168,7 @@ pub fn run_broadcast_scenario() -> Simulation {
     use crate::topology::MeshBuilder;
     let mesh = MeshBuilder::new(5).star();
 
-    println!("{}", mesh.visualize());
+    info!(topology = %mesh.visualize(), "Mesh topology created");
 
     let mut sim = Simulation::new(mesh, SimConfig {
         wake_probability: 0.0,
@@ -181,29 +183,31 @@ pub fn run_broadcast_scenario() -> Simulation {
     }
 
     // A broadcasts to all
-    println!("\n--- A broadcasts to B, C, D, E ---");
+    info!(action = "A broadcasts to B, C, D, E");
     for dest in ['B', 'C', 'D', 'E'] {
         sim.send_message(PeerId('A'), PeerId(dest), format!("Broadcast to {}", dest).into_bytes());
     }
 
     sim.run_ticks(5);
 
-    println!("\n=== Final Statistics ===");
-    println!("  Messages sent: {}", sim.stats.messages_sent);
-    println!("  Messages delivered: {}", sim.stats.messages_delivered);
-    println!("  Direct deliveries: {}", sim.stats.direct_deliveries);
+    info!(
+        messages_sent = sim.stats.messages_sent,
+        messages_delivered = sim.stats.messages_delivered,
+        direct_deliveries = sim.stats.direct_deliveries,
+        "Final statistics"
+    );
 
     sim
 }
 
 /// Scenario: Random network with probabilistic online/offline transitions
 pub fn run_random_chaos_scenario(ticks: u64) -> Simulation {
-    info!("=== Running Random Chaos Scenario ({} ticks) ===", ticks);
+    info!(ticks = ticks, "=== Running Random Chaos Scenario ===");
 
     use crate::topology::MeshBuilder;
     let mesh = MeshBuilder::new(8).random(0.4);
 
-    println!("{}", mesh.visualize());
+    info!(topology = %mesh.visualize(), "Mesh topology created");
 
     let mut sim = Simulation::new(mesh, SimConfig {
         wake_probability: 0.3,
@@ -225,7 +229,7 @@ pub fn run_random_chaos_scenario(ticks: u64) -> Simulation {
     // Run simulation
     while sim.tick < ticks {
         sim.step();
-        
+
         // Inject occasional new messages
         if sim.tick.is_multiple_of(10) {
             let from = PeerId((b'A' + (sim.tick % 8) as u8) as char);
@@ -236,26 +240,28 @@ pub fn run_random_chaos_scenario(ticks: u64) -> Simulation {
         }
 
         if sim.tick.is_multiple_of(20) {
-            println!("Tick {}: {}", sim.tick, sim.state_summary());
+            debug!(tick = sim.tick, state = %sim.state_summary(), "Progress");
         }
     }
-
-    println!("\n=== Final Statistics ===");
-    println!("  Messages sent: {}", sim.stats.messages_sent);
-    println!("  Messages delivered: {}", sim.stats.messages_delivered);
-    println!("  Messages dropped: {}", sim.stats.messages_dropped);
-    println!("  Direct deliveries: {}", sim.stats.direct_deliveries);
-    println!("  Relayed deliveries: {}", sim.stats.relayed_deliveries);
-    println!("  Back-props completed: {}", sim.stats.backprops_completed);
-    println!("  Wake events: {}", sim.stats.wake_events);
-    println!("  Sleep events: {}", sim.stats.sleep_events);
 
     let delivery_rate = if sim.stats.messages_sent > 0 {
         sim.stats.messages_delivered as f64 / sim.stats.messages_sent as f64 * 100.0
     } else {
         0.0
     };
-    println!("  Delivery rate: {:.1}%", delivery_rate);
+
+    info!(
+        messages_sent = sim.stats.messages_sent,
+        messages_delivered = sim.stats.messages_delivered,
+        messages_dropped = sim.stats.messages_dropped,
+        direct_deliveries = sim.stats.direct_deliveries,
+        relayed_deliveries = sim.stats.relayed_deliveries,
+        backprops_completed = sim.stats.backprops_completed,
+        wake_events = sim.stats.wake_events,
+        sleep_events = sim.stats.sleep_events,
+        delivery_rate = format!("{:.1}%", delivery_rate),
+        "Final statistics"
+    );
 
     sim
 }
@@ -267,7 +273,7 @@ pub fn run_partition_scenario() -> Simulation {
 
     // Create two clusters connected by a single bridge node
     // Cluster 1: A, B, C (fully connected)
-    // Cluster 2: D, E, F (fully connected)  
+    // Cluster 2: D, E, F (fully connected)
     // Bridge: C - D
     let mesh = from_edges(&[
         // Cluster 1
@@ -278,7 +284,7 @@ pub fn run_partition_scenario() -> Simulation {
         ('C', 'D'),
     ]);
 
-    println!("{}", mesh.visualize());
+    info!(topology = %mesh.visualize(), "Mesh topology created");
 
     let mut sim = Simulation::new(mesh, SimConfig {
         wake_probability: 0.0,
@@ -292,30 +298,31 @@ pub fn run_partition_scenario() -> Simulation {
         sim.force_online(PeerId(c));
     }
 
-    println!("\n--- A sends to F (full connectivity) ---");
+    info!(action = "A sends to F (full connectivity)");
     sim.send_message(PeerId('A'), PeerId('F'), b"Cross-cluster message".to_vec());
     sim.run_ticks(5);
-    println!("  Delivered: {}", sim.stats.messages_delivered);
+    debug!(delivered = sim.stats.messages_delivered, "After first send");
 
-    println!("\n--- Bridge nodes C and D go offline (partition) ---");
+    info!(action = "Bridge nodes C and D go offline (partition)");
     sim.force_offline(PeerId('C'));
     sim.force_offline(PeerId('D'));
 
-    println!("\n--- A tries to send to F (partitioned) ---");
+    info!(action = "A tries to send to F (partitioned)");
     sim.send_message(PeerId('A'), PeerId('F'), b"Message during partition".to_vec());
     sim.run_ticks(5);
-    println!("  Delivered: {}", sim.stats.messages_delivered);
-    println!("  (Should be held, not delivered)");
+    debug!(delivered = sim.stats.messages_delivered, note = "Should be held, not delivered", "After partition send");
 
-    println!("\n--- Bridge reconnects (C, D online) ---");
+    info!(action = "Bridge reconnects (C, D online)");
     sim.force_online(PeerId('C'));
     sim.force_online(PeerId('D'));
     sim.run_ticks(10);
 
-    println!("\n=== Final Statistics ===");
-    println!("  Messages sent: {}", sim.stats.messages_sent);
-    println!("  Messages delivered: {}", sim.stats.messages_delivered);
-    println!("  Messages dropped: {}", sim.stats.messages_dropped);
+    info!(
+        messages_sent = sim.stats.messages_sent,
+        messages_delivered = sim.stats.messages_delivered,
+        messages_dropped = sim.stats.messages_dropped,
+        "Final statistics"
+    );
 
     sim
 }

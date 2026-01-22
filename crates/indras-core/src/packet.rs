@@ -5,6 +5,7 @@ use std::fmt::Display;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::identity::PeerIdentity;
 
@@ -117,6 +118,12 @@ pub struct Packet<I: PeerIdentity> {
     pub visited: HashSet<u64>, // Store hashes for serialization
     /// Priority level
     pub priority: Priority,
+    /// Correlation ID for distributed tracing (optional)
+    ///
+    /// This UUID is used to correlate log entries across multiple peer
+    /// instances as a packet traverses the network.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub correlation_id: Option<Uuid>,
 }
 
 impl<I: PeerIdentity> Packet<I> {
@@ -142,6 +149,7 @@ impl<I: PeerIdentity> Packet<I> {
             ttl: 10, // Default 10 hops
             visited,
             priority: Priority::Normal,
+            correlation_id: Some(Uuid::new_v4()),
         }
     }
 
@@ -154,6 +162,18 @@ impl<I: PeerIdentity> Packet<I> {
     /// Create a packet with custom priority
     pub fn with_priority(mut self, priority: Priority) -> Self {
         self.priority = priority;
+        self
+    }
+
+    /// Create a packet with a specific correlation ID
+    pub fn with_correlation_id(mut self, correlation_id: Uuid) -> Self {
+        self.correlation_id = Some(correlation_id);
+        self
+    }
+
+    /// Create a packet without a correlation ID
+    pub fn without_correlation_id(mut self) -> Self {
+        self.correlation_id = None;
         self
     }
 

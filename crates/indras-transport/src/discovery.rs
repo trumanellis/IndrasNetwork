@@ -9,7 +9,7 @@ use iroh_gossip::api::GossipTopic;
 use iroh_gossip::proto::TopicId;
 use thiserror::Error;
 use tokio::sync::{broadcast, RwLock};
-use tracing::{debug, info};
+use tracing::{debug, info, instrument, warn};
 
 use indras_core::identity::PeerIdentity;
 
@@ -139,13 +139,15 @@ impl DiscoveryService {
     /// Start the discovery service
     ///
     /// Joins the gossip topic and begins listening for peer announcements.
+    #[instrument(skip(self, bootstrap_peers), fields(local_peer = %self.local_identity.short_id(), bootstrap_count = bootstrap_peers.len()))]
     pub async fn start(&self, bootstrap_peers: Vec<PublicKey>) -> Result<(), DiscoveryError> {
         let mut running = self.running.write().await;
         if *running {
+            debug!("Discovery service already running");
             return Ok(());
         }
 
-        info!(identity = %self.local_identity.short_id(), "Starting discovery service");
+        info!("Starting discovery service");
 
         // Convert PublicKey to the format gossip expects
         let bootstrap: Vec<_> = bootstrap_peers.into_iter().collect();
@@ -154,10 +156,15 @@ impl DiscoveryService {
         let topic = self.gossip
             .subscribe(self.config.topic_id, bootstrap)
             .await
-            .map_err(|e| DiscoveryError::JoinError(e.to_string()))?;
+            .map_err(|e| {
+                warn!(error = %e, "Failed to join gossip topic");
+                DiscoveryError::JoinError(e.to_string())
+            })?;
 
         *self.topic.write().await = Some(topic);
         *running = true;
+
+        info!("Joined gossip topic, announcing presence");
 
         // Announce our presence immediately
         self.announce_presence().await?;
@@ -254,6 +261,7 @@ impl DiscoveryService {
     }
 
     /// Handle a presence announcement
+    #[instrument(skip(self, presence), fields(remote_peer = %presence.peer_id.short_id()))]
     fn handle_presence_announce(&self, presence: PresenceInfo) {
         // Ignore our own announcements
         if presence.peer_id == self.local_identity {
@@ -276,10 +284,10 @@ impl DiscoveryService {
 
         // Emit event
         let event = if is_new {
-            info!(peer = %peer_id.short_id(), "Discovered new peer");
+            info!(event = "peer_discovered", "Discovered new peer");
             PeerEvent::Discovered(peer_info)
         } else {
-            debug!(peer = %peer_id.short_id(), "Updated peer info");
+            debug!(event = "peer_updated", "Updated peer info");
             PeerEvent::Updated(peer_info)
         };
 

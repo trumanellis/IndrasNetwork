@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use automerge::ChangeHash;
 use indras_core::{InterfaceId, PeerIdentity, SyncMessage};
 use serde::{Deserialize, Serialize};
+use tracing::instrument;
 
 use crate::document::InterfaceDocument;
 use crate::error::SyncError;
@@ -112,6 +113,7 @@ impl SyncProtocol {
     ///
     /// This creates a SyncMessage that can be sent to a peer to request
     /// their latest changes.
+    #[instrument(skip(doc, sync_state, peer), fields(interface_id = %interface_id))]
     pub fn generate_sync_request<I: PeerIdentity>(
         interface_id: InterfaceId,
         doc: &mut InterfaceDocument,
@@ -135,6 +137,7 @@ impl SyncProtocol {
     /// Generate a sync response for a peer
     ///
     /// Called when we receive a sync request from a peer.
+    #[instrument(skip(doc, their_heads), fields(interface_id = %interface_id, their_heads_count = their_heads.len()))]
     pub fn generate_sync_response<I: PeerIdentity>(
         interface_id: InterfaceId,
         doc: &mut InterfaceDocument,
@@ -157,6 +160,7 @@ impl SyncProtocol {
     /// Process an incoming sync message
     ///
     /// Returns true if the sync resulted in changes to our document.
+    #[instrument(skip(doc, sync_state, peer, msg), fields(interface_id = %msg.interface_id, is_request = msg.is_request, sync_data_len = msg.sync_data.len()))]
     pub fn process_sync_message<I: PeerIdentity>(
         doc: &mut InterfaceDocument,
         sync_state: &mut SyncState<I>,
