@@ -219,7 +219,7 @@ impl<I: PeerIdentity> EpidemicRouter<I> {
         } else {
             // Spray phase: distribute half of copies among neighbors
             // Use ceiling division to ensure we spray at least 1 copy
-            let copies_to_spray = ((copies + 1) / 2) as usize;
+            let copies_to_spray = copies.div_ceil(2) as usize;
             let targets: Vec<I> = neighbors.into_iter().take(copies_to_spray).collect();
             let remaining = copies.saturating_sub(targets.len() as u8);
 
@@ -300,7 +300,7 @@ impl<I: PeerIdentity> EpidemicRouter<I> {
             0 // Wait phase
         } else {
             // Spray half of copies using ceiling division, limited by available neighbors
-            let spray = ((copies + 1) / 2) as usize;
+            let spray = copies.div_ceil(2) as usize;
             spray.min(available_neighbors)
         }
     }

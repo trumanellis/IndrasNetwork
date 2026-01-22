@@ -157,7 +157,7 @@ fn run_interactive(peer_count: usize) -> anyhow::Result<()> {
 
         let mut input = String::new();
         io::stdin().read_line(&mut input)?;
-        let parts: Vec<&str> = input.trim().split_whitespace().collect();
+        let parts: Vec<&str> = input.split_whitespace().collect();
 
         if parts.is_empty() {
             continue;
@@ -165,24 +165,20 @@ fn run_interactive(peer_count: usize) -> anyhow::Result<()> {
 
         match parts[0] {
             "online" | "wake" => {
-                if let Some(peer_str) = parts.get(1) {
-                    if let Some(c) = peer_str.chars().next() {
-                        if let Some(peer_id) = types::PeerId::new(c.to_ascii_uppercase()) {
+                if let Some(peer_str) = parts.get(1)
+                    && let Some(c) = peer_str.chars().next()
+                        && let Some(peer_id) = types::PeerId::new(c.to_ascii_uppercase()) {
                             sim.force_online(peer_id);
                             println!("  {} is now online", peer_id);
                         }
-                    }
-                }
             }
             "offline" | "sleep" => {
-                if let Some(peer_str) = parts.get(1) {
-                    if let Some(c) = peer_str.chars().next() {
-                        if let Some(peer_id) = types::PeerId::new(c.to_ascii_uppercase()) {
+                if let Some(peer_str) = parts.get(1)
+                    && let Some(c) = peer_str.chars().next()
+                        && let Some(peer_id) = types::PeerId::new(c.to_ascii_uppercase()) {
                             sim.force_offline(peer_id);
                             println!("  {} is now offline", peer_id);
                         }
-                    }
-                }
             }
             "send" => {
                 if parts.len() >= 4 {

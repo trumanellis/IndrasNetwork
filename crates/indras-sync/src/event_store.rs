@@ -154,13 +154,12 @@ impl<I: PeerIdentity> EventStore<I> {
         if let Some(pending) = self.pending.get_mut(peer) {
             // Remove events that have been delivered
             pending.retain(|&idx| {
-                if let Some(event) = self.events.get(idx) {
-                    if let Some(event_id) = event.event_id() {
+                if let Some(event) = self.events.get(idx)
+                    && let Some(event_id) = event.event_id() {
                         // Keep events with sequence > up_to.sequence
                         // (same sender hash assumed for simplicity)
                         return event_id.sequence > up_to.sequence;
                     }
-                }
                 true // Keep events without IDs
             });
         }

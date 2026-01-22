@@ -11,7 +11,6 @@ use automerge::{
     transaction::Transactable, AutoCommit, ChangeHash, ObjId, ObjType, ReadDoc, ScalarValue,
 };
 use indras_core::{InterfaceEvent, InterfaceMetadata, PeerIdentity};
-use serde::{Deserialize, Serialize};
 
 use crate::error::SyncError;
 
@@ -84,20 +83,17 @@ impl InterfaceDocument {
         // Find root object IDs
         let members_id = doc
             .get(automerge::ROOT, keys::MEMBERS)
-            .map_err(|e| SyncError::DocumentLoad(e.to_string()))?
-            .and_then(|(_, obj_id)| Some(obj_id))
+            .map_err(|e| SyncError::DocumentLoad(e.to_string()))?.map(|(_, obj_id)| obj_id)
             .ok_or_else(|| SyncError::DocumentLoad("Missing members object".to_string()))?;
 
         let metadata_id = doc
             .get(automerge::ROOT, keys::METADATA)
-            .map_err(|e| SyncError::DocumentLoad(e.to_string()))?
-            .and_then(|(_, obj_id)| Some(obj_id))
+            .map_err(|e| SyncError::DocumentLoad(e.to_string()))?.map(|(_, obj_id)| obj_id)
             .ok_or_else(|| SyncError::DocumentLoad("Missing metadata object".to_string()))?;
 
         let events_id = doc
             .get(automerge::ROOT, keys::EVENTS)
-            .map_err(|e| SyncError::DocumentLoad(e.to_string()))?
-            .and_then(|(_, obj_id)| Some(obj_id))
+            .map_err(|e| SyncError::DocumentLoad(e.to_string()))?.map(|(_, obj_id)| obj_id)
             .ok_or_else(|| SyncError::DocumentLoad("Missing events object".to_string()))?;
 
         Ok(Self {
@@ -160,11 +156,10 @@ impl InterfaceDocument {
 
         for key in self.doc.keys(&self.members_id) {
             // key is the hex-encoded peer ID
-            if let Ok(bytes) = hex::decode(&key) {
-                if let Ok(peer) = I::from_bytes(&bytes) {
+            if let Ok(bytes) = hex::decode(&key)
+                && let Ok(peer) = I::from_bytes(&bytes) {
                     members.insert(peer);
                 }
-            }
         }
 
         members
@@ -199,10 +194,7 @@ impl InterfaceDocument {
     pub fn append_event<I: PeerIdentity>(
         &mut self,
         event: &InterfaceEvent<I>,
-    ) -> Result<ChangeHash, SyncError>
-    where
-        I: Serialize,
-    {
+    ) -> Result<ChangeHash, SyncError> {
         let event_bytes =
             postcard::to_allocvec(event).map_err(|e| SyncError::Serialization(e.to_string()))?;
 
@@ -220,46 +212,34 @@ impl InterfaceDocument {
     }
 
     /// Get all events from the log
-    pub fn events<I: PeerIdentity>(&self) -> Vec<InterfaceEvent<I>>
-    where
-        I: for<'de> Deserialize<'de>,
-    {
+    pub fn events<I: PeerIdentity>(&self) -> Vec<InterfaceEvent<I>> {
         let mut events = Vec::new();
         let len = self.doc.length(&self.events_id);
 
         for i in 0..len {
-            if let Ok(Some((value, _))) = self.doc.get(&self.events_id, i) {
-                if let automerge::Value::Scalar(scalar) = value {
-                    if let ScalarValue::Bytes(bytes) = scalar.as_ref() {
-                        if let Ok(event) = postcard::from_bytes::<InterfaceEvent<I>>(bytes) {
+            if let Ok(Some((value, _))) = self.doc.get(&self.events_id, i)
+                && let automerge::Value::Scalar(scalar) = value
+                    && let ScalarValue::Bytes(bytes) = scalar.as_ref()
+                        && let Ok(event) = postcard::from_bytes::<InterfaceEvent<I>>(bytes) {
                             events.push(event);
                         }
-                    }
-                }
-            }
         }
 
         events
     }
 
     /// Get events since a specific index
-    pub fn events_since<I: PeerIdentity>(&self, since: usize) -> Vec<InterfaceEvent<I>>
-    where
-        I: for<'de> Deserialize<'de>,
-    {
+    pub fn events_since<I: PeerIdentity>(&self, since: usize) -> Vec<InterfaceEvent<I>> {
         let mut events = Vec::new();
         let len = self.doc.length(&self.events_id);
 
         for i in since..len {
-            if let Ok(Some((value, _))) = self.doc.get(&self.events_id, i) {
-                if let automerge::Value::Scalar(scalar) = value {
-                    if let ScalarValue::Bytes(bytes) = scalar.as_ref() {
-                        if let Ok(event) = postcard::from_bytes::<InterfaceEvent<I>>(bytes) {
+            if let Ok(Some((value, _))) = self.doc.get(&self.events_id, i)
+                && let automerge::Value::Scalar(scalar) = value
+                    && let ScalarValue::Bytes(bytes) = scalar.as_ref()
+                        && let Ok(event) = postcard::from_bytes::<InterfaceEvent<I>>(bytes) {
                             events.push(event);
                         }
-                    }
-                }
-            }
         }
 
         events

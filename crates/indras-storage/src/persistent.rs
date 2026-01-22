@@ -141,13 +141,12 @@ impl PersistentPendingStore {
                 Err(e) => {
                     // Try to decode from base64 (for binary postcard data)
                     // The log format uses newline-delimited base64-encoded postcard entries
-                    if let Ok(decoded) = base64_decode(&line) {
-                        if let Ok(entry) = postcard::from_bytes::<LogEntry>(&decoded) {
+                    if let Ok(decoded) = base64_decode(&line)
+                        && let Ok(entry) = postcard::from_bytes::<LogEntry>(&decoded) {
                             self.apply_entry(entry);
                             loaded_count += 1;
                             continue;
                         }
-                    }
                     error_count += 1;
                     warn!(error = %e, "Failed to parse log entry, skipping");
                 }
@@ -169,17 +168,16 @@ impl PersistentPendingStore {
     fn apply_entry(&self, entry: LogEntry) {
         match entry {
             LogEntry::MarkPending { peer_bytes, event_id } => {
-                let mut events = self.pending.entry(peer_bytes).or_insert_with(BTreeSet::new);
+                let mut events = self.pending.entry(peer_bytes).or_default();
                 if events.insert(event_id) {
                     self.total_count.fetch_add(1, Ordering::SeqCst);
                 }
             }
             LogEntry::MarkDelivered { peer_bytes, event_id } => {
-                if let Some(mut events) = self.pending.get_mut(&peer_bytes) {
-                    if events.remove(&event_id) {
+                if let Some(mut events) = self.pending.get_mut(&peer_bytes)
+                    && events.remove(&event_id) {
                         self.total_count.fetch_sub(1, Ordering::SeqCst);
                     }
-                }
             }
             LogEntry::MarkDeliveredUpTo { peer_bytes, up_to } => {
                 if let Some(mut events) = self.pending.get_mut(&peer_bytes) {
@@ -351,7 +349,7 @@ impl<I: PeerIdentity> PendingStore<I> for PersistentPendingStore {
         self.write_entry(&entry).await?;
 
         // Then apply to in-memory state
-        let mut events = self.pending.entry(peer_bytes).or_insert_with(BTreeSet::new);
+        let mut events = self.pending.entry(peer_bytes).or_default();
 
         // Check peer quota and apply eviction if needed
         if self.quota.would_exceed_peer_quota(events.len()) {
@@ -395,11 +393,10 @@ impl<I: PeerIdentity> PendingStore<I> for PersistentPendingStore {
         self.write_entry(&entry).await?;
 
         // Apply to in-memory state
-        if let Some(mut events) = self.pending.get_mut(&peer_bytes) {
-            if events.remove(&event_id) {
+        if let Some(mut events) = self.pending.get_mut(&peer_bytes)
+            && events.remove(&event_id) {
                 self.total_count.fetch_sub(1, Ordering::SeqCst);
             }
-        }
 
         Ok(())
     }
@@ -500,7 +497,7 @@ fn base64_decode(input: &str) -> Result<Vec<u8>, &'static str> {
     }
 
     let input = input.trim();
-    if input.len() % 4 != 0 {
+    if !input.len().is_multiple_of(4) {
         return Err("Invalid base64 length");
     }
 

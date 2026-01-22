@@ -139,15 +139,14 @@ impl<I: PeerIdentity + Clone + Serialize + for<'de> Deserialize<'de>> MessageHis
         // Apply limit if configured
         if self.max_per_interface > 0 && interface_messages.len() >= self.max_per_interface {
             // Remove oldest message
-            if let Some(oldest_seq) = interface_messages.keys().next().copied() {
-                if let Some(oldest_msg) = interface_messages.remove(&oldest_seq) {
+            if let Some(oldest_seq) = interface_messages.keys().next().copied()
+                && let Some(oldest_msg) = interface_messages.remove(&oldest_seq) {
                     // Also remove from ID index
                     let mut id_index = self.id_index.write().map_err(|_| {
                         MessagingError::StorageError("failed to acquire write lock".to_string())
                     })?;
                     id_index.remove(&oldest_msg.id);
                 }
-            }
         }
 
         interface_messages.insert(sequence, message);
@@ -200,23 +199,20 @@ impl<I: PeerIdentity + Clone + Serialize + for<'de> Deserialize<'de>> MessageHis
             if let Some(interface_messages) = messages.get(&interface_id) {
                 for message in interface_messages.values() {
                     // Apply filters
-                    if let Some(ref sender) = filter.sender {
-                        if &message.sender != sender {
+                    if let Some(ref sender) = filter.sender
+                        && &message.sender != sender {
                             continue;
                         }
-                    }
 
-                    if let Some(since) = filter.since {
-                        if message.timestamp < since {
+                    if let Some(since) = filter.since
+                        && message.timestamp < since {
                             continue;
                         }
-                    }
 
-                    if let Some(until) = filter.until {
-                        if message.timestamp > until {
+                    if let Some(until) = filter.until
+                        && message.timestamp > until {
                             continue;
                         }
-                    }
 
                     if filter.text_only && !message.content.is_text() {
                         continue;

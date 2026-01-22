@@ -92,7 +92,7 @@ impl<I: PeerIdentity> PendingStore<I> for InMemoryPendingStore {
             )));
         }
 
-        let mut entry = self.pending.entry(key).or_insert_with(BTreeSet::new);
+        let mut entry = self.pending.entry(key).or_default();
         let events = entry.value_mut();
 
         // Check peer quota
@@ -127,11 +127,10 @@ impl<I: PeerIdentity> PendingStore<I> for InMemoryPendingStore {
         let key = peer.as_bytes();
         trace!(peer = %peer, event = %event_id, "Marking event as delivered");
 
-        if let Some(mut entry) = self.pending.get_mut(&key) {
-            if entry.remove(&event_id) {
+        if let Some(mut entry) = self.pending.get_mut(&key)
+            && entry.remove(&event_id) {
                 self.total_count.fetch_sub(1, Ordering::SeqCst);
             }
-        }
 
         Ok(())
     }
@@ -217,7 +216,7 @@ impl<I: PeerIdentity> PacketStore<I> for InMemoryPacketStore<I> {
         // Update destination index
         self.by_destination
             .entry(dest_key)
-            .or_insert_with(BTreeSet::new)
+            .or_default()
             .insert(packet_id);
 
         // Store the packet

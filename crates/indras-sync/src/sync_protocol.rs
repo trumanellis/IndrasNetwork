@@ -14,6 +14,7 @@ use crate::error::SyncError;
 
 /// State of sync with a particular peer
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct PeerSyncState {
     /// Their last known document heads
     pub their_heads: Vec<ChangeHash>,
@@ -23,15 +24,6 @@ pub struct PeerSyncState {
     pub rounds: u32,
 }
 
-impl Default for PeerSyncState {
-    fn default() -> Self {
-        Self {
-            their_heads: Vec::new(),
-            awaiting_response: false,
-            rounds: 0,
-        }
-    }
-}
 
 /// Manages sync state for multiple peers
 pub struct SyncState<I: PeerIdentity> {
@@ -48,6 +40,11 @@ impl<I: PeerIdentity> SyncState<I> {
             interface_id,
             peer_states: HashMap::new(),
         }
+    }
+
+    /// Get the interface ID this sync state is for
+    pub fn interface_id(&self) -> InterfaceId {
+        self.interface_id
     }
 
     /// Get or create sync state for a peer
@@ -125,11 +122,7 @@ impl SyncProtocol {
         let peer_state = sync_state.peer_state(peer);
 
         // Convert their known heads to ChangeHash for generating sync data
-        let their_change_heads: Vec<ChangeHash> = peer_state
-            .their_heads
-            .iter()
-            .map(|h| h.clone())
-            .collect();
+        let their_change_heads: Vec<ChangeHash> = peer_state.their_heads.to_vec();
 
         // Generate sync data (changes they don't have)
         let sync_data = doc.generate_sync_message(&their_change_heads);

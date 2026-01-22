@@ -34,8 +34,8 @@ impl Mesh {
 
     /// Add a peer to the mesh
     pub fn add_peer(&mut self, id: PeerId) {
-        if !self.peers.contains_key(&id) {
-            self.peers.insert(id, PeerState::new(id));
+        if let std::collections::btree_map::Entry::Vacant(e) = self.peers.entry(id) {
+            e.insert(PeerState::new(id));
             self.adjacency.insert(id, BTreeSet::new());
         }
     }
@@ -61,9 +61,7 @@ impl Mesh {
         // Create interface (normalized key)
         let interface = PeerInterface::new(a, b);
         let key = interface.key();
-        if !self.interfaces.contains_key(&key) {
-            self.interfaces.insert(key, interface);
-        }
+        self.interfaces.entry(key).or_insert(interface);
     }
 
     /// Get all neighbors of a peer
@@ -159,7 +157,7 @@ impl MeshBuilder {
     /// A - B - C - D - ... - Z - A
     pub fn ring(self) -> Mesh {
         let mut mesh = Mesh::new();
-        let peers = PeerId::range_to(('A' as u8 + self.peer_count as u8 - 1) as char);
+        let peers = PeerId::range_to((b'A' + self.peer_count as u8 - 1) as char);
 
         for peer in &peers {
             mesh.add_peer(*peer);
@@ -176,7 +174,7 @@ impl MeshBuilder {
     /// Build a full mesh where every peer is connected to every other
     pub fn full_mesh(self) -> Mesh {
         let mut mesh = Mesh::new();
-        let peers = PeerId::range_to(('A' as u8 + self.peer_count as u8 - 1) as char);
+        let peers = PeerId::range_to((b'A' + self.peer_count as u8 - 1) as char);
 
         for peer in &peers {
             mesh.add_peer(*peer);
@@ -195,7 +193,7 @@ impl MeshBuilder {
     pub fn random(self, connection_probability: f64) -> Mesh {
         let mut mesh = Mesh::new();
         let mut rng = rand::rng();
-        let peers = PeerId::range_to(('A' as u8 + self.peer_count as u8 - 1) as char);
+        let peers = PeerId::range_to((b'A' + self.peer_count as u8 - 1) as char);
 
         for peer in &peers {
             mesh.add_peer(*peer);
@@ -226,7 +224,7 @@ impl MeshBuilder {
     /// Build a line topology: A - B - C - D - ...
     pub fn line(self) -> Mesh {
         let mut mesh = Mesh::new();
-        let peers = PeerId::range_to(('A' as u8 + self.peer_count as u8 - 1) as char);
+        let peers = PeerId::range_to((b'A' + self.peer_count as u8 - 1) as char);
 
         for peer in &peers {
             mesh.add_peer(*peer);
@@ -242,15 +240,15 @@ impl MeshBuilder {
     /// Build a star topology: A in center, connected to all others
     pub fn star(self) -> Mesh {
         let mut mesh = Mesh::new();
-        let peers = PeerId::range_to(('A' as u8 + self.peer_count as u8 - 1) as char);
+        let peers = PeerId::range_to((b'A' + self.peer_count as u8 - 1) as char);
 
         for peer in &peers {
             mesh.add_peer(*peer);
         }
 
         let center = peers[0];
-        for i in 1..peers.len() {
-            mesh.connect(center, peers[i]);
+        for peer in peers.iter().skip(1) {
+            mesh.connect(center, *peer);
         }
 
         mesh

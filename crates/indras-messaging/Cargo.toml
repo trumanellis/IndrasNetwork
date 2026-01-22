@@ -10,7 +10,7 @@ indras-crypto.workspace = true
 indras-transport.workspace = true
 indras-routing.workspace = true
 indras-storage.workspace = true
-indras-gossip = { path = "../indras-gossip" }
+indras-gossip.workspace = true
 
 # Iroh types
 iroh.workspace = true

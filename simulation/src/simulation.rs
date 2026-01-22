@@ -328,8 +328,8 @@ impl Simulation {
 
         for send in sends {
             // Check for message expiration
-            if let Some(timeout) = self.config.message_timeout {
-                if self.tick - send.created_tick > timeout {
+            if let Some(timeout) = self.config.message_timeout
+                && self.tick - send.created_tick > timeout {
                     debug!("Message from {} to {} expired after {} ticks",
                            send.from, send.to, self.tick - send.created_tick);
                     self.stats.messages_expired += 1;
@@ -343,7 +343,6 @@ impl Simulation {
                     });
                     continue;
                 }
-            }
 
             self.emit_event(NetworkEvent::Send {
                 from: send.from,
@@ -361,8 +360,8 @@ impl Simulation {
         let from_online = self.mesh.peers.get(&from).map(|p| p.online).unwrap_or(false);
         if !from_online {
             // Check retry limit
-            if let Some(max_retries) = self.config.max_sender_retries {
-                if retry_count >= max_retries {
+            if let Some(max_retries) = self.config.max_sender_retries
+                && retry_count >= max_retries {
                     warn!("Message from {} to {} dropped: sender offline after {} retries",
                           from, to, retry_count);
                     self.stats.messages_dropped += 1;
@@ -374,7 +373,6 @@ impl Simulation {
                     });
                     return;
                 }
-            }
             debug!("Sender {} is offline, queueing message (retry {})", from, retry_count + 1);
             self.pending_sends.push_back(PendingSend {
                 from, to, payload, created_tick, retry_count: retry_count + 1,
@@ -545,12 +543,11 @@ impl Simulation {
 
         for (idx, backprop) in self.backprops.iter_mut().enumerate() {
             // Check for backprop timeout
-            if let Some(timeout) = self.config.backprop_timeout {
-                if self.tick - backprop.delivered_tick > timeout {
+            if let Some(timeout) = self.config.backprop_timeout
+                && self.tick - backprop.delivered_tick > timeout {
                     timed_out_indices.push(idx);
                     continue;
                 }
-            }
 
             // Work backwards through the path
             if backprop.backprop_index >= backprop.path.len() - 1 {
@@ -654,23 +651,21 @@ impl Simulation {
 
     /// Force a peer online
     pub fn force_online(&mut self, peer: PeerId) {
-        if let Some(p) = self.mesh.peers.get_mut(&peer) {
-            if !p.online {
+        if let Some(p) = self.mesh.peers.get_mut(&peer)
+            && !p.online {
                 p.online = true;
                 p.last_online_tick = Some(self.tick);
                 self.emit_event(NetworkEvent::Awake { peer, tick: self.tick });
             }
-        }
     }
 
     /// Force a peer offline
     pub fn force_offline(&mut self, peer: PeerId) {
-        if let Some(p) = self.mesh.peers.get_mut(&peer) {
-            if p.online {
+        if let Some(p) = self.mesh.peers.get_mut(&peer)
+            && p.online {
                 p.online = false;
                 self.emit_event(NetworkEvent::Sleep { peer, tick: self.tick });
             }
-        }
     }
 }
 

@@ -159,12 +159,11 @@ impl<I: PeerIdentity> BackPropManager<I> {
         }
 
         // Verify the confirming peer is the expected one
-        if let Some(expected) = state.next_confirmer() {
-            if expected != confirming_peer {
+        if let Some(expected) = state.next_confirmer()
+            && expected != confirming_peer {
                 // Wrong peer confirming - ignore
                 return BackPropStatus::InProgress(state.current_hop);
             }
-        }
 
         // Advance to the next hop
         if state.current_hop > 0 {

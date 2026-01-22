@@ -227,15 +227,15 @@ pub fn run_random_chaos_scenario(ticks: u64) -> Simulation {
         sim.step();
         
         // Inject occasional new messages
-        if sim.tick % 10 == 0 {
-            let from = PeerId(('A' as u8 + (sim.tick % 8) as u8) as char);
-            let to = PeerId(('H' as u8 - (sim.tick % 8) as u8) as char);
+        if sim.tick.is_multiple_of(10) {
+            let from = PeerId((b'A' + (sim.tick % 8) as u8) as char);
+            let to = PeerId((b'H' - (sim.tick % 8) as u8) as char);
             if from != to {
                 sim.send_message(from, to, format!("Message at tick {}", sim.tick).into_bytes());
             }
         }
 
-        if sim.tick % 20 == 0 {
+        if sim.tick.is_multiple_of(20) {
             println!("Tick {}: {}", sim.tick, sim.state_summary());
         }
     }
