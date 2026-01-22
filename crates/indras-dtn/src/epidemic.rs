@@ -52,6 +52,17 @@ struct SeenRecord {
     count: u32,
 }
 
+/// Reason for suppressing a bundle
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SuppressReason {
+    /// Bundle was already seen (duplicate)
+    Duplicate,
+    /// No available neighbors to forward to
+    NoNeighbors,
+    /// In wait phase of spray-and-wait (only 1 copy left)
+    WaitPhase,
+}
+
 /// Routing decision from epidemic router
 #[derive(Debug, Clone)]
 pub enum EpidemicDecision<I: PeerIdentity> {
@@ -64,8 +75,8 @@ pub enum EpidemicDecision<I: PeerIdentity> {
     },
     /// Direct delivery is possible (destination is a neighbor)
     DirectDelivery { destination: I },
-    /// Already seen this bundle, suppress forwarding
-    Suppress,
+    /// Hold bundle but don't forward (store for later delivery)
+    Suppress { reason: SuppressReason },
     /// Bundle has expired
     Expired,
 }
@@ -81,13 +92,26 @@ impl<I: PeerIdentity> EpidemicDecision<I> {
         )
     }
 
+    /// Check if this is a suppress decision
+    pub fn is_suppress(&self) -> bool {
+        matches!(self, EpidemicDecision::Suppress { .. })
+    }
+
+    /// Get the suppress reason if this is a suppress decision
+    pub fn suppress_reason(&self) -> Option<SuppressReason> {
+        match self {
+            EpidemicDecision::Suppress { reason } => Some(*reason),
+            _ => None,
+        }
+    }
+
     /// Get the targets for forwarding (if any)
     pub fn targets(&self) -> Vec<I> {
         match self {
             EpidemicDecision::FloodAll { neighbors } => neighbors.clone(),
             EpidemicDecision::SprayTo { targets, .. } => targets.clone(),
             EpidemicDecision::DirectDelivery { destination } => vec![destination.clone()],
-            _ => vec![],
+            EpidemicDecision::Suppress { .. } | EpidemicDecision::Expired => vec![],
         }
     }
 }
@@ -135,7 +159,9 @@ impl<I: PeerIdentity> EpidemicRouter<I> {
 
         // Check for duplicate
         if self.have_seen(&bundle.bundle_id) {
-            return EpidemicDecision::Suppress;
+            return EpidemicDecision::Suppress {
+                reason: SuppressReason::Duplicate,
+            };
         }
 
         // Mark as seen
@@ -159,7 +185,9 @@ impl<I: PeerIdentity> EpidemicRouter<I> {
         }
 
         if neighbors.is_empty() {
-            return EpidemicDecision::Suppress;
+            return EpidemicDecision::Suppress {
+                reason: SuppressReason::NoNeighbors,
+            };
         }
 
         // Decide based on mode
@@ -171,6 +199,9 @@ impl<I: PeerIdentity> EpidemicRouter<I> {
     }
 
     /// Make a spray-and-wait routing decision
+    ///
+    /// In spray phase (copies > 1): distribute copies among neighbors
+    /// In wait phase (copies == 1): hold bundle, only deliver directly to destination
     fn spray_and_wait_decision(
         &self,
         bundle: &Bundle<I>,
@@ -179,12 +210,16 @@ impl<I: PeerIdentity> EpidemicRouter<I> {
         let copies = bundle.copies_remaining;
 
         if copies <= 1 {
-            // Wait phase: only forward if destination is reachable
-            // (already handled above in route())
-            EpidemicDecision::Suppress
+            // Wait phase: hold the bundle and only deliver directly to destination
+            // Direct delivery is already checked in route() before this is called,
+            // so if we're here, we should hold the bundle for later.
+            EpidemicDecision::Suppress {
+                reason: SuppressReason::WaitPhase,
+            }
         } else {
-            // Spray phase: distribute copies among neighbors
-            let copies_to_spray = (copies / 2).max(1) as usize;
+            // Spray phase: distribute half of copies among neighbors
+            // Use ceiling division to ensure we spray at least 1 copy
+            let copies_to_spray = ((copies + 1) / 2) as usize;
             let targets: Vec<I> = neighbors.into_iter().take(copies_to_spray).collect();
             let remaining = copies.saturating_sub(targets.len() as u8);
 
@@ -220,6 +255,12 @@ impl<I: PeerIdentity> EpidemicRouter<I> {
     }
 
     /// Clean up old seen records
+    ///
+    /// **Important**: This method should be called periodically (e.g., via a background task)
+    /// to prevent unbounded memory growth. The seen_bundles map will grow indefinitely
+    /// if cleanup is never called. Recommended interval: `config.seen_timeout / 2`.
+    ///
+    /// Returns the number of records removed.
     pub fn cleanup_seen(&self) -> usize {
         let now = Instant::now();
         let mut removed = 0;
@@ -231,6 +272,10 @@ impl<I: PeerIdentity> EpidemicRouter<I> {
             }
             keep
         });
+
+        if removed > 0 {
+            tracing::debug!(removed, remaining = self.seen_bundles.len(), "Cleaned up seen bundle records");
+        }
 
         removed
     }
@@ -248,12 +293,14 @@ impl<I: PeerIdentity> EpidemicRouter<I> {
     }
 
     /// Calculate spray targets for a bundle with given copies
+    ///
+    /// Uses ceiling division to ensure copies are distributed fairly.
     pub fn calculate_spray_targets(&self, copies: u8, available_neighbors: usize) -> usize {
         if copies <= 1 {
             0 // Wait phase
         } else {
-            // Spray half of copies (at least 1, at most available neighbors)
-            let spray = (copies / 2).max(1) as usize;
+            // Spray half of copies using ceiling division, limited by available neighbors
+            let spray = ((copies + 1) / 2) as usize;
             spray.min(available_neighbors)
         }
     }
@@ -441,13 +488,57 @@ mod tests {
         let router: EpidemicRouter<SimulationIdentity> =
             EpidemicRouter::new(EpidemicConfig::default());
 
-        // 4 copies, 10 neighbors -> spray to 2
+        // 4 copies, 10 neighbors -> spray to ceil(4/2) = 2
         assert_eq!(router.calculate_spray_targets(4, 10), 2);
+
+        // 3 copies, 10 neighbors -> spray to ceil(3/2) = 2
+        assert_eq!(router.calculate_spray_targets(3, 10), 2);
 
         // 8 copies, 3 neighbors -> spray to 3 (limited by neighbors)
         assert_eq!(router.calculate_spray_targets(8, 3), 3);
 
         // 1 copy -> wait phase, no spray
         assert_eq!(router.calculate_spray_targets(1, 10), 0);
+
+        // 2 copies -> spray 1, keep 1
+        assert_eq!(router.calculate_spray_targets(2, 10), 1);
+    }
+
+    #[test]
+    fn test_wait_phase() {
+        let config = EpidemicConfig {
+            spray_and_wait: true,
+            ..Default::default()
+        };
+        let router: EpidemicRouter<SimulationIdentity> = EpidemicRouter::new(config);
+
+        let mut topology = TestTopology::new();
+        let a = SimulationIdentity::new('A').unwrap();
+        let b = SimulationIdentity::new('B').unwrap();
+
+        topology.add_connection(a, b);
+        topology.set_online(b);
+
+        // Bundle with only 1 copy (wait phase)
+        let source = SimulationIdentity::new('A').unwrap();
+        let dest = SimulationIdentity::new('Z').unwrap();
+        let id = PacketId::new(0x5678, 2);
+        let packet = Packet::new(
+            id,
+            source,
+            dest,
+            EncryptedPayload::plaintext(b"test".to_vec()),
+            vec![],
+        );
+        let bundle = Bundle::from_packet(packet, ChronoDuration::hours(1)).with_copies(1);
+
+        let decision = router.route(&bundle, &a, &topology);
+
+        match decision {
+            EpidemicDecision::Suppress { reason } => {
+                assert_eq!(reason, SuppressReason::WaitPhase);
+            }
+            _ => panic!("Expected Suppress with WaitPhase reason, got {:?}", decision),
+        }
     }
 }

@@ -62,7 +62,7 @@ pub use custody::{
     CustodyConfig, CustodyManager, CustodyMessage, CustodyRecord, CustodyTransferResult,
     PendingCustodyTransfer, RefuseReason, ReleaseReason,
 };
-pub use epidemic::{EpidemicConfig, EpidemicDecision, EpidemicRouter};
+pub use epidemic::{EpidemicConfig, EpidemicDecision, EpidemicRouter, SuppressReason};
 pub use error::{BundleError, CustodyError, DtnError, DtnResult};
 pub use expiration::{AgeManager, ExpirationConfig, ExpirationRecord};
 pub use strategy::{DtnStrategy, StrategyCondition, StrategyRule, StrategySelector};
@@ -205,6 +205,85 @@ impl DtnConfig {
             default_strategy: DtnStrategy::SprayAndWait { copies: 2 },
         }
     }
+
+    /// Validate configuration invariants
+    ///
+    /// Returns a list of warnings/errors if the configuration has potential issues.
+    /// An empty list means the configuration is valid.
+    pub fn validate(&self) -> Vec<ConfigWarning> {
+        let mut warnings = Vec::new();
+
+        // Check expiration config
+        if self.expiration.default_lifetime > self.expiration.max_lifetime {
+            warnings.push(ConfigWarning::DefaultLifetimeExceedsMax);
+        }
+
+        // Check spray config consistency
+        if self.epidemic.spray_and_wait && self.epidemic.spray_count > self.epidemic.max_copies {
+            warnings.push(ConfigWarning::SprayCountExceedsMaxCopies);
+        }
+
+        // Check strategy matches config
+        if let DtnStrategy::SprayAndWait { copies } = self.default_strategy {
+            if copies > self.epidemic.max_copies {
+                warnings.push(ConfigWarning::StrategyExceedsMaxCopies);
+            }
+        }
+
+        // Warn about very short cleanup intervals
+        if self.expiration.cleanup_interval < Duration::from_secs(10) {
+            warnings.push(ConfigWarning::CleanupIntervalTooShort);
+        }
+
+        // Warn about very large custody limits
+        if self.custody.max_custody_bundles > 10000 {
+            warnings.push(ConfigWarning::LargeCustodyLimit);
+        }
+
+        warnings
+    }
+
+    /// Check if the configuration is valid (no errors)
+    pub fn is_valid(&self) -> bool {
+        self.validate().is_empty()
+    }
+}
+
+/// Configuration warnings and errors
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfigWarning {
+    /// Default lifetime exceeds maximum lifetime
+    DefaultLifetimeExceedsMax,
+    /// Spray count exceeds max copies
+    SprayCountExceedsMaxCopies,
+    /// Default strategy copies exceeds max copies
+    StrategyExceedsMaxCopies,
+    /// Cleanup interval is very short (< 10s)
+    CleanupIntervalTooShort,
+    /// Custody limit is very large (> 10000)
+    LargeCustodyLimit,
+}
+
+impl std::fmt::Display for ConfigWarning {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConfigWarning::DefaultLifetimeExceedsMax => {
+                write!(f, "default_lifetime exceeds max_lifetime")
+            }
+            ConfigWarning::SprayCountExceedsMaxCopies => {
+                write!(f, "spray_count exceeds max_copies")
+            }
+            ConfigWarning::StrategyExceedsMaxCopies => {
+                write!(f, "default strategy copies exceeds max_copies")
+            }
+            ConfigWarning::CleanupIntervalTooShort => {
+                write!(f, "cleanup_interval is very short (< 10s)")
+            }
+            ConfigWarning::LargeCustodyLimit => {
+                write!(f, "max_custody_bundles is very large (> 10000)")
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -241,5 +320,29 @@ mod tests {
         let config = DtnConfig::resource_constrained();
         assert_eq!(config.custody.max_custody_bundles, 100);
         assert!(!config.custody.accept_from_unknown);
+    }
+
+    #[test]
+    fn test_default_config_is_valid() {
+        let config = DtnConfig::default();
+        assert!(config.is_valid());
+    }
+
+    #[test]
+    fn test_preset_configs_are_valid() {
+        assert!(DtnConfig::low_latency().is_valid());
+        assert!(DtnConfig::challenged_network().is_valid());
+        assert!(DtnConfig::resource_constrained().is_valid());
+    }
+
+    #[test]
+    fn test_invalid_config_detected() {
+        let mut config = DtnConfig::default();
+        // Make default_lifetime exceed max_lifetime
+        config.expiration.default_lifetime = Duration::from_secs(86400 * 30);
+        config.expiration.max_lifetime = Duration::from_secs(3600);
+
+        let warnings = config.validate();
+        assert!(warnings.contains(&ConfigWarning::DefaultLifetimeExceedsMax));
     }
 }

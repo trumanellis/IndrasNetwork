@@ -6,12 +6,6 @@ description = "Delay-tolerant networking for Indras Network"
 
 [dependencies]
 indras-core.workspace = true
-indras-routing.workspace = true
-indras-storage.workspace = true
-
-# Async runtime
-tokio.workspace = true
-async-trait.workspace = true
 
 # Serialization
 serde.workspace = true
@@ -21,6 +15,3 @@ dashmap.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 chrono.workspace = true
-
-[dev-dependencies]
-tokio-test.workspace = true
