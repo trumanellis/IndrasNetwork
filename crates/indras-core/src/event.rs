@@ -176,3 +176,219 @@ impl std::fmt::Display for DropReason {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::SimulationIdentity;
+
+    #[test]
+    fn test_drop_reason_display() {
+        assert_eq!(format!("{}", DropReason::TtlExpired), "TTL expired");
+        assert_eq!(format!("{}", DropReason::NoRoute), "No route available");
+        assert_eq!(format!("{}", DropReason::Duplicate), "Duplicate packet");
+        assert_eq!(format!("{}", DropReason::Expired), "Message expired");
+        assert_eq!(format!("{}", DropReason::SenderOffline), "Sender offline");
+        assert_eq!(format!("{}", DropReason::StorageFull), "Storage full");
+        assert_eq!(format!("{}", DropReason::TooLarge), "Packet too large");
+    }
+
+    #[test]
+    fn test_peer_discovered_factory() {
+        let peer = SimulationIdentity::new('A').unwrap();
+        let before = Utc::now();
+        let event = NetworkEvent::peer_discovered(peer);
+        let after = Utc::now();
+
+        let ts = event.timestamp();
+        assert!(ts >= before && ts <= after);
+
+        if let NetworkEvent::PeerDiscovered {
+            peer: event_peer, ..
+        } = event
+        {
+            assert_eq!(event_peer, SimulationIdentity::new('A').unwrap());
+        } else {
+            panic!("Expected PeerDiscovered event");
+        }
+    }
+
+    #[test]
+    fn test_peer_lost_factory() {
+        let peer = SimulationIdentity::new('B').unwrap();
+        let event = NetworkEvent::peer_lost(peer);
+
+        if let NetworkEvent::PeerLost {
+            peer: event_peer, ..
+        } = event
+        {
+            assert_eq!(event_peer, SimulationIdentity::new('B').unwrap());
+        } else {
+            panic!("Expected PeerLost event");
+        }
+    }
+
+    #[test]
+    fn test_packet_sent_factory() {
+        let from = SimulationIdentity::new('A').unwrap();
+        let to = SimulationIdentity::new('B').unwrap();
+        let packet_id = PacketId::new(0xABCD, 1);
+
+        let event = NetworkEvent::packet_sent(from.clone(), to.clone(), packet_id);
+
+        if let NetworkEvent::PacketSent {
+            from: event_from,
+            to: event_to,
+            packet_id: event_id,
+            ..
+        } = event
+        {
+            assert_eq!(event_from, from);
+            assert_eq!(event_to, to);
+            assert_eq!(event_id, packet_id);
+        } else {
+            panic!("Expected PacketSent event");
+        }
+    }
+
+    #[test]
+    fn test_packet_delivered_factory() {
+        let to = SimulationIdentity::new('C').unwrap();
+        let packet_id = PacketId::new(0xABCD, 1);
+
+        let event = NetworkEvent::packet_delivered(to.clone(), packet_id);
+
+        if let NetworkEvent::PacketDelivered {
+            to: event_to,
+            packet_id: event_id,
+            ..
+        } = event
+        {
+            assert_eq!(event_to, to);
+            assert_eq!(event_id, packet_id);
+        } else {
+            panic!("Expected PacketDelivered event");
+        }
+    }
+
+    #[test]
+    fn test_packet_dropped_factory() {
+        let packet_id = PacketId::new(0xABCD, 1);
+        let reason = DropReason::TtlExpired;
+
+        let event = NetworkEvent::<SimulationIdentity>::packet_dropped(packet_id, reason);
+
+        if let NetworkEvent::PacketDropped {
+            packet_id: event_id,
+            reason: event_reason,
+            ..
+        } = event
+        {
+            assert_eq!(event_id, packet_id);
+            assert_eq!(event_reason, DropReason::TtlExpired);
+        } else {
+            panic!("Expected PacketDropped event");
+        }
+    }
+
+    #[test]
+    fn test_timestamp_extraction_all_variants() {
+        let peer_a = SimulationIdentity::new('A').unwrap();
+        let peer_b = SimulationIdentity::new('B').unwrap();
+        let packet_id = PacketId::new(0xABCD, 1);
+        let now = Utc::now();
+
+        // Test all variants have timestamp extraction
+        let events: Vec<NetworkEvent<SimulationIdentity>> = vec![
+            NetworkEvent::PeerDiscovered {
+                peer: peer_a.clone(),
+                timestamp: now,
+            },
+            NetworkEvent::PeerLost {
+                peer: peer_a.clone(),
+                timestamp: now,
+            },
+            NetworkEvent::PeerAwake {
+                peer: peer_a.clone(),
+                timestamp: now,
+            },
+            NetworkEvent::PeerSleep {
+                peer: peer_a.clone(),
+                timestamp: now,
+            },
+            NetworkEvent::PacketSent {
+                from: peer_a.clone(),
+                to: peer_b.clone(),
+                packet_id,
+                timestamp: now,
+            },
+            NetworkEvent::PacketRelayed {
+                from: peer_a.clone(),
+                via: peer_b.clone(),
+                to: peer_a.clone(),
+                packet_id,
+                timestamp: now,
+            },
+            NetworkEvent::PacketDelivered {
+                to: peer_a.clone(),
+                packet_id,
+                timestamp: now,
+            },
+            NetworkEvent::PacketDropped {
+                packet_id,
+                reason: DropReason::TtlExpired,
+                timestamp: now,
+            },
+            NetworkEvent::ConfirmationReceived {
+                packet_id,
+                from: peer_a.clone(),
+                to: peer_b.clone(),
+                timestamp: now,
+            },
+            NetworkEvent::BackPropStep {
+                packet_id,
+                from: peer_a.clone(),
+                to: peer_b.clone(),
+                timestamp: now,
+            },
+        ];
+
+        for event in events {
+            assert_eq!(event.timestamp(), now);
+        }
+    }
+
+    #[test]
+    fn test_drop_reason_equality() {
+        assert_eq!(DropReason::TtlExpired, DropReason::TtlExpired);
+        assert_ne!(DropReason::TtlExpired, DropReason::NoRoute);
+    }
+
+    #[test]
+    fn test_drop_reason_serialization() {
+        let reason = DropReason::StorageFull;
+        let serialized = postcard::to_allocvec(&reason).unwrap();
+        let deserialized: DropReason = postcard::from_bytes(&serialized).unwrap();
+        assert_eq!(reason, deserialized);
+    }
+
+    #[test]
+    fn test_network_event_serialization() {
+        let peer = SimulationIdentity::new('A').unwrap();
+        let event = NetworkEvent::peer_discovered(peer);
+
+        let serialized = postcard::to_allocvec(&event).unwrap();
+        let deserialized: NetworkEvent<SimulationIdentity> =
+            postcard::from_bytes(&serialized).unwrap();
+
+        // Can't directly compare due to timestamp, but we can check structure
+        if let NetworkEvent::PeerDiscovered {
+            peer: deser_peer, ..
+        } = deserialized
+        {
+            assert_eq!(deser_peer, SimulationIdentity::new('A').unwrap());
+        } else {
+            panic!("Deserialization produced wrong variant");
+        }
+    }
+}

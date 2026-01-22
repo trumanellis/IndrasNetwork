@@ -121,3 +121,212 @@ impl<I: PeerIdentity> RouteInfo<I> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::SimulationIdentity;
+
+    fn make_peer(c: char) -> SimulationIdentity {
+        SimulationIdentity::new(c).unwrap()
+    }
+
+    #[test]
+    fn test_routing_decision_direct() {
+        let peer = make_peer('A');
+        let decision = RoutingDecision::direct(peer.clone());
+
+        assert!(decision.is_delivery());
+        assert!(!decision.is_relay());
+        assert!(!decision.is_hold());
+        assert!(!decision.is_drop());
+
+        if let RoutingDecision::DirectDelivery { destination } = decision {
+            assert_eq!(destination, peer);
+        } else {
+            panic!("Expected DirectDelivery");
+        }
+    }
+
+    #[test]
+    fn test_routing_decision_relay_single() {
+        let peer = make_peer('B');
+        let decision = RoutingDecision::relay(peer.clone());
+
+        assert!(!decision.is_delivery());
+        assert!(decision.is_relay());
+        assert!(!decision.is_hold());
+        assert!(!decision.is_drop());
+
+        if let RoutingDecision::RelayThrough { next_hops } = decision {
+            assert_eq!(next_hops.len(), 1);
+            assert_eq!(next_hops[0], peer);
+        } else {
+            panic!("Expected RelayThrough");
+        }
+    }
+
+    #[test]
+    fn test_routing_decision_relay_multi() {
+        let peers = vec![make_peer('A'), make_peer('B'), make_peer('C')];
+        let decision = RoutingDecision::relay_multi(peers.clone());
+
+        assert!(decision.is_relay());
+
+        if let RoutingDecision::RelayThrough { next_hops } = decision {
+            assert_eq!(next_hops.len(), 3);
+            assert_eq!(next_hops, peers);
+        } else {
+            panic!("Expected RelayThrough");
+        }
+    }
+
+    #[test]
+    fn test_routing_decision_hold() {
+        let decision: RoutingDecision<SimulationIdentity> = RoutingDecision::hold();
+
+        assert!(!decision.is_delivery());
+        assert!(!decision.is_relay());
+        assert!(decision.is_hold());
+        assert!(!decision.is_drop());
+    }
+
+    #[test]
+    fn test_routing_decision_drop() {
+        use crate::DropReason;
+
+        let decision: RoutingDecision<SimulationIdentity> =
+            RoutingDecision::drop(DropReason::TtlExpired);
+
+        assert!(!decision.is_delivery());
+        assert!(!decision.is_relay());
+        assert!(!decision.is_hold());
+        assert!(decision.is_drop());
+
+        if let RoutingDecision::Drop { reason } = decision {
+            assert_eq!(reason, DropReason::TtlExpired);
+        } else {
+            panic!("Expected Drop");
+        }
+    }
+
+    #[test]
+    fn test_routing_decision_drop_various_reasons() {
+        use crate::DropReason;
+
+        let reasons = vec![
+            DropReason::TtlExpired,
+            DropReason::NoRoute,
+            DropReason::Duplicate,
+            DropReason::Expired,
+            DropReason::SenderOffline,
+            DropReason::StorageFull,
+            DropReason::TooLarge,
+        ];
+
+        for reason in reasons {
+            let decision: RoutingDecision<SimulationIdentity> = RoutingDecision::drop(reason);
+            assert!(decision.is_drop());
+
+            if let RoutingDecision::Drop { reason: r } = decision {
+                assert_eq!(r, reason);
+            }
+        }
+    }
+
+    #[test]
+    fn test_route_info_new() {
+        let dest = make_peer('A');
+        let next = make_peer('B');
+        let route = RouteInfo::new(dest.clone(), next.clone(), 3);
+
+        assert_eq!(route.destination, dest);
+        assert_eq!(route.next_hop, next);
+        assert_eq!(route.hop_count, 3);
+        assert_eq!(route.metric, 3); // Default metric equals hop count
+        assert!(route.last_confirmed.is_none());
+    }
+
+    #[test]
+    fn test_route_info_confirm() {
+        let dest = make_peer('A');
+        let next = make_peer('B');
+        let mut route = RouteInfo::new(dest, next, 2);
+
+        assert!(route.last_confirmed.is_none());
+
+        let before = chrono::Utc::now();
+        route.confirm();
+        let after = chrono::Utc::now();
+
+        assert!(route.last_confirmed.is_some());
+        let confirmed = route.last_confirmed.unwrap();
+        assert!(confirmed >= before && confirmed <= after);
+    }
+
+    #[test]
+    fn test_route_info_staleness_unconfirmed() {
+        let dest = make_peer('A');
+        let next = make_peer('B');
+        let route = RouteInfo::new(dest, next, 1);
+
+        // Unconfirmed routes are always stale
+        assert!(route.is_stale(chrono::Duration::zero()));
+        assert!(route.is_stale(chrono::Duration::hours(24)));
+    }
+
+    #[test]
+    fn test_route_info_staleness_fresh() {
+        let dest = make_peer('A');
+        let next = make_peer('B');
+        let mut route = RouteInfo::new(dest, next, 1);
+
+        route.confirm();
+
+        // Just confirmed, should not be stale for any reasonable max_age
+        assert!(!route.is_stale(chrono::Duration::hours(1)));
+        assert!(!route.is_stale(chrono::Duration::minutes(1)));
+    }
+
+    #[test]
+    fn test_route_info_staleness_zero_max_age() {
+        let dest = make_peer('A');
+        let next = make_peer('B');
+        let mut route = RouteInfo::new(dest, next, 1);
+
+        route.confirm();
+
+        // With zero max_age, any route is immediately stale
+        // (since Utc::now() - confirmed >= 0)
+        // Actually this depends on timing, so we allow either result
+        // The point is it shouldn't panic
+        let _ = route.is_stale(chrono::Duration::zero());
+    }
+
+    #[test]
+    fn test_routing_decision_serialization() {
+        let peer = make_peer('A');
+        let decision = RoutingDecision::direct(peer);
+
+        let serialized = postcard::to_allocvec(&decision).unwrap();
+        let deserialized: RoutingDecision<SimulationIdentity> =
+            postcard::from_bytes(&serialized).unwrap();
+
+        assert!(deserialized.is_delivery());
+    }
+
+    #[test]
+    fn test_route_info_serialization() {
+        let dest = make_peer('A');
+        let next = make_peer('B');
+        let route = RouteInfo::new(dest.clone(), next.clone(), 5);
+
+        let serialized = postcard::to_allocvec(&route).unwrap();
+        let deserialized: RouteInfo<SimulationIdentity> =
+            postcard::from_bytes(&serialized).unwrap();
+
+        assert_eq!(deserialized.destination, dest);
+        assert_eq!(deserialized.next_hop, next);
+        assert_eq!(deserialized.hop_count, 5);
+    }
+}

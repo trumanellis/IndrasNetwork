@@ -308,4 +308,163 @@ mod tests {
         assert!(!pending.is_empty());
         assert_eq!(pending.len(), 2);
     }
+
+    #[test]
+    fn test_sync_state_multi_peer_tracking() {
+        let id = test_interface_id();
+        let mut state: SyncState<SimulationIdentity> = SyncState::new(id);
+        let peer_a = SimulationIdentity::new('A').unwrap();
+        let peer_b = SimulationIdentity::new('B').unwrap();
+        let peer_c = SimulationIdentity::new('C').unwrap();
+
+        // Create state for multiple peers
+        state.peer_state(&peer_a);
+        state.peer_state(&peer_b);
+        state.peer_state(&peer_c);
+
+        assert_eq!(state.peers().len(), 3);
+
+        // Update different peers
+        state.update_peer_heads(&peer_a, vec![]);
+        state.update_peer_heads(&peer_b, vec![]);
+
+        assert_eq!(state.rounds(&peer_a), 1);
+        assert_eq!(state.rounds(&peer_b), 1);
+        assert_eq!(state.rounds(&peer_c), 0);
+    }
+
+    #[test]
+    fn test_sync_state_remove_peer() {
+        let id = test_interface_id();
+        let mut state: SyncState<SimulationIdentity> = SyncState::new(id);
+        let peer_a = SimulationIdentity::new('A').unwrap();
+        let peer_b = SimulationIdentity::new('B').unwrap();
+
+        state.peer_state(&peer_a);
+        state.peer_state(&peer_b);
+        assert_eq!(state.peers().len(), 2);
+
+        state.remove_peer(&peer_a);
+        assert_eq!(state.peers().len(), 1);
+
+        // Removed peer should have default state
+        assert_eq!(state.rounds(&peer_a), 0);
+        assert!(!state.is_awaiting(&peer_a));
+    }
+
+    #[test]
+    fn test_sync_state_peer_heads() {
+        let id = test_interface_id();
+        let mut state: SyncState<SimulationIdentity> = SyncState::new(id);
+        let peer_a = SimulationIdentity::new('A').unwrap();
+
+        // Unknown peer should return empty heads
+        assert!(state.peer_heads(&peer_a).is_empty());
+
+        // Create peer state
+        state.peer_state(&peer_a);
+        assert!(state.peer_heads(&peer_a).is_empty());
+
+        // Create fake change hashes
+        let hash1 = ChangeHash([0x11; 32]);
+        let hash2 = ChangeHash([0x22; 32]);
+
+        state.update_peer_heads(&peer_a, vec![hash1, hash2]);
+
+        let heads = state.peer_heads(&peer_a);
+        assert_eq!(heads.len(), 2);
+        assert!(heads.contains(&hash1));
+        assert!(heads.contains(&hash2));
+    }
+
+    #[test]
+    fn test_sync_state_interface_id() {
+        let id = test_interface_id();
+        let state: SyncState<SimulationIdentity> = SyncState::new(id);
+        assert_eq!(state.interface_id(), id);
+    }
+
+    #[test]
+    fn test_sync_state_awaiting_unknown_peer() {
+        let id = test_interface_id();
+        let state: SyncState<SimulationIdentity> = SyncState::new(id);
+        let unknown_peer = SimulationIdentity::new('X').unwrap();
+
+        // Awaiting check for unknown peer should return false
+        assert!(!state.is_awaiting(&unknown_peer));
+    }
+
+    #[test]
+    fn test_sync_state_mark_awaiting_unknown_peer() {
+        let id = test_interface_id();
+        let mut state: SyncState<SimulationIdentity> = SyncState::new(id);
+        let unknown_peer = SimulationIdentity::new('X').unwrap();
+
+        // Marking awaiting for unknown peer should be a no-op
+        state.mark_awaiting(&unknown_peer);
+        assert!(!state.is_awaiting(&unknown_peer));
+    }
+
+    #[test]
+    fn test_sync_response_generation() {
+        let id = test_interface_id();
+        let mut doc = InterfaceDocument::new();
+
+        // Empty heads array
+        let msg = SyncProtocol::generate_sync_response::<SimulationIdentity>(id, &mut doc, &[]);
+
+        assert_eq!(msg.interface_id, id);
+        assert!(!msg.is_request); // It's a response
+    }
+
+    #[test]
+    fn test_sync_response_with_known_heads() {
+        let id = test_interface_id();
+        let mut doc = InterfaceDocument::new();
+
+        // Provide some fake heads
+        let their_heads = [[0x11; 32], [0x22; 32]];
+        let msg =
+            SyncProtocol::generate_sync_response::<SimulationIdentity>(id, &mut doc, &their_heads);
+
+        assert_eq!(msg.interface_id, id);
+        assert!(!msg.is_request);
+    }
+
+    #[test]
+    fn test_peer_sync_state_default() {
+        let state = PeerSyncState::default();
+        assert!(state.their_heads.is_empty());
+        assert!(!state.awaiting_response);
+        assert_eq!(state.rounds, 0);
+    }
+
+    #[test]
+    fn test_pending_delivery_interface_id() {
+        let id = test_interface_id();
+        let pending = PendingDelivery::new(id);
+        assert_eq!(pending.interface_id, id);
+    }
+
+    #[test]
+    fn test_sync_state_multiple_rounds() {
+        let id = test_interface_id();
+        let mut state: SyncState<SimulationIdentity> = SyncState::new(id);
+        let peer_a = SimulationIdentity::new('A').unwrap();
+
+        state.peer_state(&peer_a);
+
+        // Simulate multiple sync rounds
+        for expected_round in 1..=5 {
+            state.update_peer_heads(&peer_a, vec![]);
+            assert_eq!(state.rounds(&peer_a), expected_round);
+        }
+    }
+
+    #[test]
+    fn test_bytes_to_change_hash() {
+        let bytes = [0xab; 32];
+        let hash = bytes_to_change_hash(&bytes);
+        assert_eq!(hash.0, bytes);
+    }
 }
