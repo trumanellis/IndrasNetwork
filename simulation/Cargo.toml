@@ -1,0 +1,42 @@
+[package]
+name = "indras-simulation"
+version.workspace = true
+edition.workspace = true
+description = "Mesh network simulation with store-and-forward routing for offline peers"
+
+[dependencies]
+# Core traits and types
+indras-core.workspace = true
+indras-routing.workspace = true
+indras-storage.workspace = true
+indras-crypto.workspace = true
+indras-sync.workspace = true
+
+# Core iroh stack (for future real networking)
+iroh.workspace = true
+iroh-gossip.workspace = true
+
+# CRDT for synced peer interfaces
+automerge.workspace = true
+
+# Async runtime
+tokio.workspace = true
+n0-future.workspace = true
+
+# Serialization
+serde.workspace = true
+postcard.workspace = true
+
+# Utilities
+anyhow.workspace = true
+thiserror.workspace = true
+rand.workspace = true
+derive_more.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+# CLI for running scenarios
+clap.workspace = true
+
+[dev-dependencies]
+tokio-test.workspace = true

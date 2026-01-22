@@ -1,0 +1,73 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/indras-core",
+    "crates/indras-crypto",
+    "crates/indras-transport",
+    "crates/indras-routing",
+    "crates/indras-storage",
+    "crates/indras-gossip",
+    "crates/indras-sync",
+    "crates/indras-messaging",
+    "crates/indras-dtn",
+    "crates/indras-iot",
+    "simulation",
+    "examples/chat-app",
+    "examples/sync-demo",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/indras-network/indras-network"
+
+[workspace.dependencies]
+# Internal crates
+indras-core = { path = "crates/indras-core" }
+indras-crypto = { path = "crates/indras-crypto" }
+indras-transport = { path = "crates/indras-transport" }
+indras-routing = { path = "crates/indras-routing" }
+indras-storage = { path = "crates/indras-storage" }
+indras-gossip = { path = "crates/indras-gossip" }
+indras-sync = { path = "crates/indras-sync" }
+indras-messaging = { path = "crates/indras-messaging" }
+indras-dtn = { path = "crates/indras-dtn" }
+indras-iot = { path = "crates/indras-iot" }
+
+# Core iroh stack
+iroh = "0.95"
+iroh-gossip = "0.95"
+
+# CRDT for synced peer interfaces
+automerge = "0.7"
+
+# Async runtime
+tokio = { version = "1.47", features = ["full", "sync", "time", "macros", "rt-multi-thread"] }
+n0-future = "0.3"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+postcard = { version = "1.0", features = ["alloc"] }
+
+# Crypto
+x25519-dalek = "2.0"
+chacha20poly1305 = "0.10"
+
+# Utilities
+anyhow = "1.0"
+thiserror = "2.0"
+rand = "0.9"
+derive_more = { version = "2.0", features = ["debug", "display"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+dashmap = "6.0"
+chrono = { version = "0.4", features = ["serde"] }
+bytes = "1.0"
+async-trait = "0.1"
+
+# CLI
+clap = { version = "4.5", features = ["derive"] }
+
+# Testing
+tokio-test = "0.4"

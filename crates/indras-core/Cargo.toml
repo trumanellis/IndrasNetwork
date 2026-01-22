@@ -1,0 +1,25 @@
+[package]
+name = "indras-core"
+version.workspace = true
+edition.workspace = true
+description = "Core traits, types, and errors for Indras Network"
+
+[dependencies]
+# Serialization
+serde.workspace = true
+postcard.workspace = true
+
+# Async
+async-trait.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+
+# Utilities
+thiserror.workspace = true
+chrono.workspace = true
+bytes.workspace = true
+derive_more.workspace = true
+rand.workspace = true
+hex = "0.4"
+
+[dev-dependencies]
+tokio-test.workspace = true

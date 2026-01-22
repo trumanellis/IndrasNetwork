@@ -1,0 +1,31 @@
+[package]
+name = "indras-sync"
+version.workspace = true
+edition.workspace = true
+description = "CRDT-based document synchronization for Indras Network using Automerge"
+
+[dependencies]
+indras-core.workspace = true
+indras-transport.workspace = true
+indras-gossip.workspace = true
+
+# CRDT
+automerge.workspace = true
+
+# Serialization
+serde.workspace = true
+postcard.workspace = true
+hex = "0.4"
+
+# Async runtime
+tokio.workspace = true
+async-trait.workspace = true
+
+# Utilities
+thiserror.workspace = true
+tracing.workspace = true
+dashmap.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+tokio-test.workspace = true

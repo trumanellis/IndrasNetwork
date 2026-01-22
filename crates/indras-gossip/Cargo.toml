@@ -1,0 +1,28 @@
+[package]
+name = "indras-gossip"
+version.workspace = true
+edition.workspace = true
+description = "Reusable gossip protocol library for Indras Network"
+
+[dependencies]
+indras-core.workspace = true
+indras-transport.workspace = true
+
+# Iroh gossip
+iroh.workspace = true
+iroh-gossip.workspace = true
+
+# Async runtime
+tokio.workspace = true
+async-trait.workspace = true
+n0-future.workspace = true
+
+# Serialization
+serde.workspace = true
+postcard.workspace = true
+
+# Utilities
+thiserror.workspace = true
+tracing.workspace = true
+dashmap.workspace = true
+rand.workspace = true

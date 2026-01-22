@@ -1,0 +1,31 @@
+[package]
+name = "indras-messaging"
+version.workspace = true
+edition.workspace = true
+description = "Encrypted messaging protocol for Indras Network"
+
+[dependencies]
+indras-core.workspace = true
+indras-crypto.workspace = true
+indras-transport.workspace = true
+indras-routing.workspace = true
+indras-storage.workspace = true
+indras-gossip = { path = "../indras-gossip" }
+
+# Iroh types
+iroh.workspace = true
+
+# Async runtime
+tokio.workspace = true
+async-trait.workspace = true
+
+# Serialization
+serde.workspace = true
+postcard.workspace = true
+
+# Utilities
+thiserror.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+dashmap.workspace = true
+rand.workspace = true

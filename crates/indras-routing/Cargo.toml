@@ -1,0 +1,19 @@
+[package]
+name = "indras-routing"
+version.workspace = true
+edition.workspace = true
+description = "Routing layer for Indras Network - store-forward and back-propagation algorithms"
+
+[dependencies]
+indras-core.workspace = true
+indras-storage.workspace = true
+
+# Async runtime
+tokio.workspace = true
+async-trait.workspace = true
+
+# Utilities
+thiserror.workspace = true
+tracing.workspace = true
+dashmap.workspace = true
+chrono.workspace = true

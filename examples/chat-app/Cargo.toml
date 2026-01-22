@@ -1,0 +1,23 @@
+[package]
+name = "indras-chat"
+version.workspace = true
+edition.workspace = true
+description = "Example chat application using Indras Network"
+
+[dependencies]
+indras-core.workspace = true
+indras-crypto.workspace = true
+indras-transport.workspace = true
+indras-messaging.workspace = true
+indras-storage.workspace = true
+
+# Async runtime
+tokio.workspace = true
+
+# CLI
+clap.workspace = true
+
+# Utilities
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

@@ -1,0 +1,22 @@
+[package]
+name = "indras-crypto"
+version.workspace = true
+edition.workspace = true
+description = "Cryptographic primitives for Indras Network - envelope encryption and key management"
+
+[dependencies]
+indras-core.workspace = true
+
+# Crypto
+x25519-dalek = { workspace = true, features = ["static_secrets"] }
+chacha20poly1305.workspace = true
+rand.workspace = true
+
+# Serialization
+serde.workspace = true
+postcard.workspace = true
+
+# Utilities
+thiserror.workspace = true
+bytes.workspace = true
+chrono.workspace = true

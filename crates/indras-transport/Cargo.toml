@@ -1,0 +1,31 @@
+[package]
+name = "indras-transport"
+version.workspace = true
+edition.workspace = true
+description = "Transport layer for Indras Network - iroh integration and connection management"
+
+[dependencies]
+indras-core.workspace = true
+
+# Core iroh stack
+iroh.workspace = true
+iroh-gossip.workspace = true
+
+# Async runtime
+tokio.workspace = true
+async-trait.workspace = true
+
+# Serialization
+serde.workspace = true
+postcard.workspace = true
+
+# Utilities
+thiserror.workspace = true
+tracing.workspace = true
+dashmap.workspace = true
+bytes.workspace = true
+chrono.workspace = true
+rand.workspace = true
+
+[dev-dependencies]
+tokio-test.workspace = true

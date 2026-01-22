@@ -1,0 +1,18 @@
+[package]
+name = "indras-iot"
+version.workspace = true
+edition.workspace = true
+description = "IoT optimizations for Indras Network - low-memory and duty cycling support"
+
+[dependencies]
+indras-core.workspace = true
+indras-transport.workspace = true
+indras-routing.workspace = true
+
+# Async runtime
+tokio.workspace = true
+async-trait.workspace = true
+
+# Utilities
+thiserror.workspace = true
+tracing.workspace = true
