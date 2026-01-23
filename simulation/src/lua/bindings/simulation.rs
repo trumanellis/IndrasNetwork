@@ -206,6 +206,50 @@ impl UserData for LuaSimulation {
             Ok(events)
         });
 
+        // Post-quantum cryptography simulation methods
+
+        // record_pq_signature(peer, latency_us, message_size) - simulate signing
+        methods.add_method("record_pq_signature", |_, this, (peer, latency_us, message_size): (LuaPeerId, u64, usize)| {
+            this.0.borrow_mut().record_pq_signature_created(peer.0, latency_us, message_size);
+            Ok(())
+        });
+
+        // record_pq_verification(peer, sender, latency_us, success) - simulate verification
+        methods.add_method("record_pq_verification", |_, this, (peer, sender, latency_us, success): (LuaPeerId, LuaPeerId, u64, bool)| {
+            this.0.borrow_mut().record_pq_signature_verified(peer.0, sender.0, latency_us, success);
+            Ok(())
+        });
+
+        // record_kem_encapsulation(peer, target, latency_us) - simulate KEM encap
+        methods.add_method("record_kem_encapsulation", |_, this, (peer, target, latency_us): (LuaPeerId, LuaPeerId, u64)| {
+            this.0.borrow_mut().record_kem_encapsulation(peer.0, target.0, latency_us);
+            Ok(())
+        });
+
+        // record_kem_decapsulation(peer, sender, latency_us, success) - simulate KEM decap
+        methods.add_method("record_kem_decapsulation", |_, this, (peer, sender, latency_us, success): (LuaPeerId, LuaPeerId, u64, bool)| {
+            this.0.borrow_mut().record_kem_decapsulation(peer.0, sender.0, latency_us, success);
+            Ok(())
+        });
+
+        // record_invite_created(from, to, interface_id) - simulate invite creation
+        methods.add_method("record_invite_created", |_, this, (from, to, interface_id): (LuaPeerId, LuaPeerId, String)| {
+            this.0.borrow_mut().record_invite_created(from.0, to.0, interface_id);
+            Ok(())
+        });
+
+        // record_invite_accepted(peer, interface_id) - simulate invite acceptance
+        methods.add_method("record_invite_accepted", |_, this, (peer, interface_id): (LuaPeerId, String)| {
+            this.0.borrow_mut().record_invite_accepted(peer.0, interface_id);
+            Ok(())
+        });
+
+        // record_invite_failed(peer, interface_id, reason) - simulate invite failure
+        methods.add_method("record_invite_failed", |_, this, (peer, interface_id, reason): (LuaPeerId, String, String)| {
+            this.0.borrow_mut().record_invite_failed(peer.0, interface_id, reason);
+            Ok(())
+        });
+
         // String representation
         methods.add_meta_method(MetaMethod::ToString, |_, this, ()| {
             let sim = this.0.borrow();

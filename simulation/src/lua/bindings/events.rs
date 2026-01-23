@@ -56,6 +56,56 @@ pub fn network_event_to_table(lua: &Lua, event: &NetworkEvent) -> Result<Table> 
             t.set("reason", drop_reason_to_string(reason))?;
             t.set("tick", *tick)?;
         }
+        NetworkEvent::PQSignatureCreated { peer, latency_us, message_size, tick } => {
+            t.set("type", "PQSignatureCreated")?;
+            t.set("peer", peer.to_string())?;
+            t.set("latency_us", *latency_us)?;
+            t.set("message_size", *message_size)?;
+            t.set("tick", *tick)?;
+        }
+        NetworkEvent::PQSignatureVerified { peer, sender, latency_us, success, tick } => {
+            t.set("type", "PQSignatureVerified")?;
+            t.set("peer", peer.to_string())?;
+            t.set("sender", sender.to_string())?;
+            t.set("latency_us", *latency_us)?;
+            t.set("success", *success)?;
+            t.set("tick", *tick)?;
+        }
+        NetworkEvent::KEMEncapsulation { peer, target, latency_us, tick } => {
+            t.set("type", "KEMEncapsulation")?;
+            t.set("peer", peer.to_string())?;
+            t.set("target", target.to_string())?;
+            t.set("latency_us", *latency_us)?;
+            t.set("tick", *tick)?;
+        }
+        NetworkEvent::KEMDecapsulation { peer, sender, latency_us, success, tick } => {
+            t.set("type", "KEMDecapsulation")?;
+            t.set("peer", peer.to_string())?;
+            t.set("sender", sender.to_string())?;
+            t.set("latency_us", *latency_us)?;
+            t.set("success", *success)?;
+            t.set("tick", *tick)?;
+        }
+        NetworkEvent::InviteCreated { from, to, interface_id, tick } => {
+            t.set("type", "InviteCreated")?;
+            t.set("from", from.to_string())?;
+            t.set("to", to.to_string())?;
+            t.set("interface_id", interface_id.clone())?;
+            t.set("tick", *tick)?;
+        }
+        NetworkEvent::InviteAccepted { peer, interface_id, tick } => {
+            t.set("type", "InviteAccepted")?;
+            t.set("peer", peer.to_string())?;
+            t.set("interface_id", interface_id.clone())?;
+            t.set("tick", *tick)?;
+        }
+        NetworkEvent::InviteFailed { peer, interface_id, reason, tick } => {
+            t.set("type", "InviteFailed")?;
+            t.set("peer", peer.to_string())?;
+            t.set("interface_id", interface_id.clone())?;
+            t.set("reason", reason.clone())?;
+            t.set("tick", *tick)?;
+        }
     }
 
     Ok(t)
@@ -84,6 +134,14 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
     events.set("DELIVERED", "Delivered")?;
     events.set("BACKPROP", "BackProp")?;
     events.set("DROPPED", "Dropped")?;
+    // PQ crypto events
+    events.set("PQ_SIGNATURE_CREATED", "PQSignatureCreated")?;
+    events.set("PQ_SIGNATURE_VERIFIED", "PQSignatureVerified")?;
+    events.set("KEM_ENCAPSULATION", "KEMEncapsulation")?;
+    events.set("KEM_DECAPSULATION", "KEMDecapsulation")?;
+    events.set("INVITE_CREATED", "InviteCreated")?;
+    events.set("INVITE_ACCEPTED", "InviteAccepted")?;
+    events.set("INVITE_FAILED", "InviteFailed")?;
 
     // Drop reason constants
     let drop_reasons = lua.create_table()?;

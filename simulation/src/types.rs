@@ -164,6 +164,58 @@ pub enum NetworkEvent {
         reason: DropReason,
         tick: u64,
     },
+
+    // Post-quantum cryptography events (simulated)
+    /// PQ signature created
+    PQSignatureCreated {
+        peer: PeerId,
+        latency_us: u64,
+        message_size: usize,
+        tick: u64,
+    },
+    /// PQ signature verified
+    PQSignatureVerified {
+        peer: PeerId,
+        sender: PeerId,
+        latency_us: u64,
+        success: bool,
+        tick: u64,
+    },
+    /// KEM encapsulation performed
+    KEMEncapsulation {
+        peer: PeerId,
+        target: PeerId,
+        latency_us: u64,
+        tick: u64,
+    },
+    /// KEM decapsulation performed
+    KEMDecapsulation {
+        peer: PeerId,
+        sender: PeerId,
+        latency_us: u64,
+        success: bool,
+        tick: u64,
+    },
+    /// Invite created
+    InviteCreated {
+        from: PeerId,
+        to: PeerId,
+        interface_id: String,
+        tick: u64,
+    },
+    /// Invite accepted
+    InviteAccepted {
+        peer: PeerId,
+        interface_id: String,
+        tick: u64,
+    },
+    /// Invite failed
+    InviteFailed {
+        peer: PeerId,
+        interface_id: String,
+        reason: String,
+        tick: u64,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

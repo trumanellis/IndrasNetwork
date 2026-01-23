@@ -106,6 +106,34 @@ pub struct SimStats {
     pub total_delivery_latency: u64,
     /// Total backprop latency (ticks from delivery to confirmation complete)
     pub total_backprop_latency: u64,
+
+    // Post-quantum cryptography simulation metrics
+    /// PQ signatures created (simulated)
+    pub pq_signatures_created: u64,
+    /// PQ signatures verified (simulated)
+    pub pq_signatures_verified: u64,
+    /// PQ signature verification failures (simulated)
+    pub pq_signature_failures: u64,
+    /// Total signature creation time in microseconds (simulated)
+    pub pq_signature_create_time_us: u64,
+    /// Total signature verification time in microseconds (simulated)
+    pub pq_signature_verify_time_us: u64,
+    /// KEM encapsulations performed (simulated)
+    pub pq_kem_encapsulations: u64,
+    /// KEM decapsulations performed (simulated)
+    pub pq_kem_decapsulations: u64,
+    /// KEM decapsulation failures (simulated)
+    pub pq_kem_failures: u64,
+    /// Total KEM encapsulation time in microseconds (simulated)
+    pub pq_kem_encap_time_us: u64,
+    /// Total KEM decapsulation time in microseconds (simulated)
+    pub pq_kem_decap_time_us: u64,
+    /// Invites created
+    pub invites_created: u64,
+    /// Invites accepted
+    pub invites_accepted: u64,
+    /// Invites failed
+    pub invites_failed: u64,
 }
 
 impl Simulation {
@@ -666,6 +694,98 @@ impl Simulation {
                 p.online = false;
                 self.emit_event(NetworkEvent::Sleep { peer, tick: self.tick });
             }
+    }
+
+    // Post-quantum cryptography simulation methods
+
+    /// Simulate a PQ signature creation with the given latency
+    pub fn record_pq_signature_created(&mut self, peer: PeerId, latency_us: u64, message_size: usize) {
+        self.stats.pq_signatures_created += 1;
+        self.stats.pq_signature_create_time_us += latency_us;
+        self.emit_event(NetworkEvent::PQSignatureCreated {
+            peer,
+            latency_us,
+            message_size,
+            tick: self.tick,
+        });
+    }
+
+    /// Simulate a PQ signature verification with the given latency
+    pub fn record_pq_signature_verified(&mut self, peer: PeerId, sender: PeerId, latency_us: u64, success: bool) {
+        if success {
+            self.stats.pq_signatures_verified += 1;
+        } else {
+            self.stats.pq_signature_failures += 1;
+        }
+        self.stats.pq_signature_verify_time_us += latency_us;
+        self.emit_event(NetworkEvent::PQSignatureVerified {
+            peer,
+            sender,
+            latency_us,
+            success,
+            tick: self.tick,
+        });
+    }
+
+    /// Simulate a KEM encapsulation with the given latency
+    pub fn record_kem_encapsulation(&mut self, peer: PeerId, target: PeerId, latency_us: u64) {
+        self.stats.pq_kem_encapsulations += 1;
+        self.stats.pq_kem_encap_time_us += latency_us;
+        self.emit_event(NetworkEvent::KEMEncapsulation {
+            peer,
+            target,
+            latency_us,
+            tick: self.tick,
+        });
+    }
+
+    /// Simulate a KEM decapsulation with the given latency
+    pub fn record_kem_decapsulation(&mut self, peer: PeerId, sender: PeerId, latency_us: u64, success: bool) {
+        if success {
+            self.stats.pq_kem_decapsulations += 1;
+        } else {
+            self.stats.pq_kem_failures += 1;
+        }
+        self.stats.pq_kem_decap_time_us += latency_us;
+        self.emit_event(NetworkEvent::KEMDecapsulation {
+            peer,
+            sender,
+            latency_us,
+            success,
+            tick: self.tick,
+        });
+    }
+
+    /// Simulate an invite creation
+    pub fn record_invite_created(&mut self, from: PeerId, to: PeerId, interface_id: String) {
+        self.stats.invites_created += 1;
+        self.emit_event(NetworkEvent::InviteCreated {
+            from,
+            to,
+            interface_id,
+            tick: self.tick,
+        });
+    }
+
+    /// Simulate an invite acceptance
+    pub fn record_invite_accepted(&mut self, peer: PeerId, interface_id: String) {
+        self.stats.invites_accepted += 1;
+        self.emit_event(NetworkEvent::InviteAccepted {
+            peer,
+            interface_id,
+            tick: self.tick,
+        });
+    }
+
+    /// Simulate an invite failure
+    pub fn record_invite_failed(&mut self, peer: PeerId, interface_id: String, reason: String) {
+        self.stats.invites_failed += 1;
+        self.emit_event(NetworkEvent::InviteFailed {
+            peer,
+            interface_id,
+            reason,
+            tick: self.tick,
+        });
     }
 }
 

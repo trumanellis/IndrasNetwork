@@ -44,6 +44,47 @@ impl UserData for LuaSimStats {
         fields.add_field_method_get("total_backprop_latency", |_, this| {
             Ok(this.0.total_backprop_latency)
         });
+
+        // Post-quantum cryptography simulation metrics
+        fields.add_field_method_get("pq_signatures_created", |_, this| {
+            Ok(this.0.pq_signatures_created)
+        });
+        fields.add_field_method_get("pq_signatures_verified", |_, this| {
+            Ok(this.0.pq_signatures_verified)
+        });
+        fields.add_field_method_get("pq_signature_failures", |_, this| {
+            Ok(this.0.pq_signature_failures)
+        });
+        fields.add_field_method_get("pq_signature_create_time_us", |_, this| {
+            Ok(this.0.pq_signature_create_time_us)
+        });
+        fields.add_field_method_get("pq_signature_verify_time_us", |_, this| {
+            Ok(this.0.pq_signature_verify_time_us)
+        });
+        fields.add_field_method_get("pq_kem_encapsulations", |_, this| {
+            Ok(this.0.pq_kem_encapsulations)
+        });
+        fields.add_field_method_get("pq_kem_decapsulations", |_, this| {
+            Ok(this.0.pq_kem_decapsulations)
+        });
+        fields.add_field_method_get("pq_kem_failures", |_, this| {
+            Ok(this.0.pq_kem_failures)
+        });
+        fields.add_field_method_get("pq_kem_encap_time_us", |_, this| {
+            Ok(this.0.pq_kem_encap_time_us)
+        });
+        fields.add_field_method_get("pq_kem_decap_time_us", |_, this| {
+            Ok(this.0.pq_kem_decap_time_us)
+        });
+        fields.add_field_method_get("invites_created", |_, this| {
+            Ok(this.0.invites_created)
+        });
+        fields.add_field_method_get("invites_accepted", |_, this| {
+            Ok(this.0.invites_accepted)
+        });
+        fields.add_field_method_get("invites_failed", |_, this| {
+            Ok(this.0.invites_failed)
+        });
     }
 
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
@@ -96,6 +137,67 @@ impl UserData for LuaSimStats {
             Ok(this.0.total_backprop_latency as f64 / this.0.backprops_completed as f64)
         });
 
+        // PQ signature methods
+        // avg_signature_latency_us() -> float (microseconds)
+        methods.add_method("avg_signature_latency_us", |_, this, ()| {
+            if this.0.pq_signatures_created == 0 {
+                return Ok(0.0);
+            }
+            Ok(this.0.pq_signature_create_time_us as f64 / this.0.pq_signatures_created as f64)
+        });
+
+        // avg_verification_latency_us() -> float (microseconds)
+        methods.add_method("avg_verification_latency_us", |_, this, ()| {
+            if this.0.pq_signatures_verified == 0 {
+                return Ok(0.0);
+            }
+            Ok(this.0.pq_signature_verify_time_us as f64 / this.0.pq_signatures_verified as f64)
+        });
+
+        // signature_failure_rate() -> float (0.0-1.0)
+        methods.add_method("signature_failure_rate", |_, this, ()| {
+            let total = this.0.pq_signatures_verified + this.0.pq_signature_failures;
+            if total == 0 {
+                return Ok(0.0);
+            }
+            Ok(this.0.pq_signature_failures as f64 / total as f64)
+        });
+
+        // PQ KEM methods
+        // avg_kem_encap_latency_us() -> float (microseconds)
+        methods.add_method("avg_kem_encap_latency_us", |_, this, ()| {
+            if this.0.pq_kem_encapsulations == 0 {
+                return Ok(0.0);
+            }
+            Ok(this.0.pq_kem_encap_time_us as f64 / this.0.pq_kem_encapsulations as f64)
+        });
+
+        // avg_kem_decap_latency_us() -> float (microseconds)
+        methods.add_method("avg_kem_decap_latency_us", |_, this, ()| {
+            if this.0.pq_kem_decapsulations == 0 {
+                return Ok(0.0);
+            }
+            Ok(this.0.pq_kem_decap_time_us as f64 / this.0.pq_kem_decapsulations as f64)
+        });
+
+        // kem_failure_rate() -> float (0.0-1.0)
+        methods.add_method("kem_failure_rate", |_, this, ()| {
+            let total = this.0.pq_kem_decapsulations + this.0.pq_kem_failures;
+            if total == 0 {
+                return Ok(0.0);
+            }
+            Ok(this.0.pq_kem_failures as f64 / total as f64)
+        });
+
+        // invite_success_rate() -> float (0.0-1.0)
+        methods.add_method("invite_success_rate", |_, this, ()| {
+            let total = this.0.invites_accepted + this.0.invites_failed;
+            if total == 0 {
+                return Ok(1.0);
+            }
+            Ok(this.0.invites_accepted as f64 / total as f64)
+        });
+
         // to_table() -> table with all stats
         methods.add_method("to_table", |lua, this, ()| {
             let t = lua.create_table()?;
@@ -112,6 +214,20 @@ impl UserData for LuaSimStats {
             t.set("sleep_events", this.0.sleep_events)?;
             t.set("total_delivery_latency", this.0.total_delivery_latency)?;
             t.set("total_backprop_latency", this.0.total_backprop_latency)?;
+            // PQ crypto metrics
+            t.set("pq_signatures_created", this.0.pq_signatures_created)?;
+            t.set("pq_signatures_verified", this.0.pq_signatures_verified)?;
+            t.set("pq_signature_failures", this.0.pq_signature_failures)?;
+            t.set("pq_signature_create_time_us", this.0.pq_signature_create_time_us)?;
+            t.set("pq_signature_verify_time_us", this.0.pq_signature_verify_time_us)?;
+            t.set("pq_kem_encapsulations", this.0.pq_kem_encapsulations)?;
+            t.set("pq_kem_decapsulations", this.0.pq_kem_decapsulations)?;
+            t.set("pq_kem_failures", this.0.pq_kem_failures)?;
+            t.set("pq_kem_encap_time_us", this.0.pq_kem_encap_time_us)?;
+            t.set("pq_kem_decap_time_us", this.0.pq_kem_decap_time_us)?;
+            t.set("invites_created", this.0.invites_created)?;
+            t.set("invites_accepted", this.0.invites_accepted)?;
+            t.set("invites_failed", this.0.invites_failed)?;
             Ok(t)
         });
 

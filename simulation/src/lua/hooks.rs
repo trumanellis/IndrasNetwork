@@ -104,6 +104,14 @@ fn event_type_name(event: &NetworkEvent) -> &'static str {
         NetworkEvent::Delivered { .. } => "Delivered",
         NetworkEvent::BackProp { .. } => "BackProp",
         NetworkEvent::Dropped { .. } => "Dropped",
+        // PQ crypto events
+        NetworkEvent::PQSignatureCreated { .. } => "PQSignatureCreated",
+        NetworkEvent::PQSignatureVerified { .. } => "PQSignatureVerified",
+        NetworkEvent::KEMEncapsulation { .. } => "KEMEncapsulation",
+        NetworkEvent::KEMDecapsulation { .. } => "KEMDecapsulation",
+        NetworkEvent::InviteCreated { .. } => "InviteCreated",
+        NetworkEvent::InviteAccepted { .. } => "InviteAccepted",
+        NetworkEvent::InviteFailed { .. } => "InviteFailed",
     }
 }
 
