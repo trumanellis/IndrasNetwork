@@ -12,11 +12,20 @@ x25519-dalek = { workspace = true, features = ["static_secrets"] }
 chacha20poly1305.workspace = true
 rand.workspace = true
 
+# Post-quantum cryptography (NIST standardized)
+pqcrypto-kyber = "0.8"      # NIST ML-KEM (Kyber) - FIPS 203
+pqcrypto-dilithium = "0.5"  # NIST ML-DSA (Dilithium) - FIPS 204
+pqcrypto-traits = "0.3"     # Common PQ crypto traits
+
 # Serialization
 serde.workspace = true
 postcard.workspace = true
+
+# Memory security
+zeroize = { version = "1.8", features = ["derive"] }
 
 # Utilities
 thiserror.workspace = true
 bytes.workspace = true
 chrono.workspace = true
+hex = "0.4"

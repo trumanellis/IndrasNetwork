@@ -1,10 +1,15 @@
 //! Background message handler for processing incoming network messages
 //!
 //! Handles:
-//! - Incoming interface events (decrypt, append, broadcast)
+//! - Incoming interface events (verify signature, decrypt, append, broadcast)
 //! - Sync requests (generate sync response)
 //! - Sync responses (apply incoming sync)
 //! - Event acknowledgments (mark delivered)
+//!
+//! ## Post-Quantum Signatures
+//!
+//! All network messages are signed with ML-DSA-65 signatures for
+//! quantum-resistant authentication at the application layer.
 
 use std::sync::Arc;
 
@@ -12,10 +17,10 @@ use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use indras_core::{EventId, InterfaceEvent, InterfaceId, NInterfaceTrait, PeerIdentity};
-use indras_crypto::InterfaceKey;
+use indras_crypto::{InterfaceKey, PQPublicIdentity, PQSignature};
 use indras_storage::CompositeStorage;
 use indras_transport::IrohIdentity;
 
@@ -43,6 +48,70 @@ impl NetworkMessage {
     /// Deserialize from bytes
     pub fn from_bytes(data: &[u8]) -> Result<Self, postcard::Error> {
         postcard::from_bytes(data)
+    }
+}
+
+/// Current protocol version for signed messages
+pub const SIGNED_MESSAGE_VERSION: u8 = 1;
+
+/// A signed network message with ML-DSA-65 signature
+///
+/// All messages sent over the network are wrapped with a post-quantum
+/// signature for application-layer authentication.
+///
+/// ## Size Overhead
+///
+/// - Signature: ~3,309 bytes
+/// - Verifying key: ~1,952 bytes
+/// - Total overhead: ~5.3 KB per message
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignedNetworkMessage {
+    /// Protocol version (must match SIGNED_MESSAGE_VERSION)
+    pub version: u8,
+    /// The signed message
+    pub message: NetworkMessage,
+    /// ML-DSA-65 signature (~3,309 bytes)
+    pub signature: Vec<u8>,
+    /// Sender's verifying key (~1,952 bytes)
+    pub sender_verifying_key: Vec<u8>,
+}
+
+impl SignedNetworkMessage {
+    /// Serialize to bytes
+    pub fn to_bytes(&self) -> Result<Vec<u8>, postcard::Error> {
+        postcard::to_allocvec(self)
+    }
+
+    /// Deserialize from bytes
+    pub fn from_bytes(data: &[u8]) -> Result<Self, postcard::Error> {
+        postcard::from_bytes(data)
+    }
+
+    /// Verify the signature on this message
+    ///
+    /// Also checks that the protocol version is supported.
+    pub fn verify(&self) -> Result<bool, MessageError> {
+        // Check protocol version
+        if self.version != SIGNED_MESSAGE_VERSION {
+            return Err(MessageError::UnsupportedVersion(self.version, SIGNED_MESSAGE_VERSION));
+        }
+
+        let verifying_key = PQPublicIdentity::from_bytes(&self.sender_verifying_key)
+            .map_err(|e| MessageError::InvalidSignature(e.to_string()))?;
+
+        let signature = PQSignature::from_bytes(self.signature.clone())
+            .map_err(|e| MessageError::InvalidSignature(e.to_string()))?;
+
+        let message_bytes = self.message.to_bytes()
+            .map_err(|e| MessageError::Serialization(e.to_string()))?;
+
+        Ok(verifying_key.verify(&message_bytes, &signature))
+    }
+
+    /// Get the sender's public identity
+    pub fn sender_identity(&self) -> Result<PQPublicIdentity, MessageError> {
+        PQPublicIdentity::from_bytes(&self.sender_verifying_key)
+            .map_err(|e| MessageError::InvalidSignature(e.to_string()))
     }
 }
 
@@ -118,17 +187,28 @@ pub struct MessageHandler {
     interfaces: Arc<DashMap<InterfaceId, InterfaceState>>,
     /// Storage
     storage: Arc<CompositeStorage<IrohIdentity>>,
+    /// Whether to allow unsigned (legacy) messages
+    ///
+    /// When false, unsigned messages will be rejected with an error.
+    /// Set to false in production to enforce PQ signatures.
+    allow_legacy_unsigned: bool,
     /// Shutdown signal
     shutdown_rx: broadcast::Receiver<()>,
 }
 
 impl MessageHandler {
     /// Create a new message handler
+    ///
+    /// # Arguments
+    ///
+    /// * `allow_legacy_unsigned` - If true, accepts unsigned (legacy) messages with a warning.
+    ///   Set to false in production to enforce PQ signatures.
     pub fn new(
         local_identity: IrohIdentity,
         interface_keys: Arc<DashMap<InterfaceId, InterfaceKey>>,
         interfaces: Arc<DashMap<InterfaceId, InterfaceState>>,
         storage: Arc<CompositeStorage<IrohIdentity>>,
+        allow_legacy_unsigned: bool,
         shutdown_rx: broadcast::Receiver<()>,
     ) -> Self {
         Self {
@@ -136,16 +216,23 @@ impl MessageHandler {
             interface_keys,
             interfaces,
             storage,
+            allow_legacy_unsigned,
             shutdown_rx,
         }
     }
 
     /// Spawn the message handler as a background task
+    ///
+    /// # Arguments
+    ///
+    /// * `allow_legacy_unsigned` - If true, accepts unsigned (legacy) messages with a warning.
+    ///   Set to false in production to enforce PQ signatures.
     pub fn spawn(
         local_identity: IrohIdentity,
         interface_keys: Arc<DashMap<InterfaceId, InterfaceKey>>,
         interfaces: Arc<DashMap<InterfaceId, InterfaceState>>,
         storage: Arc<CompositeStorage<IrohIdentity>>,
+        allow_legacy_unsigned: bool,
         shutdown_rx: broadcast::Receiver<()>,
         message_rx: tokio::sync::mpsc::Receiver<(IrohIdentity, Vec<u8>)>,
     ) -> JoinHandle<()> {
@@ -154,6 +241,7 @@ impl MessageHandler {
             interface_keys,
             interfaces,
             storage,
+            allow_legacy_unsigned,
             shutdown_rx,
         );
 
@@ -182,10 +270,62 @@ impl MessageHandler {
     }
 
     /// Handle an incoming message
+    ///
+    /// Supports both signed (PQ) and unsigned (legacy) messages during transition.
+    /// Legacy support can be disabled by setting `allow_legacy_unsigned` to false.
     async fn handle_message(&self, sender: IrohIdentity, data: Vec<u8>) -> Result<(), MessageError> {
+        // Try to parse as signed message first
+        if let Ok(signed_msg) = SignedNetworkMessage::from_bytes(&data) {
+            return self.handle_signed_message(sender, signed_msg).await;
+        }
+
+        // Check if legacy unsigned messages are allowed
+        if !self.allow_legacy_unsigned {
+            error!(
+                sender = %sender.short_id(),
+                "Rejected unsigned message (legacy mode disabled)"
+            );
+            return Err(MessageError::LegacyModeDisabled);
+        }
+
+        // Fall back to unsigned message (legacy support during transition)
         let message = NetworkMessage::from_bytes(&data)
             .map_err(|e| MessageError::Deserialization(e.to_string()))?;
 
+        warn!(
+            sender = %sender.short_id(),
+            "Received unsigned message (legacy mode)"
+        );
+
+        self.dispatch_message(sender, message).await
+    }
+
+    /// Handle a signed network message
+    async fn handle_signed_message(
+        &self,
+        sender: IrohIdentity,
+        signed_msg: SignedNetworkMessage,
+    ) -> Result<(), MessageError> {
+        // Verify signature
+        if !signed_msg.verify()? {
+            return Err(MessageError::SignatureVerificationFailed);
+        }
+
+        debug!(
+            sender = %sender.short_id(),
+            pq_sender = %signed_msg.sender_identity()?.short_id(),
+            "Verified PQ signature on message"
+        );
+
+        self.dispatch_message(sender, signed_msg.message).await
+    }
+
+    /// Dispatch a verified message to the appropriate handler
+    async fn dispatch_message(
+        &self,
+        sender: IrohIdentity,
+        message: NetworkMessage,
+    ) -> Result<(), MessageError> {
         match message {
             NetworkMessage::InterfaceEvent(msg) => {
                 self.handle_interface_event(sender, msg).await
@@ -358,6 +498,9 @@ pub enum MessageError {
     #[error("Deserialization error: {0}")]
     Deserialization(String),
 
+    #[error("Serialization error: {0}")]
+    Serialization(String),
+
     #[error("Unknown interface: {0:?}")]
     UnknownInterface(InterfaceId),
 
@@ -372,6 +515,18 @@ pub enum MessageError {
 
     #[error("Storage error: {0}")]
     StorageFailed(String),
+
+    #[error("Signature verification failed")]
+    SignatureVerificationFailed,
+
+    #[error("Invalid signature: {0}")]
+    InvalidSignature(String),
+
+    #[error("Unsupported protocol version: got {0}, expected {1}")]
+    UnsupportedVersion(u8, u8),
+
+    #[error("Legacy (unsigned) messages are disabled; all messages must be signed")]
+    LegacyModeDisabled,
 }
 
 #[cfg(test)]

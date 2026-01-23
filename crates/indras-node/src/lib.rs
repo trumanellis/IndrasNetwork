@@ -39,7 +39,7 @@ pub mod sync_task;
 pub use config::NodeConfig;
 pub use error::{NodeError, NodeResult};
 pub use keystore::Keystore;
-pub use message_handler::{NetworkMessage, InterfaceEventMessage, InterfaceSyncRequest, InterfaceSyncResponse, EventAckMessage};
+pub use message_handler::{NetworkMessage, SignedNetworkMessage, InterfaceEventMessage, InterfaceSyncRequest, InterfaceSyncResponse, EventAckMessage, SIGNED_MESSAGE_VERSION};
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -54,7 +54,10 @@ use tracing::{debug, info, instrument, warn};
 
 use indras_core::{EventId, InterfaceEvent, InterfaceId, PeerIdentity, NInterfaceTrait};
 use indras_core::transport::Transport;
-use indras_crypto::{InterfaceKey, KeyDistribution, KeyInvite};
+use indras_crypto::{
+    InterfaceKey, KeyDistribution, KeyInvite,
+    PQIdentity, PQKemKeyPair, PQEncapsulationKey,
+};
 use indras_storage::CompositeStorage;
 use indras_sync::NInterface;
 use indras_transport::{IrohIdentity, IrohNetworkAdapter};
@@ -65,17 +68,29 @@ use sync_task::SyncTask;
 /// Default sync interval in seconds
 const DEFAULT_SYNC_INTERVAL_SECS: u64 = 5;
 
-/// Invite key for joining an interface
+/// Invite key for joining an interface (post-quantum secure)
 ///
-/// Contains the interface ID, optional bootstrap peer addresses, and optional encrypted key.
+/// Contains the interface ID, bootstrap peer addresses, and post-quantum
+/// key material for secure key distribution.
+///
+/// ## Size
+///
+/// - Key invite (ML-KEM): ~1,200 bytes
+/// - Inviter's encapsulation key: ~1,184 bytes
+/// - Inviter's verifying key: ~1,952 bytes
+/// - Total overhead: ~4,400 bytes per invite
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InviteKey {
     /// The interface to join
     pub interface_id: InterfaceId,
     /// Bootstrap peer addresses (serialized)
     pub bootstrap_peers: Vec<Vec<u8>>,
-    /// Encrypted interface key (KeyInvite serialized) for the invitee
+    /// ML-KEM encapsulated interface key (KeyInvite serialized)
     pub key_invite: Option<Vec<u8>>,
+    /// Inviter's encapsulation key (for future key exchanges with them)
+    pub inviter_encapsulation_key: Option<Vec<u8>>,
+    /// Inviter's PQ verifying key (for signature verification)
+    pub inviter_pq_verifying_key: Option<Vec<u8>>,
 }
 
 impl InviteKey {
@@ -85,6 +100,8 @@ impl InviteKey {
             interface_id,
             bootstrap_peers: Vec::new(),
             key_invite: None,
+            inviter_encapsulation_key: None,
+            inviter_pq_verifying_key: None,
         }
     }
 
@@ -94,9 +111,21 @@ impl InviteKey {
         self
     }
 
-    /// Add an encrypted key invite
+    /// Add an ML-KEM encapsulated key invite
     pub fn with_key_invite(mut self, key_invite: Vec<u8>) -> Self {
         self.key_invite = Some(key_invite);
+        self
+    }
+
+    /// Add inviter's encapsulation key (for future key exchanges)
+    pub fn with_inviter_encapsulation_key(mut self, key: Vec<u8>) -> Self {
+        self.inviter_encapsulation_key = Some(key);
+        self
+    }
+
+    /// Add inviter's PQ verifying key (for signature verification)
+    pub fn with_inviter_pq_verifying_key(mut self, key: Vec<u8>) -> Self {
+        self.inviter_pq_verifying_key = Some(key);
         self
     }
 
@@ -149,13 +178,25 @@ pub struct InterfaceState {
 /// IndrasNode provides a unified API for P2P networking, storage, and sync.
 /// It manages interfaces (shared spaces where N peers collaborate) and handles
 /// message delivery, CRDT synchronization, and persistence.
+///
+/// ## Post-Quantum Security
+///
+/// The node uses post-quantum cryptography for application-layer security:
+/// - ML-DSA-65 for digital signatures (message authentication)
+/// - ML-KEM-768 for key encapsulation (key distribution)
+///
+/// Iroh's Ed25519 is used for transport-layer identity only.
 pub struct IndrasNode {
     /// Node configuration
     config: NodeConfig,
-    /// Our identity
+    /// Our transport identity (iroh Ed25519)
     identity: IrohIdentity,
-    /// Our secret key (for crypto operations)
+    /// Our iroh secret key (for transport layer)
     secret_key: iroh::SecretKey,
+    /// Our post-quantum identity (ML-DSA-65 for signatures)
+    pq_identity: PQIdentity,
+    /// Our post-quantum KEM key pair (ML-KEM-768 for key encapsulation)
+    pq_kem_keypair: PQKemKeyPair,
     /// Composite storage (logs + redb + blobs)
     storage: Arc<CompositeStorage<IrohIdentity>>,
     /// Loaded interfaces
@@ -188,19 +229,34 @@ impl IndrasNode {
         let storage = CompositeStorage::new(config.storage.clone()).await?;
         let storage = Arc::new(storage);
 
-        // Load or generate identity from keystore
+        // Load or generate all keys from keystore
         let keystore = Keystore::new(&config.data_dir);
-        let secret_key = keystore.load_or_generate()?;
+
+        // Iroh transport key (Ed25519)
+        let secret_key = keystore.load_or_generate_iroh()?;
         let identity = IrohIdentity::new(secret_key.public());
+
+        // Post-quantum identity (ML-DSA-65)
+        let pq_identity = keystore.load_or_generate_pq_identity()?;
+
+        // Post-quantum KEM key pair (ML-KEM-768)
+        let pq_kem_keypair = keystore.load_or_generate_pq_kem()?;
 
         let (shutdown_tx, _) = broadcast::channel(1);
 
-        info!(identity = %identity.short_id(), "Node created");
+        info!(
+            identity = %identity.short_id(),
+            pq_identity = %pq_identity.verifying_key().short_id(),
+            pq_kem = %pq_kem_keypair.encapsulation_key().short_id(),
+            "Node created with post-quantum keys"
+        );
 
         Ok(Self {
             config,
             identity,
             secret_key,
+            pq_identity,
+            pq_kem_keypair,
             storage,
             interfaces: Arc::new(DashMap::new()),
             interface_keys: Arc::new(DashMap::new()),
@@ -211,9 +267,10 @@ impl IndrasNode {
         })
     }
 
-    /// Create a node with a specific identity
+    /// Create a node with a specific iroh identity
     ///
-    /// Use this when you have an existing secret key.
+    /// Use this when you have an existing iroh secret key.
+    /// PQ keys will be generated if not present.
     #[instrument(skip(config, secret_key))]
     pub async fn with_identity(
         config: NodeConfig,
@@ -226,19 +283,30 @@ impl IndrasNode {
         let storage = CompositeStorage::new(config.storage.clone()).await?;
         let storage = Arc::new(storage);
 
-        // Save the provided key to keystore
+        // Save the provided iroh key and load/generate PQ keys
         let keystore = Keystore::new(&config.data_dir);
-        keystore.save(&secret_key)?;
+        keystore.save_iroh(&secret_key)?;
 
         let identity = IrohIdentity::new(secret_key.public());
+
+        // PQ keys - load existing or generate new
+        let pq_identity = keystore.load_or_generate_pq_identity()?;
+        let pq_kem_keypair = keystore.load_or_generate_pq_kem()?;
+
         let (shutdown_tx, _) = broadcast::channel(1);
 
-        info!(identity = %identity.short_id(), "Node created with existing identity");
+        info!(
+            identity = %identity.short_id(),
+            pq_identity = %pq_identity.verifying_key().short_id(),
+            "Node created with existing iroh identity"
+        );
 
         Ok(Self {
             config,
             identity,
             secret_key,
+            pq_identity,
+            pq_kem_keypair,
             storage,
             interfaces: Arc::new(DashMap::new()),
             interface_keys: Arc::new(DashMap::new()),
@@ -300,13 +368,16 @@ impl IndrasNode {
             self.interface_keys.clone(),
             self.interfaces.clone(),
             self.storage.clone(),
+            self.config.allow_legacy_unsigned,
             self.shutdown_tx.subscribe(),
             message_rx,
         );
 
-        // Spawn sync task
+        // Spawn sync task with PQ identity for signing
+        let pq_identity_arc = Arc::new(self.pq_identity.clone());
         let sync_task = SyncTask::spawn(
             self.identity,
+            pq_identity_arc,
             adapter.clone(),
             self.interface_keys.clone(),
             self.interfaces.clone(),
@@ -429,9 +500,24 @@ impl IndrasNode {
         &self.identity
     }
 
-    /// Get our secret key
+    /// Get our iroh secret key
     pub fn secret_key(&self) -> &iroh::SecretKey {
         &self.secret_key
+    }
+
+    /// Get our post-quantum identity (ML-DSA-65)
+    pub fn pq_identity(&self) -> &PQIdentity {
+        &self.pq_identity
+    }
+
+    /// Get our post-quantum KEM key pair (ML-KEM-768)
+    pub fn pq_kem_keypair(&self) -> &PQKemKeyPair {
+        &self.pq_kem_keypair
+    }
+
+    /// Get our public encapsulation key (for others to send us keys)
+    pub fn encapsulation_key(&self) -> PQEncapsulationKey {
+        self.pq_kem_keypair.encapsulation_key()
     }
 
     /// Check if the node is started
@@ -486,8 +572,11 @@ impl IndrasNode {
 
         info!(interface_id = %hex::encode(interface_id.as_bytes()), "Interface created");
 
-        // Create invite with our endpoint address
-        let mut invite = InviteKey::new(interface_id);
+        // Create invite with our endpoint address and PQ keys
+        let mut invite = InviteKey::new(interface_id)
+            .with_inviter_encapsulation_key(self.pq_kem_keypair.encapsulation_key_bytes())
+            .with_inviter_pq_verifying_key(self.pq_identity.verifying_key_bytes());
+
         if let Some(transport) = self.transport.read().await.as_ref() {
             let addr = transport.endpoint_addr();
             // Serialize endpoint address using postcard
@@ -499,34 +588,33 @@ impl IndrasNode {
         Ok((interface_id, invite))
     }
 
-    /// Create an invite for a specific peer
+    /// Create an invite for a specific peer using ML-KEM
     ///
-    /// Includes the encrypted interface key for the invitee.
+    /// Includes the ML-KEM encapsulated interface key for the invitee,
+    /// plus our PQ keys for future communication.
     pub async fn create_invite_for(
         &self,
         interface_id: &InterfaceId,
-        invitee_public: &indras_crypto::PublicKey,
+        invitee_encapsulation_key: &PQEncapsulationKey,
     ) -> NodeResult<InviteKey> {
         // Get interface key
         let interface_key = self.interface_keys.get(interface_id)
             .ok_or_else(|| NodeError::InterfaceNotFound(hex::encode(interface_id.as_bytes())))?;
 
-        // Create X25519 key from our iroh key
-        let our_x25519_secret = indras_crypto::StaticSecret::from(self.secret_key.to_bytes());
-
-        // Create encrypted key invite
+        // Create ML-KEM encapsulated key invite
         let key_invite = KeyDistribution::create_invite(
             interface_key.value(),
-            &our_x25519_secret,
-            invitee_public,
+            invitee_encapsulation_key,
         ).map_err(|e| NodeError::Crypto(e.to_string()))?;
 
         let key_invite_bytes = key_invite.to_bytes()
             .map_err(|e| NodeError::Crypto(e.to_string()))?;
 
-        // Build invite
+        // Build invite with PQ components
         let mut invite = InviteKey::new(*interface_id)
-            .with_key_invite(key_invite_bytes);
+            .with_key_invite(key_invite_bytes)
+            .with_inviter_encapsulation_key(self.pq_kem_keypair.encapsulation_key_bytes())
+            .with_inviter_pq_verifying_key(self.pq_identity.verifying_key_bytes());
 
         // Add our endpoint address
         if let Some(transport) = self.transport.read().await.as_ref() {
@@ -550,7 +638,7 @@ impl IndrasNode {
             return Ok(interface_id);
         }
 
-        // Decrypt interface key if provided
+        // Decapsulate interface key if provided (using ML-KEM)
         if let Some(key_invite_bytes) = &invite.key_invite {
             let key_invite = KeyInvite::from_bytes(key_invite_bytes)
                 .map_err(|e| NodeError::Crypto(e.to_string()))?;
@@ -564,8 +652,8 @@ impl IndrasNode {
                 )));
             }
 
-            let our_x25519_secret = indras_crypto::StaticSecret::from(self.secret_key.to_bytes());
-            let interface_key = KeyDistribution::accept_invite(&key_invite, &our_x25519_secret)
+            // Decapsulate using our ML-KEM key pair
+            let interface_key = KeyDistribution::accept_invite(&key_invite, &self.pq_kem_keypair)
                 .map_err(|e| NodeError::Crypto(e.to_string()))?;
 
             self.interface_keys.insert(interface_id, interface_key);
@@ -605,7 +693,7 @@ impl IndrasNode {
                 }
             }
 
-            // Send initial sync request ONLY to bootstrap peers we connected to
+            // Send initial sync request ONLY to bootstrap peers we connected to (signed)
             let state = self.interfaces.get(&interface_id).unwrap();
             let interface = state.interface.read().await;
             for peer in &bootstrap_peer_ids {
@@ -618,8 +706,19 @@ impl IndrasNode {
                         sync_data: sync_msg.sync_data,
                     };
                     let msg = NetworkMessage::SyncRequest(request);
-                    if let Ok(bytes) = msg.to_bytes() {
-                        let _ = transport.send(peer, bytes).await;
+
+                    // Sign the message
+                    if let Ok(msg_bytes) = msg.to_bytes() {
+                        let signature = self.pq_identity.sign(&msg_bytes);
+                        let signed_msg = SignedNetworkMessage {
+                            version: SIGNED_MESSAGE_VERSION,
+                            message: msg,
+                            signature: signature.to_bytes().to_vec(),
+                            sender_verifying_key: self.pq_identity.verifying_key_bytes(),
+                        };
+                        if let Ok(bytes) = signed_msg.to_bytes() {
+                            let _ = transport.send(peer, bytes).await;
+                        }
                     }
                 }
             }
@@ -659,7 +758,7 @@ impl IndrasNode {
         };
         let _ = state.event_tx.send(received);
 
-        // Send encrypted message to connected peers
+        // Send encrypted and signed message to connected peers
         if let Some(transport) = self.transport.read().await.as_ref() {
             if let Some(key) = self.interface_keys.get(interface_id) {
                 // Serialize and encrypt
@@ -675,7 +774,20 @@ impl IndrasNode {
                     encrypted.nonce,
                 );
                 let network_msg = NetworkMessage::InterfaceEvent(msg);
-                let bytes = network_msg.to_bytes()
+
+                // Sign the message with PQ identity
+                let msg_bytes = network_msg.to_bytes()
+                    .map_err(|e| NodeError::Serialization(e.to_string()))?;
+                let signature = self.pq_identity.sign(&msg_bytes);
+
+                let signed_msg = SignedNetworkMessage {
+                    version: SIGNED_MESSAGE_VERSION,
+                    message: network_msg,
+                    signature: signature.to_bytes().to_vec(),
+                    sender_verifying_key: self.pq_identity.verifying_key_bytes(),
+                };
+
+                let bytes = signed_msg.to_bytes()
                     .map_err(|e| NodeError::Serialization(e.to_string()))?;
 
                 // Send to all members

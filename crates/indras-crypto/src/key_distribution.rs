@@ -1,79 +1,86 @@
 //! Key distribution for N-peer interface member onboarding
 //!
 //! Provides secure key sharing when inviting new members to an interface.
+//! Uses ML-KEM-768 (post-quantum secure) for key encapsulation.
 
 use serde::{Deserialize, Serialize};
-use x25519_dalek::{PublicKey, StaticSecret};
 
 use indras_core::InterfaceId;
 
 use crate::error::CryptoError;
 use crate::interface_key::{InterfaceKey, NONCE_SIZE};
+use crate::pq_kem::{PQEncapsulationKey, PQKemKeyPair, PQ_CIPHERTEXT_SIZE};
 
 /// Key distribution utilities for member onboarding
+///
+/// Uses ML-KEM-768 for post-quantum secure key encapsulation.
 pub struct KeyDistribution;
 
 impl KeyDistribution {
-    /// Create an invite for a new member
+    /// Create an invite for a new member using ML-KEM
     ///
-    /// Encrypts the interface key to the invitee's public key so only they
-    /// can decrypt it.
+    /// Encapsulates the interface key to the invitee's public encapsulation key
+    /// so only they can decapsulate it.
     pub fn create_invite(
         interface_key: &InterfaceKey,
-        inviter_secret: &StaticSecret,
-        invitee_public: &PublicKey,
+        invitee_encapsulation_key: &PQEncapsulationKey,
     ) -> Result<KeyInvite, CryptoError> {
-        let exported = interface_key.export_for(invitee_public, inviter_secret)?;
+        let encapsulated = interface_key.encapsulate_for(invitee_encapsulation_key)?;
 
         Ok(KeyInvite {
             interface_id: interface_key.interface_id(),
-            encrypted_key: exported.encrypted_key,
-            nonce: exported.nonce,
-            inviter_public: PublicKey::from(inviter_secret).to_bytes(),
+            kem_ciphertext: encapsulated.kem_ciphertext,
+            encrypted_key: encapsulated.encrypted_key,
+            nonce: encapsulated.nonce,
         })
     }
 
-    /// Accept an invite and extract the interface key
+    /// Accept an invite and extract the interface key using ML-KEM
     pub fn accept_invite(
         invite: &KeyInvite,
-        our_secret: &StaticSecret,
+        our_kem_keypair: &PQKemKeyPair,
     ) -> Result<InterfaceKey, CryptoError> {
-        // Reconstruct exported key format
-        let exported = crate::interface_key::ExportedKey {
+        // Reconstruct encapsulated key format
+        let encapsulated = crate::interface_key::EncapsulatedKey {
             interface_id: invite.interface_id,
+            kem_ciphertext: invite.kem_ciphertext.clone(),
             encrypted_key: invite.encrypted_key.clone(),
             nonce: invite.nonce,
-            sender_public: invite.inviter_public,
         };
 
-        InterfaceKey::import_from(&exported, our_secret)
+        InterfaceKey::decapsulate(&encapsulated, our_kem_keypair)
     }
 
     /// Create an invite from raw key bytes (for manual key sharing)
     pub fn create_invite_from_bytes(
         key_bytes: &[u8; 32],
         interface_id: InterfaceId,
-        inviter_secret: &StaticSecret,
-        invitee_public: &PublicKey,
+        invitee_encapsulation_key: &PQEncapsulationKey,
     ) -> Result<KeyInvite, CryptoError> {
         let key = InterfaceKey::from_bytes(*key_bytes, interface_id);
-        Self::create_invite(&key, inviter_secret, invitee_public)
+        Self::create_invite(&key, invitee_encapsulation_key)
     }
 }
 
-/// An invitation to join an interface
+/// An invitation to join an interface (post-quantum secure)
 ///
-/// Contains the encrypted interface key that only the invitee can decrypt.
+/// Contains the ML-KEM encapsulated interface key that only the invitee can decapsulate.
+///
+/// ## Size
+///
+/// - KEM ciphertext: ~1,088 bytes
+/// - Encrypted key: ~48 bytes (32-byte key + 16-byte auth tag)
+/// - Total: ~1,200 bytes per invite
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeyInvite {
     /// The interface this invite is for
     pub interface_id: InterfaceId,
-    /// The encrypted interface key (encrypted to invitee's public key)
+    /// ML-KEM-768 ciphertext (~1,088 bytes)
+    pub kem_ciphertext: Vec<u8>,
+    /// The encrypted interface key (encrypted with shared secret)
     pub encrypted_key: Vec<u8>,
-    /// Nonce used for encryption
+    /// Nonce used for symmetric encryption
     pub nonce: [u8; NONCE_SIZE],
-    /// Public key of the inviter (needed for key derivation)
-    pub inviter_public: [u8; 32],
 }
 
 impl KeyInvite {
@@ -87,9 +94,9 @@ impl KeyInvite {
         postcard::from_bytes(data).map_err(|e| CryptoError::DecryptionFailed(e.to_string()))
     }
 
-    /// Get the inviter's public key
-    pub fn inviter_public_key(&self) -> PublicKey {
-        PublicKey::from(self.inviter_public)
+    /// Check if the KEM ciphertext has valid length
+    pub fn is_valid_ciphertext_length(&self) -> bool {
+        self.kem_ciphertext.len() == PQ_CIPHERTEXT_SIZE
     }
 }
 
@@ -199,17 +206,9 @@ impl FullInvite {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::RngCore;
 
     fn test_interface_id() -> InterfaceId {
         InterfaceId::new([0x42; 32])
-    }
-
-    /// Generate a random StaticSecret (compatible with x25519-dalek's rand_core version)
-    fn random_secret() -> StaticSecret {
-        let mut bytes = [0u8; 32];
-        rand::rng().fill_bytes(&mut bytes);
-        StaticSecret::from(bytes)
     }
 
     #[test]
@@ -217,22 +216,24 @@ mod tests {
         let id = test_interface_id();
         let key = InterfaceKey::generate(id);
 
-        // Generate keypairs
-        let alice_secret = random_secret();
-        let bob_secret = random_secret();
-        let bob_public = PublicKey::from(&bob_secret);
+        // Bob generates a KEM key pair
+        let bob_kem = PQKemKeyPair::generate();
+        let bob_encap_key = bob_kem.encapsulation_key();
 
         // Alice creates invite for Bob
-        let invite = KeyDistribution::create_invite(&key, &alice_secret, &bob_public).unwrap();
+        let invite = KeyDistribution::create_invite(&key, &bob_encap_key).unwrap();
+
+        // Verify ciphertext length
+        assert!(invite.is_valid_ciphertext_length());
 
         // Bob accepts the invite
-        let imported_key = KeyDistribution::accept_invite(&invite, &bob_secret).unwrap();
+        let imported_key = KeyDistribution::accept_invite(&invite, &bob_kem).unwrap();
 
         // Keys should match
         assert_eq!(key.as_bytes(), imported_key.as_bytes());
 
         // Test encryption/decryption across the keys
-        let plaintext = b"Secret message";
+        let plaintext = b"Quantum-secure secret message";
         let encrypted = key.encrypt(plaintext).unwrap();
         let decrypted = imported_key.decrypt(&encrypted).unwrap();
         assert_eq!(decrypted, plaintext);
@@ -243,16 +244,15 @@ mod tests {
         let id = test_interface_id();
         let key = InterfaceKey::generate(id);
 
-        let alice_secret = random_secret();
-        let bob_secret = random_secret();
-        let bob_public = PublicKey::from(&bob_secret);
-        let eve_secret = random_secret();
+        // Bob and Eve generate KEM key pairs
+        let bob_kem = PQKemKeyPair::generate();
+        let eve_kem = PQKemKeyPair::generate();
 
         // Alice creates invite for Bob
-        let invite = KeyDistribution::create_invite(&key, &alice_secret, &bob_public).unwrap();
+        let invite = KeyDistribution::create_invite(&key, &bob_kem.encapsulation_key()).unwrap();
 
         // Eve tries to accept Bob's invite
-        let result = KeyDistribution::accept_invite(&invite, &eve_secret);
+        let result = KeyDistribution::accept_invite(&invite, &eve_kem);
         assert!(result.is_err());
     }
 
@@ -261,22 +261,20 @@ mod tests {
         let id = test_interface_id();
         let key = InterfaceKey::generate(id);
 
-        let alice_secret = random_secret();
-        let bob_secret = random_secret();
-        let bob_public = PublicKey::from(&bob_secret);
-
-        let invite = KeyDistribution::create_invite(&key, &alice_secret, &bob_public).unwrap();
+        let bob_kem = PQKemKeyPair::generate();
+        let invite = KeyDistribution::create_invite(&key, &bob_kem.encapsulation_key()).unwrap();
 
         // Serialize and deserialize
         let bytes = invite.to_bytes().unwrap();
         let parsed = KeyInvite::from_bytes(&bytes).unwrap();
 
         assert_eq!(parsed.interface_id, invite.interface_id);
+        assert_eq!(parsed.kem_ciphertext, invite.kem_ciphertext);
         assert_eq!(parsed.encrypted_key, invite.encrypted_key);
         assert_eq!(parsed.nonce, invite.nonce);
 
         // Should still work after serialization
-        let imported_key = KeyDistribution::accept_invite(&parsed, &bob_secret).unwrap();
+        let imported_key = KeyDistribution::accept_invite(&parsed, &bob_kem).unwrap();
         assert_eq!(key.as_bytes(), imported_key.as_bytes());
     }
 
@@ -298,11 +296,8 @@ mod tests {
         let id = test_interface_id();
         let key = InterfaceKey::generate(id);
 
-        let alice_secret = random_secret();
-        let bob_secret = random_secret();
-        let bob_public = PublicKey::from(&bob_secret);
-
-        let key_invite = KeyDistribution::create_invite(&key, &alice_secret, &bob_public).unwrap();
+        let bob_kem = PQKemKeyPair::generate();
+        let key_invite = KeyDistribution::create_invite(&key, &bob_kem.encapsulation_key()).unwrap();
         let metadata = InviteMetadata::new().with_name("My Interface");
 
         let full_invite = FullInvite::new(key_invite).with_metadata(metadata);
@@ -315,5 +310,21 @@ mod tests {
             parsed.metadata.unwrap().interface_name,
             Some("My Interface".to_string())
         );
+    }
+
+    #[test]
+    fn test_create_invite_from_bytes() {
+        let id = test_interface_id();
+        let key_bytes = [0x42u8; 32];
+
+        let bob_kem = PQKemKeyPair::generate();
+        let invite = KeyDistribution::create_invite_from_bytes(
+            &key_bytes,
+            id,
+            &bob_kem.encapsulation_key(),
+        ).unwrap();
+
+        let recovered_key = KeyDistribution::accept_invite(&invite, &bob_kem).unwrap();
+        assert_eq!(recovered_key.as_bytes(), &key_bytes);
     }
 }

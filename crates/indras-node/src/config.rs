@@ -16,6 +16,11 @@ pub struct NodeConfig {
     pub storage: CompositeStorageConfig,
     /// Event broadcast channel capacity
     pub event_channel_capacity: usize,
+    /// Allow unsigned (legacy) messages
+    ///
+    /// When true (default during transition), accepts unsigned messages with a warning.
+    /// Set to false in production to enforce PQ signatures on all messages.
+    pub allow_legacy_unsigned: bool,
 }
 
 impl Default for NodeConfig {
@@ -26,6 +31,8 @@ impl Default for NodeConfig {
             transport: AdapterConfig::default(),
             storage: CompositeStorageConfig::with_base_dir(data_dir.join("storage")),
             event_channel_capacity: 1024,
+            // Default to allowing legacy during transition period
+            allow_legacy_unsigned: true,
         }
     }
 }
@@ -39,6 +46,8 @@ impl NodeConfig {
             transport: AdapterConfig::default(),
             storage: CompositeStorageConfig::with_base_dir(data_dir.join("storage")),
             event_channel_capacity: 1024,
+            // Default to allowing legacy during transition period
+            allow_legacy_unsigned: true,
         }
     }
 
@@ -58,5 +67,24 @@ impl NodeConfig {
     pub fn with_event_channel_capacity(mut self, capacity: usize) -> Self {
         self.event_channel_capacity = capacity;
         self
+    }
+
+    /// Configure whether to allow unsigned (legacy) messages
+    ///
+    /// When false, unsigned messages will be rejected with an error.
+    /// Set to false in production to enforce PQ signatures on all messages.
+    ///
+    /// Default is true during the transition period.
+    pub fn with_allow_legacy_unsigned(mut self, allow: bool) -> Self {
+        self.allow_legacy_unsigned = allow;
+        self
+    }
+
+    /// Disable legacy unsigned messages (enforce PQ signatures)
+    ///
+    /// This is a convenience method equivalent to `.with_allow_legacy_unsigned(false)`.
+    /// Use this in production deployments.
+    pub fn enforce_pq_signatures(self) -> Self {
+        self.with_allow_legacy_unsigned(false)
     }
 }

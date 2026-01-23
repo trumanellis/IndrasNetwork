@@ -2,8 +2,12 @@
 //!
 //! Handles:
 //! - Periodic sync with all interface members
-//! - Delivery of pending events to peers
+//! - Delivery of pending events to peers (signed with ML-DSA-65)
 //! - Sync state management
+//!
+//! ## Post-Quantum Signatures
+//!
+//! All outgoing messages are signed with ML-DSA-65 signatures.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -15,19 +19,22 @@ use tracing::{debug, error, info, warn};
 
 use indras_core::{InterfaceId, NInterfaceTrait, PeerIdentity};
 use indras_core::transport::Transport;
-use indras_crypto::InterfaceKey;
+use indras_crypto::{InterfaceKey, PQIdentity};
 use indras_storage::CompositeStorage;
 use indras_transport::{IrohIdentity, IrohNetworkAdapter};
 
 use crate::message_handler::{
-    InterfaceEventMessage, InterfaceSyncRequest, NetworkMessage,
+    InterfaceEventMessage, InterfaceSyncRequest, NetworkMessage, SignedNetworkMessage,
+    SIGNED_MESSAGE_VERSION,
 };
 use crate::InterfaceState;
 
 /// Background sync task
 pub struct SyncTask {
-    /// Our identity
+    /// Our transport identity
     local_identity: IrohIdentity,
+    /// Our PQ identity for signing messages
+    pq_identity: Arc<PQIdentity>,
     /// Transport adapter for sending messages
     transport: Arc<IrohNetworkAdapter>,
     /// Interface keys for encryption
@@ -47,6 +54,7 @@ impl SyncTask {
     /// Create a new sync task
     pub fn new(
         local_identity: IrohIdentity,
+        pq_identity: Arc<PQIdentity>,
         transport: Arc<IrohNetworkAdapter>,
         interface_keys: Arc<DashMap<InterfaceId, InterfaceKey>>,
         interfaces: Arc<DashMap<InterfaceId, InterfaceState>>,
@@ -56,6 +64,7 @@ impl SyncTask {
     ) -> Self {
         Self {
             local_identity,
+            pq_identity,
             transport,
             interface_keys,
             interfaces,
@@ -68,6 +77,7 @@ impl SyncTask {
     /// Spawn the sync task as a background task
     pub fn spawn(
         local_identity: IrohIdentity,
+        pq_identity: Arc<PQIdentity>,
         transport: Arc<IrohNetworkAdapter>,
         interface_keys: Arc<DashMap<InterfaceId, InterfaceKey>>,
         interfaces: Arc<DashMap<InterfaceId, InterfaceState>>,
@@ -77,6 +87,7 @@ impl SyncTask {
     ) -> JoinHandle<()> {
         let task = Self::new(
             local_identity,
+            pq_identity,
             transport,
             interface_keys,
             interfaces,
@@ -180,6 +191,24 @@ impl SyncTask {
         Ok(())
     }
 
+    /// Sign and serialize a network message
+    fn sign_message(&self, message: NetworkMessage) -> Result<Vec<u8>, SyncError> {
+        let message_bytes = message.to_bytes()
+            .map_err(|e| SyncError::Serialization(e.to_string()))?;
+
+        let signature = self.pq_identity.sign(&message_bytes);
+
+        let signed_msg = SignedNetworkMessage {
+            version: SIGNED_MESSAGE_VERSION,
+            message,
+            signature: signature.to_bytes().to_vec(),
+            sender_verifying_key: self.pq_identity.verifying_key_bytes(),
+        };
+
+        signed_msg.to_bytes()
+            .map_err(|e| SyncError::Serialization(e.to_string()))
+    }
+
     /// Send a sync request to a peer
     async fn send_sync_request(
         &self,
@@ -197,8 +226,9 @@ impl SyncTask {
         };
 
         let msg = NetworkMessage::SyncRequest(request);
-        let bytes = msg.to_bytes()
-            .map_err(|e| SyncError::Serialization(e.to_string()))?;
+
+        // Sign and serialize
+        let bytes = self.sign_message(msg)?;
 
         // Send to peer
         self.transport.send(peer, bytes).await
@@ -207,7 +237,7 @@ impl SyncTask {
         debug!(
             peer = %peer.short_id(),
             interface = %hex::encode(sync_msg.interface_id.as_bytes()),
-            "Sent sync request"
+            "Sent signed sync request"
         );
 
         Ok(())
@@ -229,7 +259,7 @@ impl SyncTask {
         debug!(
             peer = %peer.short_id(),
             count = pending.len(),
-            "Delivering pending events"
+            "Delivering pending events (signed)"
         );
 
         for event in pending {
@@ -256,8 +286,9 @@ impl SyncTask {
             );
 
             let network_msg = NetworkMessage::InterfaceEvent(msg);
-            let bytes = network_msg.to_bytes()
-                .map_err(|e| SyncError::Serialization(e.to_string()))?;
+
+            // Sign and serialize
+            let bytes = self.sign_message(network_msg)?;
 
             // Send
             self.transport.send(peer, bytes).await

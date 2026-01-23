@@ -2,6 +2,9 @@
 //!
 //! Provides shared symmetric key encryption using ChaCha20-Poly1305
 //! for encrypting events within an interface.
+//!
+//! Key exchange uses ML-KEM-768 (post-quantum secure) for encapsulating
+//! interface keys to new members.
 
 use chacha20poly1305::{
     aead::{Aead, KeyInit},
@@ -9,11 +12,11 @@ use chacha20poly1305::{
 };
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use x25519_dalek::{PublicKey, StaticSecret};
 
 use indras_core::InterfaceId;
 
 use crate::error::CryptoError;
+use crate::pq_kem::{PQEncapsulationKey, PQKemKeyPair, PQCiphertext};
 
 /// Nonce size for ChaCha20-Poly1305 (12 bytes)
 pub const NONCE_SIZE: usize = 12;
@@ -121,20 +124,19 @@ impl InterfaceKey {
         self.decrypt(&encrypted)
     }
 
-    /// Export key for sharing with a new member
+    /// Encapsulate this interface key for a recipient using ML-KEM-768
     ///
-    /// Uses X25519 ECDH to create a shared secret, then encrypts the
-    /// interface key with that shared secret.
-    pub fn export_for(
+    /// Uses post-quantum key encapsulation to securely share the interface key.
+    /// The recipient needs their decapsulation key to recover the interface key.
+    pub fn encapsulate_for(
         &self,
-        recipient_public: &PublicKey,
-        our_secret: &StaticSecret,
-    ) -> Result<ExportedKey, CryptoError> {
-        // Derive shared secret using X25519
-        let shared_secret = our_secret.diffie_hellman(recipient_public);
+        recipient_encapsulation_key: &PQEncapsulationKey,
+    ) -> Result<EncapsulatedKey, CryptoError> {
+        // Encapsulate to get shared secret and ciphertext
+        let (ciphertext, shared_secret) = recipient_encapsulation_key.encapsulate();
 
-        // Use shared secret as encryption key
-        let cipher = ChaCha20Poly1305::new_from_slice(shared_secret.as_bytes())
+        // Use shared secret to encrypt the interface key
+        let cipher = ChaCha20Poly1305::new_from_slice(&shared_secret)
             .map_err(|e| CryptoError::EncryptionFailed(e.to_string()))?;
 
         // Generate nonce
@@ -147,33 +149,38 @@ impl InterfaceKey {
             .encrypt(nonce, self.key.as_slice())
             .map_err(|e| CryptoError::EncryptionFailed(e.to_string()))?;
 
-        Ok(ExportedKey {
+        Ok(EncapsulatedKey {
             interface_id: self.interface_id,
+            kem_ciphertext: ciphertext.into_bytes(),
             encrypted_key,
             nonce: nonce_bytes,
-            sender_public: PublicKey::from(our_secret).to_bytes(),
         })
     }
 
-    /// Import a key shared by an existing member
-    pub fn import_from(
-        exported: &ExportedKey,
-        our_secret: &StaticSecret,
+    /// Decapsulate to recover the interface key using ML-KEM-768
+    ///
+    /// Uses the recipient's KEM key pair to recover the shared secret,
+    /// then decrypts the interface key.
+    pub fn decapsulate(
+        encapsulated: &EncapsulatedKey,
+        our_kem_keypair: &PQKemKeyPair,
     ) -> Result<Self, CryptoError> {
-        // Reconstruct sender's public key
-        let sender_public = PublicKey::from(exported.sender_public);
+        // Reconstruct ciphertext
+        let ciphertext = PQCiphertext::from_bytes(encapsulated.kem_ciphertext.clone())
+            .map_err(|e| CryptoError::PQDecapsulationFailed(e.to_string()))?;
 
-        // Derive shared secret
-        let shared_secret = our_secret.diffie_hellman(&sender_public);
+        // Decapsulate to get shared secret
+        let shared_secret = our_kem_keypair.decapsulate(&ciphertext)
+            .map_err(|e| CryptoError::PQDecapsulationFailed(e.to_string()))?;
 
         // Decrypt the interface key
-        let cipher = ChaCha20Poly1305::new_from_slice(shared_secret.as_bytes())
+        let cipher = ChaCha20Poly1305::new_from_slice(&shared_secret)
             .map_err(|e| CryptoError::DecryptionFailed(e.to_string()))?;
 
-        let nonce = Nonce::from_slice(&exported.nonce);
+        let nonce = Nonce::from_slice(&encapsulated.nonce);
 
         let key_bytes = cipher
-            .decrypt(nonce, exported.encrypted_key.as_slice())
+            .decrypt(nonce, encapsulated.encrypted_key.as_slice())
             .map_err(|e| CryptoError::DecryptionFailed(e.to_string()))?;
 
         if key_bytes.len() != KEY_SIZE {
@@ -187,7 +194,7 @@ impl InterfaceKey {
 
         Ok(Self {
             key,
-            interface_id: exported.interface_id,
+            interface_id: encapsulated.interface_id,
         })
     }
 }
@@ -228,8 +235,39 @@ impl EncryptedData {
     }
 }
 
-/// Exported key for sharing with new members
+/// Encapsulated key for sharing with new members (post-quantum secure)
+///
+/// Uses ML-KEM-768 for key encapsulation, replacing the previous X25519-based
+/// key exchange. The KEM ciphertext is ~1,088 bytes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EncapsulatedKey {
+    /// The interface this key is for
+    pub interface_id: InterfaceId,
+    /// ML-KEM-768 ciphertext (~1,088 bytes)
+    pub kem_ciphertext: Vec<u8>,
+    /// The encrypted interface key (encrypted with derived shared secret)
+    pub encrypted_key: Vec<u8>,
+    /// Nonce used for symmetric encryption
+    pub nonce: [u8; NONCE_SIZE],
+}
+
+impl EncapsulatedKey {
+    /// Serialize to bytes for transmission
+    pub fn to_bytes(&self) -> Result<Vec<u8>, CryptoError> {
+        postcard::to_allocvec(self).map_err(|e| CryptoError::EncryptionFailed(e.to_string()))
+    }
+
+    /// Deserialize from bytes
+    pub fn from_bytes(data: &[u8]) -> Result<Self, CryptoError> {
+        postcard::from_bytes(data).map_err(|e| CryptoError::DecryptionFailed(e.to_string()))
+    }
+}
+
+/// Legacy exported key struct (deprecated - use EncapsulatedKey instead)
+///
+/// Kept for backward compatibility during migration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[deprecated(since = "0.2.0", note = "Use EncapsulatedKey with ML-KEM instead")]
 pub struct ExportedKey {
     /// The interface this key is for
     pub interface_id: InterfaceId,
@@ -244,17 +282,9 @@ pub struct ExportedKey {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::RngCore;
 
     fn test_interface_id() -> InterfaceId {
         InterfaceId::new([0x42; 32])
-    }
-
-    /// Generate a random StaticSecret (compatible with x25519-dalek's rand_core version)
-    fn random_secret() -> StaticSecret {
-        let mut bytes = [0u8; 32];
-        rand::rng().fill_bytes(&mut bytes);
-        StaticSecret::from(bytes)
     }
 
     #[test]
@@ -326,30 +356,48 @@ mod tests {
     }
 
     #[test]
-    fn test_key_export_import() {
+    fn test_pq_key_encapsulation() {
         let id = test_interface_id();
         let original_key = InterfaceKey::generate(id);
 
-        // Generate keypairs for Alice (exporter) and Bob (recipient)
-        let alice_secret = random_secret();
-        let bob_secret = random_secret();
-        let bob_public = PublicKey::from(&bob_secret);
+        // Bob generates a KEM key pair
+        let bob_kem = PQKemKeyPair::generate();
+        let bob_encap_key = bob_kem.encapsulation_key();
 
-        // Alice exports the key for Bob
-        let exported = original_key.export_for(&bob_public, &alice_secret).unwrap();
+        // Alice encapsulates the interface key for Bob
+        let encapsulated = original_key.encapsulate_for(&bob_encap_key).unwrap();
 
-        // Bob imports the key
-        let imported_key = InterfaceKey::import_from(&exported, &bob_secret).unwrap();
+        // Bob decapsulates to recover the key
+        let recovered_key = InterfaceKey::decapsulate(&encapsulated, &bob_kem).unwrap();
 
         // Keys should match
-        assert_eq!(original_key.as_bytes(), imported_key.as_bytes());
-        assert_eq!(original_key.interface_id(), imported_key.interface_id());
+        assert_eq!(original_key.as_bytes(), recovered_key.as_bytes());
+        assert_eq!(original_key.interface_id(), recovered_key.interface_id());
 
-        // Test encryption with original, decryption with imported
-        let plaintext = b"Shared secret message";
+        // Test encryption with original, decryption with recovered
+        let plaintext = b"Quantum-secure secret message";
         let encrypted = original_key.encrypt(plaintext).unwrap();
-        let decrypted = imported_key.decrypt(&encrypted).unwrap();
+        let decrypted = recovered_key.decrypt(&encrypted).unwrap();
         assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn test_pq_wrong_keypair_fails() {
+        let id = test_interface_id();
+        let original_key = InterfaceKey::generate(id);
+
+        // Bob and Eve generate KEM key pairs
+        let bob_kem = PQKemKeyPair::generate();
+        let eve_kem = PQKemKeyPair::generate();
+
+        // Alice encapsulates the interface key for Bob
+        let encapsulated = original_key.encapsulate_for(&bob_kem.encapsulation_key()).unwrap();
+
+        // Eve tries to decapsulate (will get wrong shared secret due to ML-KEM implicit rejection)
+        let result = InterfaceKey::decapsulate(&encapsulated, &eve_kem);
+
+        // Should fail because Eve's derived shared secret is different
+        assert!(result.is_err());
     }
 
     #[test]
@@ -375,5 +423,22 @@ mod tests {
 
         assert_eq!(parsed.nonce, encrypted.nonce);
         assert_eq!(parsed.ciphertext, encrypted.ciphertext);
+    }
+
+    #[test]
+    fn test_encapsulated_key_serialization() {
+        let id = test_interface_id();
+        let key = InterfaceKey::generate(id);
+        let bob_kem = PQKemKeyPair::generate();
+
+        let encapsulated = key.encapsulate_for(&bob_kem.encapsulation_key()).unwrap();
+
+        // Serialize and deserialize
+        let bytes = encapsulated.to_bytes().unwrap();
+        let parsed = EncapsulatedKey::from_bytes(&bytes).unwrap();
+
+        // Should be able to recover key
+        let recovered = InterfaceKey::decapsulate(&parsed, &bob_kem).unwrap();
+        assert_eq!(key.as_bytes(), recovered.as_bytes());
     }
 }

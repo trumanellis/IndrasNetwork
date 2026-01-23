@@ -28,6 +28,19 @@ pub enum CryptoError {
 
     #[error("Data too short: expected at least {expected} bytes, got {actual}")]
     DataTooShort { expected: usize, actual: usize },
+
+    // Post-quantum specific errors
+    #[error("PQ key encapsulation failed: {0}")]
+    PQEncapsulationFailed(String),
+
+    #[error("PQ key decapsulation failed: {0}")]
+    PQDecapsulationFailed(String),
+
+    #[error("PQ signature failed: {0}")]
+    PQSignatureFailed(String),
+
+    #[error("Invalid PQ ciphertext: {0}")]
+    InvalidPQCiphertext(String),
 }
 
 /// Result type for crypto operations
