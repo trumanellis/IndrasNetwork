@@ -346,7 +346,7 @@ mod tests {
     fn test_presence_info_creation() {
         use iroh::SecretKey;
 
-        let secret = SecretKey::generate(&mut rand::thread_rng());
+        let secret = SecretKey::generate(&mut rand::rng());
         let id = IrohIdentity::new(secret.public());
 
         let presence = PresenceInfo::new(id)
@@ -355,5 +355,62 @@ mod tests {
         assert_eq!(presence.peer_id, id);
         assert_eq!(presence.display_name, Some("TestNode".to_string()));
         assert!(presence.accepting_connections);
+    }
+
+    #[test]
+    fn test_presence_info_with_neighbors() {
+        use iroh::SecretKey;
+
+        let secret1 = SecretKey::generate(&mut rand::rng());
+        let secret2 = SecretKey::generate(&mut rand::rng());
+        let secret3 = SecretKey::generate(&mut rand::rng());
+
+        let id = IrohIdentity::new(secret1.public());
+        let neighbor1 = IrohIdentity::new(secret2.public());
+        let neighbor2 = IrohIdentity::new(secret3.public());
+
+        let presence = PresenceInfo::new(id)
+            .with_neighbors(vec![neighbor1, neighbor2]);
+
+        assert_eq!(presence.neighbors.len(), 2);
+        assert!(presence.neighbors.contains(&neighbor1));
+        assert!(presence.neighbors.contains(&neighbor2));
+    }
+
+    #[test]
+    fn test_presence_info_timestamp_is_recent() {
+        use iroh::SecretKey;
+
+        let secret = SecretKey::generate(&mut rand::rng());
+        let id = IrohIdentity::new(secret.public());
+
+        let before = chrono::Utc::now().timestamp_millis();
+        let presence = PresenceInfo::new(id);
+        let after = chrono::Utc::now().timestamp_millis();
+
+        assert!(presence.timestamp_millis >= before);
+        assert!(presence.timestamp_millis <= after);
+    }
+
+    #[test]
+    fn test_discovery_config_default() {
+        let config = DiscoveryConfig::default();
+        assert!(config.announce_interval_ms > 0);
+        assert!(config.peer_timeout_ms > 0);
+        assert!(config.max_tracked_peers > 0);
+    }
+
+    #[test]
+    fn test_discovery_config_custom() {
+        let config = DiscoveryConfig {
+            announce_interval_ms: 5000,
+            peer_timeout_ms: 15000,
+            max_tracked_peers: 500,
+            ..Default::default()
+        };
+
+        assert_eq!(config.announce_interval_ms, 5000);
+        assert_eq!(config.peer_timeout_ms, 15000);
+        assert_eq!(config.max_tracked_peers, 500);
     }
 }

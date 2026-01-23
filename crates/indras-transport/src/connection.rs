@@ -312,7 +312,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_connection_manager_creation() {
-        let secret = SecretKey::generate(&mut rand::thread_rng());
+        let secret = SecretKey::generate(&mut rand::rng());
         let config = ConnectionConfig::default();
 
         let manager = ConnectionManager::new(secret, config).await.unwrap();
@@ -321,7 +321,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_local_identity() {
-        let secret = SecretKey::generate(&mut rand::thread_rng());
+        let secret = SecretKey::generate(&mut rand::rng());
         let expected_id = IrohIdentity::new(secret.public());
 
         let manager = ConnectionManager::new(secret, ConnectionConfig::default())
@@ -329,5 +329,88 @@ mod tests {
             .unwrap();
 
         assert_eq!(manager.local_identity(), expected_id);
+    }
+
+    #[test]
+    fn test_connection_config_default() {
+        let config = ConnectionConfig::default();
+
+        assert_eq!(config.max_connections, 100);
+        assert_eq!(config.connect_timeout_ms, 10_000);
+        assert_eq!(config.idle_timeout_ms, 60_000);
+        assert!(config.accept_incoming);
+    }
+
+    #[test]
+    fn test_connection_config_custom() {
+        let config = ConnectionConfig {
+            max_connections: 50,
+            connect_timeout_ms: 5000,
+            idle_timeout_ms: 30_000,
+            accept_incoming: false,
+        };
+
+        assert_eq!(config.max_connections, 50);
+        assert_eq!(config.connect_timeout_ms, 5000);
+        assert!(!config.accept_incoming);
+    }
+
+    #[tokio::test]
+    async fn test_connection_stats_initial() {
+        let secret = SecretKey::generate(&mut rand::rng());
+        let config = ConnectionConfig::default();
+
+        let manager = ConnectionManager::new(secret, config).await.unwrap();
+        let stats = manager.stats();
+
+        assert_eq!(stats.active_connections, 0);
+        assert_eq!(stats.total_connections, 0);
+        assert_eq!(stats.max_connections, 100);
+    }
+
+    #[tokio::test]
+    async fn test_connection_manager_endpoint() {
+        let secret = SecretKey::generate(&mut rand::rng());
+        let config = ConnectionConfig::default();
+
+        let manager = ConnectionManager::new(secret.clone(), config).await.unwrap();
+
+        // Endpoint should be accessible and have our public key
+        let addr = manager.endpoint_addr();
+        assert_eq!(addr.id, secret.public());
+    }
+
+    #[tokio::test]
+    async fn test_connection_manager_endpoint_addr() {
+        let secret = SecretKey::generate(&mut rand::rng());
+        let config = ConnectionConfig::default();
+
+        let manager = ConnectionManager::new(secret.clone(), config).await.unwrap();
+        let addr = manager.endpoint_addr();
+
+        // Address should have correct node ID
+        assert_eq!(addr.id, secret.public());
+    }
+
+    #[tokio::test]
+    async fn test_connection_manager_close() {
+        let secret = SecretKey::generate(&mut rand::rng());
+        let config = ConnectionConfig::default();
+
+        let manager = ConnectionManager::new(secret, config).await.unwrap();
+
+        // Close should not panic
+        manager.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_connected_peers_empty_initially() {
+        let secret = SecretKey::generate(&mut rand::rng());
+        let config = ConnectionConfig::default();
+
+        let manager = ConnectionManager::new(secret, config).await.unwrap();
+        let peers = manager.connected_peers();
+
+        assert!(peers.is_empty());
     }
 }

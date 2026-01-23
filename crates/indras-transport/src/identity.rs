@@ -118,7 +118,7 @@ mod tests {
     fn test_iroh_identity_roundtrip() {
         use iroh::SecretKey;
 
-        let secret = SecretKey::generate(&mut rand::thread_rng());
+        let secret = SecretKey::generate(&mut rand::rng());
         let public = secret.public();
         let id = IrohIdentity::new(public);
 
@@ -131,7 +131,7 @@ mod tests {
     fn test_iroh_identity_display() {
         use iroh::SecretKey;
 
-        let secret = SecretKey::generate(&mut rand::thread_rng());
+        let secret = SecretKey::generate(&mut rand::rng());
         let public = secret.public();
         let id = IrohIdentity::new(public);
 
@@ -145,7 +145,7 @@ mod tests {
     fn test_iroh_identity_serde() {
         use iroh::SecretKey;
 
-        let secret = SecretKey::generate(&mut rand::thread_rng());
+        let secret = SecretKey::generate(&mut rand::rng());
         let id = IrohIdentity::new(secret.public());
 
         // Round-trip through postcard
@@ -165,5 +165,92 @@ mod tests {
             }
             _ => panic!("Expected InvalidKeyLength error"),
         }
+    }
+
+    #[test]
+    fn test_identity_equality() {
+        use iroh::SecretKey;
+
+        let secret = SecretKey::generate(&mut rand::rng());
+        let public = secret.public();
+
+        let id1 = IrohIdentity::new(public);
+        let id2 = IrohIdentity::new(public);
+
+        assert_eq!(id1, id2);
+    }
+
+    #[test]
+    fn test_identity_inequality() {
+        use iroh::SecretKey;
+
+        let secret1 = SecretKey::generate(&mut rand::rng());
+        let secret2 = SecretKey::generate(&mut rand::rng());
+
+        let id1 = IrohIdentity::new(secret1.public());
+        let id2 = IrohIdentity::new(secret2.public());
+
+        assert_ne!(id1, id2);
+    }
+
+    #[test]
+    fn test_identity_hash() {
+        use std::collections::HashSet;
+        use iroh::SecretKey;
+
+        let secret1 = SecretKey::generate(&mut rand::rng());
+        let secret2 = SecretKey::generate(&mut rand::rng());
+
+        let id1 = IrohIdentity::new(secret1.public());
+        let id2 = IrohIdentity::new(secret2.public());
+        let id1_clone = IrohIdentity::new(secret1.public());
+
+        let mut set = HashSet::new();
+        set.insert(id1);
+        set.insert(id2);
+        set.insert(id1_clone); // Should not add new entry
+
+        assert_eq!(set.len(), 2);
+    }
+
+    #[test]
+    fn test_identity_bytes_comparison() {
+        use iroh::SecretKey;
+
+        let secret1 = SecretKey::generate(&mut rand::rng());
+        let secret2 = SecretKey::generate(&mut rand::rng());
+
+        let id1 = IrohIdentity::new(secret1.public());
+        let id2 = IrohIdentity::new(secret2.public());
+
+        // Different identities should have different bytes
+        assert_ne!(id1.as_bytes(), id2.as_bytes());
+
+        // Same identity should have same bytes
+        let id1_clone = IrohIdentity::new(secret1.public());
+        assert_eq!(id1.as_bytes(), id1_clone.as_bytes());
+    }
+
+    #[test]
+    fn test_identity_empty_bytes_error() {
+        let result = IrohIdentity::from_bytes(&[]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_identity_too_many_bytes_error() {
+        let result = IrohIdentity::from_bytes(&[0u8; 64]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_public_key_accessor() {
+        use iroh::SecretKey;
+
+        let secret = SecretKey::generate(&mut rand::rng());
+        let public = secret.public();
+        let id = IrohIdentity::new(public);
+
+        assert_eq!(*id.public_key(), public);
     }
 }

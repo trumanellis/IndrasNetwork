@@ -47,6 +47,7 @@
 //! - [`epidemic`]: Epidemic and spray-and-wait routing
 //! - [`expiration`]: Age-based expiration and priority demotion
 //! - [`strategy`]: Strategy selection based on network conditions
+//! - [`prophet`]: PRoPHET probabilistic routing using encounter history
 //! - [`error`]: DTN-specific error types
 
 pub mod bundle;
@@ -54,6 +55,7 @@ pub mod custody;
 pub mod epidemic;
 pub mod error;
 pub mod expiration;
+pub mod prophet;
 pub mod strategy;
 
 // Re-export main types
@@ -65,6 +67,7 @@ pub use custody::{
 pub use epidemic::{EpidemicConfig, EpidemicDecision, EpidemicRouter, SuppressReason};
 pub use error::{BundleError, CustodyError, DtnError, DtnResult};
 pub use expiration::{AgeManager, ExpirationConfig, ExpirationRecord};
+pub use prophet::{ProphetConfig, ProphetState, ProphetSummary};
 pub use strategy::{DtnStrategy, StrategyCondition, StrategyRule, StrategySelector};
 
 use std::time::Duration;

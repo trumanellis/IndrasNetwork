@@ -359,4 +359,112 @@ mod tests {
 
         assert_ne!(public1, public3);
     }
+
+    // ========== Additional Edge Case Tests ==========
+
+    #[test]
+    fn test_ciphertext_size_validation() {
+        let too_short = vec![0u8; PQ_CIPHERTEXT_SIZE - 1];
+        let result = PQCiphertext::from_bytes(too_short);
+        assert!(result.is_err());
+
+        let too_long = vec![0u8; PQ_CIPHERTEXT_SIZE + 1];
+        let result = PQCiphertext::from_bytes(too_long);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_ciphertext_into_bytes() {
+        let keypair = PQKemKeyPair::generate();
+        let (ciphertext, _) = keypair.encapsulation_key().encapsulate();
+
+        let bytes = ciphertext.to_bytes().to_vec();
+        let owned_bytes = ciphertext.into_bytes();
+
+        assert_eq!(bytes, owned_bytes);
+        assert_eq!(owned_bytes.len(), PQ_CIPHERTEXT_SIZE);
+    }
+
+    #[test]
+    fn test_encapsulation_key_hash() {
+        use std::collections::HashSet;
+
+        let keypair1 = PQKemKeyPair::generate();
+        let keypair2 = PQKemKeyPair::generate();
+
+        let mut set = HashSet::new();
+        set.insert(keypair1.encapsulation_key());
+        set.insert(keypair2.encapsulation_key());
+        set.insert(keypair1.encapsulation_key()); // Duplicate
+
+        assert_eq!(set.len(), 2);
+    }
+
+    #[test]
+    fn test_encapsulation_key_short_id() {
+        let keypair = PQKemKeyPair::generate();
+        let short_id = keypair.encapsulation_key().short_id();
+
+        // Should be 16 hex characters (8 bytes)
+        assert_eq!(short_id.len(), 16);
+        assert!(short_id.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_shared_secret_size() {
+        let keypair = PQKemKeyPair::generate();
+        let (_, shared_secret) = keypair.encapsulation_key().encapsulate();
+
+        assert_eq!(shared_secret.len(), PQ_SHARED_SECRET_SIZE);
+    }
+
+    #[test]
+    fn test_multiple_encapsulations_different_secrets() {
+        let keypair = PQKemKeyPair::generate();
+        let encap_key = keypair.encapsulation_key();
+
+        // Same encapsulation key should produce different secrets each time
+        let (ct1, secret1) = encap_key.encapsulate();
+        let (ct2, secret2) = encap_key.encapsulate();
+
+        // Ciphertexts should be different (randomized)
+        assert_ne!(ct1.to_bytes(), ct2.to_bytes());
+
+        // Secrets should be different
+        assert_ne!(secret1, secret2);
+
+        // But both should decapsulate correctly
+        let decap1 = keypair.decapsulate(&ct1).unwrap();
+        let decap2 = keypair.decapsulate(&ct2).unwrap();
+
+        assert_eq!(secret1, decap1);
+        assert_eq!(secret2, decap2);
+    }
+
+    #[test]
+    fn test_invalid_ciphertext_decapsulation() {
+        let keypair = PQKemKeyPair::generate();
+
+        // Create a valid-sized but invalid ciphertext
+        let invalid_ct = PQCiphertext::from_bytes(vec![0u8; PQ_CIPHERTEXT_SIZE]).unwrap();
+
+        // Kyber has implicit rejection - it will produce a pseudorandom secret
+        // rather than failing, but it won't match the original
+        let result = keypair.decapsulate(&invalid_ct);
+
+        // Should succeed (implicit rejection) but with garbage secret
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_debug_format_hides_secrets() {
+        let keypair = PQKemKeyPair::generate();
+        let debug_str = format!("{:?}", keypair);
+
+        // Should show short ID but not full key material
+        assert!(debug_str.contains("PQKemKeyPair"));
+        assert!(!debug_str.contains(&keypair.decapsulation_key_bytes().as_slice()[0..100].iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<String>()));
+    }
 }

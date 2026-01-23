@@ -623,4 +623,148 @@ mod tests {
         let relays = router.mutual_tracker().get_relays_for(&make_id('A'), &make_id('C'));
         assert!(relays.is_empty());
     }
+
+    #[tokio::test]
+    async fn test_store_and_retrieve_packet() {
+        let topology = Arc::new(TestTopology::new());
+        let storage = Arc::new(TestStorage::new());
+
+        topology.connect(make_id('A'), make_id('B'));
+        topology.set_online(make_id('A'));
+
+        let router = StoreForwardRouter::new(topology, storage.clone());
+
+        let packet = make_packet('A', 'B', 1);
+        router.store_packet(packet.clone()).await.unwrap();
+
+        // Retrieve pending
+        let pending = router.get_pending(&make_id('B')).await.unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].id, packet.id);
+
+        // Delete packet
+        router.delete_packet(&packet).await.unwrap();
+        let pending = router.get_pending(&make_id('B')).await.unwrap();
+        assert!(pending.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_backprop_integration() {
+        let topology = Arc::new(TestTopology::new());
+        let storage = Arc::new(TestStorage::new());
+
+        let router = StoreForwardRouter::new(topology, storage);
+
+        let packet = make_packet('A', 'D', 1);
+        let path = vec![make_id('A'), make_id('B'), make_id('C'), make_id('D')];
+
+        // Start back-propagation
+        router.start_backprop(&packet, path);
+
+        // Verify back-propagation is tracked
+        assert!(router.backprop().is_pending(&packet.id));
+
+        // Check timeouts (should be empty since we just started)
+        let timed_out = router.check_backprop_timeouts();
+        assert!(timed_out.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_routing_table_integration() {
+        let topology = Arc::new(TestTopology::new());
+        let storage = Arc::new(TestStorage::new());
+
+        topology.connect(make_id('A'), make_id('B'));
+        topology.connect(make_id('B'), make_id('C'));
+        topology.set_online(make_id('A'));
+        topology.set_online(make_id('B'));
+        topology.set_online(make_id('C'));
+
+        let router = StoreForwardRouter::new(topology, storage);
+
+        // Insert route
+        let route = indras_core::routing::RouteInfo::new(
+            make_id('C'),
+            make_id('B'),
+            2,
+        );
+        router.routing_table().insert(&make_id('C'), route);
+
+        // Verify route exists
+        assert!(router.routing_table().get(&make_id('C')).is_some());
+
+        // Prune stale routes
+        router.prune_stale_routes();
+
+        // Route should still exist (not stale yet)
+        assert!(router.routing_table().get(&make_id('C')).is_some());
+    }
+
+    #[tokio::test]
+    async fn test_custom_timeouts() {
+        let topology = Arc::new(TestTopology::new());
+        let storage = Arc::new(TestStorage::new());
+
+        let router = StoreForwardRouter::with_timeouts(
+            topology,
+            storage,
+            Duration::from_secs(60),
+            Duration::from_secs(10),
+        );
+
+        // Verify router was created successfully
+        assert!(router.routing_table().is_empty());
+        assert!(router.mutual_tracker().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_offline_relay_skipped() {
+        // Setup: A-B-C where B is offline
+        let topology = Arc::new(TestTopology::new());
+        let storage = Arc::new(TestStorage::new());
+
+        topology.connect(make_id('A'), make_id('B'));
+        topology.connect(make_id('B'), make_id('C'));
+        topology.set_online(make_id('A'));
+        // B is offline
+        topology.set_online(make_id('C'));
+
+        let router = StoreForwardRouter::new(topology.clone(), storage);
+        router.on_peer_connect(&make_id('A'), &make_id('C'));
+
+        let packet = make_packet('A', 'C', 1);
+        let decision = router.route(&packet, &make_id('A')).await.unwrap();
+
+        // Should drop since B (the only relay) is offline
+        assert!(decision.is_drop());
+    }
+
+    #[tokio::test]
+    async fn test_multiple_relay_candidates() {
+        // Setup: A-B-D, A-C-D (two paths from A to D)
+        let topology = Arc::new(TestTopology::new());
+        let storage = Arc::new(TestStorage::new());
+
+        topology.connect(make_id('A'), make_id('B'));
+        topology.connect(make_id('A'), make_id('C'));
+        topology.connect(make_id('B'), make_id('D'));
+        topology.connect(make_id('C'), make_id('D'));
+        topology.set_online(make_id('A'));
+        topology.set_online(make_id('B'));
+        topology.set_online(make_id('C'));
+        topology.set_online(make_id('D'));
+
+        let router = StoreForwardRouter::new(topology.clone(), storage);
+        router.on_peer_connect(&make_id('A'), &make_id('D'));
+
+        let packet = make_packet('A', 'D', 1);
+        let decision = router.route(&packet, &make_id('A')).await.unwrap();
+
+        assert!(decision.is_relay());
+        if let RoutingDecision::RelayThrough { next_hops } = decision {
+            // Both B and C should be relay candidates
+            assert!(next_hops.len() >= 2);
+            assert!(next_hops.contains(&make_id('B')) || next_hops.contains(&make_id('C')));
+        }
+    }
 }

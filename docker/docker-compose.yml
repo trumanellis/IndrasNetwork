@@ -1,0 +1,97 @@
+# Indras Network Multi-Node Test Environment
+#
+# Usage:
+#   docker-compose up -d              # Start 5-node cluster
+#   docker-compose logs -f            # View logs
+#   docker-compose down               # Stop and clean up
+#   docker-compose up --scale node=10 # Scale to 10 nodes
+#
+# Test scenarios:
+#   docker-compose run --rm tests basic
+#   docker-compose run --rm tests messaging
+#   docker-compose run --rm tests partition
+
+services:
+  # ============================================================================
+  # Simulation Node Template
+  # ============================================================================
+  node:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    environment:
+      - NODE_ID=${NODE_ID:-1}
+      - RUST_LOG=info
+      - DATA_DIR=/app/data
+    volumes:
+      - node_data_${NODE_ID:-1}:/app/data
+    networks:
+      - indras-net
+    deploy:
+      replicas: 5
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "test", "-d", "/app/data"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  # ============================================================================
+  # Test Runner
+  # ============================================================================
+  tests:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    environment:
+      - RUST_LOG=info
+      - TEST_SCENARIO=${TEST_SCENARIO:-basic}
+    volumes:
+      - ../simulation/scripts:/app/scripts:ro
+      - test_results:/app/results
+    networks:
+      - indras-net
+    depends_on:
+      - node
+    profiles:
+      - test
+    entrypoint: ["/app/scripts/docker_tests.sh"]
+
+  # ============================================================================
+  # Network Partition Controller (for chaos testing)
+  # ============================================================================
+  chaos:
+    image: gaiaadm/pumba:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - indras-net
+    profiles:
+      - chaos
+    # Example: Pause a node for 30s
+    # pumba pause -d 30s indras-node-1
+
+# ============================================================================
+# Networks
+# ============================================================================
+networks:
+  indras-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+# ============================================================================
+# Volumes
+# ============================================================================
+volumes:
+  node_data_1:
+  node_data_2:
+  node_data_3:
+  node_data_4:
+  node_data_5:
+  test_results:

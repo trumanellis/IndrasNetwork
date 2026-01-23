@@ -471,7 +471,7 @@ mod tests {
         use iroh::SecretKey;
         use crate::identity::IrohIdentity;
 
-        let secret = SecretKey::generate(&mut rand::thread_rng());
+        let secret = SecretKey::generate(&mut rand::rng());
         let id = IrohIdentity::new(secret.public());
 
         let presence = PresenceInfo::new(id)
@@ -633,6 +633,185 @@ mod tests {
                 assert_eq!(a.up_to_event_id, event_id);
             }
             _ => panic!("Wrong message type"),
+        }
+    }
+
+    #[test]
+    fn test_empty_frame_error() {
+        let result = parse_framed_message(&[]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_truncated_frame_error() {
+        // Just 2 bytes (less than length header)
+        let result = parse_framed_message(&[0x00, 0x00]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_invalid_length_error() {
+        // Length says 1000 bytes but only 4 bytes follow
+        let data = [0x00, 0x00, 0x03, 0xE8, 0x01, 0x02, 0x03, 0x04];
+        let result = parse_framed_message(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_pong_roundtrip() {
+        let msg = WireMessage::Pong(99999);
+        let framed = frame_message(&msg).unwrap();
+        let parsed = parse_framed_message(&framed).unwrap();
+
+        match parsed {
+            WireMessage::Pong(n) => assert_eq!(n, 99999),
+            _ => panic!("Expected Pong"),
+        }
+    }
+
+    #[test]
+    fn test_presence_query_roundtrip() {
+        let msg = WireMessage::PresenceQuery;
+        let framed = frame_message(&msg).unwrap();
+        let parsed = parse_framed_message(&framed).unwrap();
+
+        assert!(matches!(parsed, WireMessage::PresenceQuery));
+    }
+
+    #[test]
+    fn test_serialized_packet_roundtrip() {
+        use iroh::SecretKey;
+        use indras_core::packet::PacketId;
+
+        let secret1 = SecretKey::generate(&mut rand::rng());
+        let secret2 = SecretKey::generate(&mut rand::rng());
+        let source = IrohIdentity::new(secret1.public());
+        let dest = IrohIdentity::new(secret2.public());
+
+        let packet = SerializedPacket {
+            id: PacketId::new(0x12345678, 1),
+            source,
+            destination: dest,
+            payload: Bytes::from(vec![1, 2, 3, 4, 5]),
+            routing_hints: vec![],
+            created_at_millis: chrono::Utc::now().timestamp_millis(),
+            ttl: 10,
+            visited: vec![0xABCD, 0xEF01],
+        };
+
+        let msg = WireMessage::Packet(packet.clone());
+        let framed = frame_message(&msg).unwrap();
+        let parsed = parse_framed_message(&framed).unwrap();
+
+        match parsed {
+            WireMessage::Packet(p) => {
+                assert_eq!(p.id, packet.id);
+                assert_eq!(p.source, packet.source);
+                assert_eq!(p.destination, packet.destination);
+                assert_eq!(p.payload, packet.payload);
+                assert_eq!(p.ttl, packet.ttl);
+                assert_eq!(p.visited, packet.visited);
+            }
+            _ => panic!("Expected Packet"),
+        }
+    }
+
+    #[test]
+    fn test_serialized_confirmation_roundtrip() {
+        use iroh::SecretKey;
+        use indras_core::packet::PacketId;
+
+        let secret = SecretKey::generate(&mut rand::rng());
+        let peer = IrohIdentity::new(secret.public());
+
+        let confirmation = SerializedConfirmation {
+            packet_id: PacketId::new(0xDEADBEEF, 42),
+            delivered_to: peer,
+            delivered_at_millis: chrono::Utc::now().timestamp_millis(),
+            path: vec![peer],
+        };
+
+        let msg = WireMessage::Confirmation(confirmation.clone());
+        let framed = frame_message(&msg).unwrap();
+        let parsed = parse_framed_message(&framed).unwrap();
+
+        match parsed {
+            WireMessage::Confirmation(c) => {
+                assert_eq!(c.packet_id, confirmation.packet_id);
+                assert_eq!(c.delivered_to, confirmation.delivered_to);
+            }
+            _ => panic!("Expected Confirmation"),
+        }
+    }
+
+    #[test]
+    fn test_sync_request_response_roundtrip() {
+        use iroh::SecretKey;
+
+        let secret = SecretKey::generate(&mut rand::rng());
+        let peer = IrohIdentity::new(secret.public());
+
+        let request = SyncRequest {
+            namespace: [0x42; 32],
+            heads: vec![(peer, 100)],
+        };
+
+        let msg = WireMessage::SyncRequest(request.clone());
+        let framed = frame_message(&msg).unwrap();
+        let parsed = parse_framed_message(&framed).unwrap();
+
+        match parsed {
+            WireMessage::SyncRequest(r) => {
+                assert_eq!(r.namespace, request.namespace);
+                assert_eq!(r.heads.len(), 1);
+            }
+            _ => panic!("Expected SyncRequest"),
+        }
+
+        let response = SyncResponse {
+            namespace: [0x42; 32],
+            changes: vec![Bytes::from(vec![1, 2, 3])],
+            has_more: true,
+        };
+
+        let msg = WireMessage::SyncResponse(response.clone());
+        let framed = frame_message(&msg).unwrap();
+        let parsed = parse_framed_message(&framed).unwrap();
+
+        match parsed {
+            WireMessage::SyncResponse(r) => {
+                assert_eq!(r.namespace, response.namespace);
+                assert_eq!(r.has_more, response.has_more);
+            }
+            _ => panic!("Expected SyncResponse"),
+        }
+    }
+
+    #[test]
+    fn test_presence_response_roundtrip() {
+        use iroh::SecretKey;
+
+        let secret1 = SecretKey::generate(&mut rand::rng());
+        let secret2 = SecretKey::generate(&mut rand::rng());
+        let peer1 = IrohIdentity::new(secret1.public());
+        let peer2 = IrohIdentity::new(secret2.public());
+
+        let presences = vec![
+            PresenceInfo::new(peer1).with_name("Peer1"),
+            PresenceInfo::new(peer2).with_name("Peer2"),
+        ];
+
+        let msg = WireMessage::PresenceResponse(presences.clone());
+        let framed = frame_message(&msg).unwrap();
+        let parsed = parse_framed_message(&framed).unwrap();
+
+        match parsed {
+            WireMessage::PresenceResponse(p) => {
+                assert_eq!(p.len(), 2);
+                assert_eq!(p[0].display_name, Some("Peer1".to_string()));
+                assert_eq!(p[1].display_name, Some("Peer2".to_string()));
+            }
+            _ => panic!("Expected PresenceResponse"),
         }
     }
 }

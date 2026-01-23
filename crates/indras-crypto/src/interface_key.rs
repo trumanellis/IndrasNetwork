@@ -441,4 +441,148 @@ mod tests {
         let recovered = InterfaceKey::decapsulate(&parsed, &bob_kem).unwrap();
         assert_eq!(key.as_bytes(), recovered.as_bytes());
     }
+
+    // ========== Additional Edge Case Tests ==========
+
+    #[test]
+    fn test_encrypt_empty_data() {
+        let id = test_interface_id();
+        let key = InterfaceKey::generate(id);
+
+        let plaintext = b"";
+        let encrypted = key.encrypt(plaintext).unwrap();
+        let decrypted = key.decrypt(&encrypted).unwrap();
+
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn test_encrypt_large_data() {
+        let id = test_interface_id();
+        let key = InterfaceKey::generate(id);
+
+        // 1 MB of data
+        let plaintext = vec![0xABu8; 1024 * 1024];
+        let encrypted = key.encrypt(&plaintext).unwrap();
+        let decrypted = key.decrypt(&encrypted).unwrap();
+
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn test_decrypt_invalid_data_too_short() {
+        let id = test_interface_id();
+        let key = InterfaceKey::generate(id);
+
+        // Data shorter than nonce (12 bytes)
+        let result = key.decrypt_bytes(&[0u8; 5]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_decrypt_invalid_ciphertext() {
+        let id = test_interface_id();
+        let key = InterfaceKey::generate(id);
+
+        // Valid nonce but garbage ciphertext
+        let mut data = vec![0u8; NONCE_SIZE + 20];
+        data[..NONCE_SIZE].copy_from_slice(&[0u8; NONCE_SIZE]);
+
+        let result = key.decrypt_bytes(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_decrypt_tampered_ciphertext() {
+        let id = test_interface_id();
+        let key = InterfaceKey::generate(id);
+
+        let plaintext = b"Secret message";
+        let encrypted = key.encrypt(plaintext).unwrap();
+
+        // Tamper with the ciphertext
+        let mut tampered = encrypted.clone();
+        if !tampered.ciphertext.is_empty() {
+            tampered.ciphertext[0] ^= 0xFF;
+        }
+
+        let result = key.decrypt(&tampered);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_decrypt_tampered_nonce() {
+        let id = test_interface_id();
+        let key = InterfaceKey::generate(id);
+
+        let plaintext = b"Secret message";
+        let encrypted = key.encrypt(plaintext).unwrap();
+
+        // Tamper with the nonce
+        let mut tampered = encrypted.clone();
+        tampered.nonce[0] ^= 0xFF;
+
+        let result = key.decrypt(&tampered);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_seed_different_interfaces() {
+        let seed = [0xAB; 32];
+        let id1 = InterfaceId::new([0x01; 32]);
+        let id2 = InterfaceId::new([0x02; 32]);
+
+        let key1 = InterfaceKey::from_seed(&seed, id1);
+        let key2 = InterfaceKey::from_seed(&seed, id2);
+
+        // Different interface IDs should produce different keys
+        assert_ne!(key1.as_bytes(), key2.as_bytes());
+    }
+
+    #[test]
+    fn test_encrypted_data_from_bytes_round_trip() {
+        let data = EncryptedData {
+            nonce: [0x42; NONCE_SIZE],
+            ciphertext: vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+        };
+
+        let bytes = data.to_bytes();
+        let parsed = EncryptedData::from_bytes(&bytes).unwrap();
+
+        assert_eq!(parsed.nonce, data.nonce);
+        assert_eq!(parsed.ciphertext, data.ciphertext);
+    }
+
+    #[test]
+    fn test_encrypted_data_from_bytes_too_short() {
+        // Less than NONCE_SIZE bytes
+        let result = EncryptedData::from_bytes(&[0u8; 5]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_multiple_recipients_same_key() {
+        let id = test_interface_id();
+        let key = InterfaceKey::generate(id);
+
+        // Multiple recipients
+        let bob_kem = PQKemKeyPair::generate();
+        let carol_kem = PQKemKeyPair::generate();
+
+        let encap_bob = key.encapsulate_for(&bob_kem.encapsulation_key()).unwrap();
+        let encap_carol = key.encapsulate_for(&carol_kem.encapsulation_key()).unwrap();
+
+        // Both should recover the same key
+        let key_bob = InterfaceKey::decapsulate(&encap_bob, &bob_kem).unwrap();
+        let key_carol = InterfaceKey::decapsulate(&encap_carol, &carol_kem).unwrap();
+
+        assert_eq!(key.as_bytes(), key_bob.as_bytes());
+        assert_eq!(key.as_bytes(), key_carol.as_bytes());
+
+        // Test cross-encryption/decryption
+        let plaintext = b"Group message";
+        let encrypted = key_bob.encrypt(plaintext).unwrap();
+        let decrypted = key_carol.decrypt(&encrypted).unwrap();
+        assert_eq!(decrypted, plaintext);
+    }
 }

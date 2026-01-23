@@ -420,15 +420,122 @@ mod tests {
     #[test]
     fn test_secure_bytes_zeroizes() {
         let secret_data = vec![0xAB; 32];
-        let ptr: *const u8;
 
         {
             let secure = SecureBytes::new(secret_data.clone());
-            ptr = secure.as_slice().as_ptr();
             // Within scope, data is accessible
             assert_eq!(secure.as_slice(), secret_data.as_slice());
         }
         // After drop, the data should be zeroized
         // Note: This is a best-effort test; the actual memory may be reclaimed
+    }
+
+    // ========== Additional Edge Case Tests ==========
+
+    #[test]
+    fn test_sign_empty_message() {
+        let identity = PQIdentity::generate();
+        let message = b"";
+
+        let signature = identity.sign(message);
+        assert!(identity.verify(message, &signature));
+    }
+
+    #[test]
+    fn test_sign_large_message() {
+        let identity = PQIdentity::generate();
+        // 1 MB message
+        let message = vec![0xABu8; 1024 * 1024];
+
+        let signature = identity.sign(&message);
+        assert!(identity.verify(&message, &signature));
+    }
+
+    #[test]
+    fn test_signature_not_malleable() {
+        let identity = PQIdentity::generate();
+        let message = b"Test message";
+        let signature = identity.sign(message);
+
+        // Mutating signature bytes should fail verification
+        let mut bad_sig_bytes = signature.to_bytes().to_vec();
+        if !bad_sig_bytes.is_empty() {
+            bad_sig_bytes[0] ^= 0xFF;
+        }
+
+        // Invalid signature bytes won't even parse correctly
+        let result = PQSignature::from_bytes(bad_sig_bytes);
+        if let Ok(bad_sig) = result {
+            assert!(!identity.verify(message, &bad_sig));
+        }
+    }
+
+    #[test]
+    fn test_signature_size_validation() {
+        let too_short = vec![0u8; PQ_SIGNATURE_SIZE - 1];
+        let result = PQSignature::from_bytes(too_short);
+        assert!(result.is_err());
+
+        let too_long = vec![0u8; PQ_SIGNATURE_SIZE + 1];
+        let result = PQSignature::from_bytes(too_long);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_public_identity_hash() {
+        use std::collections::HashSet;
+
+        let identity1 = PQIdentity::generate();
+        let identity2 = PQIdentity::generate();
+
+        let mut set = HashSet::new();
+        set.insert(identity1.verifying_key());
+        set.insert(identity2.verifying_key());
+        set.insert(identity1.verifying_key()); // Duplicate
+
+        assert_eq!(set.len(), 2);
+    }
+
+    #[test]
+    fn test_short_id_format() {
+        let identity = PQIdentity::generate();
+        let short_id = identity.verifying_key().short_id();
+
+        // Should be 16 hex characters (8 bytes)
+        assert_eq!(short_id.len(), 16);
+        assert!(short_id.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_secure_bytes_empty() {
+        let secure = SecureBytes::new(vec![]);
+        assert!(secure.is_empty());
+        assert_eq!(secure.len(), 0);
+    }
+
+    #[test]
+    fn test_secure_bytes_as_ref() {
+        let data = vec![1, 2, 3, 4];
+        let secure = SecureBytes::new(data.clone());
+        let slice: &[u8] = secure.as_ref();
+        assert_eq!(slice, &data[..]);
+    }
+
+    #[test]
+    fn test_secure_bytes_from() {
+        let data = vec![1, 2, 3, 4];
+        let secure: SecureBytes = data.clone().into();
+        assert_eq!(secure.as_slice(), &data[..]);
+    }
+
+    #[test]
+    fn test_invalid_keypair_bytes() {
+        // Correct size but invalid content
+        let bad_sk = vec![0u8; PQ_SIGNING_KEY_SIZE];
+        let bad_pk = vec![0u8; PQ_VERIFYING_KEY_SIZE];
+
+        // This may or may not fail depending on the implementation
+        // The important thing is it doesn't crash
+        let _ = PQIdentity::from_keypair_bytes(&bad_sk, &bad_pk);
     }
 }

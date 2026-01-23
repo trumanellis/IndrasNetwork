@@ -23,6 +23,10 @@ serde = { workspace = true, features = ["derive"] }
 postcard.workspace = true
 bytes.workspace = true
 
+# Key derivation and encryption
+argon2 = "0.5"
+chacha20poly1305 = "0.10"
+
 # Utilities
 thiserror.workspace = true
 tracing.workspace = true

@@ -1,0 +1,139 @@
+name: Simulation Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:  # Allow manual trigger
+    inputs:
+      test_suite:
+        description: 'Test suite to run (quick/standard/full)'
+        required: true
+        default: 'quick'
+        type: choice
+        options:
+          - quick
+          - standard
+          - full
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  simulation-quick:
+    name: Quick Simulation Tests
+    runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.test_suite == 'quick'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Lua
+        run: sudo apt-get update && sudo apt-get install -y lua5.4 liblua5.4-dev
+
+      - name: Build simulation
+        run: cargo build --release -p indras-simulation
+        continue-on-error: true  # May not exist yet
+
+      - name: Build indras-notes for testing
+        run: cargo build --release -p indras-notes
+
+      - name: Run quick stress tests
+        run: |
+          if [ -x "simulation/scripts/run_stress_tests.sh" ]; then
+            chmod +x simulation/scripts/run_stress_tests.sh
+            ./simulation/scripts/run_stress_tests.sh quick
+          else
+            echo "Simulation scripts not yet available"
+          fi
+        continue-on-error: true
+        timeout-minutes: 10
+
+  simulation-standard:
+    name: Standard Simulation Tests
+    runs-on: ubuntu-latest
+    if: github.event.inputs.test_suite == 'standard'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Lua
+        run: sudo apt-get update && sudo apt-get install -y lua5.4 liblua5.4-dev
+
+      - name: Build all
+        run: cargo build --release --all
+
+      - name: Run standard stress tests
+        run: |
+          if [ -x "simulation/scripts/run_stress_tests.sh" ]; then
+            ./simulation/scripts/run_stress_tests.sh standard
+          fi
+        continue-on-error: true
+        timeout-minutes: 30
+
+  simulation-full:
+    name: Full Simulation Tests
+    runs-on: ubuntu-latest
+    if: github.event.inputs.test_suite == 'full'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Lua
+        run: sudo apt-get update && sudo apt-get install -y lua5.4 liblua5.4-dev
+
+      - name: Build all
+        run: cargo build --release --all
+
+      - name: Run full stress tests
+        run: |
+          if [ -x "simulation/scripts/run_stress_tests.sh" ]; then
+            ./simulation/scripts/run_stress_tests.sh full
+          fi
+        continue-on-error: true
+        timeout-minutes: 60
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: simulation-results
+          path: |
+            simulation/reports/
+            simulation/logs/
+          retention-days: 7
+
+  # Integration tests that require real network
+  network-integration:
+    name: Network Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run integration tests
+        run: cargo test --all-features -- --ignored
+        timeout-minutes: 15
+        continue-on-error: true  # Integration tests may be flaky

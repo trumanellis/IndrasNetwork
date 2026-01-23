@@ -204,6 +204,9 @@ async fn test_bidirectional_stream() {
 
     let addr_b = manager_b.endpoint_addr();
 
+    // Use a channel to signal when A has read the response
+    let (done_tx, done_rx) = tokio::sync::oneshot::channel::<()>();
+
     // B accepts and echoes messages
     let endpoint_b = manager_b.endpoint().clone();
     let accept_handle = tokio::spawn(async move {
@@ -216,6 +219,9 @@ async fn test_bidirectional_stream() {
         response.extend_from_slice(&msg);
         send.write_all(&response).await.expect("Write failed");
         send.finish().expect("Finish failed");
+
+        // Wait for A to signal it has read the response before dropping connection
+        let _ = done_rx.await;
 
         msg
     });
@@ -231,6 +237,9 @@ async fn test_bidirectional_stream() {
 
     let response = recv.read_to_end(1024).await.expect("Read failed");
     assert_eq!(response, b"echo: Hello from A!");
+
+    // Signal B that we're done reading
+    let _ = done_tx.send(());
 
     let received = accept_handle.await.expect("Accept task failed");
     assert_eq!(received, b"Hello from A!");
