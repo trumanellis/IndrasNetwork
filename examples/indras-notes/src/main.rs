@@ -29,17 +29,26 @@
 
 mod app;
 mod display;
+mod log_analysis;
+mod log_capture;
+mod lua;
 mod note;
 mod notebook;
 mod storage;
+mod syncable_notebook;
 
 use std::io::{self, BufRead, Write};
+use std::path::PathBuf;
+use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
+use tokio::sync::Mutex;
 
 use app::{App, AppError};
 use display::*;
 use indras_core::InterfaceId;
+use log_capture::LogCapture;
+use lua::NotesLuaRuntime;
 
 /// Indras Notes - P2P Collaborative Note-Taking
 #[derive(Parser)]
@@ -83,17 +92,41 @@ enum Commands {
     },
     /// Show your identity
     Whoami,
+    /// Execute a Lua script file
+    RunScript {
+        /// Path to the Lua script
+        path: PathBuf,
+    },
+    /// Evaluate a Lua expression
+    Eval {
+        /// Lua code to evaluate
+        code: String,
+    },
+    /// Start an interactive Lua REPL
+    LuaRepl,
 }
 
 #[tokio::main]
 async fn main() {
-    // Initialize tracing
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("indras_notes=info".parse().unwrap()),
-        )
-        .init();
+    // Initialize tracing - use JSONL format if NOTES_JSONL=1
+    let use_jsonl = std::env::var("NOTES_JSONL").map(|v| v == "1").unwrap_or(false);
+
+    if use_jsonl {
+        tracing_subscriber::fmt()
+            .json()
+            .with_env_filter(
+                tracing_subscriber::EnvFilter::from_default_env()
+                    .add_directive("indras_notes=info".parse().unwrap()),
+            )
+            .init();
+    } else {
+        tracing_subscriber::fmt()
+            .with_env_filter(
+                tracing_subscriber::EnvFilter::from_default_env()
+                    .add_directive("indras_notes=info".parse().unwrap()),
+            )
+            .init();
+    }
 
     if let Err(e) = run().await {
         print_error(&e.to_string());
@@ -112,6 +145,9 @@ async fn run() -> Result<(), AppError> {
         Commands::Invite { id } => cmd_invite(&id).await,
         Commands::Join { invite } => cmd_join(&invite).await,
         Commands::Whoami => cmd_whoami().await,
+        Commands::RunScript { path } => cmd_run_script(&path).await,
+        Commands::Eval { code } => cmd_eval(&code).await,
+        Commands::LuaRepl => cmd_lua_repl().await,
     }
 }
 
@@ -400,4 +436,157 @@ fn read_multiline() -> Result<String, AppError> {
     }
 
     Ok(lines.join("\n"))
+}
+
+/// Run a Lua script file
+async fn cmd_run_script(path: &PathBuf) -> Result<(), AppError> {
+    let log_capture = LogCapture::new();
+    let runtime = NotesLuaRuntime::with_log_capture(Some(log_capture))
+        .map_err(|e| AppError::Lua(e.to_string()))?;
+
+    // Optionally set up an app instance for the script
+    // Scripts can also create their own via notes.App.new() or notes.App.new_with_temp_storage()
+    if let Ok(app) = App::new().await {
+        let app = Arc::new(Mutex::new(app));
+        if let Ok(()) = runtime.set_app(app) {
+            // App set successfully
+        }
+    }
+
+    print_info(&format!("Running script: {}", path.display()));
+
+    match runtime.exec_file(path) {
+        Ok(()) => {
+            print_success("Script completed successfully");
+            Ok(())
+        }
+        Err(e) => {
+            print_error(&format!("Script error: {}", e));
+            Err(AppError::Lua(e.to_string()))
+        }
+    }
+}
+
+/// Evaluate a Lua expression
+async fn cmd_eval(code: &str) -> Result<(), AppError> {
+    let runtime = NotesLuaRuntime::new()
+        .map_err(|e| AppError::Lua(e.to_string()))?;
+
+    // Set up app for eval
+    if let Ok(app) = App::new().await {
+        let app = Arc::new(Mutex::new(app));
+        let _ = runtime.set_app(app);
+    }
+
+    match runtime.eval::<mlua::Value>(code) {
+        Ok(value) => {
+            // Print the result
+            match value {
+                mlua::Value::Nil => println!("nil"),
+                mlua::Value::Boolean(b) => println!("{}", b),
+                mlua::Value::Integer(i) => println!("{}", i),
+                mlua::Value::Number(n) => println!("{}", n),
+                mlua::Value::String(s) => {
+                    if let Ok(str) = s.to_str() {
+                        println!("{}", str);
+                    } else {
+                        println!("<invalid utf8>");
+                    }
+                }
+                _ => println!("{:?}", value),
+            }
+            Ok(())
+        }
+        Err(e) => {
+            print_error(&format!("Eval error: {}", e));
+            Err(AppError::Lua(e.to_string()))
+        }
+    }
+}
+
+/// Start an interactive Lua REPL
+async fn cmd_lua_repl() -> Result<(), AppError> {
+    let log_capture = LogCapture::new();
+    let runtime = NotesLuaRuntime::with_log_capture(Some(log_capture))
+        .map_err(|e| AppError::Lua(e.to_string()))?;
+
+    // Set up app for REPL
+    if let Ok(app) = App::new().await {
+        let app = Arc::new(Mutex::new(app));
+        let _ = runtime.set_app(app);
+    }
+
+    println!("Indras Notes Lua REPL");
+    println!("Type 'exit' or 'quit' to exit, 'help' for available functions");
+    println!();
+
+    let stdin = io::stdin();
+    let mut stdout = io::stdout();
+
+    loop {
+        print!("lua> ");
+        stdout.flush().unwrap();
+
+        let mut input = String::new();
+        if stdin.lock().read_line(&mut input).is_err() {
+            break;
+        }
+
+        let input = input.trim();
+        if input.is_empty() {
+            continue;
+        }
+
+        match input {
+            "exit" | "quit" => break,
+            "help" => {
+                println!("Available modules:");
+                println!("  notes.App        - Application management");
+                println!("  notes.Note       - Note type");
+                println!("  notes.Notebook   - Notebook type");
+                println!("  notes.NoteOperation - Note operations");
+                println!("  notes.log        - Logging (trace, debug, info, warn, error)");
+                println!("  notes.assert     - Assertions (eq, ne, gt, lt, etc.)");
+                println!("  notes.log_assert - Log assertions (has_message, no_errors, etc.)");
+                println!();
+                println!("Example:");
+                println!("  local app = notes.App.new_with_temp_storage()");
+                println!("  app:init('Alice')");
+                println!("  local nb_id = app:create_notebook('My Notes')");
+                continue;
+            }
+            _ => {}
+        }
+
+        // Try to evaluate as expression first (prepend "return")
+        let result = runtime.eval::<mlua::Value>(&format!("return {}", input));
+
+        match result {
+            Ok(value) => {
+                match value {
+                    mlua::Value::Nil => {} // Don't print nil for expressions
+                    mlua::Value::Boolean(b) => println!("=> {}", b),
+                    mlua::Value::Integer(i) => println!("=> {}", i),
+                    mlua::Value::Number(n) => println!("=> {}", n),
+                    mlua::Value::String(s) => {
+                        if let Ok(str) = s.to_str() {
+                            println!("=> \"{}\"", str);
+                        } else {
+                            println!("=> <invalid utf8>");
+                        }
+                    }
+                    _ => println!("=> {:?}", value),
+                }
+            }
+            Err(_) => {
+                // If eval failed, try executing as statement
+                if let Err(e) = runtime.exec(input) {
+                    println!("Error: {}", e);
+                }
+            }
+        }
+    }
+
+    println!("Goodbye!");
+    Ok(())
 }

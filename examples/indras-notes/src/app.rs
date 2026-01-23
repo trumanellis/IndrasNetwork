@@ -26,6 +26,8 @@ pub enum AppError {
     NoteNotFound(String),
     #[error("Already initialized")]
     AlreadyInitialized,
+    #[error("Lua error: {0}")]
+    Lua(String),
 }
 
 /// The main application state
