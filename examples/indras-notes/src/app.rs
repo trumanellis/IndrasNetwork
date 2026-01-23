@@ -3,6 +3,7 @@
 //! Manages the note-taking application state and operations.
 
 use thiserror::Error;
+use tracing::warn;
 
 use indras_core::{InterfaceId, PeerIdentity};
 use indras_node::{IndrasNode, InviteKey, NodeConfig, NodeError};
@@ -28,6 +29,8 @@ pub enum AppError {
     AlreadyInitialized,
     #[error("Lua error: {0}")]
     Lua(String),
+    #[error("Serialization error: {0}")]
+    Serialization(String),
 }
 
 /// The main application state
@@ -191,11 +194,12 @@ impl App {
 
         // Now we can safely borrow mutably
         let notebook = self.current_notebook.as_mut().unwrap();
-        notebook.apply(NoteOperation::create(note));
+        let operation = NoteOperation::create(note);
+        notebook.apply(operation.clone());
         self.save_current_notebook().await?;
 
-        // Send via node (if connected)
-        // TODO: Integrate with node event broadcast
+        // Broadcast operation to other peers
+        self.broadcast_operation(&operation).await;
 
         Ok(id)
     }
@@ -209,8 +213,12 @@ impl App {
             return Err(AppError::NoteNotFound(id.clone()));
         }
 
-        notebook.apply(NoteOperation::update_content(id, content));
+        let operation = NoteOperation::update_content(id, content);
+        notebook.apply(operation.clone());
         self.save_current_notebook().await?;
+
+        // Broadcast operation to other peers
+        self.broadcast_operation(&operation).await;
 
         Ok(())
     }
@@ -224,8 +232,12 @@ impl App {
             return Err(AppError::NoteNotFound(id.clone()));
         }
 
-        notebook.apply(NoteOperation::update_title(id, title));
+        let operation = NoteOperation::update_title(id, title);
+        notebook.apply(operation.clone());
         self.save_current_notebook().await?;
+
+        // Broadcast operation to other peers
+        self.broadcast_operation(&operation).await;
 
         Ok(())
     }
@@ -235,8 +247,12 @@ impl App {
         let notebook = self.current_notebook.as_mut()
             .ok_or_else(|| AppError::NotebookNotFound("No notebook open".to_string()))?;
 
-        notebook.apply(NoteOperation::delete(id));
+        let operation = NoteOperation::delete(id);
+        notebook.apply(operation.clone());
         self.save_current_notebook().await?;
+
+        // Broadcast operation to other peers
+        self.broadcast_operation(&operation).await;
 
         Ok(())
     }
@@ -262,6 +278,46 @@ impl App {
 
         let invite = InviteKey::new(notebook.interface_id);
         invite.to_base64().map_err(|e| AppError::Node(NodeError::Serialization(e.to_string())))
+    }
+
+    /// Broadcast a note operation to other peers
+    ///
+    /// This method will log a warning but not fail if broadcasting fails,
+    /// since the operation has already been applied locally.
+    async fn broadcast_operation(&self, operation: &NoteOperation) {
+        // Get the node and current notebook
+        let Some(node) = &self.node else {
+            warn!("Cannot broadcast operation: node not initialized");
+            return;
+        };
+
+        let Some(notebook) = &self.current_notebook else {
+            warn!("Cannot broadcast operation: no notebook open");
+            return;
+        };
+
+        // Serialize the operation
+        let serialized = match postcard::to_stdvec(operation) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                warn!("Failed to serialize note operation: {}", e);
+                return;
+            }
+        };
+
+        // Send message to all peers in the interface
+        match node.send_message(&notebook.interface_id, serialized).await {
+            Ok(event_id) => {
+                tracing::debug!(
+                    "Broadcast operation to interface {}: event_id={}",
+                    notebook.interface_id,
+                    event_id
+                );
+            }
+            Err(e) => {
+                warn!("Failed to broadcast note operation: {}", e);
+            }
+        }
     }
 
     /// Save the current notebook to storage

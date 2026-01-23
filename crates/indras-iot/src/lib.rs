@@ -12,12 +12,6 @@
 //! - Compact wire format
 //! - Power management
 
-// TODO: Implement in Phase 5
-// pub mod low_memory;
-// pub mod duty_cycle;
-// pub mod compact;
-
-/// Placeholder for IoT functionality
-pub fn placeholder() {
-    // Will be implemented in Phase 5
-}
+pub mod low_memory;
+pub mod duty_cycle;
+pub mod compact;
