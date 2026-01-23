@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::Parser;
-use indras_logging::{IndrasSubscriberBuilder, LogConfig};
+use indras_logging::{IndrasSubscriberBuilder, LogConfig, FileConfig, RotationStrategy};
 use indras_simulation::LuaRuntime;
 use tracing::{error, info};
 
@@ -43,24 +43,46 @@ struct Args {
     /// Don't initialize logging (useful when embedding)
     #[arg(long)]
     no_logging: bool,
+
+    /// Directory for log files (default: ./logs)
+    #[arg(long, default_value = "./logs")]
+    log_dir: PathBuf,
 }
 
 fn main() -> ExitCode {
     let args = Args::parse();
 
     // Initialize logging
-    if !args.no_logging {
-        let config = if args.pretty {
+    let _guard = if !args.no_logging {
+        // Get script name for log file prefix
+        let script_name = args.script
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("lua");
+
+        let mut config = if args.pretty {
             LogConfig::development()
         } else {
-            LogConfig::default()
+            let mut c = LogConfig::default();
+            c.console.enabled = false; // File only for JSONL mode
+            c
         };
+
+        // Always write to log file
+        config.file = Some(FileConfig {
+            directory: args.log_dir.clone(),
+            prefix: script_name.to_string(),
+            rotation: RotationStrategy::Never, // Overwrite each run
+            max_files: None,
+        });
 
         IndrasSubscriberBuilder::new()
             .with_config(config)
             .with_level(&args.level)
-            .init();
-    }
+            .init()
+    } else {
+        None
+    };
 
     // Check script exists
     if !args.script.exists() {

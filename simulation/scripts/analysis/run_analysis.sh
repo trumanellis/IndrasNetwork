@@ -16,6 +16,7 @@ set -e
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SIMULATION_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+WORKSPACE_DIR="$(cd "$SIMULATION_DIR/.." && pwd)"
 SCENARIOS_DIR="$SCRIPT_DIR/../scenarios"
 REPORTS_DIR="$SIMULATION_DIR/reports"
 LOGS_DIR="$SIMULATION_DIR/logs"
@@ -83,18 +84,18 @@ mkdir -p "$REPORTS_DIR" "$LOGS_DIR"
 
 # Build the simulation
 echo -e "${BLUE}Building simulation...${NC}"
-cd "$SIMULATION_DIR"
-cargo build --release 2>&1 | tail -5
+cd "$WORKSPACE_DIR"
+cargo build --release --bin lua_runner 2>&1 | tail -5
 
-# Check if lua_runner exists
-LUA_RUNNER="$SIMULATION_DIR/target/release/lua_runner"
+# Check if lua_runner exists (workspace builds to root target directory)
+LUA_RUNNER="$WORKSPACE_DIR/target/release/lua_runner"
 if [[ ! -f "$LUA_RUNNER" ]]; then
-    LUA_RUNNER="$SIMULATION_DIR/target/debug/lua_runner"
+    LUA_RUNNER="$WORKSPACE_DIR/target/debug/lua_runner"
 fi
 
 if [[ ! -f "$LUA_RUNNER" ]]; then
     echo -e "${RED}Error: lua_runner binary not found${NC}"
-    echo "Run 'cargo build' in the simulation directory first."
+    echo "Run 'cargo build --release' in the workspace root first."
     exit 1
 fi
 
@@ -105,15 +106,19 @@ else
     SCENARIOS_TO_RUN=("${PQ_SCENARIOS[@]}")
 fi
 
-# Track results
-declare -A SCENARIO_RESULTS
+# Track results (avoid bash 4+ associative arrays for compatibility)
 TOTAL_SCENARIOS=0
 PASSED_SCENARIOS=0
 FAILED_SCENARIOS=0
+PASSED_LIST=""
+FAILED_LIST=""
 
 echo ""
 echo -e "${BLUE}Running PQ stress tests...${NC}"
 echo "==========================================="
+
+# Run from simulation directory for correct relative paths
+cd "$SIMULATION_DIR"
 
 for scenario in "${SCENARIOS_TO_RUN[@]}"; do
     SCENARIO_FILE="$SCENARIOS_DIR/${scenario}.lua"
@@ -124,17 +129,18 @@ for scenario in "${SCENARIOS_TO_RUN[@]}"; do
     fi
 
     TOTAL_SCENARIOS=$((TOTAL_SCENARIOS + 1))
-    LOG_FILE="$LOGS_DIR/${scenario}.jsonl"
+    LOG_FILE="$LOGS_DIR/${scenario}.log"
     START_TIME=$(date +%s)
 
     printf "[%d/%d] %-35s " "$TOTAL_SCENARIOS" "${#SCENARIOS_TO_RUN[@]}" "$scenario"
 
-    # Run scenario with logging
+    # Run scenario with logging (use relative path from simulation dir)
+    RELATIVE_SCENARIO="scripts/scenarios/${scenario}.lua"
     if $VERBOSE; then
-        "$LUA_RUNNER" --level debug "$SCENARIO_FILE" 2>&1 | tee "$LOG_FILE"
+        "$LUA_RUNNER" --level debug "$RELATIVE_SCENARIO" 2>&1 | tee "$LOG_FILE"
         EXIT_CODE=${PIPESTATUS[0]}
     else
-        "$LUA_RUNNER" --level info "$SCENARIO_FILE" > "$LOG_FILE" 2>&1
+        "$LUA_RUNNER" --level info "$RELATIVE_SCENARIO" > "$LOG_FILE" 2>&1
         EXIT_CODE=$?
     fi
 
@@ -143,11 +149,11 @@ for scenario in "${SCENARIOS_TO_RUN[@]}"; do
 
     if [[ $EXIT_CODE -eq 0 ]]; then
         echo -e "${GREEN}PASS${NC} (${DURATION}s)"
-        SCENARIO_RESULTS[$scenario]="pass"
+        PASSED_LIST="$PASSED_LIST $scenario"
         PASSED_SCENARIOS=$((PASSED_SCENARIOS + 1))
     else
         echo -e "${RED}FAIL${NC} (${DURATION}s)"
-        SCENARIO_RESULTS[$scenario]="fail"
+        FAILED_LIST="$FAILED_LIST $scenario"
         FAILED_SCENARIOS=$((FAILED_SCENARIOS + 1))
 
         if $VERBOSE; then
@@ -167,7 +173,7 @@ COMBINED_REPORT="$REPORTS_DIR/pq_stress_report.json"
 
 # Create combined report
 python3 "$SCRIPT_DIR/pq_analyzer.py" \
-    --input "$LOGS_DIR/pq_*.jsonl" \
+    --input "$LOGS_DIR/pq_*.log" \
     --output "$COMBINED_REPORT" \
     ${VERBOSE:+--verbose}
 
@@ -181,10 +187,9 @@ echo ""
 
 # Print individual scenario results
 for scenario in "${SCENARIOS_TO_RUN[@]}"; do
-    result="${SCENARIO_RESULTS[$scenario]:-skipped}"
-    if [[ "$result" == "pass" ]]; then
+    if [[ " $PASSED_LIST " == *" $scenario "* ]]; then
         echo -e "  ${GREEN}✓${NC} $scenario"
-    elif [[ "$result" == "fail" ]]; then
+    elif [[ " $FAILED_LIST " == *" $scenario "* ]]; then
         echo -e "  ${RED}✗${NC} $scenario"
     else
         echo -e "  ${YELLOW}?${NC} $scenario"

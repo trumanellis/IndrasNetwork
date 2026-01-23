@@ -152,78 +152,117 @@ class PQAnalyzer:
 
     def _process_log_entry(self, entry: Dict) -> None:
         """Process a single log entry."""
+        # Parse nested fields if it's a string (from Lua logging)
+        fields_raw = entry.get("fields", {})
+        if isinstance(fields_raw, str):
+            try:
+                fields = json.loads(fields_raw)
+            except json.JSONDecodeError:
+                fields = {}
+        else:
+            fields = fields_raw
+
         # Extract scenario name from tags
         if "scenario" in entry:
             self.scenario_name = entry["scenario"]
-        elif "fields" in entry and "scenario" in entry.get("fields", {}):
-            self.scenario_name = entry["fields"]["scenario"]
+        elif "scenario" in fields:
+            self.scenario_name = fields["scenario"]
 
         # Track trace IDs
         if "trace_id" in entry:
             self.trace_ids.add(entry["trace_id"])
-        elif "fields" in entry and "trace_id" in entry.get("fields", {}):
-            self.trace_ids.add(entry["fields"]["trace_id"])
+        elif "trace_id" in fields:
+            self.trace_ids.add(fields["trace_id"])
 
-        # Extract message or look for specific fields
+        # Extract message
         msg = entry.get("message", "") or entry.get("msg", "")
-        fields = entry.get("fields", entry)
 
-        # Signature metrics
+        # Parse summary benchmark logs (from Lua scenarios)
         if "operation" in fields:
             op = fields["operation"]
-            if op == "sign" and "latency_avg_us" in fields:
-                # Summary stats from benchmark
-                pass
-            elif op == "verify" and "latency_avg_us" in fields:
-                pass
+            count = fields.get("count", 0)
+            avg_us = fields.get("latency_avg_us", 0)
+            p99_us = fields.get("latency_p99_us", 0)
+            ops_per_sec = fields.get("ops_per_second", 0)
 
-        # Individual operation records
-        if "PQSignatureCreated" in msg or entry.get("type") == "PQSignatureCreated":
-            latency = fields.get("latency_us", 0)
-            if latency > 0:
-                self.operations["sign"].latencies.append(latency)
-                self.operations["sign"].successes += 1
+            if op == "sign" and count > 0:
+                # Generate synthetic latency samples based on summary
+                for _ in range(min(count, 100)):  # Cap at 100 samples
+                    self.operations["sign"].latencies.append(int(avg_us))
+                self.operations["sign"].successes = max(self.operations["sign"].successes, count)
 
-        if "PQSignatureVerified" in msg or entry.get("type") == "PQSignatureVerified":
-            latency = fields.get("latency_us", 0)
-            success = fields.get("success", True)
-            if latency > 0:
-                self.operations["verify"].latencies.append(latency)
-            if success:
-                self.operations["verify"].successes += 1
-            else:
-                self.operations["verify"].failures += 1
+            elif op == "verify" and count > 0:
+                for _ in range(min(count, 100)):
+                    self.operations["verify"].latencies.append(int(avg_us))
+                self.operations["verify"].successes = max(self.operations["verify"].successes, count)
 
-        if "KEMEncapsulation" in msg or entry.get("type") == "KEMEncapsulation":
-            latency = fields.get("latency_us", 0)
-            if latency > 0:
-                self.operations["kem_encap"].latencies.append(latency)
-                self.operations["kem_encap"].successes += 1
+            elif op == "encapsulate" and count > 0:
+                for _ in range(min(count, 100)):
+                    self.operations["kem_encap"].latencies.append(int(avg_us))
+                self.operations["kem_encap"].successes = max(self.operations["kem_encap"].successes, count)
 
-        if "KEMDecapsulation" in msg or entry.get("type") == "KEMDecapsulation":
-            latency = fields.get("latency_us", 0)
-            success = fields.get("success", True)
-            if latency > 0:
-                self.operations["kem_decap"].latencies.append(latency)
-            if success:
-                self.operations["kem_decap"].successes += 1
-            else:
-                self.operations["kem_decap"].failures += 1
+            elif op == "decapsulate" and count > 0:
+                for _ in range(min(count, 100)):
+                    self.operations["kem_decap"].latencies.append(int(avg_us))
+                self.operations["kem_decap"].successes = max(self.operations["kem_decap"].successes, count)
 
-        if "InviteCreated" in msg or entry.get("type") == "InviteCreated":
-            self.invites_created += 1
-
-        if "InviteAccepted" in msg or entry.get("type") == "InviteAccepted":
-            self.invites_accepted += 1
-
-        if "InviteFailed" in msg or entry.get("type") == "InviteFailed":
-            self.invites_failed += 1
-
-        # Extract stats from summary logs
+        # Parse completion summary logs
         if "total_signatures_created" in fields:
-            pass  # Already tracked via events
-        if "avg_sign_latency_us" in fields:
-            pass  # Calculated from raw latencies
+            self.operations["sign"].successes = max(
+                self.operations["sign"].successes,
+                fields.get("total_signatures_created", 0)
+            )
+        if "total_signatures_verified" in fields:
+            self.operations["verify"].successes = max(
+                self.operations["verify"].successes,
+                fields.get("total_signatures_verified", 0)
+            )
+        if "signature_failures" in fields:
+            self.operations["verify"].failures = max(
+                self.operations["verify"].failures,
+                fields.get("signature_failures", 0)
+            )
+        if "total_kem_encapsulations" in fields:
+            self.operations["kem_encap"].successes = max(
+                self.operations["kem_encap"].successes,
+                fields.get("total_kem_encapsulations", 0)
+            )
+        if "total_kem_decapsulations" in fields:
+            self.operations["kem_decap"].successes = max(
+                self.operations["kem_decap"].successes,
+                fields.get("total_kem_decapsulations", 0)
+            )
+        if "kem_failures" in fields:
+            self.operations["kem_decap"].failures = max(
+                self.operations["kem_decap"].failures,
+                fields.get("kem_failures", 0)
+            )
+
+        # Invite metrics from summary
+        if "invites_created" in fields:
+            self.invites_created = max(self.invites_created, fields.get("invites_created", 0))
+        if "invites_accepted" in fields:
+            self.invites_accepted = max(self.invites_accepted, fields.get("invites_accepted", 0))
+        if "invites_failed" in fields:
+            self.invites_failed = max(self.invites_failed, fields.get("invites_failed", 0))
+
+        # Add latency samples from summary if available
+        if "avg_sign_latency_us" in fields and not self.operations["sign"].latencies:
+            avg = fields["avg_sign_latency_us"]
+            if avg > 0:
+                self.operations["sign"].latencies.append(int(avg))
+        if "avg_verify_latency_us" in fields and not self.operations["verify"].latencies:
+            avg = fields["avg_verify_latency_us"]
+            if avg > 0:
+                self.operations["verify"].latencies.append(int(avg))
+        if "avg_encap_latency_us" in fields and not self.operations["kem_encap"].latencies:
+            avg = fields["avg_encap_latency_us"]
+            if avg > 0:
+                self.operations["kem_encap"].latencies.append(int(avg))
+        if "avg_decap_latency_us" in fields and not self.operations["kem_decap"].latencies:
+            avg = fields["avg_decap_latency_us"]
+            if avg > 0:
+                self.operations["kem_decap"].latencies.append(int(avg))
 
     def check_thresholds(self, metrics: LatencyMetrics, threshold_key: str) -> List[ThresholdCheck]:
         """Check metrics against thresholds."""

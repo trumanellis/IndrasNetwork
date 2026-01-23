@@ -106,7 +106,7 @@ fn main() -> anyhow::Result<()> {
     let log_dir = cli.log_dir.unwrap_or_else(|| PathBuf::from("./logs"));
     config.file = Some(FileConfig {
         directory: log_dir,
-        prefix: format!("indras-{}", scenario_name),
+        prefix: scenario_name.to_string(),
         rotation: RotationStrategy::Never, // Single file, overwritten each run
         max_files: None,
     });

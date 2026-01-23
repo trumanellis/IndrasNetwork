@@ -196,8 +196,12 @@ impl IndrasSubscriberBuilder {
                 guards.push(guard);
 
                 let console_layer = tracing_subscriber::fmt::layer()
+                    .compact()
                     .with_ansi(self.config.console.ansi)
-                    .with_target(true);
+                    .without_time()
+                    .with_target(false)
+                    .with_file(false)
+                    .with_line_number(false);
 
                 let file_layer = tracing_subscriber::fmt::layer()
                     .json()
@@ -268,8 +272,12 @@ impl IndrasSubscriberBuilder {
                 guards.push(guard);
 
                 let console_layer = tracing_subscriber::fmt::layer()
+                    .compact()
                     .with_ansi(self.config.console.ansi)
-                    .with_target(true);
+                    .without_time()
+                    .with_target(false)
+                    .with_file(false)
+                    .with_line_number(false);
 
                 let file_layer = tracing_subscriber::fmt::layer()
                     .json()
@@ -312,8 +320,12 @@ impl IndrasSubscriberBuilder {
             // Pretty console + OTel (no file)
             (true, true, false, true) => {
                 let console_layer = tracing_subscriber::fmt::layer()
+                    .compact()
                     .with_ansi(self.config.console.ansi)
-                    .with_target(true);
+                    .without_time()
+                    .with_target(false)
+                    .with_file(false)
+                    .with_line_number(false);
 
                 match otel::init_otel_layer(&self.config.otel) {
                     Ok(otel_layer) => {
@@ -350,8 +362,12 @@ impl IndrasSubscriberBuilder {
             // Pretty console only
             (true, true, false, false) => {
                 let console_layer = tracing_subscriber::fmt::layer()
+                    .compact()
                     .with_ansi(self.config.console.ansi)
-                    .with_target(true);
+                    .without_time()
+                    .with_target(false)
+                    .with_file(false)
+                    .with_line_number(false);
                 registry.with(console_layer).init();
             }
 
