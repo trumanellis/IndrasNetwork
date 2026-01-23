@@ -12,9 +12,11 @@ members = [
     "crates/indras-dtn",
     "crates/indras-iot",
     "crates/indras-logging",
+    "crates/indras-node",
     "simulation",
     "examples/chat-app",
     "examples/sync-demo",
+    "examples/indras-notes",
 ]
 
 [workspace.package]
@@ -36,6 +38,7 @@ indras-messaging = { path = "crates/indras-messaging" }
 indras-dtn = { path = "crates/indras-dtn" }
 indras-iot = { path = "crates/indras-iot" }
 indras-logging = { path = "crates/indras-logging" }
+indras-node = { path = "crates/indras-node" }
 
 # Core iroh stack
 iroh = "0.95"
@@ -70,6 +73,9 @@ async-trait = "0.1"
 
 # CLI
 clap = { version = "4.5", features = ["derive"] }
+
+# Encoding
+base64 = "0.22"
 
 # Testing
 tokio-test = "0.4"

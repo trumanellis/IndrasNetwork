@@ -2,38 +2,50 @@
 //!
 //! Storage abstractions for Indras Network.
 //!
-//! This crate provides pluggable storage backends for pending event/packet
-//! delivery tracking in store-and-forward messaging.
+//! This crate provides a tri-layer storage architecture:
+//!
+//! 1. **Append-only logs** - Immutable event history with ordering guarantees
+//! 2. **Structured storage (redb)** - Queryable metadata, indices, sync state
+//! 3. **Content-addressed blobs** - Large payloads, document snapshots
+//!
+//! ## Architecture
+//!
+//! ```text
+//! ┌─────────────────────────────────────────────────────────────┐
+//! │                    CompositeStorage                          │
+//! ├─────────────────────────────────────────────────────────────┤
+//! │  EventLog (append-only)  │  redb (structured)  │  BlobStore │
+//! │  - Event history         │  - Peer registry    │  - Blobs   │
+//! │  - Ordering guarantees   │  - Membership index │  - Docs    │
+//! │  - Replay/audit          │  - Sync state       │  - Large   │
+//! └─────────────────────────────────────────────────────────────┘
+//! ```
 //!
 //! ## Features
 //!
 //! - **PendingStore trait**: Abstraction for tracking pending event delivery
-//! - **InMemoryPendingStore**: In-memory implementation for testing/simulation
-//! - **PersistentPendingStore**: File-based persistent implementation for production
-//! - **InMemoryPacketStore**: In-memory packet storage implementing `PacketStore`
-//! - **QuotaManager**: Storage capacity management with eviction policies
+//! - **EventLog**: Append-only per-interface event logs
+//! - **RedbStorage**: Fast key-value storage with range queries
+//! - **BlobStore**: Content-addressed storage for large payloads
+//! - **CompositeStorage**: Unified interface for all three layers
 //!
 //! ## Example
 //!
 //! ```rust,ignore
-//! use indras_storage::{InMemoryPendingStore, PendingStore};
-//! use indras_core::{SimulationIdentity, EventId};
+//! use indras_storage::{CompositeStorage, CompositeStorageConfig};
+//! use indras_core::{SimulationIdentity, EventId, InterfaceId};
+//! use bytes::Bytes;
 //!
 //! #[tokio::main]
 //! async fn main() {
-//!     let store = InMemoryPendingStore::new();
-//!     let peer = SimulationIdentity::new('A').unwrap();
+//!     let config = CompositeStorageConfig::with_base_dir("./data");
+//!     let storage = CompositeStorage::<SimulationIdentity>::new(config).await.unwrap();
+//!
+//!     let interface_id = InterfaceId::generate();
+//!     storage.create_interface(interface_id, Some("My Interface".to_string())).unwrap();
+//!
 //!     let event_id = EventId::new(1, 1);
-//!
-//!     // Track a pending event
-//!     store.mark_pending(&peer, event_id).await.unwrap();
-//!
-//!     // Get pending events for a peer
-//!     let pending = store.pending_for(&peer).await.unwrap();
-//!     assert_eq!(pending.len(), 1);
-//!
-//!     // Mark as delivered
-//!     store.mark_delivered(&peer, event_id).await.unwrap();
+//!     storage.append_event(&interface_id, event_id, Bytes::from("Hello!")).await.unwrap();
 //! }
 //! ```
 
@@ -42,11 +54,23 @@ pub mod memory;
 pub mod persistent;
 pub mod quota;
 
+// New tri-layer storage
+pub mod append_log;
+pub mod structured;
+pub mod blobs;
+pub mod composite;
+
 // Re-exports
 pub use error::StorageError;
 pub use memory::{InMemoryPacketStore, InMemoryPendingStore};
 pub use persistent::PersistentPendingStore;
 pub use quota::{EvictionPolicy, QuotaManager, QuotaManagerBuilder};
+
+// Tri-layer storage re-exports
+pub use append_log::{EventLog, EventLogConfig, EventLogEntry, CompactionConfig};
+pub use structured::{RedbStorage, RedbStorageConfig, PeerRecord, PeerRegistry, InterfaceRecord, InterfaceStore, SyncStateRecord, SyncStateStore};
+pub use blobs::{BlobStore, BlobStoreConfig, ContentRef};
+pub use composite::{CompositeStorage, CompositeStorageConfig};
 
 // Re-export PacketStore trait from indras-core for convenience
 pub use indras_core::PacketStore;

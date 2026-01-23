@@ -1,0 +1,41 @@
+[package]
+name = "indras-node"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "High-level P2P node coordinator for Indras Network"
+
+[dependencies]
+# Internal crates
+indras-core.workspace = true
+indras-transport.workspace = true
+indras-storage.workspace = true
+indras-sync.workspace = true
+
+# Async runtime
+tokio = { workspace = true, features = ["sync", "time"] }
+async-trait.workspace = true
+
+# Serialization
+serde = { workspace = true, features = ["derive"] }
+postcard.workspace = true
+bytes.workspace = true
+
+# Utilities
+thiserror.workspace = true
+tracing.workspace = true
+dashmap.workspace = true
+hex = "0.4"
+
+# Encoding
+base64 = { workspace = true }
+
+# Other
+rand.workspace = true
+iroh.workspace = true
+
+[dev-dependencies]
+tokio-test.workspace = true
+tempfile = "3.24"
+futures = "0.3"

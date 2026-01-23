@@ -9,18 +9,19 @@ use thiserror::Error;
 pub enum StorageError {
     /// I/O error during storage operations
     #[error("I/O error: {0}")]
-    Io(#[from] std::io::Error),
+    Io(String),
 
     /// Requested item was not found
     #[error("Not found: {0}")]
     NotFound(String),
 
+    /// Packet not found (for backwards compatibility)
+    #[error("Packet not found: {0}")]
+    PacketNotFound(String),
+
     /// Storage capacity has been exceeded
-    #[error("Capacity exceeded: {message}")]
-    CapacityExceeded {
-        /// Description of the capacity limit that was exceeded
-        message: String,
-    },
+    #[error("Storage capacity exceeded")]
+    CapacityExceeded,
 
     /// Error during serialization
     #[error("Serialization error: {0}")]
@@ -33,19 +34,22 @@ pub enum StorageError {
     /// Peer identity conversion error
     #[error("Identity error: {0}")]
     Identity(String),
+
+    /// Database error
+    #[error("Database error: {0}")]
+    Database(String),
+}
+
+impl From<std::io::Error> for StorageError {
+    fn from(err: std::io::Error) -> Self {
+        StorageError::Io(err.to_string())
+    }
 }
 
 impl StorageError {
     /// Create a new NotFound error
     pub fn not_found(item: impl Into<String>) -> Self {
         Self::NotFound(item.into())
-    }
-
-    /// Create a new CapacityExceeded error
-    pub fn capacity_exceeded(message: impl Into<String>) -> Self {
-        Self::CapacityExceeded {
-            message: message.into(),
-        }
     }
 
     /// Create a new Serialization error
@@ -61,6 +65,11 @@ impl StorageError {
     /// Create a new Identity error
     pub fn identity(message: impl Into<String>) -> Self {
         Self::Identity(message.into())
+    }
+
+    /// Create a new I/O error
+    pub fn io(message: impl Into<String>) -> Self {
+        Self::Io(message.into())
     }
 }
 
@@ -84,9 +93,8 @@ mod tests {
 
     #[test]
     fn test_capacity_exceeded_error() {
-        let err = StorageError::capacity_exceeded("max 100 items");
-        assert!(matches!(err, StorageError::CapacityExceeded { .. }));
-        assert!(err.to_string().contains("max 100 items"));
+        let err = StorageError::CapacityExceeded;
+        assert!(matches!(err, StorageError::CapacityExceeded));
     }
 
     #[test]

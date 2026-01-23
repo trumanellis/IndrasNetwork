@@ -226,10 +226,7 @@ impl PersistentPendingStore {
     async fn write_entry(&self, entry: &LogEntry) -> Result<(), StorageError> {
         let mut guard = self.writer.write().await;
         let writer = guard.as_mut().ok_or_else(|| {
-            StorageError::Io(std::io::Error::new(
-                std::io::ErrorKind::NotConnected,
-                "Log file not open",
-            ))
+            StorageError::Io("Log file not open".to_string())
         })?;
 
         let bytes = postcard::to_allocvec(entry)
@@ -334,11 +331,7 @@ impl<I: PeerIdentity> PendingStore<I> for PersistentPendingStore {
         // Check total quota
         let current_total = self.total_count.load(Ordering::SeqCst);
         if self.quota.would_exceed_total_quota(current_total) {
-            return Err(StorageError::capacity_exceeded(format!(
-                "Total pending limit exceeded ({} >= {})",
-                current_total,
-                self.quota.max_total_pending()
-            )));
+            return Err(StorageError::CapacityExceeded);
         }
 
         // Write to log first (for durability)

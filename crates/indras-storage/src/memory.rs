@@ -85,11 +85,7 @@ impl<I: PeerIdentity> PendingStore<I> for InMemoryPendingStore {
         // Check total quota
         let current_total = self.total_count.load(Ordering::SeqCst);
         if self.quota.would_exceed_total_quota(current_total) {
-            return Err(StorageError::capacity_exceeded(format!(
-                "Total pending limit exceeded ({} >= {})",
-                current_total,
-                self.quota.max_total_pending()
-            )));
+            return Err(StorageError::CapacityExceeded);
         }
 
         let mut entry = self.pending.entry(key).or_default();

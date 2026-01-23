@@ -8,19 +8,31 @@ description = "Storage abstractions for Indras Network - packet and document per
 indras-core.workspace = true
 
 # Async runtime
-tokio.workspace = true
+tokio = { workspace = true, features = ["fs", "io-util"] }
 async-trait.workspace = true
 
 # Serialization
 serde.workspace = true
 postcard.workspace = true
 
+# Structured storage
+redb = "2.4"
+
+# Content-addressed blobs (using BLAKE3 hashing)
+blake3 = "1.6"
+hex = "0.4"
+
+# CRDT for snapshots
+automerge.workspace = true
+
 # Utilities
 thiserror.workspace = true
 tracing.workspace = true
 dashmap.workspace = true
 chrono.workspace = true
+bytes = { workspace = true, features = ["serde"] }
 
 [dev-dependencies]
 tokio-test.workspace = true
 rand.workspace = true
+tempfile = "3.19"

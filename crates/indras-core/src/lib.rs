@@ -27,6 +27,8 @@ pub mod event;
 pub mod routing;
 pub mod traits;
 pub mod interface;
+pub mod transport;
+pub mod mock_transport;
 
 // Re-export main types
 pub use error::*;
@@ -36,3 +38,5 @@ pub use event::*;
 pub use routing::*;
 pub use traits::*;
 pub use interface::*;
+pub use transport::*;
+pub use mock_transport::*;

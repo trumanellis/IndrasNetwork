@@ -147,6 +147,27 @@ impl EventId {
             sequence,
         }
     }
+
+    /// Convert to bytes (16 bytes: 8 for sender_hash + 8 for sequence)
+    pub fn to_bytes(&self) -> [u8; 16] {
+        let mut bytes = [0u8; 16];
+        bytes[0..8].copy_from_slice(&self.sender_hash.to_be_bytes());
+        bytes[8..16].copy_from_slice(&self.sequence.to_be_bytes());
+        bytes
+    }
+
+    /// Create from bytes (16 bytes)
+    pub fn from_bytes(bytes: &[u8; 16]) -> Self {
+        let sender_hash = u64::from_be_bytes([
+            bytes[0], bytes[1], bytes[2], bytes[3],
+            bytes[4], bytes[5], bytes[6], bytes[7],
+        ]);
+        let sequence = u64::from_be_bytes([
+            bytes[8], bytes[9], bytes[10], bytes[11],
+            bytes[12], bytes[13], bytes[14], bytes[15],
+        ]);
+        Self { sender_hash, sequence }
+    }
 }
 
 impl Display for EventId {

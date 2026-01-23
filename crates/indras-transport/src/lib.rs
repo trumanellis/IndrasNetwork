@@ -37,6 +37,7 @@ pub mod protocol;
 pub mod connection;
 pub mod discovery;
 pub mod error;
+pub mod adapter;
 
 // Re-export main types
 pub use identity::IrohIdentity;
@@ -66,6 +67,11 @@ pub use discovery::{
     DiscoveryStats,
 };
 pub use error::TransportError;
+pub use adapter::{
+    IrohNetworkAdapter,
+    AdapterConfig,
+    AdapterError,
+};
 
 // Re-export iroh types that users will need
 pub use iroh::{SecretKey, PublicKey, EndpointAddr, Endpoint};
