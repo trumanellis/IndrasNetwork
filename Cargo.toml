@@ -13,6 +13,7 @@ members = [
     "crates/indras-iot",
     "crates/indras-logging",
     "crates/indras-node",
+    "crates/indras-dashboard",
     "simulation",
     "examples/chat-app",
     "examples/sync-demo",

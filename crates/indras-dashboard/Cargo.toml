@@ -1,0 +1,27 @@
+[package]
+name = "indras-dashboard"
+version = "0.1.0"
+edition = "2021"
+description = "Real-time dashboard for monitoring Indras Network simulation stress tests"
+license = "MIT OR Apache-2.0"
+
+[[bin]]
+name = "indras-dashboard"
+path = "src/main.rs"
+
+[dependencies]
+dioxus = { version = "0.6", features = ["desktop"] }
+dioxus-desktop = "0.6"
+tokio = { version = "1", features = ["full", "sync", "rt-multi-thread"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+regex = "1.10"
+chrono = { version = "0.4", features = ["serde"] }
+glob = "0.3"
+notify = "6"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+# Workspace dependencies
+indras-logging = { path = "../indras-logging" }
+indras-simulation = { path = "../../simulation" }

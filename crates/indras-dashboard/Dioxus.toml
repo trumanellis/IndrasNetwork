@@ -1,0 +1,13 @@
+# Dioxus Configuration for IndrasNetwork Dashboard
+
+[application]
+name = "indras-dashboard"
+default_platform = "desktop"
+
+[desktop]
+title = "IndrasNetwork Stress Test Dashboard"
+enable_file_drop = false
+
+[web.resource]
+# Serve the assets directory
+style = ["assets/style.css"]
