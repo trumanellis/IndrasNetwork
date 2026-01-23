@@ -12,6 +12,7 @@ indras-core.workspace = true
 indras-transport.workspace = true
 indras-storage.workspace = true
 indras-sync.workspace = true
+indras-crypto.workspace = true
 
 # Async runtime
 tokio = { workspace = true, features = ["sync", "time"] }

@@ -44,6 +44,14 @@ pub enum NodeError {
     /// IO error
     #[error("IO error: {0}")]
     Io(String),
+
+    /// Keystore error
+    #[error("Keystore error: {0}")]
+    Keystore(String),
+
+    /// Crypto error
+    #[error("Crypto error: {0}")]
+    Crypto(String),
 }
 
 impl From<indras_transport::AdapterError> for NodeError {
