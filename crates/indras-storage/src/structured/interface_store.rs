@@ -9,7 +9,7 @@ use tracing::debug;
 
 use indras_core::{InterfaceId, PeerIdentity};
 
-use super::tables::{INTERFACE_MEMBERS, INTERFACES, RedbStorage};
+use super::tables::{INTERFACE_MEMBERS, INTERFACES, RedbStorage, SNAPSHOTS};
 use crate::error::StorageError;
 
 /// Metadata about an interface
@@ -285,6 +285,27 @@ impl InterfaceStore {
     fn make_member_prefix(&self, interface_id: &InterfaceId) -> Vec<u8> {
         interface_id.as_bytes().to_vec()
     }
+
+    /// Get document data by key
+    ///
+    /// Used for document persistence. The key format is typically:
+    /// "doc:" || realm_id (32 bytes) || document_name
+    pub fn get_document_data(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
+        self.storage.get(SNAPSHOTS, key)
+    }
+
+    /// Set document data by key
+    ///
+    /// Used for document persistence. The key format is typically:
+    /// "doc:" || realm_id (32 bytes) || document_name
+    pub fn set_document_data(&self, key: &[u8], data: &[u8]) -> Result<(), StorageError> {
+        self.storage.put(SNAPSHOTS, key, data)
+    }
+
+    /// Delete document data by key
+    pub fn delete_document_data(&self, key: &[u8]) -> Result<bool, StorageError> {
+        self.storage.delete(SNAPSHOTS, key)
+    }
 }
 
 #[cfg(test)]
@@ -355,5 +376,43 @@ mod tests {
 
         let peer_z = SimulationIdentity::new('Z').unwrap();
         assert!(!store.is_member(&interface_id, &peer_z).unwrap());
+    }
+
+    #[test]
+    fn test_document_data() {
+        let (store, _temp) = create_test_store();
+
+        // Create a document key
+        let realm_id = [0x42u8; 32];
+        let mut key = Vec::with_capacity(4 + 32 + 10);
+        key.extend_from_slice(b"doc:");
+        key.extend_from_slice(&realm_id);
+        key.extend_from_slice(b"test_doc");
+
+        // Initially no data
+        assert!(store.get_document_data(&key).unwrap().is_none());
+
+        // Store document data
+        let doc_data = b"serialized document state";
+        store.set_document_data(&key, doc_data).unwrap();
+
+        // Retrieve document data
+        let retrieved = store.get_document_data(&key).unwrap().unwrap();
+        assert_eq!(retrieved, doc_data);
+
+        // Update document data
+        let new_data = b"updated document state";
+        store.set_document_data(&key, new_data).unwrap();
+        let retrieved = store.get_document_data(&key).unwrap().unwrap();
+        assert_eq!(retrieved, new_data);
+
+        // Delete document data
+        let deleted = store.delete_document_data(&key).unwrap();
+        assert!(deleted);
+        assert!(store.get_document_data(&key).unwrap().is_none());
+
+        // Delete again should return false
+        let deleted = store.delete_document_data(&key).unwrap();
+        assert!(!deleted);
     }
 }

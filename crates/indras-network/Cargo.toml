@@ -1,0 +1,56 @@
+[package]
+name = "indras-network"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "High-level SDK for building P2P applications on Indra's Network"
+readme = "README.md"
+keywords = ["p2p", "distributed", "crdt", "networking", "collaborative"]
+categories = ["network-programming", "asynchronous"]
+
+[dependencies]
+# Internal crates
+indras-node.workspace = true
+indras-core.workspace = true
+indras-messaging.workspace = true
+indras-sync.workspace = true
+indras-storage.workspace = true
+indras-transport.workspace = true
+indras-crypto.workspace = true
+
+# Iroh (for PublicKey type)
+iroh.workspace = true
+
+# Async runtime
+tokio = { workspace = true, features = ["sync"] }
+futures = "0.3"
+async-stream = "0.3"
+
+# Serialization
+serde.workspace = true
+postcard.workspace = true
+
+# Utilities
+thiserror.workspace = true
+tracing.workspace = true
+derive_more.workspace = true
+chrono.workspace = true
+dashmap.workspace = true
+base64.workspace = true
+
+# Blob handling
+blake3 = "1.6"
+
+# Optional features
+qrcode = { version = "0.14", optional = true }
+image = { version = "0.25", optional = true, default-features = false, features = ["png"] }
+
+[features]
+default = []
+qr = ["qrcode", "image"]
+full = ["qr"]
+
+[dev-dependencies]
+tokio-test.workspace = true
+tempfile = "3"
