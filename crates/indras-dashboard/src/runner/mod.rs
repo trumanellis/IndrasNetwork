@@ -36,6 +36,7 @@ pub struct ScenarioRunner {
     scenarios_dir: PathBuf,
     lua_runner_path: PathBuf,
     logs_dir: PathBuf,
+    workspace_root: PathBuf,
 }
 
 impl ScenarioRunner {
@@ -52,16 +53,23 @@ impl ScenarioRunner {
             scenarios_dir: workspace_root.join("simulation/scripts/scenarios"),
             lua_runner_path: workspace_root.join("target/debug/lua_runner"),
             logs_dir: workspace_root.join("logs"),
+            workspace_root,
         }
     }
 
     /// Creates a ScenarioRunner with custom paths (for testing)
     #[allow(dead_code)] // Reserved for testing
-    pub fn with_paths(scenarios_dir: PathBuf, lua_runner_path: PathBuf, logs_dir: PathBuf) -> Self {
+    pub fn with_paths(
+        scenarios_dir: PathBuf,
+        lua_runner_path: PathBuf,
+        logs_dir: PathBuf,
+        workspace_root: PathBuf,
+    ) -> Self {
         Self {
             scenarios_dir,
             lua_runner_path,
             logs_dir,
+            workspace_root,
         }
     }
 
@@ -188,6 +196,102 @@ impl ScenarioRunner {
                     description: "Tests large interface synchronization with many members and high signature verification load.",
                 },
             ]),
+            ("Relay & Routing", vec![
+                ScenarioInfo {
+                    name: "abc_relay.lua",
+                    description: "Basic A-B-C relay testing with simple three-node topology and message forwarding verification.",
+                },
+                ScenarioInfo {
+                    name: "relay_chain.lua",
+                    description: "Multi-hop relay chain scenarios testing message propagation through extended relay paths.",
+                },
+                ScenarioInfo {
+                    name: "backprop_verification.lua",
+                    description: "Detailed verification of back-propagation confirmation paths and delivery acknowledgments.",
+                },
+                ScenarioInfo {
+                    name: "prophet_stress.lua",
+                    description: "Tests PRoPHET probabilistic routing with encounter history, transitive probability, and decay verification.",
+                },
+            ]),
+            ("Resilience", vec![
+                ScenarioInfo {
+                    name: "chaos_monkey.lua",
+                    description: "General chaos testing with random peer failures, network disruptions, and recovery verification.",
+                },
+                ScenarioInfo {
+                    name: "hub_failure.lua",
+                    description: "Tests network resilience when hub nodes fail, verifying alternate route discovery.",
+                },
+                ScenarioInfo {
+                    name: "message_timeout.lua",
+                    description: "Tests message timeout behavior, retry mechanisms, and expiration handling.",
+                },
+                ScenarioInfo {
+                    name: "offline_relay.lua",
+                    description: "Tests offline peer relay handling with store-and-forward when intermediaries are unavailable.",
+                },
+                ScenarioInfo {
+                    name: "network_partition.lua",
+                    description: "Tests network partitioning scenarios with group isolation and eventual reconnection.",
+                },
+            ]),
+            ("Concurrency", vec![
+                ScenarioInfo {
+                    name: "bidirectional_concurrent.lua",
+                    description: "Tests bidirectional concurrent message flows with simultaneous send/receive operations.",
+                },
+                ScenarioInfo {
+                    name: "comprehensive_test.lua",
+                    description: "Comprehensive end-to-end testing combining multiple stress patterns and edge cases.",
+                },
+            ]),
+            ("IoT Constraints", vec![
+                ScenarioInfo {
+                    name: "iot_stress.lua",
+                    description: "Tests IoT-specific constraints: duty cycling, compact wire format, and low-memory operation.",
+                },
+            ]),
+            ("Advanced DTN", vec![
+                ScenarioInfo {
+                    name: "dtn_custody_stress.lua",
+                    description: "Tests DTN custody transfer with acceptance/rejection, custody timeout, and transfer chains.",
+                },
+                ScenarioInfo {
+                    name: "dtn_strategy_stress.lua",
+                    description: "Tests dynamic DTN strategy switching based on network conditions and delivery requirements.",
+                },
+            ]),
+            ("Advanced Storage", vec![
+                ScenarioInfo {
+                    name: "storage_compaction_stress.lua",
+                    description: "Tests append-only log compaction under write load with data integrity verification.",
+                },
+                ScenarioInfo {
+                    name: "storage_blob_stress.lua",
+                    description: "Tests content-addressed blob store throughput and large binary data handling.",
+                },
+            ]),
+            ("Schema & Validation", vec![
+                ScenarioInfo {
+                    name: "messaging_schema_stress.lua",
+                    description: "Tests schema registry, content validation throughput, and schema migration under load.",
+                },
+            ]),
+            ("SDK Stress Tests", vec![
+                ScenarioInfo {
+                    name: "sdk_stress.lua",
+                    description: "Tests SDK network creation, realm formation, peer joins, and interface lifecycle.",
+                },
+                ScenarioInfo {
+                    name: "sdk_document_stress.lua",
+                    description: "Tests SDK document CRDT operations, concurrent edits, sync, and persistence.",
+                },
+                ScenarioInfo {
+                    name: "sdk_messaging_stress.lua",
+                    description: "Tests SDK message delivery, reply threading, reactions, and member presence.",
+                },
+            ]),
         ]
     }
 
@@ -234,9 +338,11 @@ impl ScenarioRunner {
         let start_time = std::time::Instant::now();
 
         // Spawn lua_runner process with --pretty flag for console output
+        // Set working directory to workspace root so Lua package paths resolve correctly
         let mut child = Command::new(&self.lua_runner_path)
             .arg("--pretty") // Output to console instead of file
             .arg(&scenario_path)
+            .current_dir(&self.workspace_root)
             .env("STRESS_LEVEL", level.as_str())
             .env("RUST_LOG", "info")
             .stdout(Stdio::piped())
@@ -512,7 +618,7 @@ fn parse_fields(fields: &serde_json::Value, json: &serde_json::Value) -> Option<
     None
 }
 
-/// Check if fields contain routing or PQ crypto metrics
+/// Check if fields contain routing, PQ crypto, or SDK metrics
 fn has_metrics_fields(fields: &serde_json::Value) -> bool {
     // Routing/messaging metrics
     fields.get("messages_sent").is_some()
@@ -529,6 +635,18 @@ fn has_metrics_fields(fields: &serde_json::Value) -> bool {
         || fields.get("avg_decap_latency_us").is_some()
         // Throughput
         || fields.get("ops_per_second").is_some()
+        // SDK Messaging metrics
+        || fields.get("threads_created").is_some()
+        || fields.get("reactions_sent").is_some()
+        || fields.get("presence_updates").is_some()
+        || fields.get("total_members").is_some()
+        // SDK Document metrics
+        || fields.get("documents_created").is_some()
+        || fields.get("total_updates").is_some()
+        || fields.get("convergence_rate").is_some()
+        // SDK Network metrics
+        || fields.get("networks_created").is_some()
+        || fields.get("realms_created").is_some()
 }
 
 /// Extracts metrics from log fields
@@ -658,6 +776,119 @@ fn extract_metrics(fields: &serde_json::Value, tick: u64) -> SimMetrics {
             .or(fields.get("total_ticks"))
             .and_then(|v| v.as_u64())
             .unwrap_or(tick),
+
+        // SDK-specific metrics (Messaging)
+        threads_created: fields
+            .get("threads_created")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        reactions_sent: fields
+            .get("reactions_sent")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        presence_updates: fields
+            .get("presence_updates")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        channels_created: fields
+            .get("channels_created")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        members_online: fields
+            .get("total_members")
+            .or(fields.get("members_online"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        member_joins: fields
+            .get("member_joins")
+            .or(fields.get("members_joined"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        member_leaves: fields
+            .get("member_leaves")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        avg_thread_depth: fields
+            .get("avg_thread_depth")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0),
+        max_thread_depth: fields
+            .get("max_thread_depth")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+
+        // SDK-specific metrics (Document)
+        documents_created: fields
+            .get("documents_created")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        total_updates: fields
+            .get("total_updates")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        sync_operations: fields
+            .get("sync_operations")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        convergence_rate: fields
+            .get("convergence_rate")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0),
+        persistence_operations: fields
+            .get("persistence_operations")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        reload_operations: fields
+            .get("reload_operations")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+
+        // SDK-specific metrics (Network Lifecycle)
+        networks_created: fields
+            .get("networks_created")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        networks_destroyed: fields
+            .get("networks_destroyed")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        realms_created: fields
+            .get("realms_created")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        realm_joins: fields
+            .get("realm_joins")
+            .or(fields.get("members_joined"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        active_members: fields
+            .get("active_members")
+            .or(fields.get("total_members"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+
+        // SDK latency metrics (microseconds)
+        p50_latency_us: fields
+            .get("p50_latency_us")
+            .or(fields.get("p50_send_latency_us"))
+            .or(fields.get("p50_update_latency_us"))
+            .or(fields.get("message_send_p50_us"))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0),
+        p95_latency_us: fields
+            .get("p95_latency_us")
+            .or(fields.get("p95_send_latency_us"))
+            .or(fields.get("p95_update_latency_us"))
+            .or(fields.get("message_send_p95_us"))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0),
+        p99_latency_us: fields
+            .get("p99_latency_us")
+            .or(fields.get("p99_send_latency_us"))
+            .or(fields.get("p99_update_latency_us"))
+            .or(fields.get("message_send_p99_us"))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0),
     }
 }
 

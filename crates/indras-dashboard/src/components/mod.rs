@@ -8,8 +8,10 @@ use indras_simulation::{NetworkEvent, PacketId, PeerId};
 pub mod charts;
 pub mod documents;
 pub mod panels;
+pub mod sdk;
 
 pub use documents::DocumentsView;
+pub use sdk::SDKView;
 
 /// Header component with dashboard title
 #[component]
@@ -516,7 +518,7 @@ fn format_event_type(event_type: &EventType) -> &'static str {
 // Tab Navigation Components
 // ============================================================================
 
-/// Tab bar for switching between Metrics, Instances, and Documents views
+/// Tab bar for switching between Metrics, Simulations, Documents, and SDK views
 #[component]
 pub fn TabBar(current_tab: Tab, on_select: EventHandler<Tab>) -> Element {
     rsx! {
@@ -535,6 +537,11 @@ pub fn TabBar(current_tab: Tab, on_select: EventHandler<Tab>) -> Element {
                 class: if current_tab == Tab::Documents { "tab-btn active" } else { "tab-btn" },
                 onclick: move |_| on_select.call(Tab::Documents),
                 "Documents"
+            }
+            button {
+                class: if current_tab == Tab::SDK { "tab-btn active" } else { "tab-btn" },
+                onclick: move |_| on_select.call(Tab::SDK),
+                "SDK"
             }
         }
     }
@@ -598,7 +605,6 @@ pub fn SimulationsView(
     on_load_scenario: EventHandler<String>,
 ) -> Element {
     let selected_scenario = state.read().scenario_name.clone();
-    let has_simulation = state.read().simulation.is_some();
 
     rsx! {
         div { class: "simulations-view",
@@ -636,13 +642,11 @@ pub fn SimulationsView(
 
             // Main content area
             main { class: "simulations-main",
+                // Playback controls at top - always show, disabled when no simulation
+                SimulationControls { state: state }
+
                 // Topology visualization
                 TopologyView { state: state }
-
-                // Playback controls (only show when simulation loaded)
-                if has_simulation {
-                    SimulationControls { state: state }
-                }
 
                 // Bottom panels in a grid
                 div { class: "simulation-panels",
@@ -657,33 +661,32 @@ pub fn SimulationsView(
 /// Playback controls for the simulation
 #[component]
 pub fn SimulationControls(state: Signal<InstanceState>) -> Element {
+    let has_simulation = state.read().simulation.is_some();
     let tick = state.read().current_tick();
     let max_ticks = state.read().max_ticks();
     let paused = state.read().paused;
     let playback_speed = state.read().playback_speed;
-    let progress_pct = if max_ticks > 0 {
-        (tick as f64 / max_ticks as f64) * 100.0
-    } else {
-        0.0
-    };
+
+    // Compute disabled opacity for inline styles
+    let step_opacity = if !has_simulation || !paused { "0.4" } else { "1" };
+    let btn_opacity = if !has_simulation { "0.4" } else { "1" };
 
     rsx! {
-        div { class: "simulation-controls",
-            // Progress bar
-            div { class: "progress-track",
-                div {
-                    class: "progress-fill",
-                    style: "width: {progress_pct}%",
-                }
-            }
+        div {
+            style: "background: #1e1e1e; border-radius: 8px; padding: 14px 20px; margin-bottom: 8px;",
 
-            // Control buttons and info
-            div { class: "controls-row",
-                div { class: "control-buttons",
+            // Control buttons row
+            div {
+                style: "display: flex; align-items: center; justify-content: space-between; gap: 20px;",
+
+                // Left: Control buttons
+                div {
+                    style: "display: flex; gap: 10px;",
+
                     // Step button
                     button {
-                        class: "sim-btn",
-                        disabled: !paused,
+                        style: "padding: 10px 18px; border: none; background: #333; color: #F7F3E9; border-radius: 6px; cursor: pointer; font-size: 0.9rem; font-weight: 500; opacity: {step_opacity};",
+                        disabled: !has_simulation || !paused,
                         onclick: move |_| {
                             let new_events = {
                                 let mut state_write = state.write();
@@ -726,7 +729,12 @@ pub fn SimulationControls(state: Signal<InstanceState>) -> Element {
 
                     // Play/Pause button
                     button {
-                        class: if paused { "sim-btn play" } else { "sim-btn pause" },
+                        style: if paused {
+                            format!("padding: 10px 18px; border: none; background: #22c55e; color: white; border-radius: 6px; cursor: pointer; font-size: 0.9rem; font-weight: 600; opacity: {btn_opacity};")
+                        } else {
+                            format!("padding: 10px 18px; border: none; background: #f59e0b; color: #0a0a0a; border-radius: 6px; cursor: pointer; font-size: 0.9rem; font-weight: 600; opacity: {btn_opacity};")
+                        },
+                        disabled: !has_simulation,
                         onclick: move |_| {
                             let current = state.read().paused;
                             state.write().paused = !current;
@@ -736,7 +744,8 @@ pub fn SimulationControls(state: Signal<InstanceState>) -> Element {
 
                     // Reset button
                     button {
-                        class: "sim-btn reset",
+                        style: format!("padding: 10px 18px; border: 1px solid #555; background: transparent; color: #aaa; border-radius: 6px; cursor: pointer; font-size: 0.9rem; font-weight: 500; opacity: {btn_opacity};"),
+                        disabled: !has_simulation,
                         onclick: move |_| {
                             state.write().simulation = None;
                             state.write().clear_events();
@@ -748,19 +757,35 @@ pub fn SimulationControls(state: Signal<InstanceState>) -> Element {
                     }
                 }
 
-                // Status info
-                div { class: "sim-status",
-                    span { class: "tick-display", "Tick {tick} / {max_ticks}" }
+                // Right: Status info
+                div {
+                    style: "display: flex; align-items: center; gap: 20px;",
+
+                    // Tick display
+                    span {
+                        style: "color: #00d4aa; font-size: 0.9rem; font-weight: 500; font-variant-numeric: tabular-nums;",
+                        if has_simulation {
+                            "Tick {tick} / {max_ticks}"
+                        } else {
+                            "Select a topology"
+                        }
+                    }
 
                     // Speed control
-                    div { class: "speed-control",
-                        label { "{playback_speed:.1}×" }
+                    div {
+                        style: "display: flex; align-items: center; gap: 10px;",
+                        span {
+                            style: "color: #888; font-size: 0.85rem; min-width: 40px;",
+                            "{playback_speed:.1}×"
+                        }
                         input {
                             r#type: "range",
                             min: "0.5",
                             max: "10",
                             step: "0.5",
                             value: "{playback_speed}",
+                            disabled: !has_simulation,
+                            style: "width: 100px; accent-color: #00d4aa;",
                             onchange: move |e| {
                                 if let Ok(speed) = e.value().parse::<f64>() {
                                     state.write().playback_speed = speed;

@@ -38,6 +38,10 @@ pub fn App() -> Element {
     let mut document_state = use_signal(DocumentState::new);
     let mut document_runner: Signal<Option<DocumentRunner>> = use_signal(|| None);
 
+    // SDK view state
+    let mut sdk_state = use_signal(SDKState::new);
+    let mut sdk_cancel_token: Signal<Option<Arc<Mutex<bool>>>> = use_signal(|| None);
+
     // Channel for receiving metrics updates from background task
     let mut cancel_token: Signal<Option<Arc<Mutex<bool>>>> = use_signal(|| None);
 
@@ -88,7 +92,10 @@ pub fn App() -> Element {
 
                 match update {
                     MetricsUpdate::Stats(new_metrics) => {
-                        metrics.set(new_metrics);
+                        // Merge metrics to preserve values from earlier updates
+                        let mut m = metrics();
+                        m.merge(&new_metrics);
+                        metrics.set(m);
                     }
                     MetricsUpdate::Event(event) => {
                         events.write().push(event);
@@ -481,6 +488,111 @@ pub fn App() -> Element {
                                         state.current_step = runner.current_step;
                                         state.is_converged = runner.check_convergence();
                                     }
+                                }
+                            },
+                        }
+                    }
+                },
+                Tab::SDK => rsx! {
+                    // Full-width content for SDK tab
+                    div { class: "content", style: "padding: 0;",
+                        SDKView {
+                            state: sdk_state,
+                            on_run: move |_| {
+                                let current_dashboard = sdk_state.read().current_dashboard;
+                                let scenario = current_dashboard.scenario_name().to_string();
+                                let level_str = sdk_state.read().stress_level.clone();
+                                let level = match level_str.as_str() {
+                                    "quick" => StressLevel::Quick,
+                                    "full" => StressLevel::Full,
+                                    _ => StressLevel::Medium,
+                                };
+
+                                // Reset state
+                                sdk_state.write().reset();
+                                sdk_state.write().running = true;
+
+                                // Create cancel token
+                                let token = Arc::new(Mutex::new(false));
+                                sdk_cancel_token.set(Some(token.clone()));
+
+                                // Spawn async task to run the scenario
+                                spawn(async move {
+                                    let runner = ScenarioRunner::new();
+                                    let (tx, mut rx) = mpsc::channel::<MetricsUpdate>(100);
+
+                                    // Spawn the scenario runner
+                                    let scenario_clone = scenario.clone();
+                                    let run_handle = tokio::spawn(async move {
+                                        runner.run_scenario(&scenario_clone, level, tx).await
+                                    });
+
+                                    // Process updates
+                                    while let Some(update) = rx.recv().await {
+                                        if *token.lock().await {
+                                            break;
+                                        }
+
+                                        match update {
+                                            MetricsUpdate::Stats(new_metrics) => {
+                                                // Merge metrics to preserve values from earlier updates
+                                                sdk_state.write().metrics.merge(&new_metrics);
+                                            }
+                                            MetricsUpdate::Event(event) => {
+                                                sdk_state.write().add_event(event);
+                                            }
+                                            MetricsUpdate::Tick { current, max } => {
+                                                let mut state = sdk_state.write();
+                                                state.metrics.current_tick = current;
+                                                state.metrics.max_ticks = max;
+                                            }
+                                            MetricsUpdate::Complete(result) => {
+                                                sdk_state.write().add_event(SimEvent {
+                                                    tick: result.metrics.current_tick,
+                                                    event_type: if result.passed {
+                                                        EventType::Success
+                                                    } else {
+                                                        EventType::Error
+                                                    },
+                                                    description: if result.passed {
+                                                        format!("{} completed successfully", scenario)
+                                                    } else {
+                                                        format!("{} failed: {:?}", scenario, result.errors)
+                                                    },
+                                                });
+                                            }
+                                            MetricsUpdate::Error(err) => {
+                                                sdk_state.write().add_event(SimEvent {
+                                                    tick: 0,
+                                                    event_type: EventType::Error,
+                                                    description: err,
+                                                });
+                                            }
+                                        }
+                                    }
+
+                                    let _ = run_handle.await;
+                                    sdk_state.write().running = false;
+                                    sdk_cancel_token.set(None);
+                                });
+                            },
+                            on_stop: move |_| {
+                                if let Some(token) = sdk_cancel_token() {
+                                    spawn(async move {
+                                        *token.lock().await = true;
+                                    });
+                                }
+                                sdk_state.write().running = false;
+                                let current_tick = sdk_state.read().metrics.current_tick;
+                                sdk_state.write().add_event(SimEvent {
+                                    tick: current_tick,
+                                    event_type: EventType::Warning,
+                                    description: "Test execution stopped by user".to_string(),
+                                });
+                            },
+                            on_level_change: move |level: String| {
+                                if !sdk_state.read().running {
+                                    sdk_state.write().stress_level = level;
                                 }
                             },
                         }

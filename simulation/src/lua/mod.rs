@@ -65,6 +65,12 @@ pub fn register_indras_module(lua: &Lua) -> Result<()> {
     // Register PRoPHET routing
     bindings::routing::register(lua, &indras)?;
 
+    // Register IoT bindings (duty cycling, compact messages, memory tracking)
+    bindings::iot::register(lua, &indras)?;
+
+    // Register SDK bindings
+    bindings::sdk::register(lua, &indras)?;
+
     // Register assertion helpers
     assertions::register(lua, &indras)?;
 
