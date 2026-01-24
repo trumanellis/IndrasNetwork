@@ -6,12 +6,12 @@
 //! - Store-and-forward routing for offline peers
 //! - Back-propagation of delivery confirmations
 
-use std::collections::{BTreeSet, VecDeque};
 use rand::Rng;
+use std::collections::{BTreeSet, VecDeque};
 use tracing::{debug, info, trace, warn};
 
-use crate::types::*;
 use crate::topology::Mesh;
+use crate::types::*;
 
 /// Configuration for the simulation
 #[derive(Debug, Clone)]
@@ -32,6 +32,8 @@ pub struct SimConfig {
     pub backprop_timeout: Option<u64>,
     /// Maximum retry attempts for offline sender before dropping message
     pub max_sender_retries: Option<u32>,
+    /// How often to apply PRoPHET aging (in ticks)
+    pub prophet_aging_interval: u64,
 }
 
 impl Default for SimConfig {
@@ -45,6 +47,7 @@ impl Default for SimConfig {
             message_timeout: Some(50),
             backprop_timeout: Some(100),
             max_sender_retries: Some(10),
+            prophet_aging_interval: 100,
         }
     }
 }
@@ -107,6 +110,12 @@ pub struct SimStats {
     /// Total backprop latency (ticks from delivery to confirmation complete)
     pub total_backprop_latency: u64,
 
+    // PRoPHET routing metrics
+    /// Number of times PRoPHET selected a relay based on delivery probabilities
+    pub prophet_relay_selections: u64,
+    /// Number of times PRoPHET aging was applied
+    pub prophet_aging_cycles: u64,
+
     // Post-quantum cryptography simulation metrics
     /// PQ signatures created (simulated)
     pub pq_signatures_created: u64,
@@ -161,7 +170,10 @@ impl Simulation {
                 peer.online = online;
                 if online {
                     peer.last_online_tick = Some(0);
-                    self.emit_event(NetworkEvent::Awake { peer: peer_id, tick: 0 });
+                    self.emit_event(NetworkEvent::Awake {
+                        peer: peer_id,
+                        tick: 0,
+                    });
                 }
             }
         }
@@ -199,12 +211,17 @@ impl Simulation {
 
         // 5. Process back-propagations
         self.process_backprops();
+
+        // 6. Process PRoPHET aging periodically
+        if self.tick % self.config.prophet_aging_interval == 0 {
+            self.process_prophet_aging();
+        }
     }
 
     /// Run simulation until max_ticks or no more activity
     pub fn run(&mut self) {
         self.initialize();
-        
+
         while self.tick < self.config.max_ticks {
             self.step();
         }
@@ -242,12 +259,18 @@ impl Simulation {
                 if peer.online {
                     // Waking up
                     peer.last_online_tick = Some(self.tick);
-                    self.emit_event(NetworkEvent::Awake { peer: peer_id, tick: self.tick });
+                    self.emit_event(NetworkEvent::Awake {
+                        peer: peer_id,
+                        tick: self.tick,
+                    });
                     self.stats.wake_events += 1;
                     debug!("Peer {} woke up at tick {}", peer_id, self.tick);
                 } else {
                     // Going to sleep
-                    self.emit_event(NetworkEvent::Sleep { peer: peer_id, tick: self.tick });
+                    self.emit_event(NetworkEvent::Sleep {
+                        peer: peer_id,
+                        tick: self.tick,
+                    });
                     self.stats.sleep_events += 1;
                     debug!("Peer {} went to sleep at tick {}", peer_id, self.tick);
                 }
@@ -262,14 +285,16 @@ impl Simulation {
         for peer_id in peer_ids {
             let (just_woke, neighbors) = {
                 let peer = self.mesh.peers.get(&peer_id).unwrap();
-                let just_woke = peer.online 
-                    && peer.last_online_tick == Some(self.tick);
+                let just_woke = peer.online && peer.last_online_tick == Some(self.tick);
                 let neighbors: Vec<PeerId> = peer.connections.iter().copied().collect();
                 (just_woke, neighbors)
             };
 
             if just_woke {
-                trace!("Peer {} broadcasting awake signal to {:?}", peer_id, neighbors);
+                trace!(
+                    "Peer {} broadcasting awake signal to {:?}",
+                    peer_id, neighbors
+                );
                 // Check each neighbor's relay queue for packets addressed to us
                 for neighbor_id in neighbors {
                     self.deliver_pending_packets(neighbor_id, peer_id);
@@ -282,7 +307,8 @@ impl Simulation {
     fn deliver_pending_packets(&mut self, from: PeerId, to: PeerId) {
         let packets_to_deliver: Vec<SealedPacket> = {
             let from_peer = self.mesh.peers.get(&from).unwrap();
-            from_peer.relay_queue
+            from_peer
+                .relay_queue
                 .iter()
                 .filter(|p| p.destination == to)
                 .cloned()
@@ -291,7 +317,7 @@ impl Simulation {
 
         for packet in packets_to_deliver {
             let packet_id = packet.id;
-            
+
             // Remove from relay queue
             {
                 let from_peer = self.mesh.peers.get_mut(&from).unwrap();
@@ -307,6 +333,12 @@ impl Simulation {
         let dest_id = packet.destination;
         let packet_id = packet.id;
         let created_at = packet.created_at;
+
+        // Record encounter: via peer successfully delivered to destination
+        {
+            let via_peer = self.mesh.peers.get_mut(&via).unwrap();
+            via_peer.prophet_state.encounter(&dest_id);
+        }
 
         // Add to destination's inbox and mark as delivered
         {
@@ -325,8 +357,10 @@ impl Simulation {
         let delivery_latency = self.tick.saturating_sub(created_at);
         self.stats.total_delivery_latency += delivery_latency;
 
-        info!("Packet {} delivered to {} via {} at tick {} (latency: {} ticks)",
-              packet_id, dest_id, via, self.tick, delivery_latency);
+        info!(
+            "Packet {} delivered to {} via {} at tick {} (latency: {} ticks)",
+            packet_id, dest_id, via, self.tick, delivery_latency
+        );
         self.stats.messages_delivered += 1;
         self.stats.total_hops += packet.visited.len() as u64;
 
@@ -357,20 +391,28 @@ impl Simulation {
         for send in sends {
             // Check for message expiration
             if let Some(timeout) = self.config.message_timeout
-                && self.tick - send.created_tick > timeout {
-                    debug!("Message from {} to {} expired after {} ticks",
-                           send.from, send.to, self.tick - send.created_tick);
-                    self.stats.messages_expired += 1;
-                    self.stats.messages_dropped += 1;
-                    // Create a placeholder packet_id for the dropped event
-                    let packet_id = PacketId { source: send.from, sequence: 0 };
-                    self.emit_event(NetworkEvent::Dropped {
-                        packet_id,
-                        reason: DropReason::Expired,
-                        tick: self.tick,
-                    });
-                    continue;
-                }
+                && self.tick - send.created_tick > timeout
+            {
+                debug!(
+                    "Message from {} to {} expired after {} ticks",
+                    send.from,
+                    send.to,
+                    self.tick - send.created_tick
+                );
+                self.stats.messages_expired += 1;
+                self.stats.messages_dropped += 1;
+                // Create a placeholder packet_id for the dropped event
+                let packet_id = PacketId {
+                    source: send.from,
+                    sequence: 0,
+                };
+                self.emit_event(NetworkEvent::Dropped {
+                    packet_id,
+                    reason: DropReason::Expired,
+                    tick: self.tick,
+                });
+                continue;
+            }
 
             self.emit_event(NetworkEvent::Send {
                 from: send.from,
@@ -379,31 +421,63 @@ impl Simulation {
                 tick: self.tick,
             });
 
-            self.route_message_with_retry(send.from, send.to, send.payload, send.created_tick, send.retry_count);
+            self.route_message_with_retry(
+                send.from,
+                send.to,
+                send.payload,
+                send.created_tick,
+                send.retry_count,
+            );
         }
     }
 
-    fn route_message_with_retry(&mut self, from: PeerId, to: PeerId, payload: Vec<u8>, created_tick: u64, retry_count: u32) {
+    fn route_message_with_retry(
+        &mut self,
+        from: PeerId,
+        to: PeerId,
+        payload: Vec<u8>,
+        created_tick: u64,
+        retry_count: u32,
+    ) {
         // Check if sender is online
-        let from_online = self.mesh.peers.get(&from).map(|p| p.online).unwrap_or(false);
+        let from_online = self
+            .mesh
+            .peers
+            .get(&from)
+            .map(|p| p.online)
+            .unwrap_or(false);
         if !from_online {
             // Check retry limit
             if let Some(max_retries) = self.config.max_sender_retries
-                && retry_count >= max_retries {
-                    warn!("Message from {} to {} dropped: sender offline after {} retries",
-                          from, to, retry_count);
-                    self.stats.messages_dropped += 1;
-                    let packet_id = PacketId { source: from, sequence: 0 };
-                    self.emit_event(NetworkEvent::Dropped {
-                        packet_id,
-                        reason: DropReason::SenderOffline,
-                        tick: self.tick,
-                    });
-                    return;
-                }
-            debug!("Sender {} is offline, queueing message (retry {})", from, retry_count + 1);
+                && retry_count >= max_retries
+            {
+                warn!(
+                    "Message from {} to {} dropped: sender offline after {} retries",
+                    from, to, retry_count
+                );
+                self.stats.messages_dropped += 1;
+                let packet_id = PacketId {
+                    source: from,
+                    sequence: 0,
+                };
+                self.emit_event(NetworkEvent::Dropped {
+                    packet_id,
+                    reason: DropReason::SenderOffline,
+                    tick: self.tick,
+                });
+                return;
+            }
+            debug!(
+                "Sender {} is offline, queueing message (retry {})",
+                from,
+                retry_count + 1
+            );
             self.pending_sends.push_back(PendingSend {
-                from, to, payload, created_tick, retry_count: retry_count + 1,
+                from,
+                to,
+                payload,
+                created_tick,
+                retry_count: retry_count + 1,
             });
             return;
         }
@@ -417,14 +491,7 @@ impl Simulation {
         // Calculate routing hints (mutual peers)
         let routing_hints = self.mesh.mutual_peers(from, to);
 
-        let packet = SealedPacket::new(
-            packet_id,
-            from,
-            to,
-            payload,
-            routing_hints,
-            self.tick,
-        );
+        let packet = SealedPacket::new(packet_id, from, to, payload, routing_hints, self.tick);
 
         // Check if destination is online and directly reachable
         let dest_online = self.mesh.peers.get(&to).map(|p| p.online).unwrap_or(false);
@@ -451,31 +518,50 @@ impl Simulation {
         // Get online neighbors who haven't seen this packet
         let candidates: Vec<PeerId> = {
             let neighbors = self.mesh.neighbors(current).cloned().unwrap_or_default();
-            neighbors.into_iter()
+            neighbors
+                .into_iter()
                 .filter(|n| !packet.was_visited(*n))
                 .filter(|n| self.mesh.peers.get(n).map(|p| p.online).unwrap_or(false))
                 .collect()
         };
 
-        // Priority 1: Use routing_hints (mutual peers who can reach destination)
-        // These were pre-computed when the packet was created
-        let hint_relay = candidates.iter()
+        // Priority 1: Use PRoPHET to select best relay based on delivery probabilities
+        let prophet_relay = {
+            let current_peer = self.mesh.peers.get(&current).unwrap();
+            current_peer.prophet_state.best_candidate(&dest, &candidates)
+        };
+
+        // Track if PRoPHET made the selection
+        let used_prophet = prophet_relay.is_some();
+
+        // Priority 2: Use routing_hints (mutual peers who can reach destination)
+        let hint_relay = candidates
+            .iter()
             .find(|c| packet.routing_hints.contains(c))
             .copied();
 
-        // Priority 2: Neighbors who are connected to destination
-        let dest_neighbors: BTreeSet<PeerId> = self.mesh.neighbors(dest)
-            .cloned()
-            .unwrap_or_default();
+        // Priority 3: Neighbors who are connected to destination
+        let dest_neighbors: BTreeSet<PeerId> =
+            self.mesh.neighbors(dest).cloned().unwrap_or_default();
 
-        let best_relay = hint_relay
-            .or_else(|| candidates.iter().find(|c| dest_neighbors.contains(c)).copied())
+        let best_relay = prophet_relay
+            .or(hint_relay)
+            .or_else(|| {
+                candidates
+                    .iter()
+                    .find(|c| dest_neighbors.contains(c))
+                    .copied()
+            })
             .or_else(|| candidates.first().copied());
+
+        if used_prophet && best_relay.is_some() {
+            self.stats.prophet_relay_selections += 1;
+        }
 
         match best_relay {
             Some(relay) => {
                 debug!("Routing packet {} through relay {}", packet.id, relay);
-                
+
                 if !packet.decrement_ttl() {
                     self.emit_event(NetworkEvent::Dropped {
                         packet_id: packet.id,
@@ -487,6 +573,12 @@ impl Simulation {
                 }
 
                 packet.mark_visited(relay);
+
+                // Record encounter: current peer successfully forwarded to relay
+                {
+                    let current_peer = self.mesh.peers.get_mut(&current).unwrap();
+                    current_peer.prophet_state.encounter(&relay);
+                }
 
                 self.emit_event(NetworkEvent::Relay {
                     from: current,
@@ -503,7 +595,10 @@ impl Simulation {
             None => {
                 // No online relay available - store at current peer for later
                 if candidates.is_empty() {
-                    debug!("No relay available for packet {}, holding at {}", packet.id, current);
+                    debug!(
+                        "No relay available for packet {}, holding at {}",
+                        packet.id, current
+                    );
                     let current_peer = self.mesh.peers.get_mut(&current).unwrap();
                     current_peer.relay_queue.push(packet);
                 } else {
@@ -540,7 +635,12 @@ impl Simulation {
 
             for packet in packets_to_forward {
                 let dest = packet.destination;
-                let dest_online = self.mesh.peers.get(&dest).map(|p| p.online).unwrap_or(false);
+                let dest_online = self
+                    .mesh
+                    .peers
+                    .get(&dest)
+                    .map(|p| p.online)
+                    .unwrap_or(false);
                 let direct = self.mesh.are_connected(peer_id, dest);
 
                 if direct && dest_online {
@@ -572,10 +672,11 @@ impl Simulation {
         for (idx, backprop) in self.backprops.iter_mut().enumerate() {
             // Check for backprop timeout
             if let Some(timeout) = self.config.backprop_timeout
-                && self.tick - backprop.delivered_tick > timeout {
-                    timed_out_indices.push(idx);
-                    continue;
-                }
+                && self.tick - backprop.delivered_tick > timeout
+            {
+                timed_out_indices.push(idx);
+                continue;
+            }
 
             // Work backwards through the path
             if backprop.backprop_index >= backprop.path.len() - 1 {
@@ -590,13 +691,26 @@ impl Simulation {
             let next = backprop.path[next_idx];
 
             // Check if both peers are online
-            let current_online = self.mesh.peers.get(&current).map(|p| p.online).unwrap_or(false);
-            let next_online = self.mesh.peers.get(&next).map(|p| p.online).unwrap_or(false);
+            let current_online = self
+                .mesh
+                .peers
+                .get(&current)
+                .map(|p| p.online)
+                .unwrap_or(false);
+            let next_online = self
+                .mesh
+                .peers
+                .get(&next)
+                .map(|p| p.online)
+                .unwrap_or(false);
 
             if current_online && next_online {
                 events_to_emit.push((backprop.packet_id, current, next, self.tick));
                 backprop.backprop_index += 1;
-                debug!("Back-prop {} at {} -> {}", backprop.packet_id, current, next);
+                debug!(
+                    "Back-prop {} at {} -> {}",
+                    backprop.packet_id, current, next
+                );
             }
         }
 
@@ -615,8 +729,11 @@ impl Simulation {
         for idx in timed_out_indices.into_iter().rev() {
             let bp = self.backprops.remove(idx);
             self.stats.backprops_timed_out += 1;
-            warn!("Back-propagation timed out for packet {} after {} ticks",
-                  bp.packet_id, self.tick - bp.delivered_tick);
+            warn!(
+                "Back-propagation timed out for packet {} after {} ticks",
+                bp.packet_id,
+                self.tick - bp.delivered_tick
+            );
         }
 
         // Remove completed back-propagations and clean up relay queues
@@ -630,23 +747,40 @@ impl Simulation {
             // Clean up relay queues at intermediate peers (not source or destination)
             // The path is [source, relay1, relay2, ..., destination]
             if bp.path.len() > 2 {
-                for relay_id in &bp.path[1..bp.path.len()-1] {
+                for relay_id in &bp.path[1..bp.path.len() - 1] {
                     if let Some(peer) = self.mesh.peers.get_mut(relay_id) {
                         let before_len = peer.relay_queue.len();
                         peer.relay_queue.retain(|p| p.id != bp.packet_id);
                         let removed = before_len - peer.relay_queue.len();
                         if removed > 0 {
-                            debug!("Cleaned up {} packet(s) from {}'s relay queue after backprop",
-                                   removed, relay_id);
+                            debug!(
+                                "Cleaned up {} packet(s) from {}'s relay queue after backprop",
+                                removed, relay_id
+                            );
                         }
                     }
                 }
             }
 
             self.stats.backprops_completed += 1;
-            info!("Back-propagation complete for packet {} (latency: {} ticks)",
-                  bp.packet_id, backprop_latency);
+            info!(
+                "Back-propagation complete for packet {} (latency: {} ticks)",
+                bp.packet_id, backprop_latency
+            );
         }
+    }
+
+    fn process_prophet_aging(&mut self) {
+        debug!("Processing PRoPHET aging at tick {}", self.tick);
+        let peer_ids: Vec<PeerId> = self.mesh.peer_ids();
+
+        for peer_id in peer_ids {
+            if let Some(peer) = self.mesh.peers.get_mut(&peer_id) {
+                peer.prophet_state.force_age();
+            }
+        }
+
+        self.stats.prophet_aging_cycles += 1;
     }
 
     fn emit_event(&mut self, event: NetworkEvent) {
@@ -659,9 +793,7 @@ impl Simulation {
     /// Get a summary of the current state
     pub fn state_summary(&self) -> String {
         let online_count = self.mesh.peers.values().filter(|p| p.online).count();
-        let total_relay_queue: usize = self.mesh.peers.values()
-            .map(|p| p.relay_queue.len())
-            .sum();
+        let total_relay_queue: usize = self.mesh.peers.values().map(|p| p.relay_queue.len()).sum();
 
         format!(
             "Tick {}: {} online, {} relay queued, {} backprops pending",
@@ -674,32 +806,49 @@ impl Simulation {
 
     /// Check if a specific peer is online
     pub fn is_online(&self, peer: PeerId) -> bool {
-        self.mesh.peers.get(&peer).map(|p| p.online).unwrap_or(false)
+        self.mesh
+            .peers
+            .get(&peer)
+            .map(|p| p.online)
+            .unwrap_or(false)
     }
 
     /// Force a peer online
     pub fn force_online(&mut self, peer: PeerId) {
         if let Some(p) = self.mesh.peers.get_mut(&peer)
-            && !p.online {
-                p.online = true;
-                p.last_online_tick = Some(self.tick);
-                self.emit_event(NetworkEvent::Awake { peer, tick: self.tick });
-            }
+            && !p.online
+        {
+            p.online = true;
+            p.last_online_tick = Some(self.tick);
+            self.emit_event(NetworkEvent::Awake {
+                peer,
+                tick: self.tick,
+            });
+        }
     }
 
     /// Force a peer offline
     pub fn force_offline(&mut self, peer: PeerId) {
         if let Some(p) = self.mesh.peers.get_mut(&peer)
-            && p.online {
-                p.online = false;
-                self.emit_event(NetworkEvent::Sleep { peer, tick: self.tick });
-            }
+            && p.online
+        {
+            p.online = false;
+            self.emit_event(NetworkEvent::Sleep {
+                peer,
+                tick: self.tick,
+            });
+        }
     }
 
     // Post-quantum cryptography simulation methods
 
     /// Simulate a PQ signature creation with the given latency
-    pub fn record_pq_signature_created(&mut self, peer: PeerId, latency_us: u64, message_size: usize) {
+    pub fn record_pq_signature_created(
+        &mut self,
+        peer: PeerId,
+        latency_us: u64,
+        message_size: usize,
+    ) {
         self.stats.pq_signatures_created += 1;
         self.stats.pq_signature_create_time_us += latency_us;
         self.emit_event(NetworkEvent::PQSignatureCreated {
@@ -711,7 +860,13 @@ impl Simulation {
     }
 
     /// Simulate a PQ signature verification with the given latency
-    pub fn record_pq_signature_verified(&mut self, peer: PeerId, sender: PeerId, latency_us: u64, success: bool) {
+    pub fn record_pq_signature_verified(
+        &mut self,
+        peer: PeerId,
+        sender: PeerId,
+        latency_us: u64,
+        success: bool,
+    ) {
         if success {
             self.stats.pq_signatures_verified += 1;
         } else {
@@ -740,7 +895,13 @@ impl Simulation {
     }
 
     /// Simulate a KEM decapsulation with the given latency
-    pub fn record_kem_decapsulation(&mut self, peer: PeerId, sender: PeerId, latency_us: u64, success: bool) {
+    pub fn record_kem_decapsulation(
+        &mut self,
+        peer: PeerId,
+        sender: PeerId,
+        latency_us: u64,
+        success: bool,
+    ) {
         if success {
             self.stats.pq_kem_decapsulations += 1;
         } else {
@@ -797,17 +958,20 @@ mod tests {
     #[test]
     fn test_direct_delivery() {
         let mesh = MeshBuilder::new(3).full_mesh();
-        let mut sim = Simulation::new(mesh, SimConfig {
-            wake_probability: 0.0,
-            sleep_probability: 0.0,
-            ..Default::default()
-        });
-        
+        let mut sim = Simulation::new(
+            mesh,
+            SimConfig {
+                wake_probability: 0.0,
+                sleep_probability: 0.0,
+                ..Default::default()
+            },
+        );
+
         // Force all online
         sim.force_online(PeerId('A'));
         sim.force_online(PeerId('B'));
         sim.force_online(PeerId('C'));
-        
+
         sim.send_message(PeerId('A'), PeerId('B'), vec![1, 2, 3]);
         sim.step();
 
@@ -819,11 +983,14 @@ mod tests {
     fn test_relay_delivery() {
         // A - B - C (line)
         let mesh = MeshBuilder::new(3).line();
-        let mut sim = Simulation::new(mesh, SimConfig {
-            wake_probability: 0.0,
-            sleep_probability: 0.0,
-            ..Default::default()
-        });
+        let mut sim = Simulation::new(
+            mesh,
+            SimConfig {
+                wake_probability: 0.0,
+                sleep_probability: 0.0,
+                ..Default::default()
+            },
+        );
 
         sim.force_online(PeerId('A'));
         sim.force_online(PeerId('B'));
@@ -840,11 +1007,14 @@ mod tests {
     #[test]
     fn test_offline_store_and_forward() {
         let mesh = MeshBuilder::new(3).full_mesh();
-        let mut sim = Simulation::new(mesh, SimConfig {
-            wake_probability: 0.0,
-            sleep_probability: 0.0,
-            ..Default::default()
-        });
+        let mut sim = Simulation::new(
+            mesh,
+            SimConfig {
+                wake_probability: 0.0,
+                sleep_probability: 0.0,
+                ..Default::default()
+            },
+        );
 
         // A and B online, C offline
         sim.force_online(PeerId('A'));

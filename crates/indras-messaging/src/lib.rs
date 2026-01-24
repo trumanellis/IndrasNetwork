@@ -56,6 +56,6 @@ pub use error::{MessagingError, MessagingResult};
 pub use history::{MessageFilter, MessageHistory};
 pub use message::{EncryptionMetadata, Message, MessageContent, MessageEnvelope, MessageId};
 pub use schema::{
-    content_types, ContentTypeInfo, ContentValidator, SchemaError, SchemaMigration,
-    SchemaRegistry, SchemaResult, SchemaVersion, TypedContent, ValidationConfig,
+    ContentTypeInfo, ContentValidator, SchemaError, SchemaMigration, SchemaRegistry, SchemaResult,
+    SchemaVersion, TypedContent, ValidationConfig, content_types,
 };

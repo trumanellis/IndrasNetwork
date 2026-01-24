@@ -130,7 +130,11 @@ impl UserData for LuaApp {
                 let interface_id_bytes = hex::decode(&interface_id_hex)
                     .map_err(|e| crate::app::AppError::NotebookNotFound(e.to_string()))?;
                 let interface_id = indras_core::InterfaceId::from_slice(&interface_id_bytes)
-                    .ok_or_else(|| crate::app::AppError::NotebookNotFound("Invalid interface ID length".to_string()))?;
+                    .ok_or_else(|| {
+                        crate::app::AppError::NotebookNotFound(
+                            "Invalid interface ID length".to_string(),
+                        )
+                    })?;
 
                 let mut app = app.lock().await;
                 app.open_notebook(&interface_id).await
@@ -279,8 +283,9 @@ pub fn register(lua: &Lua, notes: &Table) -> Result<()> {
         "new_with_temp_storage",
         lua.create_function(|_, ()| {
             let result = futures::executor::block_on(async {
-                let temp_dir = tempfile::TempDir::new()
-                    .map_err(|e| crate::app::AppError::Storage(crate::storage::StorageError::Io(e)))?;
+                let temp_dir = tempfile::TempDir::new().map_err(|e| {
+                    crate::app::AppError::Storage(crate::storage::StorageError::Io(e))
+                })?;
 
                 // Store the temp_dir path and create storage
                 let storage = LocalStorage::new(temp_dir.path()).await?;

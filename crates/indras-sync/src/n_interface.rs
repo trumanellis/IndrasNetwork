@@ -12,9 +12,9 @@ use std::sync::RwLock;
 
 use async_trait::async_trait;
 use indras_core::{
+    EventId, InterfaceEvent, InterfaceId, PeerIdentity, SyncMessage,
     error::InterfaceError,
     traits::{NInterfaceTrait, TopicId},
-    EventId, InterfaceEvent, InterfaceId, PeerIdentity, SyncMessage,
 };
 use serde::{Deserialize, Serialize};
 
@@ -346,7 +346,8 @@ where
 
         // 2. Also add to Automerge document for CRDT sync
         self.document
-            .write().unwrap()
+            .write()
+            .unwrap()
             .append_event(&event)
             .map_err(|e| InterfaceError::AppendFailed(e.to_string()))?;
 
@@ -389,7 +390,8 @@ where
         // Apply the sync data if present
         if !sync_msg.sync_data.is_empty() {
             self.document
-                .write().unwrap()
+                .write()
+                .unwrap()
                 .apply_sync_message(&sync_msg.sync_data)
                 .map_err(|e| InterfaceError::SyncFailed(e.to_string()))?;
         }
@@ -693,7 +695,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_merge_sync_wrong_interface() {
-        let (alice, bob, _) = create_peers();
+        let (alice, _bob, _) = create_peers();
         let mut interface = NInterface::new(alice);
 
         // Create a sync message for a different interface

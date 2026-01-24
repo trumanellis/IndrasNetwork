@@ -6,10 +6,10 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
-use tracing::{info, debug};
+use tracing::{debug, info};
 
-use indras_logging::{IndrasSubscriberBuilder, LogConfig, FileConfig, RotationStrategy};
-use indras_simulation::{types, topology, simulation, scenarios};
+use indras_logging::{FileConfig, IndrasSubscriberBuilder, LogConfig, RotationStrategy};
+use indras_simulation::{scenarios, simulation, topology, types};
 
 #[derive(Parser)]
 #[command(
@@ -38,38 +38,38 @@ struct Cli {
 enum Commands {
     /// Run the canonical A-B-C scenario from the spec
     Abc,
-    
+
     /// Run a multi-hop line relay scenario
     Line,
-    
+
     /// Run a broadcast scenario (hub-and-spoke)
     Broadcast,
-    
+
     /// Run a random chaos simulation
     Chaos {
         /// Number of ticks to run
         #[arg(short, long, default_value = "100")]
         ticks: u64,
     },
-    
+
     /// Run the network partition scenario
     Partition,
-    
+
     /// Create and visualize a custom topology
     Topology {
         /// Type of topology: ring, full, random, line, star
         #[arg(short, long, default_value = "ring")]
         topology: String,
-        
+
         /// Number of peers (max 26)
         #[arg(short, long, default_value = "6")]
         peers: usize,
-        
+
         /// Connection probability for random topology
         #[arg(short, long, default_value = "0.4")]
         connection_prob: f64,
     },
-    
+
     /// Interactive simulation mode
     Interactive {
         /// Number of peers
@@ -117,9 +117,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     // The guard must be kept alive for file logging to work
-    let _guard = IndrasSubscriberBuilder::new()
-        .with_config(config)
-        .init();
+    let _guard = IndrasSubscriberBuilder::new().with_config(config).init();
 
     match cli.command {
         Commands::Abc => {
@@ -137,7 +135,11 @@ fn main() -> anyhow::Result<()> {
         Commands::Partition => {
             scenarios::run_partition_scenario();
         }
-        Commands::Topology { topology, peers, connection_prob } => {
+        Commands::Topology {
+            topology,
+            peers,
+            connection_prob,
+        } => {
             let mesh = match topology.as_str() {
                 "ring" => topology::MeshBuilder::new(peers).ring(),
                 "full" => topology::MeshBuilder::new(peers).full_mesh(),
@@ -165,12 +167,15 @@ fn run_interactive(peer_count: usize) -> anyhow::Result<()> {
     let mesh = topology::MeshBuilder::new(peer_count).random(0.5);
     info!(topology = %mesh.visualize(), "Interactive mode: mesh topology created");
 
-    let mut sim = simulation::Simulation::new(mesh, simulation::SimConfig {
-        wake_probability: 0.0,
-        sleep_probability: 0.0,
-        trace_routing: true,
-        ..Default::default()
-    });
+    let mut sim = simulation::Simulation::new(
+        mesh,
+        simulation::SimConfig {
+            wake_probability: 0.0,
+            sleep_probability: 0.0,
+            trace_routing: true,
+            ..Default::default()
+        },
+    );
 
     // Start with half online
     for (i, c) in ('A'..).take(peer_count).enumerate() {
@@ -207,18 +212,20 @@ fn run_interactive(peer_count: usize) -> anyhow::Result<()> {
             "online" | "wake" => {
                 if let Some(peer_str) = parts.get(1)
                     && let Some(c) = peer_str.chars().next()
-                        && let Some(peer_id) = types::PeerId::new(c.to_ascii_uppercase()) {
-                            sim.force_online(peer_id);
-                            info!(peer = %peer_id, "Peer is now online");
-                        }
+                    && let Some(peer_id) = types::PeerId::new(c.to_ascii_uppercase())
+                {
+                    sim.force_online(peer_id);
+                    info!(peer = %peer_id, "Peer is now online");
+                }
             }
             "offline" | "sleep" => {
                 if let Some(peer_str) = parts.get(1)
                     && let Some(c) = peer_str.chars().next()
-                        && let Some(peer_id) = types::PeerId::new(c.to_ascii_uppercase()) {
-                            sim.force_offline(peer_id);
-                            info!(peer = %peer_id, "Peer is now offline");
-                        }
+                    && let Some(peer_id) = types::PeerId::new(c.to_ascii_uppercase())
+                {
+                    sim.force_offline(peer_id);
+                    info!(peer = %peer_id, "Peer is now offline");
+                }
             }
             "send" => {
                 if parts.len() >= 4 {
@@ -226,7 +233,9 @@ fn run_interactive(peer_count: usize) -> anyhow::Result<()> {
                     let to_c = parts[2].chars().next().unwrap().to_ascii_uppercase();
                     let msg = parts[3..].join(" ");
 
-                    if let (Some(from), Some(to)) = (types::PeerId::new(from_c), types::PeerId::new(to_c)) {
+                    if let (Some(from), Some(to)) =
+                        (types::PeerId::new(from_c), types::PeerId::new(to_c))
+                    {
                         sim.send_message(from, to, msg.into_bytes());
                         info!(from = %from, to = %to, "Message queued");
                     }
@@ -235,14 +244,14 @@ fn run_interactive(peer_count: usize) -> anyhow::Result<()> {
                 }
             }
             "step" => {
-                let n: u64 = parts.get(1)
-                    .and_then(|s| s.parse().ok())
-                    .unwrap_or(1);
+                let n: u64 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(1);
                 sim.run_ticks(n);
                 info!(ticks = n, state = %sim.state_summary(), "Advanced simulation");
             }
             "status" => {
-                let online_peers: Vec<String> = sim.mesh.peer_ids()
+                let online_peers: Vec<String> = sim
+                    .mesh
+                    .peer_ids()
                     .into_iter()
                     .filter(|&peer_id| sim.is_online(peer_id))
                     .map(|peer_id| {
@@ -272,7 +281,11 @@ fn run_interactive(peer_count: usize) -> anyhow::Result<()> {
                 for event in sim.event_log.iter().rev().take(20) {
                     debug!(event = ?event, "Event log entry");
                 }
-                info!(total_events = event_count, shown = std::cmp::min(20, event_count), "Event log");
+                info!(
+                    total_events = event_count,
+                    shown = std::cmp::min(20, event_count),
+                    "Event log"
+                );
             }
             "quit" | "exit" | "q" => {
                 info!("Interactive session ended");

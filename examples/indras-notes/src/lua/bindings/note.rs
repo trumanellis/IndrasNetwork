@@ -172,7 +172,7 @@ mod tests {
         let lua = setup_lua();
 
         // First create a note with content
-        lua.scope(|scope| {
+        lua.scope(|_scope| {
             let note = Note::new("Test", "alice");
             let mut note = note;
             note.update_content("This is a long content that should be truncated");

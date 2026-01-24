@@ -142,26 +142,28 @@ pub fn create_hook_methods(lua: &Lua, sim_table: &Table) -> Result<()> {
     let key_clone = lua.create_registry_value(lua.registry_value::<Table>(&registry_key)?)?;
     sim_table.set(
         "on_event",
-        lua.create_function(move |lua, (this, event_type, callback): (Table, String, Function)| {
-            let registry: Table = lua.registry_value(&key_clone)?;
-            let event_hooks: Table = registry.get("event_hooks")?;
+        lua.create_function(
+            move |lua, (this, event_type, callback): (Table, String, Function)| {
+                let registry: Table = lua.registry_value(&key_clone)?;
+                let event_hooks: Table = registry.get("event_hooks")?;
 
-            // Get or create the table for this event type
-            let hooks: Table = match event_hooks.get::<Value>(event_type.as_str())? {
-                Value::Table(t) => t,
-                _ => {
-                    let t = lua.create_table()?;
-                    event_hooks.set(event_type.as_str(), t.clone())?;
-                    t
-                }
-            };
+                // Get or create the table for this event type
+                let hooks: Table = match event_hooks.get::<Value>(event_type.as_str())? {
+                    Value::Table(t) => t,
+                    _ => {
+                        let t = lua.create_table()?;
+                        event_hooks.set(event_type.as_str(), t.clone())?;
+                        t
+                    }
+                };
 
-            let len = hooks.len()?;
-            hooks.set(len + 1, callback)?;
+                let len = hooks.len()?;
+                hooks.set(len + 1, callback)?;
 
-            // Return self for chaining
-            Ok(this)
-        })?,
+                // Return self for chaining
+                Ok(this)
+            },
+        )?,
     )?;
 
     Ok(())

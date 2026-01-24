@@ -26,11 +26,9 @@ fn lua_value_to_json(value: &Value) -> Result<serde_json::Value> {
         Value::Nil => Ok(serde_json::Value::Null),
         Value::Boolean(b) => Ok(serde_json::Value::Bool(*b)),
         Value::Integer(i) => Ok(serde_json::Value::Number((*i).into())),
-        Value::Number(n) => {
-            serde_json::Number::from_f64(*n)
-                .map(serde_json::Value::Number)
-                .ok_or_else(|| mlua::Error::external("Invalid float value"))
-        }
+        Value::Number(n) => serde_json::Number::from_f64(*n)
+            .map(serde_json::Value::Number)
+            .ok_or_else(|| mlua::Error::external("Invalid float value")),
         Value::String(s) => Ok(serde_json::Value::String(s.to_str()?.to_string())),
         Value::Table(t) => {
             // Check if it's an array (sequential integer keys starting at 1)
@@ -207,13 +205,15 @@ mod tests {
     #[test]
     fn test_log_with_fields() {
         let lua = setup_lua();
-        lua.load(r#"
+        lua.load(
+            r#"
             indras.log.info("Test message", {
                 scenario = "test",
                 count = 42,
                 enabled = true
             })
-        "#)
+        "#,
+        )
         .exec()
         .unwrap();
     }
@@ -221,20 +221,22 @@ mod tests {
     #[test]
     fn test_log_levels() {
         let lua = setup_lua();
-        lua.load(r#"
+        lua.load(
+            r#"
             indras.log.trace("trace message")
             indras.log.debug("debug message")
             indras.log.info("info message")
             indras.log.warn("warn message")
             indras.log.error("error message")
-        "#)
+        "#,
+        )
         .exec()
         .unwrap();
     }
 
     #[test]
     fn test_lua_value_to_json() {
-        let lua = Lua::new();
+        let _lua = Lua::new();
 
         // Test nil
         let v = lua_value_to_json(&Value::Nil).unwrap();
@@ -249,7 +251,7 @@ mod tests {
         assert_eq!(v, serde_json::json!(42));
 
         // Test number
-        let v = lua_value_to_json(&Value::Number(3.14)).unwrap();
-        assert!((v.as_f64().unwrap() - 3.14).abs() < f64::EPSILON);
+        let v = lua_value_to_json(&Value::Number(1.23456)).unwrap();
+        assert!((v.as_f64().unwrap() - 1.23456).abs() < f64::EPSILON);
     }
 }

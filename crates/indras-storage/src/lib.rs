@@ -56,9 +56,9 @@ pub mod quota;
 
 // New tri-layer storage
 pub mod append_log;
-pub mod structured;
 pub mod blobs;
 pub mod composite;
+pub mod structured;
 
 // Re-exports
 pub use error::StorageError;
@@ -67,10 +67,13 @@ pub use persistent::PersistentPendingStore;
 pub use quota::{EvictionPolicy, QuotaManager, QuotaManagerBuilder};
 
 // Tri-layer storage re-exports
-pub use append_log::{EventLog, EventLogConfig, EventLogEntry, CompactionConfig};
-pub use structured::{RedbStorage, RedbStorageConfig, PeerRecord, PeerRegistry, InterfaceRecord, InterfaceStore, SyncStateRecord, SyncStateStore};
+pub use append_log::{CompactionConfig, EventLog, EventLogConfig, EventLogEntry};
 pub use blobs::{BlobStore, BlobStoreConfig, ContentRef};
 pub use composite::{CompositeStorage, CompositeStorageConfig};
+pub use structured::{
+    InterfaceRecord, InterfaceStore, PeerRecord, PeerRegistry, RedbStorage, RedbStorageConfig,
+    SyncStateRecord, SyncStateStore,
+};
 
 // Re-export PacketStore trait from indras-core for convenience
 pub use indras_core::PacketStore;
@@ -177,7 +180,10 @@ mod tests {
         assert_eq!(pending.len(), 5);
 
         // Mark one as delivered
-        store.mark_delivered(&peer, EventId::new(1, 3)).await.unwrap();
+        store
+            .mark_delivered(&peer, EventId::new(1, 3))
+            .await
+            .unwrap();
         let pending = store.pending_for(&peer).await.unwrap();
         assert_eq!(pending.len(), 4);
 

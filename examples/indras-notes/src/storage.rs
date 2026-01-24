@@ -37,7 +37,11 @@ pub struct UserProfile {
 }
 
 impl UserProfile {
-    pub fn new(name: impl Into<String>, identity_bytes: Vec<u8>, secret_key_bytes: Vec<u8>) -> Self {
+    pub fn new(
+        name: impl Into<String>,
+        identity_bytes: Vec<u8>,
+        secret_key_bytes: Vec<u8>,
+    ) -> Self {
         Self {
             name: name.into(),
             identity_bytes,
@@ -165,7 +169,10 @@ impl LocalStorage {
     }
 
     /// Load a notebook by interface ID
-    pub async fn load_notebook(&self, interface_id: &InterfaceId) -> Result<Notebook, StorageError> {
+    pub async fn load_notebook(
+        &self,
+        interface_id: &InterfaceId,
+    ) -> Result<Notebook, StorageError> {
         let path = self.notebook_path(interface_id);
         if !path.exists() {
             return Err(StorageError::NotFound(hex::encode(interface_id.as_bytes())));
@@ -192,7 +199,9 @@ impl LocalStorage {
 
         // Update index
         let mut index = self.load_index().await?;
-        index.notebooks.remove(&hex::encode(interface_id.as_bytes()));
+        index
+            .notebooks
+            .remove(&hex::encode(interface_id.as_bytes()));
         self.save_index(&index).await?;
 
         Ok(())

@@ -134,7 +134,10 @@ pub struct EventId {
 impl EventId {
     /// Create a new event ID
     pub fn new(sender_hash: u64, sequence: u64) -> Self {
-        Self { sender_hash, sequence }
+        Self {
+            sender_hash,
+            sequence,
+        }
     }
 
     /// Create from a peer identity and sequence
@@ -159,14 +162,15 @@ impl EventId {
     /// Create from bytes (16 bytes)
     pub fn from_bytes(bytes: &[u8; 16]) -> Self {
         let sender_hash = u64::from_be_bytes([
-            bytes[0], bytes[1], bytes[2], bytes[3],
-            bytes[4], bytes[5], bytes[6], bytes[7],
+            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
         ]);
         let sequence = u64::from_be_bytes([
-            bytes[8], bytes[9], bytes[10], bytes[11],
-            bytes[12], bytes[13], bytes[14], bytes[15],
+            bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15],
         ]);
-        Self { sender_hash, sequence }
+        Self {
+            sender_hash,
+            sequence,
+        }
     }
 }
 

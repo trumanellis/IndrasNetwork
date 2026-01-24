@@ -29,10 +29,10 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use dashmap::DashMap;
-use iroh::{EndpointAddr, PublicKey, SecretKey};
 use iroh::endpoint::Connection;
+use iroh::{EndpointAddr, PublicKey, SecretKey};
 use iroh_gossip::Gossip;
-use tokio::sync::{broadcast, mpsc, RwLock};
+use tokio::sync::{RwLock, broadcast, mpsc};
 use tracing::{debug, error, info, instrument, warn};
 
 use indras_core::error::TransportError;
@@ -110,14 +110,12 @@ impl IrohNetworkAdapter {
     ///
     /// This initializes the iroh endpoint, connection manager, gossip, and
     /// discovery service.
-    pub async fn new(
-        secret_key: SecretKey,
-        config: AdapterConfig,
-    ) -> Result<Self, AdapterError> {
+    pub async fn new(secret_key: SecretKey, config: AdapterConfig) -> Result<Self, AdapterError> {
         // Create connection manager
-        let connection_manager = ConnectionManager::new(secret_key.clone(), config.connection.clone())
-            .await
-            .map_err(|e| AdapterError::ConnectionManager(e.to_string()))?;
+        let connection_manager =
+            ConnectionManager::new(secret_key.clone(), config.connection.clone())
+                .await
+                .map_err(|e| AdapterError::ConnectionManager(e.to_string()))?;
 
         let local_identity = connection_manager.local_identity();
         let endpoint = connection_manager.endpoint().clone();
@@ -126,11 +124,8 @@ impl IrohNetworkAdapter {
         let gossip = Gossip::builder().spawn(endpoint);
 
         // Create discovery service
-        let discovery_service = DiscoveryService::new(
-            gossip.clone(),
-            local_identity,
-            config.discovery.clone(),
-        );
+        let discovery_service =
+            DiscoveryService::new(gossip.clone(), local_identity, config.discovery.clone());
 
         // Create message channel
         let (message_tx, message_rx) = mpsc::channel(config.message_buffer_size);
@@ -296,10 +291,13 @@ impl IrohNetworkAdapter {
                         // Read the message
                         match recv.read_to_end(1024 * 1024).await {
                             Ok(data) => {
-                                if let Err(e) = message_tx.send(IncomingMessage {
-                                    sender: peer_id,
-                                    data,
-                                }).await {
+                                if let Err(e) = message_tx
+                                    .send(IncomingMessage {
+                                        sender: peer_id,
+                                        data,
+                                    })
+                                    .await
+                                {
                                     error!(error = %e, "Failed to queue incoming message");
                                     break;
                                 }
@@ -349,15 +347,14 @@ impl IrohNetworkAdapter {
                                 let peer_id = info.identity;
                                 if !connection_manager.is_connected(&peer_id) {
                                     // Try to get address from our cache
-                                    if let Some(addr) = peer_addresses.get(&peer_id) {
-                                        if let Err(e) = connection_manager.connect(addr.clone()).await {
+                                    if let Some(addr) = peer_addresses.get(&peer_id)
+                                        && let Err(e) = connection_manager.connect(addr.clone()).await {
                                             debug!(
                                                 peer = %peer_id.short_id(),
                                                 error = %e,
                                                 "Failed to auto-connect"
                                             );
                                         }
-                                    }
                                 }
                             }
                             PeerEvent::Lost(peer_id) => {
@@ -475,7 +472,8 @@ impl Transport<IrohIdentity> for IrohNetworkAdapter {
 impl NetworkTopology<IrohIdentity> for IrohNetworkAdapter {
     fn peers(&self) -> Vec<IrohIdentity> {
         // Return all known peers (from discovery + connected)
-        let mut peers: Vec<_> = self.discovery_service
+        let mut peers: Vec<_> = self
+            .discovery_service
             .known_peers()
             .into_iter()
             .map(|p| p.identity)
@@ -555,10 +553,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_adapter_creation() {
-        let secret = SecretKey::generate(&mut rand::thread_rng());
+        let secret = SecretKey::generate(&mut rand::rng());
         let config = AdapterConfig::default();
 
-        let adapter = IrohNetworkAdapter::new(secret.clone(), config).await.unwrap();
+        let adapter = IrohNetworkAdapter::new(secret.clone(), config)
+            .await
+            .unwrap();
 
         // Identity should be derived from secret key
         let expected_id = IrohIdentity::new(secret.public());
@@ -570,12 +570,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_peer_address_management() {
-        let secret = SecretKey::generate(&mut rand::thread_rng());
+        let secret = SecretKey::generate(&mut rand::rng());
         let adapter = IrohNetworkAdapter::new(secret.clone(), AdapterConfig::default())
             .await
             .unwrap();
 
-        let peer_secret = SecretKey::generate(&mut rand::thread_rng());
+        let peer_secret = SecretKey::generate(&mut rand::rng());
         let peer_id = IrohIdentity::new(peer_secret.public());
         let peer_addr = EndpointAddr::new(peer_secret.public());
 
@@ -588,7 +588,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_topology_implementation() {
-        let secret = SecretKey::generate(&mut rand::thread_rng());
+        let secret = SecretKey::generate(&mut rand::rng());
         let adapter = IrohNetworkAdapter::new(secret.clone(), AdapterConfig::default())
             .await
             .unwrap();

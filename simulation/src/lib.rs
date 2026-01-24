@@ -68,40 +68,25 @@
 //! 3. **Sealed packets**: Messages to offline peers are sealed (encrypted for destination)
 //! 4. **Back-propagation**: Delivery confirmations travel back through the relay path
 
-pub mod types;
-pub mod topology;
-pub mod simulation;
-pub mod scenarios;
 pub mod bridge;
 pub mod lua;
+pub mod scenarios;
+pub mod simulation;
+pub mod topology;
+pub mod types;
 
 #[cfg(test)]
 mod integration_scenarios;
 
 // Re-export main types
 pub use types::{
-    PeerId, 
-    PacketId, 
-    SealedPacket, 
-    NetworkEvent, 
-    DropReason,
-    PeerState, 
-    PeerInterface, 
-    EventLog,
-    BackPropRecord,
+    BackPropRecord, DropReason, EventLog, NetworkEvent, PacketId, PeerId, PeerInterface, PeerState,
+    SealedPacket,
 };
 
-pub use topology::{
-    Mesh, 
-    MeshBuilder, 
-    from_edges,
-};
+pub use topology::{Mesh, MeshBuilder, from_edges};
 
-pub use simulation::{
-    Simulation,
-    SimConfig,
-    SimStats,
-};
+pub use simulation::{SimConfig, SimStats, Simulation};
 
 pub use bridge::{MeshBridge, SimulationRouter};
 

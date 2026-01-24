@@ -32,47 +32,26 @@
 //! let conn = manager.connect(peer_addr).await?;
 //! ```
 
-pub mod identity;
-pub mod protocol;
+pub mod adapter;
 pub mod connection;
 pub mod discovery;
 pub mod error;
-pub mod adapter;
+pub mod identity;
+pub mod protocol;
 
 // Re-export main types
-pub use identity::IrohIdentity;
-pub use protocol::{
-    ALPN_INDRAS,
-    WireMessage,
-    SerializedPacket,
-    SerializedConfirmation,
-    PresenceInfo,
-    SyncRequest,
-    SyncResponse,
-    frame_message,
-    parse_framed_message,
-};
-pub use connection::{
-    ConnectionManager,
-    ConnectionConfig,
-    ConnectionError,
-    ConnectionStats,
-};
+pub use adapter::{AdapterConfig, AdapterError, IrohNetworkAdapter};
+pub use connection::{ConnectionConfig, ConnectionError, ConnectionManager, ConnectionStats};
 pub use discovery::{
-    DiscoveryService,
-    DiscoveryConfig,
-    DiscoveryError,
-    PeerEvent,
-    PeerInfo,
-    DiscoveryStats,
+    DiscoveryConfig, DiscoveryError, DiscoveryService, DiscoveryStats, PeerEvent, PeerInfo,
 };
 pub use error::TransportError;
-pub use adapter::{
-    IrohNetworkAdapter,
-    AdapterConfig,
-    AdapterError,
+pub use identity::IrohIdentity;
+pub use protocol::{
+    ALPN_INDRAS, PresenceInfo, SerializedConfirmation, SerializedPacket, SyncRequest, SyncResponse,
+    WireMessage, frame_message, parse_framed_message,
 };
 
 // Re-export iroh types that users will need
-pub use iroh::{SecretKey, PublicKey, EndpointAddr, Endpoint};
 pub use iroh::endpoint::Connection;
+pub use iroh::{Endpoint, EndpointAddr, PublicKey, SecretKey};

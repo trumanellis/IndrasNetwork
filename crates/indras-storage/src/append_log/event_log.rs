@@ -129,13 +129,17 @@ pub struct EventLog<I: PeerIdentity> {
 impl<I: PeerIdentity> EventLog<I> {
     /// Create a new event log for an interface
     #[instrument(skip(config), fields(interface_id = %hex::encode(interface_id.as_bytes())))]
-    pub async fn new(interface_id: InterfaceId, config: EventLogConfig) -> Result<Self, StorageError> {
+    pub async fn new(
+        interface_id: InterfaceId,
+        config: EventLogConfig,
+    ) -> Result<Self, StorageError> {
         // Ensure base directory exists
         tokio::fs::create_dir_all(&config.base_dir)
             .await
             .map_err(|e| StorageError::Io(e.to_string()))?;
 
-        let log_path = config.base_dir
+        let log_path = config
+            .base_dir
             .join(format!("{}.log", hex::encode(interface_id.as_bytes())));
 
         info!(path = %log_path.display(), "Opening event log");
@@ -168,7 +172,8 @@ impl<I: PeerIdentity> EventLog<I> {
             .await
             .map_err(|e| StorageError::Io(e.to_string()))?;
 
-        let metadata = file.metadata()
+        let metadata = file
+            .metadata()
             .await
             .map_err(|e| StorageError::Io(e.to_string()))?;
 
@@ -194,7 +199,11 @@ impl<I: PeerIdentity> EventLog<I> {
 
     /// Replay a log file to rebuild the index
     async fn replay_from_file(&self, file: &File, file_size: u64) -> Result<(), StorageError> {
-        let mut reader = BufReader::new(file.try_clone().await.map_err(|e| StorageError::Io(e.to_string()))?);
+        let mut reader = BufReader::new(
+            file.try_clone()
+                .await
+                .map_err(|e| StorageError::Io(e.to_string()))?,
+        );
         let mut index = self.index.write().await;
         let mut sequence = self.sequence.write().await;
         let mut offset = 0u64;
@@ -242,11 +251,7 @@ impl<I: PeerIdentity> EventLog<I> {
 
     /// Append an event to the log
     #[instrument(skip(self, payload), fields(event_id = ?event_id))]
-    pub async fn append(
-        &self,
-        event_id: EventId,
-        payload: Bytes,
-    ) -> Result<u64, StorageError> {
+    pub async fn append(&self, event_id: EventId, payload: Bytes) -> Result<u64, StorageError> {
         let sequence = {
             let mut seq = self.sequence.write().await;
             let current = *seq;
@@ -283,18 +288,20 @@ impl<I: PeerIdentity> EventLog<I> {
 
     /// Write an entry to the log file
     async fn write_entry(&self, entry: &EventLogEntry<I>) -> Result<(), StorageError> {
-        let serialized = postcard::to_allocvec(entry)
-            .map_err(|e| StorageError::Serialization(e.to_string()))?;
+        let serialized =
+            postcard::to_allocvec(entry).map_err(|e| StorageError::Serialization(e.to_string()))?;
 
         let mut file_guard = self.log_file.write().await;
-        let file = file_guard.as_mut()
+        let file = file_guard
+            .as_mut()
             .ok_or_else(|| StorageError::Io("Log file not open".into()))?;
 
         // Write length prefix
         let len_bytes = (serialized.len() as u32).to_be_bytes();
 
         // Seek to end
-        let offset = file.seek(SeekFrom::End(0))
+        let offset = file
+            .seek(SeekFrom::End(0))
             .await
             .map_err(|e| StorageError::Io(e.to_string()))?;
 
@@ -319,7 +326,10 @@ impl<I: PeerIdentity> EventLog<I> {
     }
 
     /// Read a specific event by ID
-    pub async fn read_event(&self, event_id: EventId) -> Result<Option<EventLogEntry<I>>, StorageError> {
+    pub async fn read_event(
+        &self,
+        event_id: EventId,
+    ) -> Result<Option<EventLogEntry<I>>, StorageError> {
         let offset = {
             let index = self.index.read().await;
             match index.get(&event_id) {
@@ -334,10 +344,12 @@ impl<I: PeerIdentity> EventLog<I> {
     /// Read an event at a specific file offset
     async fn read_at_offset(&self, offset: u64) -> Result<EventLogEntry<I>, StorageError> {
         let file_guard = self.log_file.read().await;
-        let file = file_guard.as_ref()
+        let file = file_guard
+            .as_ref()
             .ok_or_else(|| StorageError::Io("Log file not open".into()))?;
 
-        let mut file = file.try_clone()
+        let mut file = file
+            .try_clone()
             .await
             .map_err(|e| StorageError::Io(e.to_string()))?;
 
@@ -359,12 +371,14 @@ impl<I: PeerIdentity> EventLog<I> {
             .await
             .map_err(|e| StorageError::Io(e.to_string()))?;
 
-        postcard::from_bytes(&entry_buf)
-            .map_err(|e| StorageError::Deserialization(e.to_string()))
+        postcard::from_bytes(&entry_buf).map_err(|e| StorageError::Deserialization(e.to_string()))
     }
 
     /// Read events since a sequence number
-    pub async fn read_since(&self, since_sequence: u64) -> Result<Vec<EventLogEntry<I>>, StorageError> {
+    pub async fn read_since(
+        &self,
+        since_sequence: u64,
+    ) -> Result<Vec<EventLogEntry<I>>, StorageError> {
         let offsets: Vec<u64> = {
             let file_guard = self.log_file.read().await;
             if file_guard.is_none() {
@@ -423,7 +437,8 @@ impl<I: PeerIdentity> EventLog<I> {
     }
 }
 
-// Needed to use hex::encode
+// Reserved for future use (debugging/logging)
+#[allow(dead_code)]
 fn hex_encode_bytes(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{:02x}", b)).collect()
 }
@@ -502,10 +517,13 @@ mod tests {
                 base_dir: temp_dir.path().to_path_buf(),
                 ..Default::default()
             };
-            let log: EventLog<SimulationIdentity> = EventLog::new(interface_id, config).await.unwrap();
+            let log: EventLog<SimulationIdentity> =
+                EventLog::new(interface_id, config).await.unwrap();
 
             for i in 0..5 {
-                log.append(EventId::new(1, i), Bytes::from("data")).await.unwrap();
+                log.append(EventId::new(1, i), Bytes::from("data"))
+                    .await
+                    .unwrap();
             }
             log.close().await.unwrap();
         }
@@ -516,7 +534,8 @@ mod tests {
                 base_dir: temp_dir.path().to_path_buf(),
                 ..Default::default()
             };
-            let log: EventLog<SimulationIdentity> = EventLog::new(interface_id, config).await.unwrap();
+            let log: EventLog<SimulationIdentity> =
+                EventLog::new(interface_id, config).await.unwrap();
 
             assert_eq!(log.event_count().await, 5);
             assert_eq!(log.current_sequence().await, 5);

@@ -9,7 +9,7 @@
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::error::IdentityError;
 

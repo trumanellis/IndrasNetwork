@@ -1,6 +1,7 @@
 //! Log analysis utilities
 //!
 //! Provides structured log entry parsing and query functionality.
+#![allow(dead_code)] // Example code with reserved features
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -28,13 +29,19 @@ impl LogEntry {
         let value: Value = serde_json::from_str(line)?;
 
         Ok(Self {
-            timestamp: value.get("timestamp").and_then(|v| v.as_str()).map(String::from),
+            timestamp: value
+                .get("timestamp")
+                .and_then(|v| v.as_str())
+                .map(String::from),
             level: value
                 .get("level")
                 .and_then(|v| v.as_str())
                 .unwrap_or("INFO")
                 .to_string(),
-            target: value.get("target").and_then(|v| v.as_str()).map(String::from),
+            target: value
+                .get("target")
+                .and_then(|v| v.as_str())
+                .map(String::from),
             message: value
                 .get("message")
                 .or_else(|| value.get("fields").and_then(|f| f.get("message")))
@@ -239,7 +246,8 @@ mod tests {
 
     #[test]
     fn test_from_jsonl() {
-        let line = r#"{"timestamp":"2024-01-01T00:00:00Z","level":"INFO","message":"test","fields":{}}"#;
+        let line =
+            r#"{"timestamp":"2024-01-01T00:00:00Z","level":"INFO","message":"test","fields":{}}"#;
         let entry = LogEntry::from_jsonl(line).unwrap();
         assert_eq!(entry.level, "INFO");
         assert_eq!(entry.message, "test");

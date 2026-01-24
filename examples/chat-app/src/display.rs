@@ -1,4 +1,5 @@
 //! Terminal display utilities for the chat app
+#![allow(dead_code)] // Example code with reserved display functions
 
 use chrono::{DateTime, Local, Utc};
 use colored::Colorize;
@@ -6,9 +7,18 @@ use colored::Colorize;
 /// Print the application banner
 pub fn print_banner() {
     println!();
-    println!("{}", "╔═══════════════════════════════════════════════════╗".cyan());
-    println!("{}", "║      Indras Chat - P2P Encrypted Messaging        ║".cyan());
-    println!("{}", "╚═══════════════════════════════════════════════════╝".cyan());
+    println!(
+        "{}",
+        "╔═══════════════════════════════════════════════════╗".cyan()
+    );
+    println!(
+        "{}",
+        "║      Indras Chat - P2P Encrypted Messaging        ║".cyan()
+    );
+    println!(
+        "{}",
+        "╚═══════════════════════════════════════════════════╝".cyan()
+    );
     println!();
 }
 
@@ -42,7 +52,10 @@ pub fn print_interactive_help() {
     println!();
     println!("{}", "Commands:".yellow().bold());
     println!("  {}      - Send a text message", "send <message>".cyan());
-    println!("  {}  - Direct message shorthand (just type)", "<message>".cyan());
+    println!(
+        "  {}  - Direct message shorthand (just type)",
+        "<message>".cyan()
+    );
     println!("  {}         - Show message history", "history".cyan());
     println!("  {}          - Show room members", "members".cyan());
     println!("  {}           - Show room info", "info".cyan());
@@ -82,7 +95,10 @@ pub fn print_system_message(msg: &str) {
 /// Print room list
 pub fn print_room_list(rooms: &[(String, String, usize)]) {
     if rooms.is_empty() {
-        println!("{}", "No chat rooms. Use 'new <name>' to create one.".dimmed());
+        println!(
+            "{}",
+            "No chat rooms. Use 'new <name>' to create one.".dimmed()
+        );
         return;
     }
 
@@ -120,7 +136,9 @@ pub fn print_history_header(room_name: &str, count: usize) {
     println!(
         "{} {} {}",
         "─".repeat(10).dimmed(),
-        format!("{} ({} messages)", room_name, count).yellow().bold(),
+        format!("{} ({} messages)", room_name, count)
+            .yellow()
+            .bold(),
         "─".repeat(10).dimmed()
     );
 }
@@ -128,16 +146,28 @@ pub fn print_history_header(room_name: &str, count: usize) {
 /// Print demo mode banner
 pub fn print_demo_mode() {
     println!();
-    println!("{}", "════════════════════════════════════════════════════".yellow());
-    println!("{}", "  Running in DEMO mode - simulating peer messages   ".yellow());
-    println!("{}", "════════════════════════════════════════════════════".yellow());
+    println!(
+        "{}",
+        "════════════════════════════════════════════════════".yellow()
+    );
+    println!(
+        "{}",
+        "  Running in DEMO mode - simulating peer messages   ".yellow()
+    );
+    println!(
+        "{}",
+        "════════════════════════════════════════════════════".yellow()
+    );
     println!();
 }
 
 /// Print join instructions
 pub fn print_join_instructions(room_id: &str) {
     println!();
-    println!("{}", "To invite others to this room, share this ID:".dimmed());
+    println!(
+        "{}",
+        "To invite others to this room, share this ID:".dimmed()
+    );
     println!("  {}", room_id.cyan().bold());
     println!();
     println!("{}", "They can join with:".dimmed());

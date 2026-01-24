@@ -12,6 +12,7 @@ indras-storage.workspace = true
 indras-crypto.workspace = true
 indras-sync.workspace = true
 indras-logging.workspace = true
+indras-dtn.workspace = true
 
 # Core iroh stack (for future real networking)
 iroh.workspace = true

@@ -7,8 +7,8 @@
 //! interface keys to new members.
 
 use chacha20poly1305::{
-    aead::{Aead, KeyInit},
     ChaCha20Poly1305, Nonce,
+    aead::{Aead, KeyInit},
 };
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use indras_core::InterfaceId;
 
 use crate::error::CryptoError;
-use crate::pq_kem::{PQEncapsulationKey, PQKemKeyPair, PQCiphertext};
+use crate::pq_kem::{PQCiphertext, PQEncapsulationKey, PQKemKeyPair};
 
 /// Nonce size for ChaCha20-Poly1305 (12 bytes)
 pub const NONCE_SIZE: usize = 12;
@@ -170,7 +170,8 @@ impl InterfaceKey {
             .map_err(|e| CryptoError::PQDecapsulationFailed(e.to_string()))?;
 
         // Decapsulate to get shared secret
-        let shared_secret = our_kem_keypair.decapsulate(&ciphertext)
+        let shared_secret = our_kem_keypair
+            .decapsulate(&ciphertext)
             .map_err(|e| CryptoError::PQDecapsulationFailed(e.to_string()))?;
 
         // Decrypt the interface key
@@ -391,7 +392,9 @@ mod tests {
         let eve_kem = PQKemKeyPair::generate();
 
         // Alice encapsulates the interface key for Bob
-        let encapsulated = original_key.encapsulate_for(&bob_kem.encapsulation_key()).unwrap();
+        let encapsulated = original_key
+            .encapsulate_for(&bob_kem.encapsulation_key())
+            .unwrap();
 
         // Eve tries to decapsulate (will get wrong shared secret due to ML-KEM implicit rejection)
         let result = InterfaceKey::decapsulate(&encapsulated, &eve_kem);

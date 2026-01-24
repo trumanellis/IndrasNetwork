@@ -3,7 +3,7 @@
 use dashmap::DashMap;
 use indras_core::{InterfaceId, PeerIdentity, TopicId};
 use iroh::{Endpoint, EndpointId, SecretKey};
-use iroh_gossip::net::{Gossip, GOSSIP_ALPN};
+use iroh_gossip::net::{GOSSIP_ALPN, Gossip};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
@@ -129,6 +129,7 @@ impl<I: PeerIdentity + Serialize + for<'de> Deserialize<'de>> IndrasGossip<I> {
 }
 
 /// Builder for creating an IndrasGossip instance
+#[derive(Default)]
 pub struct IndrasGossipBuilder {
     secret_key: Option<SecretKey>,
 }
@@ -136,7 +137,7 @@ pub struct IndrasGossipBuilder {
 impl IndrasGossipBuilder {
     /// Create a new builder
     pub fn new() -> Self {
-        Self { secret_key: None }
+        Self::default()
     }
 
     /// Set the secret key for signing messages
@@ -154,12 +155,6 @@ impl IndrasGossipBuilder {
             .secret_key
             .unwrap_or_else(|| SecretKey::generate(&mut rand::rng()));
         IndrasGossip::new(endpoint, secret_key)
-    }
-}
-
-impl Default for IndrasGossipBuilder {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

@@ -1,6 +1,6 @@
 [package]
 name = "indras-dashboard"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 description = "Real-time dashboard for monitoring Indras Network simulation stress tests"
 license = "MIT OR Apache-2.0"

@@ -5,8 +5,8 @@
 //!
 //! Uses BLAKE3 for hashing and file-based storage.
 
-mod store;
 mod content_ref;
+mod store;
 
-pub use store::{BlobStore, BlobStoreConfig};
 pub use content_ref::ContentRef;
+pub use store::{BlobStore, BlobStoreConfig};

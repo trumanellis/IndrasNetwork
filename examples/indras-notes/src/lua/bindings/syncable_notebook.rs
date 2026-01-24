@@ -39,12 +39,9 @@ impl LuaSyncableNotebook {
             guard.save()
         };
 
-        let forked = SyncableNotebook::load(
-            inner.name.clone(),
-            inner.interface_id,
-            new_peer,
-            &bytes,
-        ).expect("Fork failed");
+        let forked =
+            SyncableNotebook::load(inner.name.clone(), inner.interface_id, new_peer, &bytes)
+                .expect("Fork failed");
 
         Self::new(forked)
     }
@@ -163,8 +160,9 @@ impl UserData for LuaSyncableNotebook {
                 .map_err(|e| mlua::Error::external(format!("Invalid sync message hex: {}", e)))?;
 
             let mut notebook = futures::executor::block_on(this.inner.lock());
-            notebook.apply_sync_message(&sync_bytes)
-                .map_err(|e| mlua::Error::external(e))
+            notebook
+                .apply_sync_message(&sync_bytes)
+                .map_err(mlua::Error::external)
         });
 
         // save() -> bytes as hex (for persistence)
@@ -207,67 +205,79 @@ pub fn register(lua: &Lua, notes: &Table) -> Result<()> {
     // SyncableNotebook.new_with_id(name, interface_id_hex, peer_name) -> SyncableNotebook
     syncable_notebook_table.set(
         "new_with_id",
-        lua.create_function(|_, (name, interface_id_hex, peer_name): (String, String, String)| {
-            let interface_id_bytes = hex::decode(&interface_id_hex)
-                .map_err(|e| mlua::Error::external(format!("Invalid interface ID hex: {}", e)))?;
+        lua.create_function(
+            |_, (name, interface_id_hex, peer_name): (String, String, String)| {
+                let interface_id_bytes = hex::decode(&interface_id_hex).map_err(|e| {
+                    mlua::Error::external(format!("Invalid interface ID hex: {}", e))
+                })?;
 
-            let interface_id = InterfaceId::from_slice(&interface_id_bytes)
-                .ok_or_else(|| mlua::Error::external("Invalid interface ID length"))?;
+                let interface_id = InterfaceId::from_slice(&interface_id_bytes)
+                    .ok_or_else(|| mlua::Error::external("Invalid interface ID length"))?;
 
-            let first_char = peer_name.chars().next().unwrap_or('A').to_ascii_uppercase();
-            let peer = SimulationIdentity::new(first_char)
-                .ok_or_else(|| mlua::Error::external("Peer name must start with a letter"))?;
+                let first_char = peer_name.chars().next().unwrap_or('A').to_ascii_uppercase();
+                let peer = SimulationIdentity::new(first_char)
+                    .ok_or_else(|| mlua::Error::external("Peer name must start with a letter"))?;
 
-            let notebook = SyncableNotebook::new(name, interface_id, peer);
-            Ok(LuaSyncableNotebook::new(notebook))
-        })?,
+                let notebook = SyncableNotebook::new(name, interface_id, peer);
+                Ok(LuaSyncableNotebook::new(notebook))
+            },
+        )?,
     )?;
 
     // SyncableNotebook.load(name, interface_id_hex, peer_name, data_hex) -> SyncableNotebook
     syncable_notebook_table.set(
         "load",
-        lua.create_function(|_, (name, interface_id_hex, peer_name, data_hex): (String, String, String, String)| {
-            let interface_id_bytes = hex::decode(&interface_id_hex)
-                .map_err(|e| mlua::Error::external(format!("Invalid interface ID hex: {}", e)))?;
+        lua.create_function(
+            |_, (name, interface_id_hex, peer_name, data_hex): (String, String, String, String)| {
+                let interface_id_bytes = hex::decode(&interface_id_hex).map_err(|e| {
+                    mlua::Error::external(format!("Invalid interface ID hex: {}", e))
+                })?;
 
-            let interface_id = InterfaceId::from_slice(&interface_id_bytes)
-                .ok_or_else(|| mlua::Error::external("Invalid interface ID length"))?;
+                let interface_id = InterfaceId::from_slice(&interface_id_bytes)
+                    .ok_or_else(|| mlua::Error::external("Invalid interface ID length"))?;
 
-            let first_char = peer_name.chars().next().unwrap_or('A').to_ascii_uppercase();
-            let peer = SimulationIdentity::new(first_char)
-                .ok_or_else(|| mlua::Error::external("Peer name must start with a letter"))?;
+                let first_char = peer_name.chars().next().unwrap_or('A').to_ascii_uppercase();
+                let peer = SimulationIdentity::new(first_char)
+                    .ok_or_else(|| mlua::Error::external("Peer name must start with a letter"))?;
 
-            let data = hex::decode(&data_hex)
-                .map_err(|e| mlua::Error::external(format!("Invalid data hex: {}", e)))?;
+                let data = hex::decode(&data_hex)
+                    .map_err(|e| mlua::Error::external(format!("Invalid data hex: {}", e)))?;
 
-            let notebook = SyncableNotebook::load(name, interface_id, peer, &data)
-                .map_err(|e| mlua::Error::external(e))?;
+                let notebook = SyncableNotebook::load(name, interface_id, peer, &data)
+                    .map_err(mlua::Error::external)?;
 
-            Ok(LuaSyncableNotebook::new(notebook))
-        })?,
+                Ok(LuaSyncableNotebook::new(notebook))
+            },
+        )?,
     )?;
 
     // SyncableNotebook.fork(notebook, new_peer_name) -> SyncableNotebook
     syncable_notebook_table.set(
         "fork",
-        lua.create_function(|_, (notebook, new_peer_name): (mlua::AnyUserData, String)| {
-            let lua_nb = notebook.borrow::<LuaSyncableNotebook>()?;
+        lua.create_function(
+            |_, (notebook, new_peer_name): (mlua::AnyUserData, String)| {
+                let lua_nb = notebook.borrow::<LuaSyncableNotebook>()?;
 
-            let first_char = new_peer_name.chars().next().unwrap_or('B').to_ascii_uppercase();
-            let new_peer = SimulationIdentity::new(first_char)
-                .ok_or_else(|| mlua::Error::external("Peer name must start with a letter"))?;
+                let first_char = new_peer_name
+                    .chars()
+                    .next()
+                    .unwrap_or('B')
+                    .to_ascii_uppercase();
+                let new_peer = SimulationIdentity::new(first_char)
+                    .ok_or_else(|| mlua::Error::external("Peer name must start with a letter"))?;
 
-            // Save the current notebook and load as new peer
-            let (name, interface_id, bytes) = {
-                let mut guard = futures::executor::block_on(lua_nb.inner.lock());
-                (guard.name.clone(), guard.interface_id, guard.save())
-            };
+                // Save the current notebook and load as new peer
+                let (name, interface_id, bytes) = {
+                    let mut guard = futures::executor::block_on(lua_nb.inner.lock());
+                    (guard.name.clone(), guard.interface_id, guard.save())
+                };
 
-            let forked = SyncableNotebook::load(name, interface_id, new_peer, &bytes)
-                .map_err(|e| mlua::Error::external(e))?;
+                let forked = SyncableNotebook::load(name, interface_id, new_peer, &bytes)
+                    .map_err(mlua::Error::external)?;
 
-            Ok(LuaSyncableNotebook::new(forked))
-        })?,
+                Ok(LuaSyncableNotebook::new(forked))
+            },
+        )?,
     )?;
 
     notes.set("SyncableNotebook", syncable_notebook_table)?;
@@ -278,7 +288,6 @@ pub fn register(lua: &Lua, notes: &Table) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::note::Note;
 
     fn setup_lua() -> Lua {
         let lua = Lua::new();
@@ -309,7 +318,9 @@ mod tests {
         let lua = setup_lua();
 
         // Create Alice's notebook, add a note, fork to Bob, sync
-        let result: bool = lua.load(r#"
+        let result: bool = lua
+            .load(
+                r#"
             -- Create Alice's notebook
             local alice = notes.SyncableNotebook.new("Shared", "Alice")
 
@@ -345,7 +356,10 @@ mod tests {
 
             -- Bob should now have both notes
             return bob.note_count == 2 and changed
-        "#).eval().unwrap();
+        "#,
+            )
+            .eval()
+            .unwrap();
 
         assert!(result, "Sync should work correctly");
     }
@@ -355,7 +369,9 @@ mod tests {
         let lua = setup_lua();
 
         // Test concurrent edits merging correctly
-        let result: bool = lua.load(r#"
+        let result: bool = lua
+            .load(
+                r#"
             -- Create Alice's notebook
             local alice = notes.SyncableNotebook.new("Shared", "Alice")
 
@@ -389,8 +405,14 @@ mod tests {
 
             -- Both should have both notes (CRDT convergence)
             return alice.note_count == 2 and bob.note_count == 2
-        "#).eval().unwrap();
+        "#,
+            )
+            .eval()
+            .unwrap();
 
-        assert!(result, "Bidirectional sync should result in both notebooks having both notes");
+        assert!(
+            result,
+            "Bidirectional sync should result in both notebooks having both notes"
+        );
     }
 }

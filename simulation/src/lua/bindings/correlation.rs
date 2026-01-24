@@ -62,9 +62,7 @@ impl UserData for LuaCorrelationContext {
 
         // to_traceparent() -> string
         // Convert to W3C trace context format
-        methods.add_method("to_traceparent", |_, this, ()| {
-            Ok(this.0.to_traceparent())
-        });
+        methods.add_method("to_traceparent", |_, this, ()| Ok(this.0.to_traceparent()));
 
         // to_table() -> table with all fields
         methods.add_method("to_table", |lua, this, ()| {
@@ -100,9 +98,7 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
     // Create a new root context (at message origin)
     correlation.set(
         "new_root",
-        lua.create_function(|_, ()| {
-            Ok(LuaCorrelationContext(CorrelationContext::new_root()))
-        })?,
+        lua.create_function(|_, ()| Ok(LuaCorrelationContext(CorrelationContext::new_root())))?,
     )?;
 
     // correlation.from_traceparent(traceparent) -> CorrelationContext or nil
@@ -110,8 +106,7 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
     correlation.set(
         "from_traceparent",
         lua.create_function(|_, traceparent: String| {
-            Ok(CorrelationContext::from_traceparent(&traceparent)
-                .map(LuaCorrelationContext))
+            Ok(CorrelationContext::from_traceparent(&traceparent).map(LuaCorrelationContext))
         })?,
     )?;
 
@@ -137,10 +132,12 @@ mod tests {
         let lua = setup_lua();
 
         let hop: u32 = lua
-            .load(r#"
+            .load(
+                r#"
                 local ctx = indras.correlation.new_root()
                 return ctx.hop_count
-            "#)
+            "#,
+            )
             .eval()
             .unwrap();
         assert_eq!(hop, 0);
@@ -151,13 +148,15 @@ mod tests {
         let lua = setup_lua();
 
         let (same_trace, diff_span, hop): (bool, bool, u32) = lua
-            .load(r#"
+            .load(
+                r#"
                 local root = indras.correlation.new_root()
                 local child = root:child()
                 return root.trace_id == child.trace_id,
                        root.span_id ~= child.span_id,
                        child.hop_count
-            "#)
+            "#,
+            )
             .eval()
             .unwrap();
         assert!(same_trace);
@@ -170,10 +169,12 @@ mod tests {
         let lua = setup_lua();
 
         let packet_id: String = lua
-            .load(r#"
+            .load(
+                r#"
                 local ctx = indras.correlation.new_root():with_packet_id("A#1")
                 return ctx.packet_id
-            "#)
+            "#,
+            )
             .eval()
             .unwrap();
         assert_eq!(packet_id, "A#1");
@@ -184,10 +185,12 @@ mod tests {
         let lua = setup_lua();
 
         let traceparent: String = lua
-            .load(r#"
+            .load(
+                r#"
                 local ctx = indras.correlation.new_root()
                 return ctx:to_traceparent()
-            "#)
+            "#,
+            )
             .eval()
             .unwrap();
         assert!(traceparent.starts_with("00-"));
@@ -199,12 +202,14 @@ mod tests {
 
         // First generate one, then parse it
         let result: bool = lua
-            .load(r#"
+            .load(
+                r#"
                 local ctx1 = indras.correlation.new_root()
                 local tp = ctx1:to_traceparent()
                 local ctx2 = indras.correlation.from_traceparent(tp)
                 return ctx2 ~= nil and ctx1.trace_id == ctx2.trace_id
-            "#)
+            "#,
+            )
             .eval()
             .unwrap();
         assert!(result);
@@ -215,11 +220,13 @@ mod tests {
         let lua = setup_lua();
 
         let has_trace_id: bool = lua
-            .load(r#"
+            .load(
+                r#"
                 local ctx = indras.correlation.new_root()
                 local t = ctx:to_table()
                 return t.trace_id ~= nil
-            "#)
+            "#,
+            )
             .eval()
             .unwrap();
         assert!(has_trace_id);

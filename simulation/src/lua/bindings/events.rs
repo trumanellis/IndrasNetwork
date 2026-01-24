@@ -21,14 +21,25 @@ pub fn network_event_to_table(lua: &Lua, event: &NetworkEvent) -> Result<Table> 
             t.set("peer", peer.to_string())?;
             t.set("tick", *tick)?;
         }
-        NetworkEvent::Send { from, to, payload, tick } => {
+        NetworkEvent::Send {
+            from,
+            to,
+            payload,
+            tick,
+        } => {
             t.set("type", "Send")?;
             t.set("from", from.to_string())?;
             t.set("to", to.to_string())?;
             t.set("payload_len", payload.len())?;
             t.set("tick", *tick)?;
         }
-        NetworkEvent::Relay { from, via, to, packet_id, tick } => {
+        NetworkEvent::Relay {
+            from,
+            via,
+            to,
+            packet_id,
+            tick,
+        } => {
             t.set("type", "Relay")?;
             t.set("from", from.to_string())?;
             t.set("via", via.to_string())?;
@@ -36,13 +47,23 @@ pub fn network_event_to_table(lua: &Lua, event: &NetworkEvent) -> Result<Table> 
             t.set("packet_id", packet_id.to_string())?;
             t.set("tick", *tick)?;
         }
-        NetworkEvent::Delivered { packet_id, to, tick } => {
+        NetworkEvent::Delivered {
+            packet_id,
+            to,
+            tick,
+        } => {
             t.set("type", "Delivered")?;
             t.set("packet_id", packet_id.to_string())?;
             t.set("to", to.to_string())?;
             t.set("tick", *tick)?;
         }
-        NetworkEvent::BackProp { packet_id, from, via, to, tick } => {
+        NetworkEvent::BackProp {
+            packet_id,
+            from,
+            via,
+            to,
+            tick,
+        } => {
             t.set("type", "BackProp")?;
             t.set("packet_id", packet_id.to_string())?;
             t.set("from", from.to_string())?;
@@ -50,20 +71,35 @@ pub fn network_event_to_table(lua: &Lua, event: &NetworkEvent) -> Result<Table> 
             t.set("to", to.to_string())?;
             t.set("tick", *tick)?;
         }
-        NetworkEvent::Dropped { packet_id, reason, tick } => {
+        NetworkEvent::Dropped {
+            packet_id,
+            reason,
+            tick,
+        } => {
             t.set("type", "Dropped")?;
             t.set("packet_id", packet_id.to_string())?;
             t.set("reason", drop_reason_to_string(reason))?;
             t.set("tick", *tick)?;
         }
-        NetworkEvent::PQSignatureCreated { peer, latency_us, message_size, tick } => {
+        NetworkEvent::PQSignatureCreated {
+            peer,
+            latency_us,
+            message_size,
+            tick,
+        } => {
             t.set("type", "PQSignatureCreated")?;
             t.set("peer", peer.to_string())?;
             t.set("latency_us", *latency_us)?;
             t.set("message_size", *message_size)?;
             t.set("tick", *tick)?;
         }
-        NetworkEvent::PQSignatureVerified { peer, sender, latency_us, success, tick } => {
+        NetworkEvent::PQSignatureVerified {
+            peer,
+            sender,
+            latency_us,
+            success,
+            tick,
+        } => {
             t.set("type", "PQSignatureVerified")?;
             t.set("peer", peer.to_string())?;
             t.set("sender", sender.to_string())?;
@@ -71,14 +107,25 @@ pub fn network_event_to_table(lua: &Lua, event: &NetworkEvent) -> Result<Table> 
             t.set("success", *success)?;
             t.set("tick", *tick)?;
         }
-        NetworkEvent::KEMEncapsulation { peer, target, latency_us, tick } => {
+        NetworkEvent::KEMEncapsulation {
+            peer,
+            target,
+            latency_us,
+            tick,
+        } => {
             t.set("type", "KEMEncapsulation")?;
             t.set("peer", peer.to_string())?;
             t.set("target", target.to_string())?;
             t.set("latency_us", *latency_us)?;
             t.set("tick", *tick)?;
         }
-        NetworkEvent::KEMDecapsulation { peer, sender, latency_us, success, tick } => {
+        NetworkEvent::KEMDecapsulation {
+            peer,
+            sender,
+            latency_us,
+            success,
+            tick,
+        } => {
             t.set("type", "KEMDecapsulation")?;
             t.set("peer", peer.to_string())?;
             t.set("sender", sender.to_string())?;
@@ -86,20 +133,34 @@ pub fn network_event_to_table(lua: &Lua, event: &NetworkEvent) -> Result<Table> 
             t.set("success", *success)?;
             t.set("tick", *tick)?;
         }
-        NetworkEvent::InviteCreated { from, to, interface_id, tick } => {
+        NetworkEvent::InviteCreated {
+            from,
+            to,
+            interface_id,
+            tick,
+        } => {
             t.set("type", "InviteCreated")?;
             t.set("from", from.to_string())?;
             t.set("to", to.to_string())?;
             t.set("interface_id", interface_id.clone())?;
             t.set("tick", *tick)?;
         }
-        NetworkEvent::InviteAccepted { peer, interface_id, tick } => {
+        NetworkEvent::InviteAccepted {
+            peer,
+            interface_id,
+            tick,
+        } => {
             t.set("type", "InviteAccepted")?;
             t.set("peer", peer.to_string())?;
             t.set("interface_id", interface_id.clone())?;
             t.set("tick", *tick)?;
         }
-        NetworkEvent::InviteFailed { peer, interface_id, reason, tick } => {
+        NetworkEvent::InviteFailed {
+            peer,
+            interface_id,
+            reason,
+            tick,
+        } => {
             t.set("type", "InviteFailed")?;
             t.set("peer", peer.to_string())?;
             t.set("interface_id", interface_id.clone())?;
@@ -224,10 +285,7 @@ mod tests {
         register(&lua, &indras).unwrap();
         lua.globals().set("indras", indras).unwrap();
 
-        let delivered: String = lua
-            .load("return indras.events.DELIVERED")
-            .eval()
-            .unwrap();
+        let delivered: String = lua.load("return indras.events.DELIVERED").eval().unwrap();
         assert_eq!(delivered, "Delivered");
     }
 }

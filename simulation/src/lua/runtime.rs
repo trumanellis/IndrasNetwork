@@ -39,12 +39,14 @@ impl LuaRuntime {
     /// Execute a Lua script from a file
     pub fn exec_file(&self, path: impl AsRef<Path>) -> Result<()> {
         let path = path.as_ref();
-        let script = std::fs::read_to_string(path)
-            .map_err(|e| mlua::Error::external(format!("Failed to read {}: {}", path.display(), e)))?;
+        let script = std::fs::read_to_string(path).map_err(|e| {
+            mlua::Error::external(format!("Failed to read {}: {}", path.display(), e))
+        })?;
 
         // Set script path for better error messages
         self.lua.scope(|_| {
-            self.lua.load(&script)
+            self.lua
+                .load(&script)
                 .set_name(path.to_string_lossy())
                 .exec()
         })
@@ -53,10 +55,12 @@ impl LuaRuntime {
     /// Execute a Lua script from a file and return a value
     pub fn eval_file<T: mlua::FromLua>(&self, path: impl AsRef<Path>) -> Result<T> {
         let path = path.as_ref();
-        let script = std::fs::read_to_string(path)
-            .map_err(|e| mlua::Error::external(format!("Failed to read {}: {}", path.display(), e)))?;
+        let script = std::fs::read_to_string(path).map_err(|e| {
+            mlua::Error::external(format!("Failed to read {}: {}", path.display(), e))
+        })?;
 
-        self.lua.load(&script)
+        self.lua
+            .load(&script)
             .set_name(path.to_string_lossy())
             .eval()
     }
@@ -144,7 +148,9 @@ mod tests {
     fn test_full_scenario() {
         let runtime = LuaRuntime::new().unwrap();
 
-        let result: i32 = runtime.eval(r#"
+        let result: i32 = runtime
+            .eval(
+                r#"
             local mesh = indras.MeshBuilder.new(3):full_mesh()
             local sim = indras.Simulation.new(mesh, indras.SimConfig.manual())
 
@@ -160,7 +166,9 @@ mod tests {
             sim:run_ticks(5)
 
             return sim.stats.messages_delivered
-        "#).unwrap();
+        "#,
+            )
+            .unwrap();
 
         assert_eq!(result, 1);
     }

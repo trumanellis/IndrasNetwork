@@ -35,7 +35,9 @@ impl Display for PacketId {
 }
 
 /// Priority levels for packets
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default,
+)]
 pub enum Priority {
     /// Low priority - can be delayed
     Low,

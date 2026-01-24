@@ -1,7 +1,9 @@
-use dioxus::prelude::*;
-use crate::state::{SimMetrics, SimEvent, EventType, Tab, InstanceState, format_network_event, PacketAnimation};
 use crate::runner::ScenarioRunner;
-use indras_simulation::{PeerId, NetworkEvent, PacketId};
+use crate::state::{
+    format_network_event, EventType, InstanceState, PacketAnimation, SimEvent, SimMetrics, Tab,
+};
+use dioxus::prelude::*;
+use indras_simulation::{NetworkEvent, PacketId, PeerId};
 
 pub mod charts;
 pub mod documents;
@@ -22,10 +24,7 @@ pub fn Header() -> Element {
 
 /// Sidebar component for scenario selection
 #[component]
-pub fn Sidebar(
-    selected: Option<String>,
-    on_select: EventHandler<String>,
-) -> Element {
+pub fn Sidebar(selected: Option<String>, on_select: EventHandler<String>) -> Element {
     // Use the categorized scenarios from ScenarioRunner
     let categories = ScenarioRunner::get_categorized_scenarios();
 
@@ -40,7 +39,7 @@ pub fn Sidebar(
                     ul {
                         for info in items {
                             li {
-                                class: if selected.as_ref().map(|s| s.as_str()) == Some(info.name) {
+                                class: if selected.as_deref() == Some(info.name) {
                                     "scenario-item selected"
                                 } else {
                                     "scenario-item"
@@ -528,9 +527,9 @@ pub fn TabBar(current_tab: Tab, on_select: EventHandler<Tab>) -> Element {
                 "Metrics"
             }
             button {
-                class: if current_tab == Tab::Instances { "tab-btn active" } else { "tab-btn" },
-                onclick: move |_| on_select.call(Tab::Instances),
-                "Instances"
+                class: if current_tab == Tab::Simulations { "tab-btn active" } else { "tab-btn" },
+                onclick: move |_| on_select.call(Tab::Simulations),
+                "Simulations"
             }
             button {
                 class: if current_tab == Tab::Documents { "tab-btn active" } else { "tab-btn" },
@@ -542,32 +541,280 @@ pub fn TabBar(current_tab: Tab, on_select: EventHandler<Tab>) -> Element {
 }
 
 // ============================================================================
-// Instance View Components
+// Simulations View Components
 // ============================================================================
 
-/// Main container for live instance visualization
+/// Scenario definition for the simulations sidebar
+struct SimScenario {
+    id: &'static str,
+    name: &'static str,
+    description: &'static str,
+    node_count: usize,
+    topology_icon: &'static str,
+}
+
+const SCENARIOS: &[SimScenario] = &[
+    SimScenario {
+        id: "triangle",
+        name: "Triangle",
+        description: "Simple 3-node fully connected network",
+        node_count: 3,
+        topology_icon: "△",
+    },
+    SimScenario {
+        id: "line",
+        name: "Linear Chain",
+        description: "Sequential hop-by-hop routing",
+        node_count: 5,
+        topology_icon: "—",
+    },
+    SimScenario {
+        id: "star",
+        name: "Star Hub",
+        description: "Central hub with leaf nodes",
+        node_count: 6,
+        topology_icon: "✱",
+    },
+    SimScenario {
+        id: "ring",
+        name: "Ring Network",
+        description: "Circular topology with dual paths",
+        node_count: 8,
+        topology_icon: "◯",
+    },
+    SimScenario {
+        id: "mesh",
+        name: "Full Mesh",
+        description: "Every node connected to all others",
+        node_count: 5,
+        topology_icon: "⬡",
+    },
+];
+
+/// Main container for network simulation visualization
+#[component]
+pub fn SimulationsView(
+    state: Signal<InstanceState>,
+    on_load_scenario: EventHandler<String>,
+) -> Element {
+    let selected_scenario = state.read().scenario_name.clone();
+    let has_simulation = state.read().simulation.is_some();
+
+    rsx! {
+        div { class: "simulations-view",
+            // Left sidebar with scenario selection
+            aside { class: "simulations-sidebar",
+                div { class: "sidebar-header",
+                    h2 { "Network Topologies" }
+                    p { class: "sidebar-subtitle", "Select a topology to simulate" }
+                }
+
+                nav { class: "scenario-list",
+                    for scenario in SCENARIOS.iter() {
+                        {
+                            let is_selected = selected_scenario.as_deref() == Some(scenario.id);
+                            let scenario_id = scenario.id.to_string();
+                            rsx! {
+                                button {
+                                    class: if is_selected { "scenario-card selected" } else { "scenario-card" },
+                                    onclick: move |_| on_load_scenario.call(scenario_id.clone()),
+
+                                    div { class: "scenario-icon", "{scenario.topology_icon}" }
+                                    div { class: "scenario-info",
+                                        div { class: "scenario-name", "{scenario.name}" }
+                                        div { class: "scenario-meta",
+                                            span { class: "node-count", "{scenario.node_count} nodes" }
+                                        }
+                                        div { class: "scenario-desc", "{scenario.description}" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Main content area
+            main { class: "simulations-main",
+                // Topology visualization
+                TopologyView { state: state }
+
+                // Playback controls (only show when simulation loaded)
+                if has_simulation {
+                    SimulationControls { state: state }
+                }
+
+                // Bottom panels in a grid
+                div { class: "simulation-panels",
+                    PeerPanel { state: state }
+                    SimulationEventTimeline { state: state }
+                }
+            }
+        }
+    }
+}
+
+/// Playback controls for the simulation
+#[component]
+pub fn SimulationControls(state: Signal<InstanceState>) -> Element {
+    let tick = state.read().current_tick();
+    let max_ticks = state.read().max_ticks();
+    let paused = state.read().paused;
+    let playback_speed = state.read().playback_speed;
+    let progress_pct = if max_ticks > 0 {
+        (tick as f64 / max_ticks as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    rsx! {
+        div { class: "simulation-controls",
+            // Progress bar
+            div { class: "progress-track",
+                div {
+                    class: "progress-fill",
+                    style: "width: {progress_pct}%",
+                }
+            }
+
+            // Control buttons and info
+            div { class: "controls-row",
+                div { class: "control-buttons",
+                    // Step button
+                    button {
+                        class: "sim-btn",
+                        disabled: !paused,
+                        onclick: move |_| {
+                            let new_events = {
+                                let mut state_write = state.write();
+                                if let Some(ref mut sim) = state_write.simulation {
+                                    sim.step();
+                                    sim.event_log.clone()
+                                } else {
+                                    return;
+                                }
+                            };
+                            let mut state_write = state.write();
+                            let current_count = state_write.recent_events.len();
+                            let current_tick = state_write.current_tick();
+
+                            for event in new_events.into_iter().skip(current_count) {
+                                match &event {
+                                    NetworkEvent::Send { from, to, .. } => {
+                                        let packet_id = PacketId { source: *from, sequence: current_tick };
+                                        state_write.packets_in_flight.push(PacketAnimation::new(
+                                            packet_id, *from, *to, current_tick
+                                        ));
+                                    }
+                                    NetworkEvent::Relay { via, to, packet_id, .. } => {
+                                        state_write.packets_in_flight.push(PacketAnimation::new(
+                                            *packet_id, *via, *to, current_tick
+                                        ));
+                                    }
+                                    NetworkEvent::Delivered { packet_id, .. } => {
+                                        state_write.packets_in_flight.retain(|p| p.packet_id != *packet_id);
+                                    }
+                                    _ => {}
+                                }
+                                state_write.add_event(event);
+                            }
+                            state_write.packets_in_flight.iter_mut().for_each(|p| p.update(current_tick));
+                            state_write.packets_in_flight.retain(|p| !p.is_complete());
+                        },
+                        "⏭ Step"
+                    }
+
+                    // Play/Pause button
+                    button {
+                        class: if paused { "sim-btn play" } else { "sim-btn pause" },
+                        onclick: move |_| {
+                            let current = state.read().paused;
+                            state.write().paused = !current;
+                        },
+                        if paused { "▶ Play" } else { "⏸ Pause" }
+                    }
+
+                    // Reset button
+                    button {
+                        class: "sim-btn reset",
+                        onclick: move |_| {
+                            state.write().simulation = None;
+                            state.write().clear_events();
+                            state.write().packets_in_flight.clear();
+                            state.write().peer_positions.clear();
+                            state.write().scenario_name = None;
+                        },
+                        "↻ Reset"
+                    }
+                }
+
+                // Status info
+                div { class: "sim-status",
+                    span { class: "tick-display", "Tick {tick} / {max_ticks}" }
+
+                    // Speed control
+                    div { class: "speed-control",
+                        label { "{playback_speed:.1}×" }
+                        input {
+                            r#type: "range",
+                            min: "0.5",
+                            max: "10",
+                            step: "0.5",
+                            value: "{playback_speed}",
+                            onchange: move |e| {
+                                if let Ok(speed) = e.value().parse::<f64>() {
+                                    state.write().playback_speed = speed;
+                                }
+                            },
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Event timeline for simulation view
+#[component]
+pub fn SimulationEventTimeline(state: Signal<InstanceState>) -> Element {
+    let state_read = state.read();
+    let events = &state_read.recent_events;
+
+    rsx! {
+        div { class: "simulation-event-log",
+            h3 { class: "panel-title", "Event Log" }
+            div { class: "timeline-scroll",
+                if events.is_empty() {
+                    div { class: "empty-state",
+                        span { class: "empty-icon", "📋" }
+                        p { "Events will appear here during simulation" }
+                    }
+                } else {
+                    for event in events.iter().rev().take(50) {
+                        {
+                            let (event_class, tick, text) = format_network_event(event);
+                            rsx! {
+                                div { class: "timeline-event {event_class}",
+                                    span { class: "event-tick", "[{tick}]" }
+                                    span { class: "event-text", "{text}" }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Keep old names as aliases for backward compatibility during transition
 #[component]
 pub fn InstanceView(
     state: Signal<InstanceState>,
     on_load_scenario: EventHandler<String>,
 ) -> Element {
     rsx! {
-        div { class: "instance-view",
-            // Topology visualization
-            TopologyView { state: state }
-
-            // Playback controls
-            InstanceControls {
-                state: state,
-                on_load_scenario: on_load_scenario,
-            }
-
-            // Bottom panels
-            div { class: "instance-panels",
-                PeerPanel { state: state }
-                InstanceEventTimeline { state: state }
-            }
-        }
+        SimulationsView { state: state, on_load_scenario: on_load_scenario }
     }
 }
 
@@ -652,7 +899,11 @@ pub fn TopologyView(state: Signal<InstanceState>) -> Element {
 /// Individual peer node visualization (SVG group)
 #[component]
 pub fn PeerNode(peer: PeerId, x: f64, y: f64, online: bool, queue_depth: usize) -> Element {
-    let fill = if online { "var(--accent-success)" } else { "var(--accent-error)" };
+    let fill = if online {
+        "var(--accent-success)"
+    } else {
+        "var(--accent-error)"
+    };
     let label = peer.0.to_string();
 
     rsx! {

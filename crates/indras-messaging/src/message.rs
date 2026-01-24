@@ -165,7 +165,12 @@ impl<I: PeerIdentity> Message<I> {
     }
 
     /// Create a text message
-    pub fn text(interface_id: InterfaceId, sender: I, sequence: u64, text: impl Into<String>) -> Self {
+    pub fn text(
+        interface_id: InterfaceId,
+        sender: I,
+        sequence: u64,
+        text: impl Into<String>,
+    ) -> Self {
         Self::new(interface_id, sender, sequence, MessageContent::text(text))
     }
 }

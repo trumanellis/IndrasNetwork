@@ -39,24 +39,26 @@ pub mod sync_task;
 pub use config::NodeConfig;
 pub use error::{NodeError, NodeResult};
 pub use keystore::Keystore;
-pub use message_handler::{NetworkMessage, SignedNetworkMessage, InterfaceEventMessage, InterfaceSyncRequest, InterfaceSyncResponse, EventAckMessage, SIGNED_MESSAGE_VERSION};
+pub use message_handler::{
+    EventAckMessage, InterfaceEventMessage, InterfaceSyncRequest, InterfaceSyncResponse,
+    NetworkMessage, SIGNED_MESSAGE_VERSION, SignedNetworkMessage,
+};
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use bytes::Bytes;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{broadcast, mpsc, RwLock};
+use tokio::sync::{RwLock, broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tracing::{debug, info, instrument, warn};
 
-use indras_core::{EventId, InterfaceEvent, InterfaceId, PeerIdentity, NInterfaceTrait};
 use indras_core::transport::Transport;
+use indras_core::{EventId, InterfaceEvent, InterfaceId, NInterfaceTrait, PeerIdentity};
 use indras_crypto::{
-    InterfaceKey, KeyDistribution, KeyInvite,
-    PQIdentity, PQKemKeyPair, PQEncapsulationKey,
+    InterfaceKey, KeyDistribution, KeyInvite, PQEncapsulationKey, PQIdentity, PQKemKeyPair,
 };
 use indras_storage::CompositeStorage;
 use indras_sync::NInterface;
@@ -327,7 +329,8 @@ impl IndrasNode {
         }
 
         // Start transport adapter
-        let adapter = IrohNetworkAdapter::new(self.secret_key.clone(), self.config.transport.clone()).await?;
+        let adapter =
+            IrohNetworkAdapter::new(self.secret_key.clone(), self.config.transport.clone()).await?;
         adapter.start(vec![]).await?;
         let adapter = Arc::new(adapter);
         *self.transport.write().await = Some(adapter.clone());
@@ -400,8 +403,11 @@ impl IndrasNode {
 
     /// Load persisted interfaces from storage
     async fn load_persisted_interfaces(&self) -> NodeResult<()> {
-        let interface_records = self.storage.interface_store().all()
-            .map_err(|e| NodeError::Storage(e))?;
+        let interface_records = self
+            .storage
+            .interface_store()
+            .all()
+            .map_err(NodeError::Storage)?;
 
         for record in interface_records {
             let interface_id = InterfaceId::new(record.interface_id);
@@ -412,11 +418,14 @@ impl IndrasNode {
             }
 
             // Create NInterface with known ID
-            let mut interface = NInterface::with_id(interface_id, self.identity.clone());
+            let mut interface = NInterface::with_id(interface_id, self.identity);
 
             // Load members from storage
-            let members = self.storage.interface_store().get_members(&interface_id)
-                .map_err(|e| NodeError::Storage(e))?;
+            let members = self
+                .storage
+                .interface_store()
+                .get_members(&interface_id)
+                .map_err(NodeError::Storage)?;
 
             for member_record in members {
                 // Reconstruct peer identity from bytes
@@ -532,21 +541,29 @@ impl IndrasNode {
 
     /// Get our endpoint address for sharing with peers
     pub async fn endpoint_addr(&self) -> Option<iroh::EndpointAddr> {
-        self.transport.read().await.as_ref().map(|t| t.endpoint_addr())
+        self.transport
+            .read()
+            .await
+            .as_ref()
+            .map(|t| t.endpoint_addr())
     }
 
     /// Create a new interface
     ///
     /// Returns the interface ID and an invite key for sharing with peers.
     #[instrument(skip(self))]
-    pub async fn create_interface(&self, name: Option<&str>) -> NodeResult<(InterfaceId, InviteKey)> {
+    pub async fn create_interface(
+        &self,
+        name: Option<&str>,
+    ) -> NodeResult<(InterfaceId, InviteKey)> {
         // Create NInterface with us as the creator
-        let interface = NInterface::new(self.identity.clone());
+        let interface = NInterface::new(self.identity);
         let interface_id = interface.id();
 
         // Generate interface encryption key
         let interface_key = InterfaceKey::generate(interface_id);
-        self.interface_keys.insert(interface_id, interface_key.clone());
+        self.interface_keys
+            .insert(interface_id, interface_key.clone());
 
         // Persist to storage (including the key)
         let mut record = indras_storage::structured::InterfaceRecord::new(interface_id);
@@ -598,16 +615,18 @@ impl IndrasNode {
         invitee_encapsulation_key: &PQEncapsulationKey,
     ) -> NodeResult<InviteKey> {
         // Get interface key
-        let interface_key = self.interface_keys.get(interface_id)
+        let interface_key = self
+            .interface_keys
+            .get(interface_id)
             .ok_or_else(|| NodeError::InterfaceNotFound(hex::encode(interface_id.as_bytes())))?;
 
         // Create ML-KEM encapsulated key invite
-        let key_invite = KeyDistribution::create_invite(
-            interface_key.value(),
-            invitee_encapsulation_key,
-        ).map_err(|e| NodeError::Crypto(e.to_string()))?;
+        let key_invite =
+            KeyDistribution::create_invite(interface_key.value(), invitee_encapsulation_key)
+                .map_err(|e| NodeError::Crypto(e.to_string()))?;
 
-        let key_invite_bytes = key_invite.to_bytes()
+        let key_invite_bytes = key_invite
+            .to_bytes()
             .map_err(|e| NodeError::Crypto(e.to_string()))?;
 
         // Build invite with PQ components
@@ -660,7 +679,7 @@ impl IndrasNode {
         }
 
         // Create NInterface with known ID
-        let interface = NInterface::with_id(interface_id, self.identity.clone());
+        let interface = NInterface::with_id(interface_id, self.identity);
 
         // Persist to storage
         self.storage.create_interface(interface_id, None)?;
@@ -735,13 +754,15 @@ impl IndrasNode {
         interface_id: &InterfaceId,
         content: Vec<u8>,
     ) -> NodeResult<EventId> {
-        let state = self.interfaces.get(interface_id)
+        let state = self
+            .interfaces
+            .get(interface_id)
             .ok_or_else(|| NodeError::InterfaceNotFound(hex::encode(interface_id.as_bytes())))?;
 
         // Create the event
         let mut interface = state.interface.write().await;
         let sequence = interface.event_count() as u64 + 1;
-        let event = InterfaceEvent::message(self.identity.clone(), sequence, content.clone());
+        let event = InterfaceEvent::message(self.identity, sequence, content.clone());
 
         // Append to NInterface (tracks pending delivery + CRDT)
         let event_id = interface.append(event.clone()).await?;
@@ -759,42 +780,45 @@ impl IndrasNode {
         let _ = state.event_tx.send(received);
 
         // Send encrypted and signed message to connected peers
-        if let Some(transport) = self.transport.read().await.as_ref() {
-            if let Some(key) = self.interface_keys.get(interface_id) {
-                // Serialize and encrypt
-                let plaintext = postcard::to_allocvec(&event)
-                    .map_err(|e| NodeError::Serialization(e.to_string()))?;
-                let encrypted = key.encrypt(&plaintext)
-                    .map_err(|e| NodeError::Crypto(e.to_string()))?;
+        if let Some(transport) = self.transport.read().await.as_ref()
+            && let Some(key) = self.interface_keys.get(interface_id)
+        {
+            // Serialize and encrypt
+            let plaintext = postcard::to_allocvec(&event)
+                .map_err(|e| NodeError::Serialization(e.to_string()))?;
+            let encrypted = key
+                .encrypt(&plaintext)
+                .map_err(|e| NodeError::Crypto(e.to_string()))?;
 
-                let msg = InterfaceEventMessage::new(
-                    *interface_id,
-                    encrypted.ciphertext,
-                    event_id,
-                    encrypted.nonce,
-                );
-                let network_msg = NetworkMessage::InterfaceEvent(msg);
+            let msg = InterfaceEventMessage::new(
+                *interface_id,
+                encrypted.ciphertext,
+                event_id,
+                encrypted.nonce,
+            );
+            let network_msg = NetworkMessage::InterfaceEvent(msg);
 
-                // Sign the message with PQ identity
-                let msg_bytes = network_msg.to_bytes()
-                    .map_err(|e| NodeError::Serialization(e.to_string()))?;
-                let signature = self.pq_identity.sign(&msg_bytes);
+            // Sign the message with PQ identity
+            let msg_bytes = network_msg
+                .to_bytes()
+                .map_err(|e| NodeError::Serialization(e.to_string()))?;
+            let signature = self.pq_identity.sign(&msg_bytes);
 
-                let signed_msg = SignedNetworkMessage {
-                    version: SIGNED_MESSAGE_VERSION,
-                    message: network_msg,
-                    signature: signature.to_bytes().to_vec(),
-                    sender_verifying_key: self.pq_identity.verifying_key_bytes(),
-                };
+            let signed_msg = SignedNetworkMessage {
+                version: SIGNED_MESSAGE_VERSION,
+                message: network_msg,
+                signature: signature.to_bytes().to_vec(),
+                sender_verifying_key: self.pq_identity.verifying_key_bytes(),
+            };
 
-                let bytes = signed_msg.to_bytes()
-                    .map_err(|e| NodeError::Serialization(e.to_string()))?;
+            let bytes = signed_msg
+                .to_bytes()
+                .map_err(|e| NodeError::Serialization(e.to_string()))?;
 
-                // Send to all members
-                for member in interface.members() {
-                    if member != self.identity && transport.is_connected(&member) {
-                        let _ = transport.send(&member, bytes.clone()).await;
-                    }
+            // Send to all members
+            for member in interface.members() {
+                if member != self.identity && transport.is_connected(&member) {
+                    let _ = transport.send(&member, bytes.clone()).await;
                 }
             }
         }
@@ -806,8 +830,13 @@ impl IndrasNode {
     /// Subscribe to events from an interface
     ///
     /// Returns a broadcast receiver that will receive all events.
-    pub fn events(&self, interface_id: &InterfaceId) -> NodeResult<broadcast::Receiver<ReceivedEvent>> {
-        let state = self.interfaces.get(interface_id)
+    pub fn events(
+        &self,
+        interface_id: &InterfaceId,
+    ) -> NodeResult<broadcast::Receiver<ReceivedEvent>> {
+        let state = self
+            .interfaces
+            .get(interface_id)
             .ok_or_else(|| NodeError::InterfaceNotFound(hex::encode(interface_id.as_bytes())))?;
 
         Ok(state.event_tx.subscribe())
@@ -819,7 +848,9 @@ impl IndrasNode {
         interface_id: &InterfaceId,
         since: u64,
     ) -> NodeResult<Vec<InterfaceEvent<IrohIdentity>>> {
-        let state = self.interfaces.get(interface_id)
+        let state = self
+            .interfaces
+            .get(interface_id)
             .ok_or_else(|| NodeError::InterfaceNotFound(hex::encode(interface_id.as_bytes())))?;
 
         let interface = state.interface.read().await;
@@ -827,11 +858,10 @@ impl IndrasNode {
     }
 
     /// Get all members of an interface
-    pub async fn members(
-        &self,
-        interface_id: &InterfaceId,
-    ) -> NodeResult<Vec<IrohIdentity>> {
-        let state = self.interfaces.get(interface_id)
+    pub async fn members(&self, interface_id: &InterfaceId) -> NodeResult<Vec<IrohIdentity>> {
+        let state = self
+            .interfaces
+            .get(interface_id)
             .ok_or_else(|| NodeError::InterfaceNotFound(hex::encode(interface_id.as_bytes())))?;
 
         let interface = state.interface.read().await;
@@ -844,11 +874,14 @@ impl IndrasNode {
         interface_id: &InterfaceId,
         peer: IrohIdentity,
     ) -> NodeResult<()> {
-        let state = self.interfaces.get(interface_id)
+        let state = self
+            .interfaces
+            .get(interface_id)
             .ok_or_else(|| NodeError::InterfaceNotFound(hex::encode(interface_id.as_bytes())))?;
 
         let mut interface = state.interface.write().await;
-        interface.add_member(peer.clone())
+        interface
+            .add_member(peer)
             .map_err(|e| NodeError::Sync(e.to_string()))?;
 
         // Persist
@@ -871,7 +904,9 @@ impl IndrasNode {
 
     /// Get interface key (for testing/advanced use)
     pub fn interface_key(&self, interface_id: &InterfaceId) -> Option<InterfaceKey> {
-        self.interface_keys.get(interface_id).map(|k| k.value().clone())
+        self.interface_keys
+            .get(interface_id)
+            .map(|k| k.value().clone())
     }
 }
 
@@ -976,9 +1011,15 @@ mod tests {
         let (interface_id, _) = node.create_interface(None).await.unwrap();
 
         // Send multiple messages
-        node.send_message(&interface_id, b"First".to_vec()).await.unwrap();
-        node.send_message(&interface_id, b"Second".to_vec()).await.unwrap();
-        node.send_message(&interface_id, b"Third".to_vec()).await.unwrap();
+        node.send_message(&interface_id, b"First".to_vec())
+            .await
+            .unwrap();
+        node.send_message(&interface_id, b"Second".to_vec())
+            .await
+            .unwrap();
+        node.send_message(&interface_id, b"Third".to_vec())
+            .await
+            .unwrap();
 
         // Get events since sequence 1
         let events = node.events_since(&interface_id, 1).await.unwrap();
@@ -1051,7 +1092,10 @@ mod tests {
         let (interface_id, _) = node1.create_interface(Some("Persistent")).await.unwrap();
 
         // Send a message
-        node1.send_message(&interface_id, b"Test message".to_vec()).await.unwrap();
+        node1
+            .send_message(&interface_id, b"Test message".to_vec())
+            .await
+            .unwrap();
         drop(node1);
 
         // Create new node in same directory

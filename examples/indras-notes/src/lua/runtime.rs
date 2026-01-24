@@ -44,7 +44,10 @@ impl NotesLuaRuntime {
     pub fn set_app(&self, app: Arc<tokio::sync::Mutex<App>>) -> Result<()> {
         use crate::lua::bindings::app::LuaApp;
         let lua_app = LuaApp::new(app);
-        self.lua.globals().get::<Table>("notes")?.set("app", lua_app)?;
+        self.lua
+            .globals()
+            .get::<Table>("notes")?
+            .set("app", lua_app)?;
         Ok(())
     }
 

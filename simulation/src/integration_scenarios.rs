@@ -10,7 +10,7 @@
 use std::collections::HashSet;
 
 use indras_core::{
-    EventId, InterfaceEvent, InterfaceId, NetworkTopology, NInterfaceTrait, SimulationIdentity,
+    EventId, InterfaceEvent, InterfaceId, NInterfaceTrait, NetworkTopology, SimulationIdentity,
 };
 use indras_crypto::InterfaceKey;
 use indras_routing::MutualPeerTracker;

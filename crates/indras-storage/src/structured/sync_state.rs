@@ -9,8 +9,8 @@ use tracing::debug;
 
 use indras_core::{EventId, InterfaceId, PeerIdentity};
 
+use super::tables::{PENDING_DELIVERY, RedbStorage, SYNC_STATE};
 use crate::error::StorageError;
-use super::tables::{RedbStorage, SYNC_STATE, PENDING_DELIVERY};
 
 /// Sync state for a (peer, interface) pair
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,10 +103,8 @@ impl SyncStateStore {
         let key = self.make_sync_key(peer, interface_id);
 
         match self.storage.get(SYNC_STATE, &key)? {
-            Some(value) => {
-                postcard::from_bytes(&value)
-                    .map_err(|e| StorageError::Deserialization(e.to_string()))
-            }
+            Some(value) => postcard::from_bytes(&value)
+                .map_err(|e| StorageError::Deserialization(e.to_string())),
             None => {
                 let record = SyncStateRecord::new(peer.as_bytes(), *interface_id);
                 self.update(peer, interface_id, &record)?;
@@ -340,7 +338,9 @@ mod tests {
 
         // Update heads
         let heads = vec![[0x01; 32], [0x02; 32]];
-        store.update_heads(&peer, &interface_id, heads.clone()).unwrap();
+        store
+            .update_heads(&peer, &interface_id, heads.clone())
+            .unwrap();
 
         let record = store.get_or_create(&peer, &interface_id).unwrap();
         assert_eq!(record.their_heads.len(), 2);
@@ -364,7 +364,9 @@ mod tests {
         assert_eq!(pending.len(), 5);
 
         // Acknowledge up to event 3
-        store.acknowledge_events(&peer, &interface_id, EventId::new(1, 3)).unwrap();
+        store
+            .acknowledge_events(&peer, &interface_id, EventId::new(1, 3))
+            .unwrap();
 
         // Should only have events 4 and 5 pending
         let pending = store.get_pending(&peer, &interface_id).unwrap();
@@ -384,7 +386,9 @@ mod tests {
 
         // Record attempts
         for _ in 0..3 {
-            store.record_attempt(&peer, &interface_id, event_id).unwrap();
+            store
+                .record_attempt(&peer, &interface_id, event_id)
+                .unwrap();
         }
 
         let pending = store.get_pending(&peer, &interface_id).unwrap();

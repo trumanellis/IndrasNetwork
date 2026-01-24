@@ -144,20 +144,15 @@ impl Default for FileConfig {
 }
 
 /// File rotation strategy
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum RotationStrategy {
     /// Rotate daily
+    #[default]
     Daily,
     /// Rotate hourly
     Hourly,
     /// Never rotate (single file)
     Never,
-}
-
-impl Default for RotationStrategy {
-    fn default() -> Self {
-        Self::Daily
-    }
 }
 
 /// JSONL formatting configuration

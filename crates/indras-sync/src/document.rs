@@ -8,7 +8,7 @@
 use std::collections::HashSet;
 
 use automerge::{
-    transaction::Transactable, AutoCommit, ChangeHash, ObjId, ObjType, ReadDoc, ScalarValue,
+    AutoCommit, ChangeHash, ObjId, ObjType, ReadDoc, ScalarValue, transaction::Transactable,
 };
 use indras_core::{InterfaceEvent, InterfaceMetadata, PeerIdentity};
 
@@ -83,17 +83,20 @@ impl InterfaceDocument {
         // Find root object IDs
         let members_id = doc
             .get(automerge::ROOT, keys::MEMBERS)
-            .map_err(|e| SyncError::DocumentLoad(e.to_string()))?.map(|(_, obj_id)| obj_id)
+            .map_err(|e| SyncError::DocumentLoad(e.to_string()))?
+            .map(|(_, obj_id)| obj_id)
             .ok_or_else(|| SyncError::DocumentLoad("Missing members object".to_string()))?;
 
         let metadata_id = doc
             .get(automerge::ROOT, keys::METADATA)
-            .map_err(|e| SyncError::DocumentLoad(e.to_string()))?.map(|(_, obj_id)| obj_id)
+            .map_err(|e| SyncError::DocumentLoad(e.to_string()))?
+            .map(|(_, obj_id)| obj_id)
             .ok_or_else(|| SyncError::DocumentLoad("Missing metadata object".to_string()))?;
 
         let events_id = doc
             .get(automerge::ROOT, keys::EVENTS)
-            .map_err(|e| SyncError::DocumentLoad(e.to_string()))?.map(|(_, obj_id)| obj_id)
+            .map_err(|e| SyncError::DocumentLoad(e.to_string()))?
+            .map(|(_, obj_id)| obj_id)
             .ok_or_else(|| SyncError::DocumentLoad("Missing events object".to_string()))?;
 
         Ok(Self {
@@ -157,9 +160,10 @@ impl InterfaceDocument {
         for key in self.doc.keys(&self.members_id) {
             // key is the hex-encoded peer ID
             if let Ok(bytes) = hex::decode(&key)
-                && let Ok(peer) = I::from_bytes(&bytes) {
-                    members.insert(peer);
-                }
+                && let Ok(peer) = I::from_bytes(&bytes)
+            {
+                members.insert(peer);
+            }
         }
 
         members
@@ -219,10 +223,11 @@ impl InterfaceDocument {
         for i in 0..len {
             if let Ok(Some((value, _))) = self.doc.get(&self.events_id, i)
                 && let automerge::Value::Scalar(scalar) = value
-                    && let ScalarValue::Bytes(bytes) = scalar.as_ref()
-                        && let Ok(event) = postcard::from_bytes::<InterfaceEvent<I>>(bytes) {
-                            events.push(event);
-                        }
+                && let ScalarValue::Bytes(bytes) = scalar.as_ref()
+                && let Ok(event) = postcard::from_bytes::<InterfaceEvent<I>>(bytes)
+            {
+                events.push(event);
+            }
         }
 
         events
@@ -236,10 +241,11 @@ impl InterfaceDocument {
         for i in since..len {
             if let Ok(Some((value, _))) = self.doc.get(&self.events_id, i)
                 && let automerge::Value::Scalar(scalar) = value
-                    && let ScalarValue::Bytes(bytes) = scalar.as_ref()
-                        && let Ok(event) = postcard::from_bytes::<InterfaceEvent<I>>(bytes) {
-                            events.push(event);
-                        }
+                && let ScalarValue::Bytes(bytes) = scalar.as_ref()
+                && let Ok(event) = postcard::from_bytes::<InterfaceEvent<I>>(bytes)
+            {
+                events.push(event);
+            }
         }
 
         events

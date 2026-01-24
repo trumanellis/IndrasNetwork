@@ -135,7 +135,8 @@ where
     /// Called when a peer comes online to deliver stored packets.
     #[instrument(skip(self), fields(destination = %dest))]
     pub async fn get_pending(&self, dest: &I) -> Result<Vec<Packet<I>>, RoutingError> {
-        let result = self.storage
+        let result = self
+            .storage
             .pending_for(dest)
             .await
             .map_err(|_| RoutingError::StorageFailed);
@@ -420,11 +421,7 @@ mod tests {
         SimulationIdentity::new(c).unwrap()
     }
 
-    fn make_packet(
-        source: char,
-        dest: char,
-        seq: u64,
-    ) -> Packet<SimulationIdentity> {
+    fn make_packet(source: char, dest: char, seq: u64) -> Packet<SimulationIdentity> {
         Packet::new(
             PacketId::new(source as u64, seq),
             make_id(source),
@@ -615,12 +612,16 @@ mod tests {
 
         // Connect and verify relays are cached
         router.on_peer_connect(&make_id('A'), &make_id('C'));
-        let relays = router.mutual_tracker().get_relays_for(&make_id('A'), &make_id('C'));
+        let relays = router
+            .mutual_tracker()
+            .get_relays_for(&make_id('A'), &make_id('C'));
         assert!(!relays.is_empty());
 
         // Disconnect and verify relays are removed
         router.on_peer_disconnect(&make_id('A'), &make_id('C'));
-        let relays = router.mutual_tracker().get_relays_for(&make_id('A'), &make_id('C'));
+        let relays = router
+            .mutual_tracker()
+            .get_relays_for(&make_id('A'), &make_id('C'));
         assert!(relays.is_empty());
     }
 
@@ -683,11 +684,7 @@ mod tests {
         let router = StoreForwardRouter::new(topology, storage);
 
         // Insert route
-        let route = indras_core::routing::RouteInfo::new(
-            make_id('C'),
-            make_id('B'),
-            2,
-        );
+        let route = indras_core::routing::RouteInfo::new(make_id('C'), make_id('B'), 2);
         router.routing_table().insert(&make_id('C'), route);
 
         // Verify route exists

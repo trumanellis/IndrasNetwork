@@ -32,11 +32,11 @@ pub struct ExpirationConfig {
 impl Default for ExpirationConfig {
     fn default() -> Self {
         Self {
-            default_lifetime: Duration::from_secs(3600),         // 1 hour
-            max_lifetime: Duration::from_secs(86400 * 7),        // 7 days
+            default_lifetime: Duration::from_secs(3600),  // 1 hour
+            max_lifetime: Duration::from_secs(86400 * 7), // 7 days
             demotion_thresholds: vec![
-                (Duration::from_secs(300), Priority::Normal),    // After 5 min: Normal
-                (Duration::from_secs(900), Priority::Low),       // After 15 min: Low
+                (Duration::from_secs(300), Priority::Normal), // After 5 min: Normal
+                (Duration::from_secs(900), Priority::Low),    // After 15 min: Low
             ],
             cleanup_interval: Duration::from_secs(60),
         }
@@ -87,7 +87,8 @@ impl<I: PeerIdentity> AgeManager<I> {
             self.config.max_lifetime,
         );
 
-        let expires_at = created_at + chrono::Duration::from_std(capped_lifetime).unwrap_or(chrono::Duration::hours(1));
+        let expires_at = created_at
+            + chrono::Duration::from_std(capped_lifetime).unwrap_or(chrono::Duration::hours(1));
 
         let record = ExpirationRecord {
             bundle_id: bundle.bundle_id,
@@ -151,7 +152,9 @@ impl<I: PeerIdentity> AgeManager<I> {
                 None
             } else {
                 let remaining = r.expires_at - now;
-                Some(Duration::from_millis(remaining.num_milliseconds().max(0) as u64))
+                Some(Duration::from_millis(
+                    remaining.num_milliseconds().max(0) as u64
+                ))
             }
         })
     }

@@ -6,13 +6,13 @@
 //! - Random: Configurable connection probability
 //! - Custom: Build from edge list
 
-use std::collections::{BTreeMap, BTreeSet};
 use rand::Rng;
+use std::collections::{BTreeMap, BTreeSet};
 
-use crate::types::{PeerId, PeerState, PeerInterface};
+use crate::types::{PeerId, PeerInterface, PeerState};
 
 /// A mesh network topology
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Mesh {
     /// All peers in the network
     pub peers: BTreeMap<PeerId, PeerState>,
@@ -20,6 +20,33 @@ pub struct Mesh {
     pub interfaces: BTreeMap<(PeerId, PeerId), PeerInterface>,
     /// Adjacency list representation for quick lookups
     adjacency: BTreeMap<PeerId, BTreeSet<PeerId>>,
+}
+
+impl Clone for Mesh {
+    fn clone(&self) -> Self {
+        // Clone the mesh but recreate ProphetState for each peer
+        // since ProphetState contains RwLock which doesn't implement Clone
+        let peers = self.peers.iter().map(|(id, state)| {
+            let mut cloned_state = PeerState::new(*id);
+            cloned_state.online = state.online;
+            cloned_state.connections = state.connections.clone();
+            cloned_state.inbox = state.inbox.clone();
+            cloned_state.relay_queue = state.relay_queue.clone();
+            cloned_state.delivered = state.delivered.clone();
+            cloned_state.pending_backprops = state.pending_backprops.clone();
+            cloned_state.sequence = state.sequence;
+            cloned_state.last_online_tick = state.last_online_tick;
+            // Prophet state is freshly created by PeerState::new()
+
+            (*id, cloned_state)
+        }).collect();
+
+        Self {
+            peers,
+            interfaces: self.interfaces.clone(),
+            adjacency: self.adjacency.clone(),
+        }
+    }
 }
 
 impl Mesh {
@@ -108,7 +135,7 @@ impl Mesh {
     pub fn mutual_peers(&self, a: PeerId, b: PeerId) -> BTreeSet<PeerId> {
         let a_neighbors = self.adjacency.get(&a);
         let b_neighbors = self.adjacency.get(&b);
-        
+
         match (a_neighbors, b_neighbors) {
             (Some(an), Some(bn)) => an.intersection(bn).copied().collect(),
             _ => BTreeSet::new(),
@@ -124,11 +151,7 @@ impl Mesh {
 
         for (peer_id, neighbors) in &self.adjacency {
             let neighbor_str: Vec<String> = neighbors.iter().map(|n| n.to_string()).collect();
-            output.push_str(&format!(
-                "  {} -> [{}]\n",
-                peer_id,
-                neighbor_str.join(", ")
-            ));
+            output.push_str(&format!("  {} -> [{}]\n", peer_id, neighbor_str.join(", ")));
         }
         output
     }
@@ -153,7 +176,7 @@ impl MeshBuilder {
     }
 
     /// Build a ring topology where each peer is connected to its neighbors
-    /// 
+    ///
     /// A - B - C - D - ... - Z - A
     pub fn ring(self) -> Mesh {
         let mut mesh = Mesh::new();
@@ -303,7 +326,7 @@ mod tests {
     fn test_mutual_peers() {
         // A - B - C (line)
         let mesh = from_edges(&[('A', 'B'), ('B', 'C')]);
-        
+
         // A and C share B as a mutual peer
         let mutual = mesh.mutual_peers(PeerId('A'), PeerId('C'));
         assert_eq!(mutual.len(), 1);
@@ -312,12 +335,7 @@ mod tests {
 
     #[test]
     fn test_custom_topology() {
-        let mesh = from_edges(&[
-            ('A', 'B'),
-            ('A', 'C'),
-            ('B', 'C'),
-            ('B', 'D'),
-        ]);
+        let mesh = from_edges(&[('A', 'B'), ('A', 'C'), ('B', 'C'), ('B', 'D')]);
 
         assert_eq!(mesh.peer_count(), 4);
         assert_eq!(mesh.edge_count(), 4);

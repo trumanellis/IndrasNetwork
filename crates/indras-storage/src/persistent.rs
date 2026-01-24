@@ -5,8 +5,8 @@
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use async_trait::async_trait;
 use dashmap::DashMap;
@@ -17,9 +17,9 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
 use tokio::sync::RwLock;
 use tracing::{debug, info, trace, warn};
 
+use crate::PendingStore;
 use crate::error::StorageError;
 use crate::quota::QuotaManager;
-use crate::PendingStore;
 
 /// Entry type in the append-only log
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -142,11 +142,12 @@ impl PersistentPendingStore {
                     // Try to decode from base64 (for binary postcard data)
                     // The log format uses newline-delimited base64-encoded postcard entries
                     if let Ok(decoded) = base64_decode(&line)
-                        && let Ok(entry) = postcard::from_bytes::<LogEntry>(&decoded) {
-                            self.apply_entry(entry);
-                            loaded_count += 1;
-                            continue;
-                        }
+                        && let Ok(entry) = postcard::from_bytes::<LogEntry>(&decoded)
+                    {
+                        self.apply_entry(entry);
+                        loaded_count += 1;
+                        continue;
+                    }
                     error_count += 1;
                     warn!(error = %e, "Failed to parse log entry, skipping");
                 }
@@ -167,17 +168,24 @@ impl PersistentPendingStore {
     /// Apply a log entry to the in-memory state
     fn apply_entry(&self, entry: LogEntry) {
         match entry {
-            LogEntry::MarkPending { peer_bytes, event_id } => {
+            LogEntry::MarkPending {
+                peer_bytes,
+                event_id,
+            } => {
                 let mut events = self.pending.entry(peer_bytes).or_default();
                 if events.insert(event_id) {
                     self.total_count.fetch_add(1, Ordering::SeqCst);
                 }
             }
-            LogEntry::MarkDelivered { peer_bytes, event_id } => {
+            LogEntry::MarkDelivered {
+                peer_bytes,
+                event_id,
+            } => {
                 if let Some(mut events) = self.pending.get_mut(&peer_bytes)
-                    && events.remove(&event_id) {
-                        self.total_count.fetch_sub(1, Ordering::SeqCst);
-                    }
+                    && events.remove(&event_id)
+                {
+                    self.total_count.fetch_sub(1, Ordering::SeqCst);
+                }
             }
             LogEntry::MarkDeliveredUpTo { peer_bytes, up_to } => {
                 if let Some(mut events) = self.pending.get_mut(&peer_bytes) {
@@ -225,12 +233,12 @@ impl PersistentPendingStore {
     /// Write a log entry to the append-only log
     async fn write_entry(&self, entry: &LogEntry) -> Result<(), StorageError> {
         let mut guard = self.writer.write().await;
-        let writer = guard.as_mut().ok_or_else(|| {
-            StorageError::Io("Log file not open".to_string())
-        })?;
+        let writer = guard
+            .as_mut()
+            .ok_or_else(|| StorageError::Io("Log file not open".to_string()))?;
 
-        let bytes = postcard::to_allocvec(entry)
-            .map_err(|e| StorageError::serialization(e.to_string()))?;
+        let bytes =
+            postcard::to_allocvec(entry).map_err(|e| StorageError::serialization(e.to_string()))?;
 
         // Write as base64-encoded line for text-based log
         let encoded = base64_encode(&bytes);
@@ -387,9 +395,10 @@ impl<I: PeerIdentity> PendingStore<I> for PersistentPendingStore {
 
         // Apply to in-memory state
         if let Some(mut events) = self.pending.get_mut(&peer_bytes)
-            && events.remove(&event_id) {
-                self.total_count.fetch_sub(1, Ordering::SeqCst);
-            }
+            && events.remove(&event_id)
+        {
+            self.total_count.fetch_sub(1, Ordering::SeqCst);
+        }
 
         Ok(())
     }
@@ -452,8 +461,16 @@ fn base64_encode(data: &[u8]) -> String {
 
     while i < data.len() {
         let b0 = data[i] as usize;
-        let b1 = if i + 1 < data.len() { data[i + 1] as usize } else { 0 };
-        let b2 = if i + 2 < data.len() { data[i + 2] as usize } else { 0 };
+        let b1 = if i + 1 < data.len() {
+            data[i + 1] as usize
+        } else {
+            0
+        };
+        let b2 = if i + 2 < data.len() {
+            data[i + 2] as usize
+        } else {
+            0
+        };
 
         result.push(ALPHABET[b0 >> 2] as char);
         result.push(ALPHABET[((b0 & 0x03) << 4) | (b1 >> 4)] as char);
@@ -588,7 +605,10 @@ mod tests {
             store.mark_pending(&peer, EventId::new(1, i)).await.unwrap();
         }
 
-        store.mark_delivered_up_to(&peer, EventId::new(1, 3)).await.unwrap();
+        store
+            .mark_delivered_up_to(&peer, EventId::new(1, 3))
+            .await
+            .unwrap();
 
         let pending = store.pending_for(&peer).await.unwrap();
         assert_eq!(pending.len(), 2);
@@ -629,7 +649,10 @@ mod tests {
 
             // Deliver many of them
             for i in 1..=80 {
-                store.mark_delivered(&peer, EventId::new(1, i)).await.unwrap();
+                store
+                    .mark_delivered(&peer, EventId::new(1, i))
+                    .await
+                    .unwrap();
             }
 
             // Compact

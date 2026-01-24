@@ -16,7 +16,7 @@
 //! leakage in memory dumps.
 
 use pqcrypto_kyber::kyber768;
-use pqcrypto_traits::kem::{PublicKey as _, SecretKey as _, Ciphertext as _, SharedSecret as _};
+use pqcrypto_traits::kem::{Ciphertext as _, PublicKey as _, SecretKey as _, SharedSecret as _};
 use serde::{Deserialize, Serialize};
 // Note: Zeroize is imported but handled through SecureBytes wrapper
 
@@ -71,11 +71,13 @@ impl PQKemKeyPair {
             )));
         }
 
-        let decapsulation_key = kyber768::SecretKey::from_bytes(dk_bytes)
-            .map_err(|e| CryptoError::InvalidKey(format!("Invalid Kyber decapsulation key: {:?}", e)))?;
+        let decapsulation_key = kyber768::SecretKey::from_bytes(dk_bytes).map_err(|e| {
+            CryptoError::InvalidKey(format!("Invalid Kyber decapsulation key: {:?}", e))
+        })?;
 
-        let encapsulation_key = kyber768::PublicKey::from_bytes(ek_bytes)
-            .map_err(|e| CryptoError::InvalidKey(format!("Invalid Kyber encapsulation key: {:?}", e)))?;
+        let encapsulation_key = kyber768::PublicKey::from_bytes(ek_bytes).map_err(|e| {
+            CryptoError::InvalidKey(format!("Invalid Kyber encapsulation key: {:?}", e))
+        })?;
 
         Ok(Self {
             encapsulation_key,
@@ -106,7 +108,7 @@ impl PQKemKeyPair {
     /// Get the public encapsulation key
     pub fn encapsulation_key(&self) -> PQEncapsulationKey {
         PQEncapsulationKey {
-            key: self.encapsulation_key.clone(),
+            key: self.encapsulation_key,
         }
     }
 
@@ -116,9 +118,13 @@ impl PQKemKeyPair {
     }
 
     /// Decapsulate a ciphertext to recover the shared secret
-    pub fn decapsulate(&self, ciphertext: &PQCiphertext) -> Result<[u8; PQ_SHARED_SECRET_SIZE], CryptoError> {
-        let ct = kyber768::Ciphertext::from_bytes(&ciphertext.bytes)
-            .map_err(|e| CryptoError::PQDecapsulationFailed(format!("Invalid ciphertext: {:?}", e)))?;
+    pub fn decapsulate(
+        &self,
+        ciphertext: &PQCiphertext,
+    ) -> Result<[u8; PQ_SHARED_SECRET_SIZE], CryptoError> {
+        let ct = kyber768::Ciphertext::from_bytes(&ciphertext.bytes).map_err(|e| {
+            CryptoError::PQDecapsulationFailed(format!("Invalid ciphertext: {:?}", e))
+        })?;
 
         let shared_secret = kyber768::decapsulate(&ct, &self.decapsulation_key);
         let ss_bytes = shared_secret.as_bytes();
@@ -132,7 +138,10 @@ impl PQKemKeyPair {
 impl std::fmt::Debug for PQKemKeyPair {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PQKemKeyPair")
-            .field("encapsulation_key", &hex::encode(&self.encapsulation_key_bytes()[..8]))
+            .field(
+                "encapsulation_key",
+                &hex::encode(&self.encapsulation_key_bytes()[..8]),
+            )
             .finish_non_exhaustive()
     }
 }
@@ -156,8 +165,9 @@ impl PQEncapsulationKey {
             )));
         }
 
-        let key = kyber768::PublicKey::from_bytes(bytes)
-            .map_err(|e| CryptoError::InvalidKey(format!("Invalid Kyber encapsulation key: {:?}", e)))?;
+        let key = kyber768::PublicKey::from_bytes(bytes).map_err(|e| {
+            CryptoError::InvalidKey(format!("Invalid Kyber encapsulation key: {:?}", e))
+        })?;
 
         Ok(Self { key })
     }
@@ -327,7 +337,8 @@ mod tests {
     #[test]
     fn test_invalid_key_sizes() {
         // Too short decapsulation key
-        let result = PQKemKeyPair::from_keypair_bytes(&[0u8; 100], &[0u8; PQ_ENCAPSULATION_KEY_SIZE]);
+        let result =
+            PQKemKeyPair::from_keypair_bytes(&[0u8; 100], &[0u8; PQ_ENCAPSULATION_KEY_SIZE]);
         assert!(result.is_err());
 
         // Too short encapsulation key
@@ -339,8 +350,14 @@ mod tests {
     fn test_key_sizes() {
         let keypair = PQKemKeyPair::generate();
 
-        assert_eq!(keypair.decapsulation_key_bytes().len(), PQ_DECAPSULATION_KEY_SIZE);
-        assert_eq!(keypair.encapsulation_key_bytes().len(), PQ_ENCAPSULATION_KEY_SIZE);
+        assert_eq!(
+            keypair.decapsulation_key_bytes().len(),
+            PQ_DECAPSULATION_KEY_SIZE
+        );
+        assert_eq!(
+            keypair.encapsulation_key_bytes().len(),
+            PQ_ENCAPSULATION_KEY_SIZE
+        );
 
         let (ciphertext, _) = keypair.encapsulation_key().encapsulate();
         assert_eq!(ciphertext.to_bytes().len(), PQ_CIPHERTEXT_SIZE);
@@ -463,8 +480,13 @@ mod tests {
 
         // Should show short ID but not full key material
         assert!(debug_str.contains("PQKemKeyPair"));
-        assert!(!debug_str.contains(&keypair.decapsulation_key_bytes().as_slice()[0..100].iter()
-            .map(|b| format!("{:02x}", b))
-            .collect::<String>()));
+        assert!(
+            !debug_str.contains(
+                &keypair.decapsulation_key_bytes().as_slice()[0..100]
+                    .iter()
+                    .map(|b| format!("{:02x}", b))
+                    .collect::<String>()
+            )
+        );
     }
 }

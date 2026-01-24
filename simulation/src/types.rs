@@ -5,6 +5,8 @@
 
 use std::collections::BTreeSet;
 
+use indras_core::{IdentityError, PeerIdentity};
+use indras_dtn::prophet::ProphetState;
 use serde::{Deserialize, Serialize};
 
 /// Unique identifier for a peer in the network (A-Z)
@@ -23,15 +25,37 @@ impl PeerId {
 
     /// Generate all peer IDs from A to the given letter (inclusive)
     pub fn range_to(end: char) -> Vec<Self> {
-        ('A'..=end)
-            .filter_map(Self::new)
-            .collect()
+        ('A'..=end).filter_map(Self::new).collect()
     }
 }
 
 impl std::fmt::Display for PeerId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+/// Implement PeerIdentity for PeerId to enable PRoPHET routing
+impl PeerIdentity for PeerId {
+    fn as_bytes(&self) -> Vec<u8> {
+        vec![self.0 as u8]
+    }
+
+    fn from_bytes(bytes: &[u8]) -> Result<Self, IdentityError> {
+        if bytes.len() != 1 {
+            return Err(IdentityError::InvalidKeyLength {
+                expected: 1,
+                actual: bytes.len(),
+            });
+        }
+        let c = bytes[0] as char;
+        Self::new(c).ok_or_else(|| {
+            IdentityError::InvalidFormat(format!("Invalid peer ID: {}", c))
+        })
+    }
+
+    fn short_id(&self) -> String {
+        self.0.to_string()
     }
 }
 
@@ -49,7 +73,7 @@ impl std::fmt::Display for PacketId {
 }
 
 /// A sealed packet for store-and-forward delivery
-/// 
+///
 /// When the destination is offline, intermediate peers can hold and forward
 /// this packet. The payload is conceptually encrypted for the destination
 /// (in simulation, we just mark it as sealed).
@@ -120,15 +144,9 @@ impl SealedPacket {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum NetworkEvent {
     /// Peer comes online and broadcasts awake signal
-    Awake {
-        peer: PeerId,
-        tick: u64,
-    },
+    Awake { peer: PeerId, tick: u64 },
     /// Peer goes offline
-    Sleep {
-        peer: PeerId,
-        tick: u64,
-    },
+    Sleep { peer: PeerId, tick: u64 },
     /// Direct message attempt (may succeed or need routing)
     Send {
         from: PeerId,
@@ -230,7 +248,6 @@ pub enum DropReason {
 }
 
 /// State of a peer in the network
-#[derive(Debug, Clone)]
 pub struct PeerState {
     pub id: PeerId,
     pub online: bool,
@@ -248,6 +265,8 @@ pub struct PeerState {
     pub sequence: u64,
     /// Last tick when peer was online
     pub last_online_tick: Option<u64>,
+    /// PRoPHET routing state for probabilistic relay selection
+    pub prophet_state: ProphetState<PeerId>,
 }
 
 /// Record of a packet relay for back-propagation
@@ -258,6 +277,43 @@ pub struct BackPropRecord {
     pub received_from: PeerId,
     /// Final destination of the original packet
     pub destination: PeerId,
+}
+
+impl Clone for PeerState {
+    fn clone(&self) -> Self {
+        // Create a new instance rather than cloning ProphetState
+        // (which contains RwLock and can't be cloned)
+        Self {
+            id: self.id,
+            online: self.online,
+            connections: self.connections.clone(),
+            inbox: self.inbox.clone(),
+            relay_queue: self.relay_queue.clone(),
+            delivered: self.delivered.clone(),
+            pending_backprops: self.pending_backprops.clone(),
+            sequence: self.sequence,
+            last_online_tick: self.last_online_tick,
+            // Create fresh ProphetState with same configuration
+            prophet_state: ProphetState::with_defaults(self.id),
+        }
+    }
+}
+
+impl std::fmt::Debug for PeerState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PeerState")
+            .field("id", &self.id)
+            .field("online", &self.online)
+            .field("connections", &self.connections)
+            .field("inbox_len", &self.inbox.len())
+            .field("relay_queue_len", &self.relay_queue.len())
+            .field("delivered_len", &self.delivered.len())
+            .field("pending_backprops", &self.pending_backprops)
+            .field("sequence", &self.sequence)
+            .field("last_online_tick", &self.last_online_tick)
+            .field("prophet_destinations", &self.prophet_state.known_destinations())
+            .finish()
+    }
 }
 
 impl PeerState {
@@ -272,6 +328,7 @@ impl PeerState {
             pending_backprops: Vec::new(),
             sequence: 0,
             last_online_tick: None,
+            prophet_state: ProphetState::with_defaults(id),
         }
     }
 
@@ -381,7 +438,10 @@ mod tests {
 
     #[test]
     fn test_sealed_packet_visited() {
-        let packet_id = PacketId { source: PeerId('A'), sequence: 0 };
+        let packet_id = PacketId {
+            source: PeerId('A'),
+            sequence: 0,
+        };
         let mut packet = SealedPacket::new(
             packet_id,
             PeerId('A'),
@@ -390,10 +450,10 @@ mod tests {
             BTreeSet::new(),
             0,
         );
-        
+
         assert!(packet.was_visited(PeerId('A'))); // Source is auto-visited
         assert!(!packet.was_visited(PeerId('B')));
-        
+
         packet.mark_visited(PeerId('B'));
         assert!(packet.was_visited(PeerId('B')));
     }

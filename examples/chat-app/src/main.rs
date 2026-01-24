@@ -33,7 +33,7 @@ use clap::{Parser, Subcommand};
 use colored::Colorize;
 
 use display::*;
-use room::{RoomStorage, ChatRoom};
+use room::{ChatRoom, RoomStorage};
 
 /// Indras Chat - P2P Encrypted Messaging
 #[derive(Parser)]
@@ -85,10 +85,10 @@ enum Commands {
 }
 
 fn get_data_dir(path: &str) -> PathBuf {
-    if path.starts_with("~/") {
-        if let Some(home) = dirs::home_dir() {
-            return home.join(&path[2..]);
-        }
+    if path.starts_with("~/")
+        && let Some(home) = dirs::home_dir()
+    {
+        return home.join(&path[2..]);
     }
     PathBuf::from(path)
 }
@@ -106,8 +106,8 @@ async fn main() -> Result<()> {
     let data_dir = get_data_dir(&cli.data_dir);
 
     // Create storage (this loads existing rooms)
-    let mut storage = RoomStorage::new(data_dir.clone())
-        .context("Failed to initialize room storage")?;
+    let mut storage =
+        RoomStorage::new(data_dir.clone()).context("Failed to initialize room storage")?;
 
     match cli.command {
         Commands::New { name } => cmd_new(&mut storage, &name, &cli.username),
@@ -171,7 +171,11 @@ fn cmd_enter(storage: &mut RoomStorage, room_query: &str, username: &str) -> Res
         print_room_info(
             room.name(),
             room.id(),
-            &room.members().iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+            &room
+                .members()
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>(),
             room.message_count(),
         );
 
@@ -183,7 +187,12 @@ fn cmd_enter(storage: &mut RoomStorage, room_query: &str, username: &str) -> Res
                 if msg.is_system {
                     print_system_message(&msg.content);
                 } else {
-                    print_message(&msg.sender, &msg.content, msg.timestamp, msg.sender == username);
+                    print_message(
+                        &msg.sender,
+                        &msg.content,
+                        msg.timestamp,
+                        msg.sender == username,
+                    );
                 }
             }
             println!();
@@ -231,7 +240,12 @@ fn cmd_enter(storage: &mut RoomStorage, room_query: &str, username: &str) -> Res
                     if msg.is_system {
                         print_system_message(&msg.content);
                     } else {
-                        print_message(&msg.sender, &msg.content, msg.timestamp, msg.sender == username);
+                        print_message(
+                            &msg.sender,
+                            &msg.content,
+                            msg.timestamp,
+                            msg.sender == username,
+                        );
                     }
                 }
             }
@@ -253,7 +267,11 @@ fn cmd_enter(storage: &mut RoomStorage, room_query: &str, username: &str) -> Res
                 print_room_info(
                     room.name(),
                     room.id(),
-                    &room.members().iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+                    &room
+                        .members()
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect::<Vec<_>>(),
                     room.message_count(),
                 );
             }
@@ -302,7 +320,10 @@ async fn cmd_demo() -> Result<()> {
     print_banner();
     print_demo_mode();
 
-    println!("{}", "Creating a chat room and simulating a conversation...".dimmed());
+    println!(
+        "{}",
+        "Creating a chat room and simulating a conversation...".dimmed()
+    );
     println!();
 
     // Simulate a conversation
@@ -310,13 +331,25 @@ async fn cmd_demo() -> Result<()> {
         ("Alice", "Hey everyone! Welcome to the Indras Chat demo."),
         ("Bob", "Hi Alice! This is pretty cool."),
         ("Charlie", "I just joined. What's this about?"),
-        ("Alice", "It's a P2P encrypted messaging system built on Indras Network."),
-        ("Bob", "Messages are broadcast via gossip protocol, so no central server."),
+        (
+            "Alice",
+            "It's a P2P encrypted messaging system built on Indras Network.",
+        ),
+        (
+            "Bob",
+            "Messages are broadcast via gossip protocol, so no central server.",
+        ),
         ("Charlie", "Nice! And it's all end-to-end encrypted?"),
         ("Alice", "Yes! Each chat room has its own encryption key."),
-        ("Bob", "You can share the room ID with others to invite them."),
+        (
+            "Bob",
+            "You can share the room ID with others to invite them.",
+        ),
         ("Charlie", "This would be great for team communication."),
-        ("Alice", "Exactly! And it works even with intermittent connectivity."),
+        (
+            "Alice",
+            "Exactly! And it works even with intermittent connectivity.",
+        ),
     ];
 
     // Create a simulated room
@@ -344,8 +377,18 @@ async fn cmd_demo() -> Result<()> {
     print_success("Demo complete!");
     println!();
     println!("{}", "To start your own chat:".dimmed());
-    println!("  {} {} {}", "1.".dimmed(), "chat new".green(), "\"My Room\" --username YourName".dimmed());
-    println!("  {} {} {}", "2.".dimmed(), "chat enter".green(), "1".dimmed());
+    println!(
+        "  {} {} {}",
+        "1.".dimmed(),
+        "chat new".green(),
+        "\"My Room\" --username YourName".dimmed()
+    );
+    println!(
+        "  {} {} {}",
+        "2.".dimmed(),
+        "chat enter".green(),
+        "1".dimmed()
+    );
     println!();
 
     Ok(())

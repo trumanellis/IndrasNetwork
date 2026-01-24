@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
-use indras_core::{routing::RouteInfo, PeerIdentity};
+use indras_core::{PeerIdentity, routing::RouteInfo};
 
 /// Cached routing table
 ///
@@ -80,8 +80,8 @@ impl<I: PeerIdentity> RoutingTable<I> {
             None => true,
             Some(entry) => {
                 let age = Utc::now() - entry.inserted_at;
-                let stale_duration = chrono::Duration::from_std(self.stale_timeout)
-                    .unwrap_or(chrono::Duration::MAX);
+                let stale_duration =
+                    chrono::Duration::from_std(self.stale_timeout).unwrap_or(chrono::Duration::MAX);
                 age > stale_duration
             }
         }
@@ -89,8 +89,8 @@ impl<I: PeerIdentity> RoutingTable<I> {
 
     /// Prune all stale routes from the table
     pub fn prune_stale(&self) {
-        let stale_duration = chrono::Duration::from_std(self.stale_timeout)
-            .unwrap_or(chrono::Duration::MAX);
+        let stale_duration =
+            chrono::Duration::from_std(self.stale_timeout).unwrap_or(chrono::Duration::MAX);
         let now = Utc::now();
 
         self.routes.retain(|_, entry| {
@@ -171,8 +171,7 @@ mod tests {
 
     #[test]
     fn test_insert_and_get() {
-        let table: RoutingTable<SimulationIdentity> =
-            RoutingTable::new(Duration::from_secs(300));
+        let table: RoutingTable<SimulationIdentity> = RoutingTable::new(Duration::from_secs(300));
 
         let dest = make_id('C');
         let route = make_route('C', 'B', 2);
@@ -189,8 +188,7 @@ mod tests {
 
     #[test]
     fn test_remove() {
-        let table: RoutingTable<SimulationIdentity> =
-            RoutingTable::new(Duration::from_secs(300));
+        let table: RoutingTable<SimulationIdentity> = RoutingTable::new(Duration::from_secs(300));
 
         let dest = make_id('C');
         let route = make_route('C', 'B', 2);
@@ -204,8 +202,7 @@ mod tests {
 
     #[test]
     fn test_staleness() {
-        let table: RoutingTable<SimulationIdentity> =
-            RoutingTable::new(Duration::from_millis(10));
+        let table: RoutingTable<SimulationIdentity> = RoutingTable::new(Duration::from_millis(10));
 
         let dest = make_id('C');
         let route = make_route('C', 'B', 2);
@@ -223,8 +220,7 @@ mod tests {
 
     #[test]
     fn test_prune_stale() {
-        let table: RoutingTable<SimulationIdentity> =
-            RoutingTable::new(Duration::from_millis(10));
+        let table: RoutingTable<SimulationIdentity> = RoutingTable::new(Duration::from_millis(10));
 
         let c = make_id('C');
         let d = make_id('D');
@@ -247,8 +243,7 @@ mod tests {
 
     #[test]
     fn test_confirm_refreshes() {
-        let table: RoutingTable<SimulationIdentity> =
-            RoutingTable::new(Duration::from_millis(50));
+        let table: RoutingTable<SimulationIdentity> = RoutingTable::new(Duration::from_millis(50));
 
         let dest = make_id('C');
         let route = make_route('C', 'B', 2);
@@ -270,8 +265,7 @@ mod tests {
 
     #[test]
     fn test_nonexistent_is_stale() {
-        let table: RoutingTable<SimulationIdentity> =
-            RoutingTable::new(Duration::from_secs(300));
+        let table: RoutingTable<SimulationIdentity> = RoutingTable::new(Duration::from_secs(300));
 
         let dest = make_id('Z');
         assert!(table.is_stale(&dest));
@@ -279,8 +273,7 @@ mod tests {
 
     #[test]
     fn test_update_metric() {
-        let table: RoutingTable<SimulationIdentity> =
-            RoutingTable::new(Duration::from_secs(300));
+        let table: RoutingTable<SimulationIdentity> = RoutingTable::new(Duration::from_secs(300));
 
         let dest = make_id('C');
         let route = make_route('C', 'B', 2);
@@ -297,8 +290,7 @@ mod tests {
 
     #[test]
     fn test_routes_by_metric() {
-        let table: RoutingTable<SimulationIdentity> =
-            RoutingTable::new(Duration::from_secs(300));
+        let table: RoutingTable<SimulationIdentity> = RoutingTable::new(Duration::from_secs(300));
 
         let c = make_id('C');
         let d = make_id('D');
@@ -324,8 +316,7 @@ mod tests {
 
     #[test]
     fn test_clear() {
-        let table: RoutingTable<SimulationIdentity> =
-            RoutingTable::new(Duration::from_secs(300));
+        let table: RoutingTable<SimulationIdentity> = RoutingTable::new(Duration::from_secs(300));
 
         table.insert(&make_id('C'), make_route('C', 'B', 2));
         table.insert(&make_id('D'), make_route('D', 'B', 3));

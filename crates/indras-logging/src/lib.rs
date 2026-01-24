@@ -70,13 +70,13 @@ pub mod otel;
 
 pub use config::{ConsoleConfig, FileConfig, JsonlConfig, LogConfig, OtelConfig, RotationStrategy};
 pub use context::{PeerContextData, PeerContextGuard, PeerType};
-pub use correlation::{fields, spans, CorrelationContext, CorrelationExt};
+pub use correlation::{CorrelationContext, CorrelationExt, fields, spans};
 pub use tracing_appender::rolling::Rotation;
 
 use std::fs::{self, File};
 
 use tracing_appender::rolling::{RollingFileAppender, Rotation as AppenderRotation};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry};
+use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 
 /// Builder for configuring and initializing the Indras logging subscriber
 ///
@@ -145,14 +145,18 @@ impl IndrasSubscriberBuilder {
         let mut guards: Vec<tracing_appender::non_blocking::WorkerGuard> = Vec::new();
 
         // Helper to create file writer - truncates for Never rotation, appends for others
-        let create_file_writer = |file_config: &FileConfig| -> (tracing_appender::non_blocking::NonBlocking, tracing_appender::non_blocking::WorkerGuard) {
+        let create_file_writer = |file_config: &FileConfig| -> (
+            tracing_appender::non_blocking::NonBlocking,
+            tracing_appender::non_blocking::WorkerGuard,
+        ) {
             match file_config.rotation {
                 RotationStrategy::Never => {
                     // Create/truncate a single file
                     fs::create_dir_all(&file_config.directory).ok();
-                    let file_path = file_config.directory.join(format!("{}.log", file_config.prefix));
-                    let file = File::create(&file_path)
-                        .expect("Failed to create log file");
+                    let file_path = file_config
+                        .directory
+                        .join(format!("{}.log", file_config.prefix));
+                    let file = File::create(&file_path).expect("Failed to create log file");
                     tracing_appender::non_blocking(file)
                 }
                 RotationStrategy::Daily => {
@@ -173,7 +177,6 @@ impl IndrasSubscriberBuilder {
                 }
             }
         };
-
 
         // Build the base registry with env filter and peer context
         let registry = Registry::default()
@@ -428,17 +431,15 @@ impl IndrasSubscriberBuilder {
             }
 
             // OTel only (no console, no file)
-            (false, _, false, true) => {
-                match otel::init_otel_layer(&self.config.otel) {
-                    Ok(otel_layer) => {
-                        registry.with(otel_layer).init();
-                    }
-                    Err(e) => {
-                        eprintln!("Warning: Failed to initialize OpenTelemetry: {}", e);
-                        registry.init();
-                    }
+            (false, _, false, true) => match otel::init_otel_layer(&self.config.otel) {
+                Ok(otel_layer) => {
+                    registry.with(otel_layer).init();
                 }
-            }
+                Err(e) => {
+                    eprintln!("Warning: Failed to initialize OpenTelemetry: {}", e);
+                    registry.init();
+                }
+            },
 
             // Nothing enabled - just base registry
             (false, _, false, false) => {

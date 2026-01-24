@@ -67,6 +67,7 @@ struct ProbabilityEntry {
     /// Last time this entry was updated
     last_updated: Instant,
     /// Last time we encountered this peer (for direct encounters)
+    #[allow(dead_code)] // Reserved for future encounter-based routing
     last_encounter: Option<Instant>,
 }
 
@@ -194,10 +195,7 @@ impl<I: PeerIdentity> ProphetState<I> {
             }
 
             // Get current probability (0 if unknown)
-            let p_old = probs
-                .get(destination)
-                .map(|e| e.probability)
-                .unwrap_or(0.0);
+            let p_old = probs.get(destination).map(|e| e.probability).unwrap_or(0.0);
 
             // P_new = P_old + (1 - P_old) * P_a_b * P_b_c * beta
             let transitive_prob =
@@ -410,7 +408,7 @@ mod tests {
     fn test_aging() {
         let config = ProphetConfig {
             decay_interval: Duration::from_millis(1), // Very short for testing
-            aging_constant: 0.5, // Aggressive aging
+            aging_constant: 0.5,                      // Aggressive aging
             ..Default::default()
         };
 
@@ -437,7 +435,7 @@ mod tests {
 
         state.encounter(&make_id('C'));
 
-        let candidates = vec![make_id('B'), make_id('C'), make_id('D')];
+        let _candidates = [make_id('B'), make_id('C'), make_id('D')];
 
         // For destination Z, B should be best since we know B better
         // But we need probabilities to Z, not B/C themselves

@@ -15,6 +15,7 @@ pub struct DataPoint {
 }
 
 /// Test category detection for adaptive panels
+#[allow(dead_code)] // Some variants reserved for future categorization
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TestCategory {
     #[default]
@@ -31,6 +32,7 @@ pub enum TestCategory {
     Integration,
 }
 
+#[allow(dead_code)] // Reserved for future test categorization feature
 impl TestCategory {
     /// Detect test category from scenario name
     pub fn from_scenario_name(name: &str) -> Self {
@@ -68,6 +70,7 @@ impl TestCategory {
 }
 
 /// Metrics history for charts (ring buffer with max capacity)
+#[allow(dead_code)] // Reserved for future metrics visualization
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct MetricsHistory {
     /// Maximum number of data points to keep
@@ -82,6 +85,7 @@ pub struct MetricsHistory {
     pub avg_latency: Vec<DataPoint>,
 }
 
+#[allow(dead_code)] // Reserved for future metrics visualization
 impl MetricsHistory {
     /// Create a new metrics history with specified capacity
     pub fn new(max_points: usize) -> Self {
@@ -100,20 +104,26 @@ impl MetricsHistory {
 
         // Record ops per second
         if metrics.ops_per_second > 0.0 {
-            self.push_point(&mut self.ops_per_second.clone(), DataPoint {
-                x,
-                y: metrics.ops_per_second,
-            });
+            self.push_point(
+                &mut self.ops_per_second.clone(),
+                DataPoint {
+                    x,
+                    y: metrics.ops_per_second,
+                },
+            );
             self.ops_per_second = self.ops_per_second.clone();
         }
 
         // Record signature latency
         if metrics.avg_sign_latency_us > 0.0 {
             let mut history = self.signature_latency.clone();
-            self.push_point(&mut history, DataPoint {
-                x,
-                y: metrics.avg_sign_latency_us,
-            });
+            self.push_point(
+                &mut history,
+                DataPoint {
+                    x,
+                    y: metrics.avg_sign_latency_us,
+                },
+            );
             self.signature_latency = history;
         }
 
@@ -128,10 +138,13 @@ impl MetricsHistory {
         // Record average latency
         if metrics.avg_latency > 0.0 {
             let mut history = self.avg_latency.clone();
-            self.push_point(&mut history, DataPoint {
-                x,
-                y: metrics.avg_latency,
-            });
+            self.push_point(
+                &mut history,
+                DataPoint {
+                    x,
+                    y: metrics.avg_latency,
+                },
+            );
             self.avg_latency = history;
         }
     }
@@ -153,6 +166,7 @@ impl MetricsHistory {
 }
 
 /// Phase marker for multi-phase tests
+#[allow(dead_code)] // Reserved for future multi-phase visualization
 #[derive(Clone, Debug)]
 pub struct PhaseMarker {
     pub tick: u64,
@@ -166,8 +180,8 @@ pub enum Tab {
     /// Metrics view for stress test results
     #[default]
     Metrics,
-    /// Live instance visualization view
-    Instances,
+    /// Live network simulation visualization view
+    Simulations,
     /// Documents/CRDT sync visualization view
     Documents,
 }
@@ -279,6 +293,7 @@ pub enum StressLevel {
 
 impl StressLevel {
     /// Get all available stress levels
+    #[allow(dead_code)] // Reserved for future UI enumeration
     pub fn all() -> Vec<StressLevel> {
         vec![StressLevel::Quick, StressLevel::Medium, StressLevel::Full]
     }

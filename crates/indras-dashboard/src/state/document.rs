@@ -47,6 +47,7 @@ pub struct NoteSnapshot {
 
 /// Event types for document operations
 #[derive(Clone, Debug, PartialEq)]
+#[allow(dead_code)] // Some variants reserved for future scenarios
 pub enum DocumentEvent {
     NoteCreated {
         peer: String,
@@ -100,6 +101,7 @@ impl DocumentState {
         }
     }
 
+    #[allow(dead_code)] // Reserved for future convergence detection
     pub fn check_convergence(&mut self) {
         if self.peers.len() < 2 {
             self.is_converged = true;

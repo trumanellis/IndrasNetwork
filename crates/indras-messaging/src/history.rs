@@ -140,13 +140,14 @@ impl<I: PeerIdentity + Clone + Serialize + for<'de> Deserialize<'de>> MessageHis
         if self.max_per_interface > 0 && interface_messages.len() >= self.max_per_interface {
             // Remove oldest message
             if let Some(oldest_seq) = interface_messages.keys().next().copied()
-                && let Some(oldest_msg) = interface_messages.remove(&oldest_seq) {
-                    // Also remove from ID index
-                    let mut id_index = self.id_index.write().map_err(|_| {
-                        MessagingError::StorageError("failed to acquire write lock".to_string())
-                    })?;
-                    id_index.remove(&oldest_msg.id);
-                }
+                && let Some(oldest_msg) = interface_messages.remove(&oldest_seq)
+            {
+                // Also remove from ID index
+                let mut id_index = self.id_index.write().map_err(|_| {
+                    MessagingError::StorageError("failed to acquire write lock".to_string())
+                })?;
+                id_index.remove(&oldest_msg.id);
+            }
         }
 
         interface_messages.insert(sequence, message);
@@ -162,17 +163,19 @@ impl<I: PeerIdentity + Clone + Serialize + for<'de> Deserialize<'de>> MessageHis
 
     /// Get a message by ID
     pub fn get(&self, id: &MessageId) -> MessagingResult<Option<Message<I>>> {
-        let id_index = self.id_index.read().map_err(|_| {
-            MessagingError::StorageError("failed to acquire read lock".to_string())
-        })?;
+        let id_index = self
+            .id_index
+            .read()
+            .map_err(|_| MessagingError::StorageError("failed to acquire read lock".to_string()))?;
 
         let Some((interface_id, sequence)) = id_index.get(id) else {
             return Ok(None);
         };
 
-        let messages = self.messages.read().map_err(|_| {
-            MessagingError::StorageError("failed to acquire read lock".to_string())
-        })?;
+        let messages = self
+            .messages
+            .read()
+            .map_err(|_| MessagingError::StorageError("failed to acquire read lock".to_string()))?;
 
         Ok(messages
             .get(interface_id)
@@ -182,9 +185,10 @@ impl<I: PeerIdentity + Clone + Serialize + for<'de> Deserialize<'de>> MessageHis
 
     /// Query messages with a filter
     pub fn query(&self, filter: &MessageFilter<I>) -> MessagingResult<Vec<Message<I>>> {
-        let messages = self.messages.read().map_err(|_| {
-            MessagingError::StorageError("failed to acquire read lock".to_string())
-        })?;
+        let messages = self
+            .messages
+            .read()
+            .map_err(|_| MessagingError::StorageError("failed to acquire read lock".to_string()))?;
 
         let mut results = Vec::new();
 
@@ -200,19 +204,22 @@ impl<I: PeerIdentity + Clone + Serialize + for<'de> Deserialize<'de>> MessageHis
                 for message in interface_messages.values() {
                     // Apply filters
                     if let Some(ref sender) = filter.sender
-                        && &message.sender != sender {
-                            continue;
-                        }
+                        && &message.sender != sender
+                    {
+                        continue;
+                    }
 
                     if let Some(since) = filter.since
-                        && message.timestamp < since {
-                            continue;
-                        }
+                        && message.timestamp < since
+                    {
+                        continue;
+                    }
 
                     if let Some(until) = filter.until
-                        && message.timestamp > until {
-                            continue;
-                        }
+                        && message.timestamp > until
+                    {
+                        continue;
+                    }
 
                     if filter.text_only && !message.content.is_text() {
                         continue;
@@ -239,10 +246,15 @@ impl<I: PeerIdentity + Clone + Serialize + for<'de> Deserialize<'de>> MessageHis
     }
 
     /// Get messages from an interface since a sequence number
-    pub fn since(&self, interface_id: InterfaceId, since_sequence: u64) -> MessagingResult<Vec<Message<I>>> {
-        let messages = self.messages.read().map_err(|_| {
-            MessagingError::StorageError("failed to acquire read lock".to_string())
-        })?;
+    pub fn since(
+        &self,
+        interface_id: InterfaceId,
+        since_sequence: u64,
+    ) -> MessagingResult<Vec<Message<I>>> {
+        let messages = self
+            .messages
+            .read()
+            .map_err(|_| MessagingError::StorageError("failed to acquire read lock".to_string()))?;
 
         Ok(messages
             .get(&interface_id)
@@ -255,10 +267,15 @@ impl<I: PeerIdentity + Clone + Serialize + for<'de> Deserialize<'de>> MessageHis
     }
 
     /// Get the latest N messages from an interface
-    pub fn latest(&self, interface_id: InterfaceId, count: usize) -> MessagingResult<Vec<Message<I>>> {
-        let messages = self.messages.read().map_err(|_| {
-            MessagingError::StorageError("failed to acquire read lock".to_string())
-        })?;
+    pub fn latest(
+        &self,
+        interface_id: InterfaceId,
+        count: usize,
+    ) -> MessagingResult<Vec<Message<I>>> {
+        let messages = self
+            .messages
+            .read()
+            .map_err(|_| MessagingError::StorageError("failed to acquire read lock".to_string()))?;
 
         Ok(messages
             .get(&interface_id)
@@ -313,7 +330,9 @@ impl<I: PeerIdentity + Clone + Serialize + for<'de> Deserialize<'de>> MessageHis
     }
 }
 
-impl<I: PeerIdentity + Clone + Serialize + for<'de> Deserialize<'de>> Default for MessageHistory<I> {
+impl<I: PeerIdentity + Clone + Serialize + for<'de> Deserialize<'de>> Default
+    for MessageHistory<I>
+{
     fn default() -> Self {
         Self::new()
     }
@@ -324,7 +343,12 @@ mod tests {
     use super::*;
     use indras_core::SimulationIdentity;
 
-    fn create_test_message(interface_id: InterfaceId, sender: char, seq: u64, text: &str) -> Message<SimulationIdentity> {
+    fn create_test_message(
+        interface_id: InterfaceId,
+        sender: char,
+        seq: u64,
+        text: &str,
+    ) -> Message<SimulationIdentity> {
         Message::text(
             interface_id,
             SimulationIdentity::new(sender).unwrap(),
@@ -352,9 +376,15 @@ mod tests {
         let interface1 = InterfaceId::new([0x01; 32]);
         let interface2 = InterfaceId::new([0x02; 32]);
 
-        history.store(create_test_message(interface1, 'A', 1, "Hello 1")).unwrap();
-        history.store(create_test_message(interface2, 'A', 1, "Hello 2")).unwrap();
-        history.store(create_test_message(interface1, 'A', 2, "Hello 3")).unwrap();
+        history
+            .store(create_test_message(interface1, 'A', 1, "Hello 1"))
+            .unwrap();
+        history
+            .store(create_test_message(interface2, 'A', 1, "Hello 2"))
+            .unwrap();
+        history
+            .store(create_test_message(interface1, 'A', 2, "Hello 3"))
+            .unwrap();
 
         let filter = MessageFilter::new().interface(interface1);
         let results = history.query(&filter).unwrap();
@@ -367,9 +397,15 @@ mod tests {
         let history: MessageHistory<SimulationIdentity> = MessageHistory::new();
         let interface_id = InterfaceId::new([0x42; 32]);
 
-        history.store(create_test_message(interface_id, 'A', 1, "From A")).unwrap();
-        history.store(create_test_message(interface_id, 'B', 2, "From B")).unwrap();
-        history.store(create_test_message(interface_id, 'A', 3, "From A again")).unwrap();
+        history
+            .store(create_test_message(interface_id, 'A', 1, "From A"))
+            .unwrap();
+        history
+            .store(create_test_message(interface_id, 'B', 2, "From B"))
+            .unwrap();
+        history
+            .store(create_test_message(interface_id, 'A', 3, "From A again"))
+            .unwrap();
 
         let filter = MessageFilter::new().sender(SimulationIdentity::new('A').unwrap());
         let results = history.query(&filter).unwrap();
@@ -383,7 +419,14 @@ mod tests {
         let interface_id = InterfaceId::new([0x42; 32]);
 
         for i in 1..=10 {
-            history.store(create_test_message(interface_id, 'A', i, &format!("Msg {}", i))).unwrap();
+            history
+                .store(create_test_message(
+                    interface_id,
+                    'A',
+                    i,
+                    &format!("Msg {}", i),
+                ))
+                .unwrap();
         }
 
         let filter = MessageFilter::new().limit(3).offset(2);
@@ -399,7 +442,14 @@ mod tests {
         let interface_id = InterfaceId::new([0x42; 32]);
 
         for i in 1..=10 {
-            history.store(create_test_message(interface_id, 'A', i, &format!("Msg {}", i))).unwrap();
+            history
+                .store(create_test_message(
+                    interface_id,
+                    'A',
+                    i,
+                    &format!("Msg {}", i),
+                ))
+                .unwrap();
         }
 
         let latest = history.latest(interface_id, 3).unwrap();
@@ -414,7 +464,14 @@ mod tests {
         let interface_id = InterfaceId::new([0x42; 32]);
 
         for i in 1..=5 {
-            history.store(create_test_message(interface_id, 'A', i, &format!("Msg {}", i))).unwrap();
+            history
+                .store(create_test_message(
+                    interface_id,
+                    'A',
+                    i,
+                    &format!("Msg {}", i),
+                ))
+                .unwrap();
         }
 
         let since = history.since(interface_id, 3).unwrap();
@@ -428,13 +485,22 @@ mod tests {
         let interface_id = InterfaceId::new([0x42; 32]);
 
         for i in 1..=5 {
-            history.store(create_test_message(interface_id, 'A', i, &format!("Msg {}", i))).unwrap();
+            history
+                .store(create_test_message(
+                    interface_id,
+                    'A',
+                    i,
+                    &format!("Msg {}", i),
+                ))
+                .unwrap();
         }
 
         assert_eq!(history.count(interface_id), 3);
 
         // Should have kept the latest 3 messages
-        let all = history.query(&MessageFilter::new().interface(interface_id)).unwrap();
+        let all = history
+            .query(&MessageFilter::new().interface(interface_id))
+            .unwrap();
         assert_eq!(all.len(), 3);
         assert_eq!(all[0].content.as_text(), Some("Msg 3"));
     }
@@ -444,7 +510,9 @@ mod tests {
         let history: MessageHistory<SimulationIdentity> = MessageHistory::new();
         let interface_id = InterfaceId::new([0x42; 32]);
 
-        history.store(create_test_message(interface_id, 'A', 1, "Hello")).unwrap();
+        history
+            .store(create_test_message(interface_id, 'A', 1, "Hello"))
+            .unwrap();
         assert_eq!(history.count(interface_id), 1);
 
         history.clear(interface_id).unwrap();

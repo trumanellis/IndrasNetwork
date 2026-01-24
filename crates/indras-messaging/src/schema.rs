@@ -153,7 +153,11 @@ pub struct TypedContent {
 
 impl TypedContent {
     /// Create new typed content
-    pub fn new(content_type: impl Into<String>, schema_version: SchemaVersion, data: Vec<u8>) -> Self {
+    pub fn new(
+        content_type: impl Into<String>,
+        schema_version: SchemaVersion,
+        data: Vec<u8>,
+    ) -> Self {
         Self {
             content_type: content_type.into(),
             schema_version,
@@ -175,7 +179,9 @@ impl TypedContent {
     /// Create a binary content
     pub fn binary(mime_type: &str, data: Vec<u8>) -> Self {
         let mut content = Self::with_current_version(content_types::BINARY, data);
-        content.metadata.insert("mime_type".to_string(), mime_type.to_string());
+        content
+            .metadata
+            .insert("mime_type".to_string(), mime_type.to_string());
         content
     }
 
@@ -189,7 +195,9 @@ impl TypedContent {
         let data = serde_json::to_vec(value)
             .map_err(|e| SchemaError::DeserializationError(e.to_string()))?;
         let mut content = Self::with_current_version(content_types::CUSTOM_JSON, data);
-        content.metadata.insert("custom_type".to_string(), type_name.to_string());
+        content
+            .metadata
+            .insert("custom_type".to_string(), type_name.to_string());
         Ok(content)
     }
 
@@ -252,11 +260,14 @@ impl Default for ValidationConfig {
     }
 }
 
+/// Type alias for custom validator function to simplify complex type
+type ValidatorFn = Box<dyn Fn(&TypedContent) -> SchemaResult<()> + Send + Sync>;
+
 /// Content validator for typed messages
 pub struct ContentValidator {
     config: ValidationConfig,
     /// Custom type validators
-    custom_validators: HashMap<String, Box<dyn Fn(&TypedContent) -> SchemaResult<()> + Send + Sync>>,
+    custom_validators: HashMap<String, ValidatorFn>,
 }
 
 impl ContentValidator {
@@ -296,8 +307,7 @@ impl ContentValidator {
         }
 
         // Check version compatibility
-        if self.config.strict_versions
-            && !SchemaVersion::CURRENT.can_read(&content.schema_version)
+        if self.config.strict_versions && !SchemaVersion::CURRENT.can_read(&content.schema_version)
         {
             return Err(SchemaError::IncompatibleVersion {
                 expected: SchemaVersion::CURRENT,
@@ -327,7 +337,9 @@ impl ContentValidator {
             }
             _ => {
                 if !self.config.allow_unknown_types && !content.is_builtin_type() {
-                    return Err(SchemaError::UnknownContentType(content.content_type.clone()));
+                    return Err(SchemaError::UnknownContentType(
+                        content.content_type.clone(),
+                    ));
                 }
             }
         }
@@ -342,8 +354,9 @@ impl ContentValidator {
 
     fn validate_text(&self, content: &TypedContent) -> SchemaResult<()> {
         // Must be valid UTF-8
-        let text = std::str::from_utf8(&content.data)
-            .map_err(|_| SchemaError::ValidationFailed("Text content must be valid UTF-8".into()))?;
+        let text = std::str::from_utf8(&content.data).map_err(|_| {
+            SchemaError::ValidationFailed("Text content must be valid UTF-8".into())
+        })?;
 
         // Check length
         if text.chars().count() > self.config.max_text_length {
@@ -385,7 +398,9 @@ impl ContentValidator {
         }
         // Content should be the reaction (emoji or identifier)
         if content.data.is_empty() {
-            return Err(SchemaError::ValidationFailed("Reaction cannot be empty".into()));
+            return Err(SchemaError::ValidationFailed(
+                "Reaction cannot be empty".into(),
+            ));
         }
         Ok(())
     }
@@ -430,8 +445,7 @@ impl SchemaMigration {
 
     /// Check if this migration applies to given content
     pub fn applies_to(&self, content: &TypedContent) -> bool {
-        content.content_type == self.content_type
-            && content.schema_version == self.from_version
+        content.content_type == self.content_type && content.schema_version == self.from_version
     }
 }
 
@@ -656,10 +670,12 @@ mod tests {
 
         // Register a custom validator that rejects content containing "forbidden"
         validator.register_validator(content_types::TEXT, |content| {
-            if let Some(text) = content.as_text() {
-                if text.contains("forbidden") {
-                    return Err(SchemaError::ValidationFailed("Content contains forbidden word".into()));
-                }
+            if let Some(text) = content.as_text()
+                && text.contains("forbidden")
+            {
+                return Err(SchemaError::ValidationFailed(
+                    "Content contains forbidden word".into(),
+                ));
             }
             Ok(())
         });

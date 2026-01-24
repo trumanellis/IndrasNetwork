@@ -2,11 +2,11 @@
 //!
 //! Includes the canonical A-B-C example and other test cases
 
-use tracing::{info, debug};
+use tracing::{debug, info};
 
+use crate::simulation::{SimConfig, Simulation};
 use crate::topology::from_edges;
 use crate::types::PeerId;
-use crate::simulation::{Simulation, SimConfig};
 
 /// Run the canonical A-B-C scenario from the spec:
 ///
@@ -28,20 +28,19 @@ pub fn run_abc_scenario() -> Simulation {
     // Create triangle topology: A - B - C with A-C connected through B
     // Actually, for the mutual peer scenario, A and C should both know B
     // Let's use: A-B, B-C, A-C (triangle)
-    let mesh = from_edges(&[
-        ('A', 'B'),
-        ('B', 'C'),
-        ('A', 'C'),
-    ]);
+    let mesh = from_edges(&[('A', 'B'), ('B', 'C'), ('A', 'C')]);
 
     info!(topology = %mesh.visualize(), "Mesh topology created");
 
-    let mut sim = Simulation::new(mesh, SimConfig {
-        wake_probability: 0.0,  // Manual control
-        sleep_probability: 0.0, // Manual control
-        trace_routing: true,
-        ..Default::default()
-    });
+    let mut sim = Simulation::new(
+        mesh,
+        SimConfig {
+            wake_probability: 0.0,  // Manual control
+            sleep_probability: 0.0, // Manual control
+            trace_routing: true,
+            ..Default::default()
+        },
+    );
 
     // Initial state: all offline
     info!("Initial state: all peers offline");
@@ -59,7 +58,11 @@ pub fn run_abc_scenario() -> Simulation {
     debug!(state = %sim.state_summary(), "After step 2");
 
     // Step 3: A needs to send message to C but C is asleep
-    info!(step = 3, action = "A sends message to C (C is offline)", note = "A and C have mutual peer B, so A passes message to B");
+    info!(
+        step = 3,
+        action = "A sends message to C (C is offline)",
+        note = "A and C have mutual peer B, so A passes message to B"
+    );
     sim.send_message(PeerId('A'), PeerId('C'), b"Hello from A to C!".to_vec());
     sim.step();
     debug!(state = %sim.state_summary(), "After step 3");
@@ -117,21 +120,19 @@ pub fn run_abc_scenario() -> Simulation {
 pub fn run_line_relay_scenario() -> Simulation {
     info!("=== Running Line Relay Scenario ===");
 
-    let mesh = from_edges(&[
-        ('A', 'B'),
-        ('B', 'C'),
-        ('C', 'D'),
-        ('D', 'E'),
-    ]);
+    let mesh = from_edges(&[('A', 'B'), ('B', 'C'), ('C', 'D'), ('D', 'E')]);
 
     info!(topology = %mesh.visualize(), "Mesh topology created");
 
-    let mut sim = Simulation::new(mesh, SimConfig {
-        wake_probability: 0.0,
-        sleep_probability: 0.0,
-        trace_routing: true,
-        ..Default::default()
-    });
+    let mut sim = Simulation::new(
+        mesh,
+        SimConfig {
+            wake_probability: 0.0,
+            sleep_probability: 0.0,
+            trace_routing: true,
+            ..Default::default()
+        },
+    );
 
     // Start with A, B online
     sim.force_online(PeerId('A'));
@@ -170,12 +171,15 @@ pub fn run_broadcast_scenario() -> Simulation {
 
     info!(topology = %mesh.visualize(), "Mesh topology created");
 
-    let mut sim = Simulation::new(mesh, SimConfig {
-        wake_probability: 0.0,
-        sleep_probability: 0.0,
-        trace_routing: true,
-        ..Default::default()
-    });
+    let mut sim = Simulation::new(
+        mesh,
+        SimConfig {
+            wake_probability: 0.0,
+            sleep_probability: 0.0,
+            trace_routing: true,
+            ..Default::default()
+        },
+    );
 
     // All peers online
     for c in 'A'..='E' {
@@ -185,7 +189,11 @@ pub fn run_broadcast_scenario() -> Simulation {
     // A broadcasts to all
     info!(action = "A broadcasts to B, C, D, E");
     for dest in ['B', 'C', 'D', 'E'] {
-        sim.send_message(PeerId('A'), PeerId(dest), format!("Broadcast to {}", dest).into_bytes());
+        sim.send_message(
+            PeerId('A'),
+            PeerId(dest),
+            format!("Broadcast to {}", dest).into_bytes(),
+        );
     }
 
     sim.run_ticks(5);
@@ -209,14 +217,17 @@ pub fn run_random_chaos_scenario(ticks: u64) -> Simulation {
 
     info!(topology = %mesh.visualize(), "Mesh topology created");
 
-    let mut sim = Simulation::new(mesh, SimConfig {
-        wake_probability: 0.3,
-        sleep_probability: 0.2,
-        initial_online_probability: 0.5,
-        max_ticks: ticks,
-        trace_routing: false, // Less verbose for chaos
-        ..Default::default()
-    });
+    let mut sim = Simulation::new(
+        mesh,
+        SimConfig {
+            wake_probability: 0.3,
+            sleep_probability: 0.2,
+            initial_online_probability: 0.5,
+            max_ticks: ticks,
+            trace_routing: false, // Less verbose for chaos
+            ..Default::default()
+        },
+    );
 
     // Initialize and start
     sim.initialize();
@@ -235,7 +246,11 @@ pub fn run_random_chaos_scenario(ticks: u64) -> Simulation {
             let from = PeerId((b'A' + (sim.tick % 8) as u8) as char);
             let to = PeerId((b'H' - (sim.tick % 8) as u8) as char);
             if from != to {
-                sim.send_message(from, to, format!("Message at tick {}", sim.tick).into_bytes());
+                sim.send_message(
+                    from,
+                    to,
+                    format!("Message at tick {}", sim.tick).into_bytes(),
+                );
             }
         }
 
@@ -277,21 +292,28 @@ pub fn run_partition_scenario() -> Simulation {
     // Bridge: C - D
     let mesh = from_edges(&[
         // Cluster 1
-        ('A', 'B'), ('A', 'C'), ('B', 'C'),
+        ('A', 'B'),
+        ('A', 'C'),
+        ('B', 'C'),
         // Cluster 2
-        ('D', 'E'), ('D', 'F'), ('E', 'F'),
+        ('D', 'E'),
+        ('D', 'F'),
+        ('E', 'F'),
         // Bridge
         ('C', 'D'),
     ]);
 
     info!(topology = %mesh.visualize(), "Mesh topology created");
 
-    let mut sim = Simulation::new(mesh, SimConfig {
-        wake_probability: 0.0,
-        sleep_probability: 0.0,
-        trace_routing: true,
-        ..Default::default()
-    });
+    let mut sim = Simulation::new(
+        mesh,
+        SimConfig {
+            wake_probability: 0.0,
+            sleep_probability: 0.0,
+            trace_routing: true,
+            ..Default::default()
+        },
+    );
 
     // All online initially
     for c in 'A'..='F' {
@@ -308,9 +330,17 @@ pub fn run_partition_scenario() -> Simulation {
     sim.force_offline(PeerId('D'));
 
     info!(action = "A tries to send to F (partitioned)");
-    sim.send_message(PeerId('A'), PeerId('F'), b"Message during partition".to_vec());
+    sim.send_message(
+        PeerId('A'),
+        PeerId('F'),
+        b"Message during partition".to_vec(),
+    );
     sim.run_ticks(5);
-    debug!(delivered = sim.stats.messages_delivered, note = "Should be held, not delivered", "After partition send");
+    debug!(
+        delivered = sim.stats.messages_delivered,
+        note = "Should be held, not delivered",
+        "After partition send"
+    );
 
     info!(action = "Bridge reconnects (C, D online)");
     sim.force_online(PeerId('C'));

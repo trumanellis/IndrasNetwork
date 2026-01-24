@@ -211,9 +211,7 @@ mod tests {
         let err = StorageError::PacketNotFound("abc123".to_string());
         assert!(format!("{}", err).contains("abc123"));
 
-        assert!(
-            format!("{}", StorageError::CapacityExceeded).contains("exceeded")
-        );
+        assert!(format!("{}", StorageError::CapacityExceeded).contains("exceeded"));
 
         let err = StorageError::Serialization("json error".to_string());
         assert!(format!("{}", err).contains("json error"));

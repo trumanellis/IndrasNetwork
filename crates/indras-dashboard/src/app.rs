@@ -1,13 +1,14 @@
-use dioxus::prelude::*;
 use crate::components::*;
-use crate::state::*;
-use crate::runner::{ScenarioRunner, MetricsUpdate};
-use crate::runner::document_runner::DocumentRunner;
 use crate::layout::compute_layout;
-use tokio::sync::mpsc;
+use crate::runner::document_runner::DocumentRunner;
+use crate::runner::{MetricsUpdate, ScenarioRunner};
+use crate::state::*;
+use crate::theme::{ThemeSwitcher, ThemedRoot};
+use dioxus::prelude::*;
+use indras_simulation::{from_edges, MeshBuilder, NetworkEvent, PacketId, SimConfig, Simulation};
 use std::sync::Arc;
+use tokio::sync::mpsc;
 use tokio::sync::Mutex;
-use indras_simulation::{Simulation, SimConfig, from_edges, MeshBuilder, NetworkEvent, PacketId};
 
 /// Root App component for the Indras Network dashboard
 ///
@@ -23,8 +24,8 @@ pub fn App() -> Element {
     let mut stress_level = use_signal(|| "medium".to_string());
     let mut running = use_signal(|| false);
     let mut metrics = use_signal(SimMetrics::default);
-    let mut events = use_signal(|| Vec::<SimEvent>::new());
-    let mut results_history = use_signal(|| Vec::<TestResult>::new());
+    let mut events = use_signal(Vec::<SimEvent>::new);
+    let mut results_history = use_signal(Vec::<TestResult>::new);
     let mut error_message = use_signal(|| None::<String>);
 
     // Tab navigation state
@@ -75,9 +76,8 @@ pub fn App() -> Element {
 
             // Spawn the scenario runner in a separate task
             let scenario_clone = scenario.clone();
-            let run_handle = tokio::spawn(async move {
-                runner.run_scenario(&scenario_clone, level, tx).await
-            });
+            let run_handle =
+                tokio::spawn(async move { runner.run_scenario(&scenario_clone, level, tx).await });
 
             // Process updates as they come in
             while let Some(update) = rx.recv().await {
@@ -104,7 +104,11 @@ pub fn App() -> Element {
                         // Add completion event
                         events.write().push(SimEvent {
                             tick: result.metrics.current_tick,
-                            event_type: if result.passed { EventType::Success } else { EventType::Error },
+                            event_type: if result.passed {
+                                EventType::Success
+                            } else {
+                                EventType::Error
+                            },
                             description: if result.passed {
                                 format!("Scenario {} completed successfully", scenario)
                             } else {
@@ -152,9 +156,7 @@ pub fn App() -> Element {
             // Check conditions
             let should_step = {
                 let state = instance_state.read();
-                current_tab() == Tab::Instances
-                    && !state.paused
-                    && state.simulation.is_some()
+                current_tab() == Tab::Simulations && !state.paused && state.simulation.is_some()
             };
 
             if should_step {
@@ -188,20 +190,39 @@ pub fn App() -> Element {
                     match &event {
                         NetworkEvent::Send { from, to, .. } => {
                             // Direct send - animate from sender to receiver
-                            let packet_id = PacketId { source: *from, sequence: current_tick };
+                            let packet_id = PacketId {
+                                source: *from,
+                                sequence: current_tick,
+                            };
                             state_write.packets_in_flight.push(PacketAnimation::new(
-                                packet_id, *from, *to, current_tick
+                                packet_id,
+                                *from,
+                                *to,
+                                current_tick,
                             ));
                         }
-                        NetworkEvent::Relay { from, via, to, packet_id, .. } => {
+                        NetworkEvent::Relay {
+                            from: _,
+                            via,
+                            to,
+                            packet_id,
+                            ..
+                        } => {
                             // Relay - animate from via peer toward destination
                             state_write.packets_in_flight.push(PacketAnimation::new(
-                                *packet_id, *via, *to, current_tick
+                                *packet_id,
+                                *via,
+                                *to,
+                                current_tick,
                             ));
                         }
-                        NetworkEvent::Delivered { packet_id, to, .. } => {
+                        NetworkEvent::Delivered {
+                            packet_id, to: _, ..
+                        } => {
                             // Remove completed animations for this packet
-                            state_write.packets_in_flight.retain(|p| p.packet_id != *packet_id);
+                            state_write
+                                .packets_in_flight
+                                .retain(|p| p.packet_id != *packet_id);
                         }
                         _ => {}
                     }
@@ -209,7 +230,10 @@ pub fn App() -> Element {
                 }
 
                 // Update animation progress and remove completed ones
-                state_write.packets_in_flight.iter_mut().for_each(|p| p.update(current_tick));
+                state_write
+                    .packets_in_flight
+                    .iter_mut()
+                    .for_each(|p| p.update(current_tick));
                 state_write.packets_in_flight.retain(|p| !p.is_complete());
             } else {
                 // When paused or not on instances tab, poll less frequently
@@ -224,9 +248,7 @@ pub fn App() -> Element {
             // Check conditions for document auto-play
             let should_step = {
                 let state = document_state.read();
-                current_tab() == Tab::Documents
-                    && state.running
-                    && state.scenario_name.is_some()
+                current_tab() == Tab::Documents && state.running && state.scenario_name.is_some()
             };
 
             if should_step {
@@ -269,9 +291,11 @@ pub fn App() -> Element {
     });
 
     rsx! {
-        div { class: "dashboard",
-            // Header section
-            Header {}
+        ThemedRoot {
+            ThemeSwitcher {}
+            div { class: "dashboard",
+                // Header section
+                Header {}
 
             // Tab bar at top level
             div { class: "tab-bar-container", style: "background: var(--bg-secondary); padding: 0 var(--spacing-lg); border-bottom: 1px solid var(--border-color);",
@@ -339,63 +363,61 @@ pub fn App() -> Element {
                         }
                     }
                 },
-                Tab::Instances => rsx! {
-                    // Full-width content for Instances (no sidebar)
-                    div { class: "content", style: "padding: var(--spacing-lg);",
-                        InstanceView {
-                            state: instance_state,
-                            on_load_scenario: move |scenario: String| {
-                                // Create mesh based on scenario type
-                                let mesh = match scenario.as_str() {
-                                    "triangle" => from_edges(&[('A', 'B'), ('B', 'C'), ('A', 'C')]),
-                                    "line" => MeshBuilder::new(5).line(),
-                                    "star" => MeshBuilder::new(6).star(),
-                                    "ring" => MeshBuilder::new(8).ring(),
-                                    "mesh" => MeshBuilder::new(5).full_mesh(),
-                                    _ => from_edges(&[('A', 'B'), ('B', 'C'), ('A', 'C')]),
-                                };
+                Tab::Simulations => rsx! {
+                    // Simulations view with sidebar for scenario selection
+                    SimulationsView {
+                        state: instance_state,
+                        on_load_scenario: move |scenario: String| {
+                            // Create mesh based on scenario type
+                            let mesh = match scenario.as_str() {
+                                "triangle" => from_edges(&[('A', 'B'), ('B', 'C'), ('A', 'C')]),
+                                "line" => MeshBuilder::new(5).line(),
+                                "star" => MeshBuilder::new(6).star(),
+                                "ring" => MeshBuilder::new(8).ring(),
+                                "mesh" => MeshBuilder::new(5).full_mesh(),
+                                _ => from_edges(&[('A', 'B'), ('B', 'C'), ('A', 'C')]),
+                            };
 
-                                let config = SimConfig {
-                                    max_ticks: 200,
-                                    wake_probability: 0.2,
-                                    sleep_probability: 0.05,
-                                    initial_online_probability: 0.0,
-                                    ..Default::default()
-                                };
-                                let mut sim = Simulation::new(mesh.clone(), config);
-                                sim.initialize();
+                            let config = SimConfig {
+                                max_ticks: 200,
+                                wake_probability: 0.2,
+                                sleep_probability: 0.05,
+                                initial_online_probability: 0.0,
+                                ..Default::default()
+                            };
+                            let mut sim = Simulation::new(mesh.clone(), config);
+                            sim.initialize();
 
-                                // Bring some peers online based on topology
-                                let peer_ids = sim.mesh.peer_ids();
-                                let online_count = (peer_ids.len() / 2).max(2);
-                                for peer in peer_ids.iter().take(online_count) {
-                                    sim.force_online(*peer);
-                                }
-
-                                // Queue messages between various peers
-                                if peer_ids.len() >= 3 {
-                                    // Send from first online peer to last peer (likely offline)
-                                    let sender = peer_ids[0];
-                                    let receiver = peer_ids[peer_ids.len() - 1];
-                                    sim.send_message(sender, receiver, b"Hello!".to_vec());
-
-                                    // Send between online peers
-                                    if peer_ids.len() >= 2 {
-                                        sim.send_message(peer_ids[1], peer_ids[0], b"Hi back!".to_vec());
-                                    }
-                                }
-
-                                let positions = compute_layout(&mesh, 700.0, 400.0);
-
-                                // Clear and set up state
-                                let mut state = instance_state.write();
-                                state.simulation = Some(sim);
-                                state.peer_positions = positions;
-                                state.scenario_name = Some(scenario);
-                                state.paused = true;
-                                state.recent_events.clear();
-                                state.packets_in_flight.clear();
+                            // Bring some peers online based on topology
+                            let peer_ids = sim.mesh.peer_ids();
+                            let online_count = (peer_ids.len() / 2).max(2);
+                            for peer in peer_ids.iter().take(online_count) {
+                                sim.force_online(*peer);
                             }
+
+                            // Queue messages between various peers
+                            if peer_ids.len() >= 3 {
+                                // Send from first online peer to last peer (likely offline)
+                                let sender = peer_ids[0];
+                                let receiver = peer_ids[peer_ids.len() - 1];
+                                sim.send_message(sender, receiver, b"Hello!".to_vec());
+
+                                // Send between online peers
+                                if peer_ids.len() >= 2 {
+                                    sim.send_message(peer_ids[1], peer_ids[0], b"Hi back!".to_vec());
+                                }
+                            }
+
+                            let positions = compute_layout(&mesh, 700.0, 400.0);
+
+                            // Clear and set up state
+                            let mut state = instance_state.write();
+                            state.simulation = Some(sim);
+                            state.peer_positions = positions;
+                            state.scenario_name = Some(scenario);
+                            state.paused = true;
+                            state.recent_events.clear();
+                            state.packets_in_flight.clear();
                         }
                     }
                 },
@@ -465,6 +487,7 @@ pub fn App() -> Element {
                     }
                 },
             }
+        }
         }
     }
 }

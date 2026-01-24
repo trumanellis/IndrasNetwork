@@ -26,7 +26,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use dashmap::DashMap;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{RwLock, mpsc};
 
 use crate::error::TransportError;
 use crate::identity::PeerIdentity;
@@ -142,9 +142,13 @@ impl<I: PeerIdentity> Transport<I> for MockTransport<I> {
     fn connected_peers(&self) -> Vec<I> {
         self.outgoing
             .iter()
-            .map(|entry: dashmap::mapref::multiple::RefMulti<'_, I, mpsc::Sender<MockMessage<I>>>| {
-                entry.key().clone()
-            })
+            .map(
+                |entry: dashmap::mapref::multiple::RefMulti<
+                    '_,
+                    I,
+                    mpsc::Sender<MockMessage<I>>,
+                >| { entry.key().clone() },
+            )
             .collect()
     }
 
@@ -226,7 +230,12 @@ impl MockTransportBuilder {
         // First, create all transports
         let transports: HashMap<I, MockTransport<I>> = ids
             .iter()
-            .map(|id| (id.clone(), MockTransport::with_buffer_size(id.clone(), self.buffer_size)))
+            .map(|id| {
+                (
+                    id.clone(),
+                    MockTransport::with_buffer_size(id.clone(), self.buffer_size),
+                )
+            })
             .collect();
 
         // Then, connect each pair
@@ -247,7 +256,12 @@ impl MockTransportBuilder {
     pub fn create_chain<I: PeerIdentity>(&self, ids: Vec<I>) -> HashMap<I, MockTransport<I>> {
         let transports: HashMap<I, MockTransport<I>> = ids
             .iter()
-            .map(|id| (id.clone(), MockTransport::with_buffer_size(id.clone(), self.buffer_size)))
+            .map(|id| {
+                (
+                    id.clone(),
+                    MockTransport::with_buffer_size(id.clone(), self.buffer_size),
+                )
+            })
             .collect();
 
         for i in 0..ids.len().saturating_sub(1) {
@@ -423,9 +437,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mock_transport_full_mesh() {
-        let ids: Vec<_> = ('A'..='C')
-            .filter_map(SimulationIdentity::new)
-            .collect();
+        let ids: Vec<_> = ('A'..='C').filter_map(SimulationIdentity::new).collect();
 
         let builder = MockTransportBuilder::new();
         let transports = builder.create_full_mesh(ids.clone());
@@ -508,9 +520,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mock_network_partition() {
-        let ids: Vec<_> = ('A'..='D')
-            .filter_map(SimulationIdentity::new)
-            .collect();
+        let ids: Vec<_> = ('A'..='D').filter_map(SimulationIdentity::new).collect();
 
         let network = MockNetwork::full_mesh(ids);
 
@@ -536,9 +546,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mock_transport_chain() {
-        let ids: Vec<_> = ('A'..='C')
-            .filter_map(SimulationIdentity::new)
-            .collect();
+        let ids: Vec<_> = ('A'..='C').filter_map(SimulationIdentity::new).collect();
 
         let builder = MockTransportBuilder::new();
         let transports = builder.create_chain(ids);
@@ -562,9 +570,7 @@ mod tests {
     #[tokio::test]
     async fn test_mock_transport_star() {
         let hub = SimulationIdentity::new('H').unwrap();
-        let spokes: Vec<_> = ('A'..='C')
-            .filter_map(SimulationIdentity::new)
-            .collect();
+        let spokes: Vec<_> = ('A'..='C').filter_map(SimulationIdentity::new).collect();
 
         let builder = MockTransportBuilder::new();
         let transports = builder.create_star(hub, spokes.clone());

@@ -195,8 +195,8 @@ mod tests {
 
     #[test]
     fn test_identity_hash() {
-        use std::collections::HashSet;
         use iroh::SecretKey;
+        use std::collections::HashSet;
 
         let secret1 = SecretKey::generate(&mut rand::rng());
         let secret2 = SecretKey::generate(&mut rand::rng());

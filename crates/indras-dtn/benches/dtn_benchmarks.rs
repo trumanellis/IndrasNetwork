@@ -8,7 +8,7 @@
 //!
 //! Run with: cargo bench -p indras-dtn
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use std::collections::{HashMap, HashSet};
 use std::sync::RwLock;
 use std::time::Duration;
@@ -16,8 +16,8 @@ use std::time::Duration;
 use chrono::Duration as ChronoDuration;
 use indras_core::{EncryptedPayload, NetworkTopology, Packet, PacketId, SimulationIdentity};
 use indras_dtn::{
-    AgeManager, Bundle, CustodyConfig, CustodyManager, DtnConfig, EpidemicConfig,
-    EpidemicRouter, ExpirationConfig, ProphetConfig, ProphetState,
+    AgeManager, Bundle, CustodyConfig, CustodyManager, DtnConfig, EpidemicConfig, EpidemicRouter,
+    ExpirationConfig, ProphetConfig, ProphetState,
 };
 
 // ============================================================================
@@ -104,7 +104,12 @@ fn make_bundle(source: char, dest: char, seq: u64) -> Bundle<SimulationIdentity>
     Bundle::from_packet(packet, ChronoDuration::hours(1))
 }
 
-fn make_bundle_with_copies(source: char, dest: char, seq: u64, copies: u8) -> Bundle<SimulationIdentity> {
+fn make_bundle_with_copies(
+    source: char,
+    dest: char,
+    seq: u64,
+    copies: u8,
+) -> Bundle<SimulationIdentity> {
     make_bundle(source, dest, seq).with_copies(copies)
 }
 
@@ -125,7 +130,11 @@ fn bench_epidemic_routing(c: &mut Criterion) {
         b.iter(|| {
             seq += 1;
             let bundle = make_bundle_with_copies('A', 'Z', seq, 4);
-            router.route(black_box(&bundle), black_box(&make_id('A')), black_box(&small_topo))
+            router.route(
+                black_box(&bundle),
+                black_box(&make_id('A')),
+                black_box(&small_topo),
+            )
         })
     });
 
@@ -138,7 +147,11 @@ fn bench_epidemic_routing(c: &mut Criterion) {
         b.iter(|| {
             seq += 1;
             let bundle = make_bundle_with_copies('A', 'Z', seq, 4);
-            router.route(black_box(&bundle), black_box(&make_id('A')), black_box(&medium_topo))
+            router.route(
+                black_box(&bundle),
+                black_box(&make_id('A')),
+                black_box(&medium_topo),
+            )
         })
     });
 
@@ -154,7 +167,11 @@ fn bench_epidemic_routing(c: &mut Criterion) {
         b.iter(|| {
             seq += 1;
             let bundle = make_bundle('A', 'Z', seq);
-            flood_router.route(black_box(&bundle), black_box(&make_id('A')), black_box(&medium_topo))
+            flood_router.route(
+                black_box(&bundle),
+                black_box(&make_id('A')),
+                black_box(&medium_topo),
+            )
         })
     });
 
@@ -247,7 +264,7 @@ fn bench_prophet_operations(c: &mut Criterion) {
         for c in 'B'..='Z' {
             prophet.encounter(&make_id(c));
         }
-        let candidates: Vec<SimulationIdentity> = ('B'..='Z').map(|c| make_id(c)).collect();
+        let candidates: Vec<SimulationIdentity> = ('B'..='Z').map(make_id).collect();
 
         b.iter(|| prophet.best_candidate(black_box(&make_id('Y')), black_box(&candidates)))
     });
@@ -403,7 +420,7 @@ fn bench_config(c: &mut Criterion) {
     });
 
     group.bench_function("create_challenged_network_config", |b| {
-        b.iter(|| DtnConfig::challenged_network())
+        b.iter(DtnConfig::challenged_network)
     });
 
     group.finish();

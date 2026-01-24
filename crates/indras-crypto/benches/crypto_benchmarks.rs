@@ -8,11 +8,9 @@
 //!
 //! Run with: cargo bench -p indras-crypto
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use indras_core::InterfaceId;
-use indras_crypto::{
-    InterfaceKey, KeyDistribution, PQIdentity, PQKemKeyPair,
-};
+use indras_crypto::{InterfaceKey, KeyDistribution, PQIdentity, PQKemKeyPair};
 
 // ============================================================================
 // Key Generation Benchmarks
@@ -28,14 +26,10 @@ fn bench_key_generation(c: &mut Criterion) {
     });
 
     // Post-quantum KEM key pair generation (ML-KEM-768)
-    group.bench_function("pq_kem_keypair", |b| {
-        b.iter(|| PQKemKeyPair::generate())
-    });
+    group.bench_function("pq_kem_keypair", |b| b.iter(PQKemKeyPair::generate));
 
     // Post-quantum identity generation (ML-DSA-65)
-    group.bench_function("pq_identity", |b| {
-        b.iter(|| PQIdentity::generate())
-    });
+    group.bench_function("pq_identity", |b| b.iter(PQIdentity::generate));
 
     group.finish();
 }
@@ -178,27 +172,21 @@ fn bench_verification(c: &mut Criterion) {
     let small_msg = vec![0u8; 256];
     let small_sig = identity.sign(&small_msg);
     group.bench_function("verify_256b", |b| {
-        b.iter(|| {
-            public_identity.verify(black_box(&small_msg), black_box(&small_sig))
-        })
+        b.iter(|| public_identity.verify(black_box(&small_msg), black_box(&small_sig)))
     });
 
     // Medium message
     let medium_msg = vec![0u8; 4096];
     let medium_sig = identity.sign(&medium_msg);
     group.bench_function("verify_4kb", |b| {
-        b.iter(|| {
-            public_identity.verify(black_box(&medium_msg), black_box(&medium_sig))
-        })
+        b.iter(|| public_identity.verify(black_box(&medium_msg), black_box(&medium_sig)))
     });
 
     // Large message
     let large_msg = vec![0u8; 65536];
     let large_sig = identity.sign(&large_msg);
     group.bench_function("verify_64kb", |b| {
-        b.iter(|| {
-            public_identity.verify(black_box(&large_msg), black_box(&large_sig))
-        })
+        b.iter(|| public_identity.verify(black_box(&large_msg), black_box(&large_sig)))
     });
 
     group.finish();

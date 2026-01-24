@@ -1,8 +1,8 @@
 //! High-level messaging client API
 
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use dashmap::DashMap;
 use indras_core::{InterfaceEvent, InterfaceId, PeerIdentity};
@@ -285,7 +285,10 @@ impl<I: PeerIdentity + Serialize + for<'de> Deserialize<'de> + Clone> MessagingC
                     Ok(event) => {
                         if let indras_gossip::GossipNodeEvent::EventReceived(received) = event {
                             // Parse the message from the event
-                            if let InterfaceEvent::Message { sender, content, .. } = received.event {
+                            if let InterfaceEvent::Message {
+                                sender, content, ..
+                            } = received.event
+                            {
                                 // Skip our own messages (already stored)
                                 if sender == our_identity {
                                     continue;

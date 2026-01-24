@@ -93,7 +93,10 @@ impl SignedNetworkMessage {
     pub fn verify(&self) -> Result<bool, MessageError> {
         // Check protocol version
         if self.version != SIGNED_MESSAGE_VERSION {
-            return Err(MessageError::UnsupportedVersion(self.version, SIGNED_MESSAGE_VERSION));
+            return Err(MessageError::UnsupportedVersion(
+                self.version,
+                SIGNED_MESSAGE_VERSION,
+            ));
         }
 
         let verifying_key = PQPublicIdentity::from_bytes(&self.sender_verifying_key)
@@ -102,7 +105,9 @@ impl SignedNetworkMessage {
         let signature = PQSignature::from_bytes(self.signature.clone())
             .map_err(|e| MessageError::InvalidSignature(e.to_string()))?;
 
-        let message_bytes = self.message.to_bytes()
+        let message_bytes = self
+            .message
+            .to_bytes()
             .map_err(|e| MessageError::Serialization(e.to_string()))?;
 
         Ok(verifying_key.verify(&message_bytes, &signature))
@@ -273,7 +278,11 @@ impl MessageHandler {
     ///
     /// Supports both signed (PQ) and unsigned (legacy) messages during transition.
     /// Legacy support can be disabled by setting `allow_legacy_unsigned` to false.
-    async fn handle_message(&self, sender: IrohIdentity, data: Vec<u8>) -> Result<(), MessageError> {
+    async fn handle_message(
+        &self,
+        sender: IrohIdentity,
+        data: Vec<u8>,
+    ) -> Result<(), MessageError> {
         // Try to parse as signed message first
         if let Ok(signed_msg) = SignedNetworkMessage::from_bytes(&data) {
             return self.handle_signed_message(sender, signed_msg).await;
@@ -327,18 +336,10 @@ impl MessageHandler {
         message: NetworkMessage,
     ) -> Result<(), MessageError> {
         match message {
-            NetworkMessage::InterfaceEvent(msg) => {
-                self.handle_interface_event(sender, msg).await
-            }
-            NetworkMessage::SyncRequest(msg) => {
-                self.handle_sync_request(sender, msg).await
-            }
-            NetworkMessage::SyncResponse(msg) => {
-                self.handle_sync_response(sender, msg).await
-            }
-            NetworkMessage::EventAck(msg) => {
-                self.handle_event_ack(sender, msg).await
-            }
+            NetworkMessage::InterfaceEvent(msg) => self.handle_interface_event(sender, msg).await,
+            NetworkMessage::SyncRequest(msg) => self.handle_sync_request(sender, msg).await,
+            NetworkMessage::SyncResponse(msg) => self.handle_sync_response(sender, msg).await,
+            NetworkMessage::EventAck(msg) => self.handle_event_ack(sender, msg).await,
         }
     }
 
@@ -349,15 +350,18 @@ impl MessageHandler {
         msg: InterfaceEventMessage,
     ) -> Result<(), MessageError> {
         // Get the interface key
-        let key = self.interface_keys.get(&msg.interface_id)
-            .ok_or_else(|| MessageError::UnknownInterface(msg.interface_id))?;
+        let key = self
+            .interface_keys
+            .get(&msg.interface_id)
+            .ok_or(MessageError::UnknownInterface(msg.interface_id))?;
 
         // Decrypt the event
         let encrypted = indras_crypto::EncryptedData {
             nonce: msg.nonce,
             ciphertext: msg.ciphertext,
         };
-        let plaintext = key.decrypt(&encrypted)
+        let plaintext = key
+            .decrypt(&encrypted)
             .map_err(|e| MessageError::Decryption(e.to_string()))?;
 
         // Deserialize the event
@@ -365,13 +369,17 @@ impl MessageHandler {
             .map_err(|e| MessageError::Deserialization(e.to_string()))?;
 
         // Get the interface state
-        let state = self.interfaces.get(&msg.interface_id)
-            .ok_or_else(|| MessageError::UnknownInterface(msg.interface_id))?;
+        let state = self
+            .interfaces
+            .get(&msg.interface_id)
+            .ok_or(MessageError::UnknownInterface(msg.interface_id))?;
 
         // Append to interface (this updates pending tracking)
         {
             let mut interface = state.interface.write().await;
-            interface.append(event.clone()).await
+            interface
+                .append(event.clone())
+                .await
                 .map_err(|e| MessageError::AppendFailed(e.to_string()))?;
         }
 
@@ -399,8 +407,10 @@ impl MessageHandler {
         msg: InterfaceSyncRequest,
     ) -> Result<(), MessageError> {
         // Get the interface state
-        let state = self.interfaces.get(&msg.interface_id)
-            .ok_or_else(|| MessageError::UnknownInterface(msg.interface_id))?;
+        let state = self
+            .interfaces
+            .get(&msg.interface_id)
+            .ok_or(MessageError::UnknownInterface(msg.interface_id))?;
 
         // Create sync message to merge
         let sync_msg = indras_core::SyncMessage {
@@ -413,7 +423,9 @@ impl MessageHandler {
         // Merge the incoming sync
         {
             let mut interface = state.interface.write().await;
-            interface.merge_sync(sync_msg).await
+            interface
+                .merge_sync(sync_msg)
+                .await
                 .map_err(|e| MessageError::SyncFailed(e.to_string()))?;
         }
 
@@ -434,8 +446,10 @@ impl MessageHandler {
         msg: InterfaceSyncResponse,
     ) -> Result<(), MessageError> {
         // Get the interface state
-        let state = self.interfaces.get(&msg.interface_id)
-            .ok_or_else(|| MessageError::UnknownInterface(msg.interface_id))?;
+        let state = self
+            .interfaces
+            .get(&msg.interface_id)
+            .ok_or(MessageError::UnknownInterface(msg.interface_id))?;
 
         // Create sync message to merge
         let sync_msg = indras_core::SyncMessage {
@@ -448,7 +462,9 @@ impl MessageHandler {
         // Merge the incoming sync
         {
             let mut interface = state.interface.write().await;
-            interface.merge_sync(sync_msg).await
+            interface
+                .merge_sync(sync_msg)
+                .await
                 .map_err(|e| MessageError::SyncFailed(e.to_string()))?;
         }
 
@@ -468,8 +484,10 @@ impl MessageHandler {
         msg: EventAckMessage,
     ) -> Result<(), MessageError> {
         // Get the interface state
-        let state = self.interfaces.get(&msg.interface_id)
-            .ok_or_else(|| MessageError::UnknownInterface(msg.interface_id))?;
+        let state = self
+            .interfaces
+            .get(&msg.interface_id)
+            .ok_or(MessageError::UnknownInterface(msg.interface_id))?;
 
         // Mark events as delivered
         {
@@ -478,7 +496,8 @@ impl MessageHandler {
         }
 
         // Also update storage
-        self.storage.acknowledge_events(&sender, &msg.interface_id, msg.up_to)
+        self.storage
+            .acknowledge_events(&sender, &msg.interface_id, msg.up_to)
             .map_err(|e| MessageError::StorageFailed(e.to_string()))?;
 
         debug!(

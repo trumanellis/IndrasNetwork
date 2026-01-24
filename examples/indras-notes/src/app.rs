@@ -1,6 +1,7 @@
 //! Application state and logic
 //!
 //! Manages the note-taking application state and operations.
+#![allow(dead_code)] // Example code with reserved features
 
 use thiserror::Error;
 use tracing::warn;
@@ -186,7 +187,8 @@ impl App {
             return Err(AppError::NotebookNotFound("No notebook open".to_string()));
         }
 
-        let author = self.user_short_id()
+        let author = self
+            .user_short_id()
             .unwrap_or_else(|| "unknown".to_string());
 
         let note = Note::new(title, author);
@@ -205,8 +207,14 @@ impl App {
     }
 
     /// Update a note's content
-    pub async fn update_note_content(&mut self, id: &NoteId, content: &str) -> Result<(), AppError> {
-        let notebook = self.current_notebook.as_mut()
+    pub async fn update_note_content(
+        &mut self,
+        id: &NoteId,
+        content: &str,
+    ) -> Result<(), AppError> {
+        let notebook = self
+            .current_notebook
+            .as_mut()
             .ok_or_else(|| AppError::NotebookNotFound("No notebook open".to_string()))?;
 
         if notebook.get(id).is_none() {
@@ -225,7 +233,9 @@ impl App {
 
     /// Update a note's title
     pub async fn update_note_title(&mut self, id: &NoteId, title: &str) -> Result<(), AppError> {
-        let notebook = self.current_notebook.as_mut()
+        let notebook = self
+            .current_notebook
+            .as_mut()
             .ok_or_else(|| AppError::NotebookNotFound("No notebook open".to_string()))?;
 
         if notebook.get(id).is_none() {
@@ -244,7 +254,9 @@ impl App {
 
     /// Delete a note
     pub async fn delete_note(&mut self, id: &NoteId) -> Result<(), AppError> {
-        let notebook = self.current_notebook.as_mut()
+        let notebook = self
+            .current_notebook
+            .as_mut()
             .ok_or_else(|| AppError::NotebookNotFound("No notebook open".to_string()))?;
 
         let operation = NoteOperation::delete(id);
@@ -267,17 +279,23 @@ impl App {
         }
 
         // Try prefix match
-        notebook.notes.values()
+        notebook
+            .notes
+            .values()
             .find(|n| n.id.starts_with(partial_id))
     }
 
     /// Get invite key for current notebook
     pub fn get_invite(&self) -> Result<String, AppError> {
-        let notebook = self.current_notebook.as_ref()
+        let notebook = self
+            .current_notebook
+            .as_ref()
             .ok_or_else(|| AppError::NotebookNotFound("No notebook open".to_string()))?;
 
         let invite = InviteKey::new(notebook.interface_id);
-        invite.to_base64().map_err(|e| AppError::Node(NodeError::Serialization(e.to_string())))
+        invite
+            .to_base64()
+            .map_err(|e| AppError::Node(NodeError::Serialization(e.to_string())))
     }
 
     /// Broadcast a note operation to other peers
@@ -386,7 +404,9 @@ mod tests {
         assert!(app.find_note(&note_id).is_some());
 
         // Update content
-        app.update_note_content(&note_id, "Hello world").await.unwrap();
+        app.update_note_content(&note_id, "Hello world")
+            .await
+            .unwrap();
         assert_eq!(app.find_note(&note_id).unwrap().content, "Hello world");
 
         // Delete

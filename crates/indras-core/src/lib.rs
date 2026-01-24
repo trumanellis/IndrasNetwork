@@ -21,22 +21,22 @@
 //! - [`NetworkEvent`]: Events that occur in the network
 
 pub mod error;
-pub mod identity;
-pub mod packet;
 pub mod event;
+pub mod identity;
+pub mod interface;
+pub mod mock_transport;
+pub mod packet;
 pub mod routing;
 pub mod traits;
-pub mod interface;
 pub mod transport;
-pub mod mock_transport;
 
 // Re-export main types
 pub use error::*;
-pub use identity::*;
-pub use packet::*;
 pub use event::*;
+pub use identity::*;
+pub use interface::*;
+pub use mock_transport::*;
+pub use packet::*;
 pub use routing::*;
 pub use traits::*;
-pub use interface::*;
 pub use transport::*;
-pub use mock_transport::*;

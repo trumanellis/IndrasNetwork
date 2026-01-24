@@ -12,6 +12,6 @@
 //! - Compact wire format
 //! - Power management
 
-pub mod low_memory;
-pub mod duty_cycle;
 pub mod compact;
+pub mod duty_cycle;
+pub mod low_memory;

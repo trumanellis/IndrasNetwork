@@ -1,13 +1,13 @@
 pub mod document_runner;
 
-use crate::state::{SimMetrics, SimEvent, EventType, StressLevel, TestResult};
+use crate::state::{EventType, SimEvent, SimMetrics, StressLevel, TestResult};
+use chrono::Utc;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::mpsc::Sender;
-use serde::{Deserialize, Serialize};
-use chrono::Utc;
 
 /// Metrics update sent during scenario execution
 #[derive(Debug, Clone, Serialize)]
@@ -56,11 +56,8 @@ impl ScenarioRunner {
     }
 
     /// Creates a ScenarioRunner with custom paths (for testing)
-    pub fn with_paths(
-        scenarios_dir: PathBuf,
-        lua_runner_path: PathBuf,
-        logs_dir: PathBuf,
-    ) -> Self {
+    #[allow(dead_code)] // Reserved for testing
+    pub fn with_paths(scenarios_dir: PathBuf, lua_runner_path: PathBuf, logs_dir: PathBuf) -> Self {
         Self {
             scenarios_dir,
             lua_runner_path,
@@ -69,6 +66,7 @@ impl ScenarioRunner {
     }
 
     /// Lists available scenario files
+    #[allow(dead_code)] // Reserved for dynamic scenario loading
     pub fn list_scenarios(&self) -> std::io::Result<Vec<String>> {
         let mut scenarios = Vec::new();
 
@@ -237,7 +235,7 @@ impl ScenarioRunner {
 
         // Spawn lua_runner process with --pretty flag for console output
         let mut child = Command::new(&self.lua_runner_path)
-            .arg("--pretty")  // Output to console instead of file
+            .arg("--pretty") // Output to console instead of file
             .arg(&scenario_path)
             .env("STRESS_LEVEL", level.as_str())
             .env("RUST_LOG", "info")
@@ -248,17 +246,16 @@ impl ScenarioRunner {
         let stdout = child
             .stdout
             .take()
-            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "Failed to capture stdout"))?;
+            .ok_or_else(|| std::io::Error::other("Failed to capture stdout"))?;
         let stderr = child
             .stderr
             .take()
-            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "Failed to capture stderr"))?;
+            .ok_or_else(|| std::io::Error::other("Failed to capture stderr"))?;
 
         // Spawn tasks to process output streams
         let metrics_tx_clone = metrics_tx.clone();
-        let stdout_handle = tokio::spawn(async move {
-            process_output_stream(stdout, metrics_tx_clone).await
-        });
+        let stdout_handle =
+            tokio::spawn(async move { process_output_stream(stdout, metrics_tx_clone).await });
 
         let stderr_handle = tokio::spawn(async move {
             let mut stderr_reader = BufReader::new(stderr).lines();
@@ -268,9 +265,7 @@ impl ScenarioRunner {
         });
 
         // Wait for process to complete
-        let status: std::process::ExitStatus = child
-            .wait()
-            .await?;
+        let status: std::process::ExitStatus = child.wait().await?;
 
         // Wait for output processing to complete
         let final_metrics = stdout_handle.await.ok().flatten();
@@ -292,7 +287,9 @@ impl ScenarioRunner {
             },
         };
 
-        let _ = metrics_tx.send(MetricsUpdate::Complete(result.clone())).await;
+        let _ = metrics_tx
+            .send(MetricsUpdate::Complete(result.clone()))
+            .await;
 
         Ok(result)
     }
@@ -328,6 +325,7 @@ async fn process_output_stream(
 }
 
 /// JSONL log entry structure
+#[allow(dead_code)] // Reserved for future log parsing
 #[derive(Debug, Deserialize)]
 struct LogEntry {
     #[serde(default)]
@@ -398,7 +396,11 @@ fn parse_jsonl_line(line: &str) -> Option<MetricsUpdate> {
 
             // Check for tick progress
             if let Some(tick) = fields.get("tick").and_then(|v| v.as_u64()) {
-                if let Some(max) = fields.get("max_ticks").or(fields.get("ticks")).and_then(|v| v.as_u64()) {
+                if let Some(max) = fields
+                    .get("max_ticks")
+                    .or(fields.get("ticks"))
+                    .and_then(|v| v.as_u64())
+                {
                     return Some(MetricsUpdate::Tick { current: tick, max });
                 }
             }
@@ -409,7 +411,10 @@ fn parse_jsonl_line(line: &str) -> Option<MetricsUpdate> {
                     "ERROR" => EventType::Error,
                     "WARN" => EventType::Warning,
                     _ => {
-                        if message.contains("passed") || message.contains("completed") || message.contains("success") {
+                        if message.contains("passed")
+                            || message.contains("completed")
+                            || message.contains("success")
+                        {
                             EventType::Success
                         } else {
                             EventType::Info
@@ -434,12 +439,16 @@ fn parse_jsonl_line(line: &str) -> Option<MetricsUpdate> {
         .trim_start_matches(" ERROR")
         .trim();
 
-    if !message.is_empty() && !message.starts_with("Compiling") && !message.starts_with("Finished") {
+    if !message.is_empty() && !message.starts_with("Compiling") && !message.starts_with("Finished")
+    {
         let event_type = if clean_line.contains(" ERROR") {
             EventType::Error
         } else if clean_line.contains(" WARN") {
             EventType::Warning
-        } else if message.contains("completed") || message.contains("passed") || message.contains("success") {
+        } else if message.contains("completed")
+            || message.contains("passed")
+            || message.contains("success")
+        {
             EventType::Success
         } else {
             EventType::Info
@@ -466,7 +475,11 @@ fn parse_fields(fields: &serde_json::Value, json: &serde_json::Value) -> Option<
         }
 
         // Check for max_ticks to create tick progress
-        if let Some(max) = fields.get("max_ticks").or(fields.get("ticks")).and_then(|v| v.as_u64()) {
+        if let Some(max) = fields
+            .get("max_ticks")
+            .or(fields.get("ticks"))
+            .and_then(|v| v.as_u64())
+        {
             return Some(MetricsUpdate::Tick { current: tick, max });
         }
     }
@@ -522,63 +535,129 @@ fn has_metrics_fields(fields: &serde_json::Value) -> bool {
 fn extract_metrics(fields: &serde_json::Value, tick: u64) -> SimMetrics {
     SimMetrics {
         // Message/routing metrics
-        messages_sent: fields.get("messages_sent").and_then(|v| v.as_u64()).unwrap_or(0),
-        messages_delivered: fields.get("messages_delivered").and_then(|v| v.as_u64()).unwrap_or(0),
-        messages_dropped: fields.get("messages_dropped").and_then(|v| v.as_u64()).unwrap_or(0),
-        delivery_rate: fields.get("delivery_rate").and_then(|v| v.as_f64()).unwrap_or(0.0),
-        avg_latency: fields.get("avg_latency").and_then(|v| v.as_f64()).unwrap_or(0.0),
-        avg_latency_ticks: fields.get("avg_latency_ticks").and_then(|v| v.as_u64()).unwrap_or(0),
-        avg_hops: fields.get("avg_hops").and_then(|v| v.as_f64()).unwrap_or(0.0),
-        backprops_completed: fields.get("backprops_completed").and_then(|v| v.as_u64()).unwrap_or(0),
-        backprops_timed_out: fields.get("backprops_timed_out").and_then(|v| v.as_u64()).unwrap_or(0),
+        messages_sent: fields
+            .get("messages_sent")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        messages_delivered: fields
+            .get("messages_delivered")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        messages_dropped: fields
+            .get("messages_dropped")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        delivery_rate: fields
+            .get("delivery_rate")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0),
+        avg_latency: fields
+            .get("avg_latency")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0),
+        avg_latency_ticks: fields
+            .get("avg_latency_ticks")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        avg_hops: fields
+            .get("avg_hops")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0),
+        backprops_completed: fields
+            .get("backprops_completed")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        backprops_timed_out: fields
+            .get("backprops_timed_out")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
 
         // PQ signature metrics
-        pq_signatures_created: fields.get("total_signatures_created")
+        pq_signatures_created: fields
+            .get("total_signatures_created")
             .or(fields.get("pq_signatures_created"))
             .or(fields.get("signatures_created"))
-            .and_then(|v| v.as_u64()).unwrap_or(0),
-        pq_signatures_verified: fields.get("total_signatures_verified")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        pq_signatures_verified: fields
+            .get("total_signatures_verified")
             .or(fields.get("pq_signatures_verified"))
             .or(fields.get("signatures_verified"))
-            .and_then(|v| v.as_u64()).unwrap_or(0),
-        pq_signature_failures: fields.get("signature_failures")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        pq_signature_failures: fields
+            .get("signature_failures")
             .or(fields.get("pq_signature_failures"))
-            .and_then(|v| v.as_u64()).unwrap_or(0),
-        signature_verifications: fields.get("total_signatures_verified")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        signature_verifications: fields
+            .get("total_signatures_verified")
             .or(fields.get("signatures_verified"))
-            .and_then(|v| v.as_u64()).unwrap_or(0),
-        signature_failures: fields.get("signature_failures").and_then(|v| v.as_u64()).unwrap_or(0),
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        signature_failures: fields
+            .get("signature_failures")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
 
         // PQ latencies (microseconds)
-        avg_sign_latency_us: fields.get("avg_sign_latency_us")
+        avg_sign_latency_us: fields
+            .get("avg_sign_latency_us")
             .or(fields.get("latency_avg_us"))
-            .and_then(|v| v.as_f64()).unwrap_or(0.0),
-        avg_verify_latency_us: fields.get("avg_verify_latency_us")
-            .and_then(|v| v.as_f64()).unwrap_or(0.0),
-        avg_encap_latency_us: fields.get("avg_encap_latency_us")
-            .and_then(|v| v.as_f64()).unwrap_or(0.0),
-        avg_decap_latency_us: fields.get("avg_decap_latency_us")
-            .and_then(|v| v.as_f64()).unwrap_or(0.0),
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0),
+        avg_verify_latency_us: fields
+            .get("avg_verify_latency_us")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0),
+        avg_encap_latency_us: fields
+            .get("avg_encap_latency_us")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0),
+        avg_decap_latency_us: fields
+            .get("avg_decap_latency_us")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0),
 
         // KEM metrics
-        kem_encapsulations: fields.get("total_kem_encapsulations")
+        kem_encapsulations: fields
+            .get("total_kem_encapsulations")
             .or(fields.get("kem_encapsulations"))
-            .and_then(|v| v.as_u64()).unwrap_or(0),
-        kem_decapsulations: fields.get("total_kem_decapsulations")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        kem_decapsulations: fields
+            .get("total_kem_decapsulations")
             .or(fields.get("kem_decapsulations"))
-            .and_then(|v| v.as_u64()).unwrap_or(0),
-        kem_failures: fields.get("kem_failures").and_then(|v| v.as_u64()).unwrap_or(0),
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        kem_failures: fields
+            .get("kem_failures")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
 
         // Failure rates
-        signature_failure_rate: fields.get("signature_failure_rate").and_then(|v| v.as_f64()).unwrap_or(0.0),
-        kem_failure_rate: fields.get("kem_failure_rate").and_then(|v| v.as_f64()).unwrap_or(0.0),
+        signature_failure_rate: fields
+            .get("signature_failure_rate")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0),
+        kem_failure_rate: fields
+            .get("kem_failure_rate")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0),
 
         // Throughput
-        ops_per_second: fields.get("ops_per_second").and_then(|v| v.as_f64()).unwrap_or(0.0),
+        ops_per_second: fields
+            .get("ops_per_second")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0),
 
         // Progress
         current_tick: tick,
-        max_ticks: fields.get("max_ticks").or(fields.get("total_ticks")).and_then(|v| v.as_u64()).unwrap_or(tick),
+        max_ticks: fields
+            .get("max_ticks")
+            .or(fields.get("total_ticks"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(tick),
     }
 }
 

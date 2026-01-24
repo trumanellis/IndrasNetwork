@@ -8,7 +8,7 @@ use iroh_gossip::Gossip;
 use iroh_gossip::api::GossipTopic;
 use iroh_gossip::proto::TopicId;
 use thiserror::Error;
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{RwLock, broadcast};
 use tracing::{debug, info, instrument, warn};
 
 use indras_core::identity::PeerIdentity;
@@ -118,11 +118,7 @@ pub struct DiscoveryService {
 
 impl DiscoveryService {
     /// Create a new discovery service
-    pub fn new(
-        gossip: Gossip,
-        local_identity: IrohIdentity,
-        config: DiscoveryConfig,
-    ) -> Self {
+    pub fn new(gossip: Gossip, local_identity: IrohIdentity, config: DiscoveryConfig) -> Self {
         let (event_tx, _) = broadcast::channel(256);
 
         Self {
@@ -153,7 +149,8 @@ impl DiscoveryService {
         let bootstrap: Vec<_> = bootstrap_peers.into_iter().collect();
 
         // Join the gossip topic
-        let topic = self.gossip
+        let topic = self
+            .gossip
             .subscribe(self.config.topic_id, bootstrap)
             .await
             .map_err(|e| {
@@ -192,10 +189,11 @@ impl DiscoveryService {
         let presence = PresenceInfo::new(self.local_identity);
         let msg = WireMessage::PresenceAnnounce(presence);
 
-        let framed = frame_message(&msg)
-            .map_err(|e| DiscoveryError::SerializationError(e.to_string()))?;
+        let framed =
+            frame_message(&msg).map_err(|e| DiscoveryError::SerializationError(e.to_string()))?;
 
-        topic.broadcast(framed)
+        topic
+            .broadcast(framed)
             .await
             .map_err(|e| DiscoveryError::BroadcastError(e.to_string()))?;
 
@@ -209,10 +207,11 @@ impl DiscoveryService {
         let topic = topic_guard.as_mut().ok_or(DiscoveryError::NotRunning)?;
 
         let msg = WireMessage::PresenceQuery;
-        let framed = frame_message(&msg)
-            .map_err(|e| DiscoveryError::SerializationError(e.to_string()))?;
+        let framed =
+            frame_message(&msg).map_err(|e| DiscoveryError::SerializationError(e.to_string()))?;
 
-        topic.broadcast(framed)
+        topic
+            .broadcast(framed)
             .await
             .map_err(|e| DiscoveryError::BroadcastError(e.to_string()))?;
 
@@ -299,7 +298,8 @@ impl DiscoveryService {
         let now = chrono::Utc::now().timestamp_millis();
         let timeout = self.config.peer_timeout_ms as i64;
 
-        let stale: Vec<_> = self.known_peers
+        let stale: Vec<_> = self
+            .known_peers
             .iter()
             .filter(|e| now - e.value().last_seen_millis > timeout)
             .map(|e| *e.key())
@@ -349,8 +349,7 @@ mod tests {
         let secret = SecretKey::generate(&mut rand::rng());
         let id = IrohIdentity::new(secret.public());
 
-        let presence = PresenceInfo::new(id)
-            .with_name("TestNode");
+        let presence = PresenceInfo::new(id).with_name("TestNode");
 
         assert_eq!(presence.peer_id, id);
         assert_eq!(presence.display_name, Some("TestNode".to_string()));
@@ -369,8 +368,7 @@ mod tests {
         let neighbor1 = IrohIdentity::new(secret2.public());
         let neighbor2 = IrohIdentity::new(secret3.public());
 
-        let presence = PresenceInfo::new(id)
-            .with_neighbors(vec![neighbor1, neighbor2]);
+        let presence = PresenceInfo::new(id).with_neighbors(vec![neighbor1, neighbor2]);
 
         assert_eq!(presence.neighbors.len(), 2);
         assert!(presence.neighbors.contains(&neighbor1));

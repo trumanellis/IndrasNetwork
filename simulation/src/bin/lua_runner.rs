@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::Parser;
-use indras_logging::{IndrasSubscriberBuilder, LogConfig, FileConfig, RotationStrategy};
+use indras_logging::{FileConfig, IndrasSubscriberBuilder, LogConfig, RotationStrategy};
 use indras_simulation::LuaRuntime;
 use tracing::{error, info};
 
@@ -55,7 +55,8 @@ fn main() -> ExitCode {
     // Initialize logging
     let _guard = if !args.no_logging {
         // Get script name for log file prefix
-        let script_name = args.script
+        let script_name = args
+            .script
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("lua");

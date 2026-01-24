@@ -56,19 +56,19 @@ pub mod pq_kem;
 
 // Re-exports
 pub use error::{CryptoError, CryptoResult};
-pub use interface_key::{EncryptedData, EncapsulatedKey, InterfaceKey, KEY_SIZE, NONCE_SIZE};
 #[allow(deprecated)]
 pub use interface_key::ExportedKey;
+pub use interface_key::{EncapsulatedKey, EncryptedData, InterfaceKey, KEY_SIZE, NONCE_SIZE};
 pub use key_distribution::{FullInvite, InviteMetadata, KeyDistribution, KeyInvite};
 
 // Post-quantum re-exports
 pub use pq_identity::{
-    PQIdentity, PQPublicIdentity, PQSignature, SecureBytes,
-    PQ_SIGNING_KEY_SIZE, PQ_VERIFYING_KEY_SIZE, PQ_SIGNATURE_SIZE,
+    PQ_SIGNATURE_SIZE, PQ_SIGNING_KEY_SIZE, PQ_VERIFYING_KEY_SIZE, PQIdentity, PQPublicIdentity,
+    PQSignature, SecureBytes,
 };
 pub use pq_kem::{
-    PQKemKeyPair, PQEncapsulationKey, PQCiphertext,
-    PQ_ENCAPSULATION_KEY_SIZE, PQ_DECAPSULATION_KEY_SIZE, PQ_CIPHERTEXT_SIZE, PQ_SHARED_SECRET_SIZE,
+    PQ_CIPHERTEXT_SIZE, PQ_DECAPSULATION_KEY_SIZE, PQ_ENCAPSULATION_KEY_SIZE,
+    PQ_SHARED_SECRET_SIZE, PQCiphertext, PQEncapsulationKey, PQKemKeyPair,
 };
 
 // Re-export x25519 types for legacy code (deprecated)
