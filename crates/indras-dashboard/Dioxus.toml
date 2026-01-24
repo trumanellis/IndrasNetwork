@@ -8,6 +8,11 @@ default_platform = "desktop"
 title = "IndrasNetwork Stress Test Dashboard"
 enable_file_drop = false
 
-[web.resource]
+[bundle]
+identifier = "network.indras.dashboard"
+publisher = "IndrasNetwork"
+icon = ["../../assets/Logo_black.icns"]
+
+[web.resource.dev]
 # Serve the assets directory
 style = ["assets/style.css"]

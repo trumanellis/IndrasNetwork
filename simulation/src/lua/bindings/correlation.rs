@@ -2,7 +2,7 @@
 //!
 //! Provides correlation context for distributed tracing from Lua scripts.
 
-use mlua::{Lua, MetaMethod, Result, Table, UserData, UserDataMethods};
+use mlua::{FromLua, Lua, MetaMethod, Result, Table, UserData, UserDataMethods, Value};
 
 use indras_logging::CorrelationContext;
 
@@ -13,6 +13,15 @@ pub struct LuaCorrelationContext(pub CorrelationContext);
 impl From<CorrelationContext> for LuaCorrelationContext {
     fn from(ctx: CorrelationContext) -> Self {
         Self(ctx)
+    }
+}
+
+impl FromLua for LuaCorrelationContext {
+    fn from_lua(value: Value, _lua: &Lua) -> Result<Self> {
+        match value {
+            Value::UserData(ud) => ud.borrow::<Self>().map(|v| v.clone()),
+            _ => Err(mlua::Error::external("Expected CorrelationContext userdata")),
+        }
     }
 }
 

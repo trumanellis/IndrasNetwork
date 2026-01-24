@@ -3,9 +3,11 @@ use serde::{Deserialize, Serialize};
 
 pub mod document;
 pub mod instance;
+pub mod sdk;
 
 pub use document::DocumentState;
 pub use instance::{format_network_event, InstanceState, PacketAnimation};
+pub use sdk::SDKState;
 
 /// A data point for charts
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -184,6 +186,8 @@ pub enum Tab {
     Simulations,
     /// Documents/CRDT sync visualization view
     Documents,
+    /// SDK stress test dashboards
+    SDK,
 }
 
 /// Event severity/type for display purposes
@@ -241,6 +245,139 @@ pub struct SimMetrics {
     // Simulation progress
     pub current_tick: u64,
     pub max_ticks: u64,
+
+    // SDK-specific metrics (Messaging)
+    pub threads_created: u64,
+    pub reactions_sent: u64,
+    pub presence_updates: u64,
+    pub channels_created: u64,
+    pub members_online: u64,
+    pub member_joins: u64,
+    pub member_leaves: u64,
+    pub avg_thread_depth: f64,
+    pub max_thread_depth: u64,
+
+    // SDK-specific metrics (Document)
+    pub documents_created: u64,
+    pub total_updates: u64,
+    pub sync_operations: u64,
+    pub convergence_rate: f64,
+    pub persistence_operations: u64,
+    pub reload_operations: u64,
+
+    // SDK-specific metrics (Network Lifecycle)
+    pub networks_created: u64,
+    pub networks_destroyed: u64,
+    pub realms_created: u64,
+    pub realm_joins: u64,
+    pub active_members: u64,
+
+    // SDK latency metrics (microseconds)
+    pub p50_latency_us: f64,
+    pub p95_latency_us: f64,
+    pub p99_latency_us: f64,
+}
+
+impl SimMetrics {
+    /// Merge another metrics update, keeping non-zero values from both.
+    /// New non-zero values override existing values.
+    /// This prevents partial updates from clearing previously captured metrics.
+    pub fn merge(&mut self, other: &SimMetrics) {
+        // Helper macro to merge a field - update if new value is non-zero
+        macro_rules! merge_field {
+            ($field:ident) => {
+                if other.$field != 0 {
+                    self.$field = other.$field;
+                }
+            };
+        }
+        macro_rules! merge_float {
+            ($field:ident) => {
+                if other.$field != 0.0 {
+                    self.$field = other.$field;
+                }
+            };
+        }
+
+        // Message statistics
+        merge_field!(messages_sent);
+        merge_field!(messages_delivered);
+        merge_field!(messages_dropped);
+
+        // Performance metrics
+        merge_float!(delivery_rate);
+        merge_float!(avg_latency);
+        merge_field!(avg_latency_ticks);
+        merge_float!(avg_hops);
+
+        // Backpropagation
+        merge_field!(backprops_completed);
+        merge_field!(backprops_timed_out);
+
+        // PQ signatures
+        merge_field!(pq_signatures_created);
+        merge_field!(pq_signatures_verified);
+        merge_field!(pq_signature_failures);
+        merge_field!(signature_verifications);
+        merge_field!(signature_failures);
+
+        // PQ latencies
+        merge_float!(avg_sign_latency_us);
+        merge_float!(avg_verify_latency_us);
+        merge_float!(avg_encap_latency_us);
+        merge_float!(avg_decap_latency_us);
+
+        // KEM
+        merge_field!(kem_encapsulations);
+        merge_field!(kem_decapsulations);
+        merge_field!(kem_failures);
+
+        // Failure rates
+        merge_float!(signature_failure_rate);
+        merge_float!(kem_failure_rate);
+
+        // Throughput
+        merge_float!(ops_per_second);
+
+        // Progress - always update these
+        if other.current_tick != 0 {
+            self.current_tick = other.current_tick;
+        }
+        if other.max_ticks != 0 {
+            self.max_ticks = other.max_ticks;
+        }
+
+        // SDK Messaging
+        merge_field!(threads_created);
+        merge_field!(reactions_sent);
+        merge_field!(presence_updates);
+        merge_field!(channels_created);
+        merge_field!(members_online);
+        merge_field!(member_joins);
+        merge_field!(member_leaves);
+        merge_float!(avg_thread_depth);
+        merge_field!(max_thread_depth);
+
+        // SDK Document
+        merge_field!(documents_created);
+        merge_field!(total_updates);
+        merge_field!(sync_operations);
+        merge_float!(convergence_rate);
+        merge_field!(persistence_operations);
+        merge_field!(reload_operations);
+
+        // SDK Network
+        merge_field!(networks_created);
+        merge_field!(networks_destroyed);
+        merge_field!(realms_created);
+        merge_field!(realm_joins);
+        merge_field!(active_members);
+
+        // SDK latencies
+        merge_float!(p50_latency_us);
+        merge_float!(p95_latency_us);
+        merge_float!(p99_latency_us);
+    }
 }
 
 /// Events that occur during simulation execution

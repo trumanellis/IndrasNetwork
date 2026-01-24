@@ -3416,6 +3416,7 @@ version = "1.0.0"
 dependencies = [
  "anyhow",
  "automerge",
+ "base64",
  "clap",
  "derive_more 2.1.1",
  "indras-core",
@@ -4404,6 +4405,7 @@ dependencies = [
  "bstr",
  "either",
  "erased-serde",
+ "futures-util",
  "mlua-sys",
  "num-traits",
  "parking_lot",

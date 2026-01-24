@@ -220,6 +220,22 @@ pub mod spans {
     pub const RECEIVE_MESSAGE: &str = "receive_message";
     pub const INTERFACE_CREATE: &str = "interface_create";
     pub const INTERFACE_JOIN: &str = "interface_join";
+
+    // SDK Operations
+    pub const SDK_NETWORK_CREATE: &str = "sdk_network_create";
+    pub const SDK_NETWORK_START: &str = "sdk_network_start";
+    pub const SDK_NETWORK_STOP: &str = "sdk_network_stop";
+    pub const SDK_REALM_CREATE: &str = "sdk_realm_create";
+    pub const SDK_REALM_JOIN: &str = "sdk_realm_join";
+    pub const SDK_MESSAGE_SEND: &str = "sdk_message_send";
+    pub const SDK_MESSAGE_RECEIVE: &str = "sdk_message_receive";
+    pub const SDK_DOCUMENT_CREATE: &str = "sdk_document_create";
+    pub const SDK_DOCUMENT_UPDATE: &str = "sdk_document_update";
+    pub const SDK_DOCUMENT_SYNC: &str = "sdk_document_sync";
+    pub const SDK_ARTIFACT_SHARE: &str = "sdk_artifact_share";
+    pub const SDK_ARTIFACT_DOWNLOAD: &str = "sdk_artifact_download";
+    pub const SDK_MEMBER_JOIN: &str = "sdk_member_join";
+    pub const SDK_MEMBER_LEAVE: &str = "sdk_member_leave";
 }
 
 #[cfg(test)]
