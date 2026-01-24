@@ -13,6 +13,7 @@ members = [
     "crates/indras-iot",
     "crates/indras-logging",
     "crates/indras-node",
+    "crates/indras-network",
     "crates/indras-dashboard",
     "simulation",
     "examples/chat-app",
@@ -40,6 +41,7 @@ indras-dtn = { path = "crates/indras-dtn" }
 indras-iot = { path = "crates/indras-iot" }
 indras-logging = { path = "crates/indras-logging" }
 indras-node = { path = "crates/indras-node" }
+indras-network = { path = "crates/indras-network" }
 
 # Core iroh stack
 iroh = "0.95"
