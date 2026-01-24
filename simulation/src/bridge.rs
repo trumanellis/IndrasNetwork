@@ -66,7 +66,11 @@ pub trait MeshBridge {
     fn neighbors_sim(&self, peer: &SimulationIdentity) -> Vec<SimulationIdentity>;
 
     /// Get mutual peers as SimulationIdentity
-    fn mutual_peers_sim(&self, a: &SimulationIdentity, b: &SimulationIdentity) -> Vec<SimulationIdentity>;
+    fn mutual_peers_sim(
+        &self,
+        a: &SimulationIdentity,
+        b: &SimulationIdentity,
+    ) -> Vec<SimulationIdentity>;
 }
 
 impl MeshBridge for Mesh {
@@ -86,7 +90,11 @@ impl MeshBridge for Mesh {
         <Self as NetworkTopology<SimulationIdentity>>::neighbors(self, peer)
     }
 
-    fn mutual_peers_sim(&self, a: &SimulationIdentity, b: &SimulationIdentity) -> Vec<SimulationIdentity> {
+    fn mutual_peers_sim(
+        &self,
+        a: &SimulationIdentity,
+        b: &SimulationIdentity,
+    ) -> Vec<SimulationIdentity> {
         <Self as NetworkTopology<SimulationIdentity>>::mutual_peers(self, a, b)
     }
 }

@@ -155,11 +155,12 @@ impl<I: PeerIdentity> EventStore<I> {
             // Remove events that have been delivered
             pending.retain(|&idx| {
                 if let Some(event) = self.events.get(idx)
-                    && let Some(event_id) = event.event_id() {
-                        // Keep events with sequence > up_to.sequence
-                        // (same sender hash assumed for simplicity)
-                        return event_id.sequence > up_to.sequence;
-                    }
+                    && let Some(event_id) = event.event_id()
+                {
+                    // Keep events with sequence > up_to.sequence
+                    // (same sender hash assumed for simplicity)
+                    return event_id.sequence > up_to.sequence;
+                }
                 true // Keep events without IDs
             });
         }
@@ -175,8 +176,15 @@ impl<I: PeerIdentity> EventStore<I> {
         }
 
         // Find the highest sequence in our events
-        if let Some(max_seq) = self.events.iter().filter_map(|e| e.event_id()).map(|id| id.sequence).max() {
-            self.delivered.insert(peer.clone(), EventId::new(0, max_seq));
+        if let Some(max_seq) = self
+            .events
+            .iter()
+            .filter_map(|e| e.event_id())
+            .map(|id| id.sequence)
+            .max()
+        {
+            self.delivered
+                .insert(peer.clone(), EventId::new(0, max_seq));
         }
     }
 
@@ -184,11 +192,7 @@ impl<I: PeerIdentity> EventStore<I> {
     pub fn since(&self, seq: u64) -> Vec<&InterfaceEvent<I>> {
         self.events
             .iter()
-            .filter(|e| {
-                e.event_id()
-                    .map(|id| id.sequence > seq)
-                    .unwrap_or(true)
-            })
+            .filter(|e| e.event_id().map(|id| id.sequence > seq).unwrap_or(true))
             .collect()
     }
 
@@ -196,11 +200,7 @@ impl<I: PeerIdentity> EventStore<I> {
     pub fn since_owned(&self, seq: u64) -> Vec<InterfaceEvent<I>> {
         self.events
             .iter()
-            .filter(|e| {
-                e.event_id()
-                    .map(|id| id.sequence > seq)
-                    .unwrap_or(true)
-            })
+            .filter(|e| e.event_id().map(|id| id.sequence > seq).unwrap_or(true))
             .cloned()
             .collect()
     }

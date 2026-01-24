@@ -108,7 +108,11 @@ impl Document {
     }
 
     /// Create from existing bytes
-    pub fn from_bytes(bytes: &[u8], meta: DocumentMeta, local_peer: SimulationIdentity) -> Result<Self, DocumentError> {
+    pub fn from_bytes(
+        bytes: &[u8],
+        meta: DocumentMeta,
+        local_peer: SimulationIdentity,
+    ) -> Result<Self, DocumentError> {
         let doc = InterfaceDocument::load(bytes)
             .map_err(|e| DocumentError::Sync(format!("Failed to load: {}", e)))?;
 
@@ -220,10 +224,10 @@ impl Document {
         let events: Vec<InterfaceEvent<SimulationIdentity>> = self.doc.events();
 
         for event in events {
-            if let InterfaceEvent::Message { content, .. } = event {
-                if let Ok(op) = postcard::from_bytes::<DocumentOp>(&content) {
-                    self.apply_op_to_cache(op);
-                }
+            if let InterfaceEvent::Message { content, .. } = event
+                && let Ok(op) = postcard::from_bytes::<DocumentOp>(&content)
+            {
+                self.apply_op_to_cache(op);
             }
         }
     }
@@ -246,7 +250,8 @@ impl Document {
 
         let old_count = self.doc.event_count();
 
-        self.doc.apply_sync_message(changes)
+        self.doc
+            .apply_sync_message(changes)
             .map_err(|e| DocumentError::Sync(format!("Sync error: {}", e)))?;
 
         let new_count = self.doc.event_count();

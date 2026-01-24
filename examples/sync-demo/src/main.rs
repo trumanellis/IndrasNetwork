@@ -95,10 +95,10 @@ enum Commands {
 }
 
 fn get_data_dir(path: &str) -> PathBuf {
-    if path.starts_with("~/") {
-        if let Some(home) = dirs::home_dir() {
-            return home.join(&path[2..]);
-        }
+    if path.starts_with("~/")
+        && let Some(home) = dirs::home_dir()
+    {
+        return home.join(&path[2..]);
     }
     PathBuf::from(path)
 }
@@ -121,7 +121,7 @@ fn list_documents(data_dir: &PathBuf) -> Result<Vec<DocumentMeta>> {
         let entry = entry?;
         let path = entry.path();
 
-        if path.extension().map_or(false, |e| e == "json") {
+        if path.extension().is_some_and(|e| e == "json") {
             let meta_content = fs::read_to_string(&path)?;
             if let Ok(meta) = serde_json::from_str::<DocumentMeta>(&meta_content) {
                 docs.push(meta);
@@ -138,19 +138,23 @@ fn load_document(data_dir: &PathBuf, id: &str) -> Result<Document> {
 
     // Load metadata
     let meta_path = docs_dir.join(format!("{}.json", id));
-    let meta_content = fs::read_to_string(&meta_path)
-        .context(format!("Document metadata not found: {}", id))?;
+    let meta_content =
+        fs::read_to_string(&meta_path).context(format!("Document metadata not found: {}", id))?;
     let meta: DocumentMeta = serde_json::from_str(&meta_content)?;
 
     // Load document data
     let data_path = docs_dir.join(format!("{}.am", id));
-    let data = fs::read(&data_path)
-        .context(format!("Document data not found: {}", id))?;
+    let data = fs::read(&data_path).context(format!("Document data not found: {}", id))?;
 
     // Create peer identity from author's first char (uppercase)
-    let peer_char = meta.author.chars().next().unwrap_or('A').to_ascii_uppercase();
-    let local_peer = SimulationIdentity::new(peer_char)
-        .unwrap_or_else(|| SimulationIdentity::new('A').unwrap());
+    let peer_char = meta
+        .author
+        .chars()
+        .next()
+        .unwrap_or('A')
+        .to_ascii_uppercase();
+    let local_peer =
+        SimulationIdentity::new(peer_char).unwrap_or_else(|| SimulationIdentity::new('A').unwrap());
 
     Document::from_bytes(&data, meta, local_peer).context("Failed to load document")
 }
@@ -172,10 +176,11 @@ fn save_document(data_dir: &PathBuf, doc: &mut Document) -> Result<()> {
 
 fn find_document_by_partial_id(docs: &[DocumentMeta], partial: &str) -> Result<String> {
     // Try by index
-    if let Ok(index) = partial.parse::<usize>() {
-        if index > 0 && index <= docs.len() {
-            return Ok(docs[index - 1].id.clone());
-        }
+    if let Ok(index) = partial.parse::<usize>()
+        && index > 0
+        && index <= docs.len()
+    {
+        return Ok(docs[index - 1].id.clone());
     }
 
     // Try by partial ID
@@ -307,7 +312,7 @@ fn cmd_open(data_dir: &PathBuf, id: &str) -> Result<()> {
             }
             "diff" => {
                 if let Ok(disk_doc) = load_document(data_dir, &full_id) {
-                    print_diff(&disk_doc.content(), &doc.content());
+                    print_diff(disk_doc.content(), doc.content());
                 } else {
                     print_info("No saved version to compare against");
                 }
@@ -343,7 +348,10 @@ fn cmd_open(data_dir: &PathBuf, id: &str) -> Result<()> {
                 break;
             }
             _ => {
-                print_error(&format!("Unknown command: {}. Type 'help' for commands.", cmd));
+                print_error(&format!(
+                    "Unknown command: {}. Type 'help' for commands.",
+                    cmd
+                ));
             }
         }
     }
@@ -357,13 +365,16 @@ fn cmd_diff(data_dir: &PathBuf, id: &str) -> Result<()> {
     let doc = load_document(data_dir, &full_id)?;
 
     // For demo, show diff with empty string (shows all content as "added")
-    print_diff("", &doc.content());
+    print_diff("", doc.content());
     Ok(())
 }
 
 fn cmd_sync_pair() -> Result<()> {
     print_banner();
-    println!("{}", "Demonstrating CRDT sync between two documents...".cyan());
+    println!(
+        "{}",
+        "Demonstrating CRDT sync between two documents...".cyan()
+    );
     println!();
 
     // Create two documents
@@ -419,7 +430,11 @@ fn cmd_export(data_dir: &PathBuf, id: &str, output: &PathBuf) -> Result<()> {
     let doc = load_document(data_dir, &full_id)?;
 
     fs::write(output, doc.content())?;
-    print_success(&format!("Exported '{}' to {}", doc.title(), output.display()));
+    print_success(&format!(
+        "Exported '{}' to {}",
+        doc.title(),
+        output.display()
+    ));
 
     Ok(())
 }

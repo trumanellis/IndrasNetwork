@@ -9,8 +9,8 @@ use tracing::debug;
 
 use indras_core::PeerIdentity;
 
+use super::tables::{PEER_REGISTRY, RedbStorage};
 use crate::error::StorageError;
-use super::tables::{RedbStorage, PEER_REGISTRY};
 
 /// Metadata about a peer
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,7 +71,11 @@ impl PeerRegistry {
     }
 
     /// Register or update a peer
-    pub fn upsert<I: PeerIdentity>(&self, peer: &I, record: &PeerRecord) -> Result<(), StorageError> {
+    pub fn upsert<I: PeerIdentity>(
+        &self,
+        peer: &I,
+        record: &PeerRecord,
+    ) -> Result<(), StorageError> {
         let key = peer.as_bytes();
         let value = postcard::to_allocvec(record)
             .map_err(|e| StorageError::Serialization(e.to_string()))?;
@@ -121,7 +125,9 @@ impl PeerRegistry {
     /// Increment message count
     pub fn increment_messages<I: PeerIdentity>(&self, peer: &I) -> Result<u64, StorageError> {
         let key = peer.as_bytes();
-        let mut record = self.get(peer)?.unwrap_or_else(|| PeerRecord::new(key.clone()));
+        let mut record = self
+            .get(peer)?
+            .unwrap_or_else(|| PeerRecord::new(key.clone()));
         record.message_count += 1;
         record.last_seen_millis = chrono::Utc::now().timestamp_millis();
 

@@ -254,7 +254,11 @@ mod tests {
         {
             let mut writer = capture.make_writer();
             writeln!(writer, r#"{{"level":"INFO","message":"Step 1: Starting"}}"#).unwrap();
-            writeln!(writer, r#"{{"level":"INFO","message":"Step 2: Processing"}}"#).unwrap();
+            writeln!(
+                writer,
+                r#"{{"level":"INFO","message":"Step 2: Processing"}}"#
+            )
+            .unwrap();
             writeln!(writer, r#"{{"level":"INFO","message":"Step 3: Done"}}"#).unwrap();
         }
 

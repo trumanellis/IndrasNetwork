@@ -5,7 +5,7 @@
 
 use tempfile::TempDir;
 
-use indras_core::{InterfaceEvent, NInterfaceTrait};
+use indras_core::InterfaceEvent;
 use indras_node::{IndrasNode, InviteKey, NodeConfig, NodeError};
 
 /// Create a test node with a temp directory
@@ -95,7 +95,9 @@ async fn test_message_sending_and_receiving() {
     let received = rx.try_recv().unwrap();
     assert_eq!(received.interface_id, interface_id);
     match received.event {
-        InterfaceEvent::Message { content, sender, .. } => {
+        InterfaceEvent::Message {
+            content, sender, ..
+        } => {
             assert_eq!(content, b"Hello, world!");
             assert_eq!(sender, *node.identity());
         }
@@ -172,7 +174,7 @@ async fn test_member_management() {
     let secret = iroh::SecretKey::generate(&mut rand::rng());
     let peer = indras_transport::IrohIdentity::new(secret.public());
 
-    node.add_member(&interface_id, peer.clone()).await.unwrap();
+    node.add_member(&interface_id, peer).await.unwrap();
 
     // Now should have 2 members
     let members = node.members(&interface_id).await.unwrap();
@@ -278,7 +280,6 @@ async fn test_concurrent_message_sending() {
     // Send messages concurrently
     let mut handles = Vec::new();
     for i in 0..10 {
-        let interface_id = interface_id;
         let node_ref = &node;
         handles.push(async move {
             node_ref
@@ -309,6 +310,6 @@ async fn test_identity_persistence() {
     assert_ne!(node1.identity(), node2.identity());
 
     // Identity should be consistent for the same node
-    let id = node1.identity().clone();
+    let id = *node1.identity();
     assert_eq!(*node1.identity(), id);
 }

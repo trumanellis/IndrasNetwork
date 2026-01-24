@@ -3,8 +3,8 @@
 //! These components render directly as SVG elements within Dioxus RSX,
 //! using CSS variables for theming and reactive signals for data.
 
-use dioxus::prelude::*;
 use crate::state::DataPoint;
+use dioxus::prelude::*;
 
 /// Line chart component for time-series data
 ///
@@ -255,14 +255,12 @@ pub fn HealthGauge(
         } else {
             "var(--accent-success)"
         }
+    } else if clamped_value >= warning_threshold {
+        "var(--accent-success)"
+    } else if clamped_value >= danger_threshold {
+        "var(--accent-warning)"
     } else {
-        if clamped_value >= warning_threshold {
-            "var(--accent-success)"
-        } else if clamped_value >= danger_threshold {
-            "var(--accent-warning)"
-        } else {
-            "var(--accent-error)"
-        }
+        "var(--accent-error)"
     };
 
     rsx! {
@@ -338,16 +336,19 @@ pub fn LatencyBars(
     #[props(default = 200)]
     width: u32,
 ) -> Element {
-    let max_val = if max_value > 0.0 { max_value } else { p99 * 1.2 }.max(1.0);
+    let max_val = if max_value > 0.0 {
+        max_value
+    } else {
+        p99 * 1.2
+    }
+    .max(1.0);
 
     let bar_height = 16;
     let label_width = 35;
     let value_width = 60;
     let bar_width = width as i32 - label_width - value_width - 10;
 
-    let scale = |v: f64| -> i32 {
-        ((v / max_val) * bar_width as f64).round() as i32
-    };
+    let scale = |v: f64| -> i32 { ((v / max_val) * bar_width as f64).round() as i32 };
 
     rsx! {
         div {
@@ -446,7 +447,7 @@ pub fn PhaseTimeline(
     }
 
     let bar_height = 24;
-    let label_height = 20;
+    let _label_height = 20;
 
     rsx! {
         div {

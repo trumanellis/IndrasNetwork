@@ -280,11 +280,7 @@ pub struct PendingEventData {
 
 impl InterfaceSyncResponseMessage {
     /// Create a new sync response
-    pub fn new(
-        interface_id: InterfaceId,
-        sync_data: Vec<u8>,
-        our_heads: Vec<[u8; 32]>,
-    ) -> Self {
+    pub fn new(interface_id: InterfaceId, sync_data: Vec<u8>, our_heads: Vec<[u8; 32]>) -> Self {
         Self {
             interface_id,
             sync_data,
@@ -384,8 +380,8 @@ impl InterfaceEventAckMessage {
 ///
 /// Returns the framed message as bytes (length-prefixed).
 pub fn frame_message(msg: &WireMessage) -> Result<Bytes, FramingError> {
-    let serialized = postcard::to_allocvec(msg)
-        .map_err(|e| FramingError::Serialization(e.to_string()))?;
+    let serialized =
+        postcard::to_allocvec(msg).map_err(|e| FramingError::Serialization(e.to_string()))?;
 
     if serialized.len() > MAX_MESSAGE_SIZE {
         return Err(FramingError::MessageTooLarge {
@@ -468,8 +464,8 @@ mod tests {
 
     #[test]
     fn test_presence_info() {
-        use iroh::SecretKey;
         use crate::identity::IrohIdentity;
+        use iroh::SecretKey;
 
         let secret = SecretKey::generate(&mut rand::rng());
         let id = IrohIdentity::new(secret.public());
@@ -558,11 +554,8 @@ mod tests {
 
         // Test sync response
         let sync_data = vec![10, 20, 30];
-        let response = InterfaceSyncResponseMessage::new(
-            interface_id,
-            sync_data.clone(),
-            heads.clone(),
-        );
+        let response =
+            InterfaceSyncResponseMessage::new(interface_id, sync_data.clone(), heads.clone());
         let msg = WireMessage::InterfaceSyncResponse(response);
         let framed = frame_message(&msg).unwrap();
         let parsed = parse_framed_message(&framed).unwrap();
@@ -680,8 +673,8 @@ mod tests {
 
     #[test]
     fn test_serialized_packet_roundtrip() {
-        use iroh::SecretKey;
         use indras_core::packet::PacketId;
+        use iroh::SecretKey;
 
         let secret1 = SecretKey::generate(&mut rand::rng());
         let secret2 = SecretKey::generate(&mut rand::rng());
@@ -718,8 +711,8 @@ mod tests {
 
     #[test]
     fn test_serialized_confirmation_roundtrip() {
-        use iroh::SecretKey;
         use indras_core::packet::PacketId;
+        use iroh::SecretKey;
 
         let secret = SecretKey::generate(&mut rand::rng());
         let peer = IrohIdentity::new(secret.public());

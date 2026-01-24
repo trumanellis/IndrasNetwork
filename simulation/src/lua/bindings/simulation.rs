@@ -91,9 +91,7 @@ impl Clone for LuaSimulation {
 impl UserData for LuaSimulation {
     fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {
         // tick - current simulation tick (read-only)
-        fields.add_field_method_get("tick", |_, this| {
-            Ok(this.0.borrow().tick)
-        });
+        fields.add_field_method_get("tick", |_, this| Ok(this.0.borrow().tick));
 
         // stats - simulation statistics
         fields.add_field_method_get("stats", |_, this| {
@@ -151,22 +149,31 @@ impl UserData for LuaSimulation {
         });
 
         // send_message(from, to, payload)
-        methods.add_method("send_message", |_, this, (from, to, payload): (LuaPeerId, LuaPeerId, Value)| {
-            let payload_bytes = match payload {
-                Value::String(s) => s.as_bytes().to_vec(),
-                Value::Table(t) => {
-                    // Interpret as byte array
-                    let mut bytes = Vec::new();
-                    for v in t.sequence_values::<u8>() {
-                        bytes.push(v?);
+        methods.add_method(
+            "send_message",
+            |_, this, (from, to, payload): (LuaPeerId, LuaPeerId, Value)| {
+                let payload_bytes = match payload {
+                    Value::String(s) => s.as_bytes().to_vec(),
+                    Value::Table(t) => {
+                        // Interpret as byte array
+                        let mut bytes = Vec::new();
+                        for v in t.sequence_values::<u8>() {
+                            bytes.push(v?);
+                        }
+                        bytes
                     }
-                    bytes
-                }
-                _ => return Err(mlua::Error::external("Payload must be string or byte array")),
-            };
-            this.0.borrow_mut().send_message(from.0, to.0, payload_bytes);
-            Ok(())
-        });
+                    _ => {
+                        return Err(mlua::Error::external(
+                            "Payload must be string or byte array",
+                        ));
+                    }
+                };
+                this.0
+                    .borrow_mut()
+                    .send_message(from.0, to.0, payload_bytes);
+                Ok(())
+            },
+        );
 
         // state_summary() -> string
         methods.add_method("state_summary", |_, this, ()| {
@@ -176,7 +183,10 @@ impl UserData for LuaSimulation {
         // online_peers() -> [PeerId]
         methods.add_method("online_peers", |_, this, ()| {
             let sim = this.0.borrow();
-            let peers: Vec<LuaPeerId> = sim.mesh.peers.values()
+            let peers: Vec<LuaPeerId> = sim
+                .mesh
+                .peers
+                .values()
                 .filter(|p| p.online)
                 .map(|p| LuaPeerId(p.id))
                 .collect();
@@ -186,7 +196,10 @@ impl UserData for LuaSimulation {
         // offline_peers() -> [PeerId]
         methods.add_method("offline_peers", |_, this, ()| {
             let sim = this.0.borrow();
-            let peers: Vec<LuaPeerId> = sim.mesh.peers.values()
+            let peers: Vec<LuaPeerId> = sim
+                .mesh
+                .peers
+                .values()
                 .filter(|p| !p.online)
                 .map(|p| LuaPeerId(p.id))
                 .collect();
@@ -209,45 +222,143 @@ impl UserData for LuaSimulation {
         // Post-quantum cryptography simulation methods
 
         // record_pq_signature(peer, latency_us, message_size) - simulate signing
-        methods.add_method("record_pq_signature", |_, this, (peer, latency_us, message_size): (LuaPeerId, u64, usize)| {
-            this.0.borrow_mut().record_pq_signature_created(peer.0, latency_us, message_size);
-            Ok(())
-        });
+        methods.add_method(
+            "record_pq_signature",
+            |_, this, (peer, latency_us, message_size): (LuaPeerId, u64, usize)| {
+                this.0
+                    .borrow_mut()
+                    .record_pq_signature_created(peer.0, latency_us, message_size);
+                Ok(())
+            },
+        );
 
         // record_pq_verification(peer, sender, latency_us, success) - simulate verification
-        methods.add_method("record_pq_verification", |_, this, (peer, sender, latency_us, success): (LuaPeerId, LuaPeerId, u64, bool)| {
-            this.0.borrow_mut().record_pq_signature_verified(peer.0, sender.0, latency_us, success);
-            Ok(())
-        });
+        methods.add_method(
+            "record_pq_verification",
+            |_, this, (peer, sender, latency_us, success): (LuaPeerId, LuaPeerId, u64, bool)| {
+                this.0
+                    .borrow_mut()
+                    .record_pq_signature_verified(peer.0, sender.0, latency_us, success);
+                Ok(())
+            },
+        );
 
         // record_kem_encapsulation(peer, target, latency_us) - simulate KEM encap
-        methods.add_method("record_kem_encapsulation", |_, this, (peer, target, latency_us): (LuaPeerId, LuaPeerId, u64)| {
-            this.0.borrow_mut().record_kem_encapsulation(peer.0, target.0, latency_us);
-            Ok(())
-        });
+        methods.add_method(
+            "record_kem_encapsulation",
+            |_, this, (peer, target, latency_us): (LuaPeerId, LuaPeerId, u64)| {
+                this.0
+                    .borrow_mut()
+                    .record_kem_encapsulation(peer.0, target.0, latency_us);
+                Ok(())
+            },
+        );
 
         // record_kem_decapsulation(peer, sender, latency_us, success) - simulate KEM decap
-        methods.add_method("record_kem_decapsulation", |_, this, (peer, sender, latency_us, success): (LuaPeerId, LuaPeerId, u64, bool)| {
-            this.0.borrow_mut().record_kem_decapsulation(peer.0, sender.0, latency_us, success);
-            Ok(())
-        });
+        methods.add_method(
+            "record_kem_decapsulation",
+            |_, this, (peer, sender, latency_us, success): (LuaPeerId, LuaPeerId, u64, bool)| {
+                this.0
+                    .borrow_mut()
+                    .record_kem_decapsulation(peer.0, sender.0, latency_us, success);
+                Ok(())
+            },
+        );
 
         // record_invite_created(from, to, interface_id) - simulate invite creation
-        methods.add_method("record_invite_created", |_, this, (from, to, interface_id): (LuaPeerId, LuaPeerId, String)| {
-            this.0.borrow_mut().record_invite_created(from.0, to.0, interface_id);
-            Ok(())
-        });
+        methods.add_method(
+            "record_invite_created",
+            |_, this, (from, to, interface_id): (LuaPeerId, LuaPeerId, String)| {
+                this.0
+                    .borrow_mut()
+                    .record_invite_created(from.0, to.0, interface_id);
+                Ok(())
+            },
+        );
 
         // record_invite_accepted(peer, interface_id) - simulate invite acceptance
-        methods.add_method("record_invite_accepted", |_, this, (peer, interface_id): (LuaPeerId, String)| {
-            this.0.borrow_mut().record_invite_accepted(peer.0, interface_id);
-            Ok(())
-        });
+        methods.add_method(
+            "record_invite_accepted",
+            |_, this, (peer, interface_id): (LuaPeerId, String)| {
+                this.0
+                    .borrow_mut()
+                    .record_invite_accepted(peer.0, interface_id);
+                Ok(())
+            },
+        );
 
         // record_invite_failed(peer, interface_id, reason) - simulate invite failure
-        methods.add_method("record_invite_failed", |_, this, (peer, interface_id, reason): (LuaPeerId, String, String)| {
-            this.0.borrow_mut().record_invite_failed(peer.0, interface_id, reason);
-            Ok(())
+        methods.add_method(
+            "record_invite_failed",
+            |_, this, (peer, interface_id, reason): (LuaPeerId, String, String)| {
+                this.0
+                    .borrow_mut()
+                    .record_invite_failed(peer.0, interface_id, reason);
+                Ok(())
+            },
+        );
+
+        // PRoPHET routing methods
+
+        // get_prophet_state(peer_id) -> table of {destination -> probability}
+        methods.add_method("get_prophet_state", |lua, this, peer: LuaPeerId| {
+            let sim = this.0.borrow();
+            let peer_state = sim.mesh.peers.get(&peer.0)
+                .ok_or_else(|| mlua::Error::external(format!("Peer {} not found", peer.0)))?;
+
+            let table = lua.create_table()?;
+            for (dest, prob) in peer_state.prophet_state.all_probabilities() {
+                let peer_id_str = dest.0.to_string();
+                table.set(peer_id_str, prob)?;
+            }
+            Ok(table)
+        });
+
+        // get_prophet_probability(peer_a, peer_b) -> f64
+        methods.add_method(
+            "get_prophet_probability",
+            |_, this, (peer_a, peer_b): (LuaPeerId, LuaPeerId)| {
+                let sim = this.0.borrow();
+                let peer_state = sim.mesh.peers.get(&peer_a.0)
+                    .ok_or_else(|| mlua::Error::external(format!("Peer {} not found", peer_a.0)))?;
+
+                Ok(peer_state.prophet_state.get_probability(&peer_b.0))
+            },
+        );
+
+        // trigger_encounter(peer_a, peer_b) -> manually trigger an encounter
+        methods.add_method(
+            "trigger_encounter",
+            |_, this, (peer_a, peer_b): (LuaPeerId, LuaPeerId)| {
+                let mut sim = this.0.borrow_mut();
+
+                // Get B's probabilities first
+                let b_probs = sim.mesh.peers.get(&peer_b.0)
+                    .map(|p| p.prophet_state.all_probabilities())
+                    .unwrap_or_default();
+
+                // Now update A's state
+                let peer_state = sim.mesh.peers.get_mut(&peer_a.0)
+                    .ok_or_else(|| mlua::Error::external(format!("Peer {} not found", peer_a.0)))?;
+
+                peer_state.prophet_state.encounter(&peer_b.0);
+                peer_state.prophet_state.transitive_update(&peer_b.0, &b_probs);
+
+                Ok(())
+            },
+        );
+
+        // get_routing_stats() -> table with basic routing stats
+        methods.add_method("get_routing_stats", |lua, this, ()| {
+            let sim = this.0.borrow();
+            let table = lua.create_table()?;
+
+            table.set("messages_delivered", sim.stats.messages_delivered)?;
+            table.set("messages_dropped", sim.stats.messages_dropped)?;
+            table.set("relayed_deliveries", sim.stats.relayed_deliveries)?;
+            table.set("direct_deliveries", sim.stats.direct_deliveries)?;
+
+            Ok(table)
         });
 
         // String representation
@@ -337,7 +448,9 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
     simulation.set(
         "new",
         lua.create_function(|_, (mesh, config): (LuaMesh, LuaSimConfig)| {
-            let mesh_inner = mesh.0.read()
+            let mesh_inner = mesh
+                .0
+                .read()
                 .map_err(|_| mlua::Error::external("Mesh lock poisoned"))?
                 .clone();
             let sim = Simulation::new(mesh_inner, config.0);
@@ -372,10 +485,12 @@ mod tests {
         let lua = setup_lua();
 
         let wake: f64 = lua
-            .load(r#"
+            .load(
+                r#"
                 local cfg = indras.SimConfig.default()
                 return cfg.wake_probability
-            "#)
+            "#,
+            )
             .eval()
             .unwrap();
         assert!((wake - 0.3).abs() < f64::EPSILON);
@@ -386,10 +501,12 @@ mod tests {
         let lua = setup_lua();
 
         let wake: f64 = lua
-            .load(r#"
+            .load(
+                r#"
                 local cfg = indras.SimConfig.manual()
                 return cfg.wake_probability
-            "#)
+            "#,
+            )
             .eval()
             .unwrap();
         assert!((wake - 0.0).abs() < f64::EPSILON);
@@ -400,11 +517,13 @@ mod tests {
         let lua = setup_lua();
 
         let tick: u64 = lua
-            .load(r#"
+            .load(
+                r#"
                 local mesh = indras.MeshBuilder.new(3):full_mesh()
                 local sim = indras.Simulation.new(mesh, indras.SimConfig.manual())
                 return sim.tick
-            "#)
+            "#,
+            )
             .eval()
             .unwrap();
         assert_eq!(tick, 0);
@@ -415,13 +534,15 @@ mod tests {
         let lua = setup_lua();
 
         let tick: u64 = lua
-            .load(r#"
+            .load(
+                r#"
                 local mesh = indras.MeshBuilder.new(3):full_mesh()
                 local sim = indras.Simulation.new(mesh, indras.SimConfig.manual())
                 sim:step()
                 sim:step()
                 return sim.tick
-            "#)
+            "#,
+            )
             .eval()
             .unwrap();
         assert_eq!(tick, 2);
@@ -432,13 +553,15 @@ mod tests {
         let lua = setup_lua();
 
         let online: bool = lua
-            .load(r#"
+            .load(
+                r#"
                 local mesh = indras.MeshBuilder.new(3):full_mesh()
                 local sim = indras.Simulation.new(mesh, indras.SimConfig.manual())
                 local a = indras.PeerId.new('A')
                 sim:force_online(a)
                 return sim:is_online(a)
-            "#)
+            "#,
+            )
             .eval()
             .unwrap();
         assert!(online);
@@ -449,7 +572,8 @@ mod tests {
         let lua = setup_lua();
 
         let delivered: u64 = lua
-            .load(r#"
+            .load(
+                r#"
                 local mesh = indras.MeshBuilder.new(3):full_mesh()
                 local sim = indras.Simulation.new(mesh, indras.SimConfig.manual())
 
@@ -463,7 +587,8 @@ mod tests {
                 sim:run_ticks(5)
 
                 return sim.stats.messages_delivered
-            "#)
+            "#,
+            )
             .eval()
             .unwrap();
         assert_eq!(delivered, 1);
@@ -474,12 +599,14 @@ mod tests {
         let lua = setup_lua();
 
         let summary: String = lua
-            .load(r#"
+            .load(
+                r#"
                 local mesh = indras.MeshBuilder.new(3):full_mesh()
                 local sim = indras.Simulation.new(mesh, indras.SimConfig.manual())
                 sim:force_online(indras.PeerId.new('A'))
                 return sim:state_summary()
-            "#)
+            "#,
+            )
             .eval()
             .unwrap();
         assert!(summary.contains("1 online"));

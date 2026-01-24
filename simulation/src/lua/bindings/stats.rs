@@ -20,18 +20,26 @@ impl UserData for LuaSimStats {
     fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {
         // Basic counters
         fields.add_field_method_get("messages_sent", |_, this| Ok(this.0.messages_sent));
-        fields.add_field_method_get("messages_delivered", |_, this| Ok(this.0.messages_delivered));
+        fields.add_field_method_get("messages_delivered", |_, this| {
+            Ok(this.0.messages_delivered)
+        });
         fields.add_field_method_get("messages_dropped", |_, this| Ok(this.0.messages_dropped));
         fields.add_field_method_get("messages_expired", |_, this| Ok(this.0.messages_expired));
 
         // Hop tracking
         fields.add_field_method_get("total_hops", |_, this| Ok(this.0.total_hops));
         fields.add_field_method_get("direct_deliveries", |_, this| Ok(this.0.direct_deliveries));
-        fields.add_field_method_get("relayed_deliveries", |_, this| Ok(this.0.relayed_deliveries));
+        fields.add_field_method_get("relayed_deliveries", |_, this| {
+            Ok(this.0.relayed_deliveries)
+        });
 
         // Back-propagation
-        fields.add_field_method_get("backprops_completed", |_, this| Ok(this.0.backprops_completed));
-        fields.add_field_method_get("backprops_timed_out", |_, this| Ok(this.0.backprops_timed_out));
+        fields.add_field_method_get("backprops_completed", |_, this| {
+            Ok(this.0.backprops_completed)
+        });
+        fields.add_field_method_get("backprops_timed_out", |_, this| {
+            Ok(this.0.backprops_timed_out)
+        });
 
         // State transitions
         fields.add_field_method_get("wake_events", |_, this| Ok(this.0.wake_events));
@@ -67,24 +75,16 @@ impl UserData for LuaSimStats {
         fields.add_field_method_get("pq_kem_decapsulations", |_, this| {
             Ok(this.0.pq_kem_decapsulations)
         });
-        fields.add_field_method_get("pq_kem_failures", |_, this| {
-            Ok(this.0.pq_kem_failures)
-        });
+        fields.add_field_method_get("pq_kem_failures", |_, this| Ok(this.0.pq_kem_failures));
         fields.add_field_method_get("pq_kem_encap_time_us", |_, this| {
             Ok(this.0.pq_kem_encap_time_us)
         });
         fields.add_field_method_get("pq_kem_decap_time_us", |_, this| {
             Ok(this.0.pq_kem_decap_time_us)
         });
-        fields.add_field_method_get("invites_created", |_, this| {
-            Ok(this.0.invites_created)
-        });
-        fields.add_field_method_get("invites_accepted", |_, this| {
-            Ok(this.0.invites_accepted)
-        });
-        fields.add_field_method_get("invites_failed", |_, this| {
-            Ok(this.0.invites_failed)
-        });
+        fields.add_field_method_get("invites_created", |_, this| Ok(this.0.invites_created));
+        fields.add_field_method_get("invites_accepted", |_, this| Ok(this.0.invites_accepted));
+        fields.add_field_method_get("invites_failed", |_, this| Ok(this.0.invites_failed));
     }
 
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
@@ -218,8 +218,14 @@ impl UserData for LuaSimStats {
             t.set("pq_signatures_created", this.0.pq_signatures_created)?;
             t.set("pq_signatures_verified", this.0.pq_signatures_verified)?;
             t.set("pq_signature_failures", this.0.pq_signature_failures)?;
-            t.set("pq_signature_create_time_us", this.0.pq_signature_create_time_us)?;
-            t.set("pq_signature_verify_time_us", this.0.pq_signature_verify_time_us)?;
+            t.set(
+                "pq_signature_create_time_us",
+                this.0.pq_signature_create_time_us,
+            )?;
+            t.set(
+                "pq_signature_verify_time_us",
+                this.0.pq_signature_verify_time_us,
+            )?;
             t.set("pq_kem_encapsulations", this.0.pq_kem_encapsulations)?;
             t.set("pq_kem_decapsulations", this.0.pq_kem_decapsulations)?;
             t.set("pq_kem_failures", this.0.pq_kem_failures)?;
@@ -270,14 +276,16 @@ mod tests {
         let lua = setup_lua();
 
         let sent: u64 = lua
-            .load(r#"
+            .load(
+                r#"
                 local mesh = indras.MeshBuilder.new(2):full_mesh()
                 local sim = indras.Simulation.new(mesh, indras.SimConfig.manual())
                 sim:force_online(indras.PeerId.new('A'))
                 sim:force_online(indras.PeerId.new('B'))
                 sim:send_message(indras.PeerId.new('A'), indras.PeerId.new('B'), "test")
                 return sim.stats.messages_sent
-            "#)
+            "#,
+            )
             .eval()
             .unwrap();
         assert_eq!(sent, 1);
@@ -288,7 +296,8 @@ mod tests {
         let lua = setup_lua();
 
         let rate: f64 = lua
-            .load(r#"
+            .load(
+                r#"
                 local mesh = indras.MeshBuilder.new(2):full_mesh()
                 local sim = indras.Simulation.new(mesh, indras.SimConfig.manual())
                 sim:force_online(indras.PeerId.new('A'))
@@ -296,7 +305,8 @@ mod tests {
                 sim:send_message(indras.PeerId.new('A'), indras.PeerId.new('B'), "test")
                 sim:run_ticks(5)
                 return sim.stats:delivery_rate()
-            "#)
+            "#,
+            )
             .eval()
             .unwrap();
         assert!((rate - 1.0).abs() < f64::EPSILON);
@@ -307,12 +317,14 @@ mod tests {
         let lua = setup_lua();
 
         let sent: u64 = lua
-            .load(r#"
+            .load(
+                r#"
                 local mesh = indras.MeshBuilder.new(2):full_mesh()
                 local sim = indras.Simulation.new(mesh, indras.SimConfig.manual())
                 local t = sim.stats:to_table()
                 return t.messages_sent
-            "#)
+            "#,
+            )
             .eval()
             .unwrap();
         assert_eq!(sent, 0);

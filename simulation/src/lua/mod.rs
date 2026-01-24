@@ -62,6 +62,9 @@ pub fn register_indras_module(lua: &Lua) -> Result<()> {
     // Register event constants
     bindings::events::register(lua, &indras)?;
 
+    // Register PRoPHET routing
+    bindings::routing::register(lua, &indras)?;
+
     // Register assertion helpers
     assertions::register(lua, &indras)?;
 
@@ -81,10 +84,7 @@ mod tests {
         register_indras_module(&lua).unwrap();
 
         // Verify indras global exists
-        let result: bool = lua
-            .load("indras ~= nil")
-            .eval()
-            .unwrap();
+        let result: bool = lua.load("indras ~= nil").eval().unwrap();
         assert!(result);
     }
 
@@ -94,10 +94,12 @@ mod tests {
         register_indras_module(&lua).unwrap();
 
         let result: String = lua
-            .load(r#"
+            .load(
+                r#"
                 local peer = indras.PeerId.new('A')
                 return tostring(peer)
-            "#)
+            "#,
+            )
             .eval()
             .unwrap();
         assert_eq!(result, "A");
@@ -109,10 +111,12 @@ mod tests {
         register_indras_module(&lua).unwrap();
 
         let result: usize = lua
-            .load(r#"
+            .load(
+                r#"
                 local mesh = indras.MeshBuilder.new(3):full_mesh()
                 return mesh:peer_count()
-            "#)
+            "#,
+            )
             .eval()
             .unwrap();
         assert_eq!(result, 3);

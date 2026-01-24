@@ -5,8 +5,8 @@
 //! - All nodes repel each other (Coulomb-like force)
 //! - Connected nodes attract each other (spring force)
 
-use std::collections::HashMap;
 use indras_simulation::{Mesh, PeerId};
+use std::collections::HashMap;
 
 /// Compute peer positions using force-directed layout
 ///
@@ -108,6 +108,7 @@ pub fn compute_layout(mesh: &Mesh, width: f64, height: f64) -> HashMap<PeerId, (
 }
 
 /// Update positions for a single iteration (useful for animated layout)
+#[allow(dead_code)] // Reserved for future animated layout feature
 pub fn layout_step(
     positions: &mut HashMap<PeerId, (f64, f64)>,
     mesh: &Mesh,
@@ -129,8 +130,7 @@ pub fn layout_step(
     let min_distance = 1.0;
     let padding = 50.0;
 
-    let mut forces: HashMap<PeerId, (f64, f64)> =
-        peers.iter().map(|p| (*p, (0.0, 0.0))).collect();
+    let mut forces: HashMap<PeerId, (f64, f64)> = peers.iter().map(|p| (*p, (0.0, 0.0))).collect();
 
     // Repulsion between all pairs
     for i in 0..n {
@@ -204,7 +204,7 @@ mod tests {
         assert!(positions.contains_key(&PeerId('C')));
 
         // Check positions are within bounds
-        for (_, (x, y)) in &positions {
+        for (x, y) in positions.values() {
             assert!(*x >= 50.0 && *x <= 750.0);
             assert!(*y >= 50.0 && *y <= 550.0);
         }

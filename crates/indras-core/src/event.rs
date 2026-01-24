@@ -11,28 +11,16 @@ use crate::packet::PacketId;
 #[serde(bound = "I: PeerIdentity")]
 pub enum NetworkEvent<I: PeerIdentity> {
     /// A new peer was discovered
-    PeerDiscovered {
-        peer: I,
-        timestamp: DateTime<Utc>,
-    },
+    PeerDiscovered { peer: I, timestamp: DateTime<Utc> },
 
     /// A peer went offline or became unreachable
-    PeerLost {
-        peer: I,
-        timestamp: DateTime<Utc>,
-    },
+    PeerLost { peer: I, timestamp: DateTime<Utc> },
 
     /// Peer came online (simulation-specific)
-    PeerAwake {
-        peer: I,
-        timestamp: DateTime<Utc>,
-    },
+    PeerAwake { peer: I, timestamp: DateTime<Utc> },
 
     /// Peer went offline (simulation-specific)
-    PeerSleep {
-        peer: I,
-        timestamp: DateTime<Utc>,
-    },
+    PeerSleep { peer: I, timestamp: DateTime<Utc> },
 
     /// A packet was sent
     PacketSent {
@@ -234,7 +222,7 @@ mod tests {
         let to = SimulationIdentity::new('B').unwrap();
         let packet_id = PacketId::new(0xABCD, 1);
 
-        let event = NetworkEvent::packet_sent(from.clone(), to.clone(), packet_id);
+        let event = NetworkEvent::packet_sent(from, to, packet_id);
 
         if let NetworkEvent::PacketSent {
             from: event_from,
@@ -256,7 +244,7 @@ mod tests {
         let to = SimulationIdentity::new('C').unwrap();
         let packet_id = PacketId::new(0xABCD, 1);
 
-        let event = NetworkEvent::packet_delivered(to.clone(), packet_id);
+        let event = NetworkEvent::packet_delivered(to, packet_id);
 
         if let NetworkEvent::PacketDelivered {
             to: event_to,
@@ -301,36 +289,36 @@ mod tests {
         // Test all variants have timestamp extraction
         let events: Vec<NetworkEvent<SimulationIdentity>> = vec![
             NetworkEvent::PeerDiscovered {
-                peer: peer_a.clone(),
+                peer: peer_a,
                 timestamp: now,
             },
             NetworkEvent::PeerLost {
-                peer: peer_a.clone(),
+                peer: peer_a,
                 timestamp: now,
             },
             NetworkEvent::PeerAwake {
-                peer: peer_a.clone(),
+                peer: peer_a,
                 timestamp: now,
             },
             NetworkEvent::PeerSleep {
-                peer: peer_a.clone(),
+                peer: peer_a,
                 timestamp: now,
             },
             NetworkEvent::PacketSent {
-                from: peer_a.clone(),
-                to: peer_b.clone(),
+                from: peer_a,
+                to: peer_b,
                 packet_id,
                 timestamp: now,
             },
             NetworkEvent::PacketRelayed {
-                from: peer_a.clone(),
-                via: peer_b.clone(),
-                to: peer_a.clone(),
+                from: peer_a,
+                via: peer_b,
+                to: peer_a,
                 packet_id,
                 timestamp: now,
             },
             NetworkEvent::PacketDelivered {
-                to: peer_a.clone(),
+                to: peer_a,
                 packet_id,
                 timestamp: now,
             },
@@ -341,14 +329,14 @@ mod tests {
             },
             NetworkEvent::ConfirmationReceived {
                 packet_id,
-                from: peer_a.clone(),
-                to: peer_b.clone(),
+                from: peer_a,
+                to: peer_b,
                 timestamp: now,
             },
             NetworkEvent::BackPropStep {
                 packet_id,
-                from: peer_a.clone(),
-                to: peer_b.clone(),
+                from: peer_a,
+                to: peer_b,
                 timestamp: now,
             },
         ];

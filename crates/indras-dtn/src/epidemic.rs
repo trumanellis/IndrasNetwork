@@ -274,7 +274,11 @@ impl<I: PeerIdentity> EpidemicRouter<I> {
         });
 
         if removed > 0 {
-            tracing::debug!(removed, remaining = self.seen_bundles.len(), "Cleaned up seen bundle records");
+            tracing::debug!(
+                removed,
+                remaining = self.seen_bundles.len(),
+                "Cleaned up seen bundle records"
+            );
         }
 
         removed
@@ -459,10 +463,7 @@ mod tests {
         let bundle = make_test_bundle();
         let decision = router.route(&bundle, &a, &topology);
 
-        assert!(matches!(
-            decision,
-            EpidemicDecision::DirectDelivery { .. }
-        ));
+        assert!(matches!(decision, EpidemicDecision::DirectDelivery { .. }));
     }
 
     #[test]
@@ -538,7 +539,10 @@ mod tests {
             EpidemicDecision::Suppress { reason } => {
                 assert_eq!(reason, SuppressReason::WaitPhase);
             }
-            _ => panic!("Expected Suppress with WaitPhase reason, got {:?}", decision),
+            _ => panic!(
+                "Expected Suppress with WaitPhase reason, got {:?}",
+                decision
+            ),
         }
     }
 }

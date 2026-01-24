@@ -58,6 +58,7 @@ impl std::fmt::Display for ContentRef {
 }
 
 /// Metadata about stored content
+#[allow(dead_code)] // Reserved for future garbage collection feature
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContentMetadata {
     /// The content reference
@@ -72,6 +73,7 @@ pub struct ContentMetadata {
     pub tags: Vec<String>,
 }
 
+#[allow(dead_code)] // Reserved for future garbage collection feature
 impl ContentMetadata {
     /// Create new metadata for content
     pub fn new(content_ref: ContentRef) -> Self {

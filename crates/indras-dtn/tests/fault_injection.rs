@@ -262,7 +262,10 @@ fn test_prophet_intermittent_connectivity() {
     prophet_a.encounter(&make_id('B'));
     let p1 = prophet_a.get_probability(&make_id('B'));
     assert!(p1 > 0.0, "Should have probability after encounter");
-    assert!((p1 - 0.75).abs() < 0.01, "Initial probability should be ~0.75");
+    assert!(
+        (p1 - 0.75).abs() < 0.01,
+        "Initial probability should be ~0.75"
+    );
 
     // Second encounter - probability increases
     prophet_a.encounter(&make_id('B'));
@@ -344,7 +347,11 @@ fn test_prophet_best_candidate_selection() {
     // best_candidate returns the peer we have highest probability to, if > our prob to dest
     // Since prob_b > 0 = our_prob_to_Z, B should be selected
     assert!(best.is_some(), "Should select B as best candidate");
-    assert_eq!(best.unwrap(), make_id('B'), "B should be selected (highest probability peer)");
+    assert_eq!(
+        best.unwrap(),
+        make_id('B'),
+        "B should be selected (highest probability peer)"
+    );
 }
 
 // ============================================================================
@@ -637,7 +644,15 @@ fn test_duplicate_suppression() {
 
     // First routing - should proceed
     let decision1 = router.route(&bundle, &a, &topology);
-    assert!(decision1.is_forwarding() || matches!(decision1, EpidemicDecision::Suppress { reason: SuppressReason::WaitPhase }));
+    assert!(
+        decision1.is_forwarding()
+            || matches!(
+                decision1,
+                EpidemicDecision::Suppress {
+                    reason: SuppressReason::WaitPhase
+                }
+            )
+    );
 
     // Mark as seen (simulating receipt from another path)
     router.mark_seen(bundle_id);

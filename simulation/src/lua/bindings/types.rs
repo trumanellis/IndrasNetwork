@@ -34,9 +34,10 @@ impl FromLua for LuaPeerId {
             Value::UserData(ud) => ud.borrow::<Self>().map(|v| *v),
             Value::String(s) => {
                 let str_val = s.to_str()?;
-                let c = str_val.chars().next().ok_or_else(|| {
-                    mlua::Error::external("PeerId requires a single character")
-                })?;
+                let c = str_val
+                    .chars()
+                    .next()
+                    .ok_or_else(|| mlua::Error::external("PeerId requires a single character"))?;
                 let peer_id = PeerId::new(c).ok_or_else(|| {
                     mlua::Error::external(format!("Invalid PeerId: '{}'. Must be A-Z", c))
                 })?;
@@ -60,9 +61,7 @@ impl UserData for LuaPeerId {
         });
 
         // String conversion
-        methods.add_meta_method(MetaMethod::ToString, |_, this, ()| {
-            Ok(this.0.to_string())
-        });
+        methods.add_meta_method(MetaMethod::ToString, |_, this, ()| Ok(this.0.to_string()));
 
         // Ordering
         methods.add_meta_method(MetaMethod::Lt, |_, this, other: LuaPeerId| {
@@ -95,10 +94,15 @@ impl FromLua for LuaPriority {
                     "normal" => Ok(LuaPriority::Normal),
                     "high" => Ok(LuaPriority::High),
                     "critical" => Ok(LuaPriority::Critical),
-                    other => Err(mlua::Error::external(format!("Unknown priority: {}", other))),
+                    other => Err(mlua::Error::external(format!(
+                        "Unknown priority: {}",
+                        other
+                    ))),
                 }
             }
-            _ => Err(mlua::Error::external("Expected Priority userdata or string")),
+            _ => Err(mlua::Error::external(
+                "Expected Priority userdata or string",
+            )),
         }
     }
 }
@@ -140,9 +144,10 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
     peer_id.set(
         "new",
         lua.create_function(|_, c: String| {
-            let c = c.chars().next().ok_or_else(|| {
-                mlua::Error::external("PeerId requires a single character")
-            })?;
+            let c = c
+                .chars()
+                .next()
+                .ok_or_else(|| mlua::Error::external("PeerId requires a single character"))?;
             let peer_id = PeerId::new(c).ok_or_else(|| {
                 mlua::Error::external(format!("Invalid PeerId: '{}'. Must be A-Z", c))
             })?;
@@ -154,13 +159,11 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
     peer_id.set(
         "range_to",
         lua.create_function(|_, end: String| {
-            let end = end.chars().next().ok_or_else(|| {
-                mlua::Error::external("range_to requires a single character")
-            })?;
-            let peers: Vec<LuaPeerId> = PeerId::range_to(end)
-                .into_iter()
-                .map(LuaPeerId)
-                .collect();
+            let end = end
+                .chars()
+                .next()
+                .ok_or_else(|| mlua::Error::external("range_to requires a single character"))?;
+            let peers: Vec<LuaPeerId> = PeerId::range_to(end).into_iter().map(LuaPeerId).collect();
             Ok(peers)
         })?,
     )?;
@@ -171,9 +174,15 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
     let priority = lua.create_table()?;
 
     priority.set("low", lua.create_function(|_, ()| Ok(LuaPriority::Low))?)?;
-    priority.set("normal", lua.create_function(|_, ()| Ok(LuaPriority::Normal))?)?;
+    priority.set(
+        "normal",
+        lua.create_function(|_, ()| Ok(LuaPriority::Normal))?,
+    )?;
     priority.set("high", lua.create_function(|_, ()| Ok(LuaPriority::High))?)?;
-    priority.set("critical", lua.create_function(|_, ()| Ok(LuaPriority::Critical))?)?;
+    priority.set(
+        "critical",
+        lua.create_function(|_, ()| Ok(LuaPriority::Critical))?,
+    )?;
 
     indras.set("Priority", priority)?;
 
@@ -192,10 +201,12 @@ mod tests {
         lua.globals().set("indras", indras).unwrap();
 
         let result: String = lua
-            .load(r#"
+            .load(
+                r#"
                 local peer = indras.PeerId.new('A')
                 return tostring(peer)
-            "#)
+            "#,
+            )
             .eval()
             .unwrap();
         assert_eq!(result, "A");
@@ -208,9 +219,7 @@ mod tests {
         register(&lua, &indras).unwrap();
         lua.globals().set("indras", indras).unwrap();
 
-        let result = lua
-            .load(r#"indras.PeerId.new('a')"#)
-            .exec();
+        let result = lua.load(r#"indras.PeerId.new('a')"#).exec();
         assert!(result.is_err());
     }
 
@@ -222,10 +231,12 @@ mod tests {
         lua.globals().set("indras", indras).unwrap();
 
         let result: i32 = lua
-            .load(r#"
+            .load(
+                r#"
                 local peers = indras.PeerId.range_to('C')
                 return #peers
-            "#)
+            "#,
+            )
             .eval()
             .unwrap();
         assert_eq!(result, 3);
@@ -239,12 +250,14 @@ mod tests {
         lua.globals().set("indras", indras).unwrap();
 
         let result: bool = lua
-            .load(r#"
+            .load(
+                r#"
                 local a1 = indras.PeerId.new('A')
                 local a2 = indras.PeerId.new('A')
                 local b = indras.PeerId.new('B')
                 return a1 == a2 and a1 ~= b
-            "#)
+            "#,
+            )
             .eval()
             .unwrap();
         assert!(result);
@@ -258,10 +271,12 @@ mod tests {
         lua.globals().set("indras", indras).unwrap();
 
         let result: String = lua
-            .load(r#"
+            .load(
+                r#"
                 local p = indras.Priority.high()
                 return tostring(p)
-            "#)
+            "#,
+            )
             .eval()
             .unwrap();
         assert_eq!(result, "high");

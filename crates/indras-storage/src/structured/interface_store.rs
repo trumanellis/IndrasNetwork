@@ -9,8 +9,8 @@ use tracing::debug;
 
 use indras_core::{InterfaceId, PeerIdentity};
 
+use super::tables::{INTERFACE_MEMBERS, INTERFACES, RedbStorage};
 use crate::error::StorageError;
-use super::tables::{RedbStorage, INTERFACES, INTERFACE_MEMBERS};
 
 /// Metadata about an interface
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -150,9 +150,9 @@ impl InterfaceStore {
                 self.upsert(&record)?;
                 Ok(record.event_count)
             }
-            None => Err(StorageError::PacketNotFound(
-                hex::encode(interface_id.as_bytes()),
-            )),
+            None => Err(StorageError::PacketNotFound(hex::encode(
+                interface_id.as_bytes(),
+            ))),
         }
     }
 
@@ -207,11 +207,9 @@ impl InterfaceStore {
         let key = self.make_member_key(interface_id, peer);
         let removed = self.storage.delete(INTERFACE_MEMBERS, &key)?;
 
-        if removed {
-            if let Some(mut iface_record) = self.get(interface_id)? {
-                iface_record.member_count = iface_record.member_count.saturating_sub(1);
-                self.upsert(&iface_record)?;
-            }
+        if removed && let Some(mut iface_record) = self.get(interface_id)? {
+            iface_record.member_count = iface_record.member_count.saturating_sub(1);
+            self.upsert(&iface_record)?;
         }
 
         Ok(removed)
@@ -244,7 +242,10 @@ impl InterfaceStore {
     }
 
     /// Get all members of an interface
-    pub fn get_members(&self, interface_id: &InterfaceId) -> Result<Vec<MembershipRecord>, StorageError> {
+    pub fn get_members(
+        &self,
+        interface_id: &InterfaceId,
+    ) -> Result<Vec<MembershipRecord>, StorageError> {
         let prefix = self.make_member_prefix(interface_id);
         let entries = self.storage.scan_prefix(INTERFACE_MEMBERS, &prefix)?;
 

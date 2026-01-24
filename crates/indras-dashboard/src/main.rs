@@ -5,9 +5,13 @@ mod components;
 mod layout;
 mod runner;
 mod state;
+pub mod theme;
 
-/// Inline CSS for desktop mode (loaded from assets/style.css at compile time)
-const CUSTOM_CSS: &str = include_str!("../assets/style.css");
+/// Theme CSS (loaded from assets/themes.css at compile time)
+const THEME_CSS: &str = include_str!("../assets/themes.css");
+
+/// Component CSS (loaded from assets/style.css at compile time)
+const STYLE_CSS: &str = include_str!("../assets/style.css");
 
 fn main() {
     // Initialize tracing for logging
@@ -23,7 +27,10 @@ fn main() {
                         .with_inner_size(dioxus::desktop::LogicalSize::new(1200.0, 800.0))
                         .with_maximized(true),
                 )
-                .with_custom_head(format!(r#"<style>{}</style>"#, CUSTOM_CSS)),
+                .with_custom_head(format!(
+                    r#"<style>{}</style><style>{}</style>"#,
+                    THEME_CSS, STYLE_CSS
+                )),
         )
         .launch(app::App);
 }

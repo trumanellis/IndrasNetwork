@@ -3,8 +3,8 @@
 //! Handles endpoint lifecycle, connection pooling, and stream management.
 
 use dashmap::DashMap;
-use iroh::{Endpoint, SecretKey, PublicKey, EndpointAddr};
 use iroh::endpoint::Connection;
+use iroh::{Endpoint, EndpointAddr, PublicKey, SecretKey};
 use thiserror::Error;
 use tokio::sync::RwLock;
 use tracing::{debug, info, instrument, warn};
@@ -84,7 +84,10 @@ impl ConnectionManager {
     /// Create a new connection manager
     ///
     /// Binds an iroh endpoint with the given secret key and configuration.
-    pub async fn new(secret_key: SecretKey, config: ConnectionConfig) -> Result<Self, ConnectionError> {
+    pub async fn new(
+        secret_key: SecretKey,
+        config: ConnectionConfig,
+    ) -> Result<Self, ConnectionError> {
         let builder = Endpoint::builder()
             .secret_key(secret_key.clone())
             .alpns(vec![ALPN_INDRAS.to_vec()]);
@@ -145,7 +148,11 @@ impl ConnectionManager {
         // Check connection limit
         let current = self.connections.len();
         if current >= self.config.max_connections {
-            warn!(current = current, max = self.config.max_connections, "Connection limit reached");
+            warn!(
+                current = current,
+                max = self.config.max_connections,
+                "Connection limit reached"
+            );
             return Err(ConnectionError::TooManyConnections {
                 current,
                 max: self.config.max_connections,
@@ -163,7 +170,10 @@ impl ConnectionManager {
         )
         .await
         .map_err(|_| {
-            warn!(timeout_ms = self.config.connect_timeout_ms, "Connection timeout");
+            warn!(
+                timeout_ms = self.config.connect_timeout_ms,
+                "Connection timeout"
+            );
             ConnectionError::Timeout
         })?
         .map_err(|e| {
@@ -182,7 +192,10 @@ impl ConnectionManager {
     /// Connect to a peer by their public key
     ///
     /// This requires the peer to be discoverable via relays.
-    pub async fn connect_by_key(&self, public_key: PublicKey) -> Result<Connection, ConnectionError> {
+    pub async fn connect_by_key(
+        &self,
+        public_key: PublicKey,
+    ) -> Result<Connection, ConnectionError> {
         let addr = EndpointAddr::new(public_key);
         self.connect(addr).await
     }
@@ -192,17 +205,16 @@ impl ConnectionManager {
     /// Returns the peer's identity and the connection.
     #[instrument(skip(self), name = "accept_connection")]
     pub async fn accept(&self) -> Result<(IrohIdentity, Connection), ConnectionError> {
-        let incoming = self.endpoint
+        let incoming = self
+            .endpoint
             .accept()
             .await
             .ok_or(ConnectionError::NoIncomingConnection)?;
 
-        let conn = incoming
-            .await
-            .map_err(|e| {
-                warn!(error = %e, "Failed to accept connection");
-                ConnectionError::ConnectError(e.to_string())
-            })?;
+        let conn = incoming.await.map_err(|e| {
+            warn!(error = %e, "Failed to accept connection");
+            ConnectionError::ConnectError(e.to_string())
+        })?;
 
         let peer_key = conn.remote_id();
         let peer_id = IrohIdentity::new(peer_key);
@@ -267,7 +279,8 @@ impl ConnectionManager {
 
     /// Clean up closed/stale connections
     pub fn cleanup_stale(&self) {
-        let stale: Vec<_> = self.connections
+        let stale: Vec<_> = self
+            .connections
             .iter()
             .filter(|c| c.value().close_reason().is_some())
             .map(|c| *c.key())
@@ -281,7 +294,8 @@ impl ConnectionManager {
 
     /// Get connection statistics
     pub fn stats(&self) -> ConnectionStats {
-        let active = self.connections
+        let active = self
+            .connections
             .iter()
             .filter(|c| c.value().close_reason().is_none())
             .count();
@@ -373,7 +387,9 @@ mod tests {
         let secret = SecretKey::generate(&mut rand::rng());
         let config = ConnectionConfig::default();
 
-        let manager = ConnectionManager::new(secret.clone(), config).await.unwrap();
+        let manager = ConnectionManager::new(secret.clone(), config)
+            .await
+            .unwrap();
 
         // Endpoint should be accessible and have our public key
         let addr = manager.endpoint_addr();
@@ -385,7 +401,9 @@ mod tests {
         let secret = SecretKey::generate(&mut rand::rng());
         let config = ConnectionConfig::default();
 
-        let manager = ConnectionManager::new(secret.clone(), config).await.unwrap();
+        let manager = ConnectionManager::new(secret.clone(), config)
+            .await
+            .unwrap();
         let addr = manager.endpoint_addr();
 
         // Address should have correct node ID

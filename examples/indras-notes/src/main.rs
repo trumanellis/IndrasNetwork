@@ -8,6 +8,7 @@
 //! ## Usage
 //!
 //! ```bash
+#![allow(dead_code)] // Example code with reserved features
 //! # Initialize with your name
 //! indras-notes init --name "Alice"
 //!
@@ -109,7 +110,9 @@ enum Commands {
 #[tokio::main]
 async fn main() {
     // Initialize tracing - use JSONL format if NOTES_JSONL=1
-    let use_jsonl = std::env::var("NOTES_JSONL").map(|v| v == "1").unwrap_or(false);
+    let use_jsonl = std::env::var("NOTES_JSONL")
+        .map(|v| v == "1")
+        .unwrap_or(false);
 
     if use_jsonl {
         tracing_subscriber::fmt()
@@ -178,7 +181,10 @@ async fn cmd_create(name: &str) -> Result<(), AppError> {
     let interface_id = app.create_notebook(name).await?;
 
     print_success(&format!("Created notebook '{}'", name));
-    print_info(&format!("ID: {}", hex::encode(&interface_id.as_bytes()[..8])));
+    print_info(&format!(
+        "ID: {}",
+        hex::encode(&interface_id.as_bytes()[..8])
+    ));
 
     // Generate invite
     app.open_notebook(&interface_id).await?;
@@ -246,7 +252,10 @@ async fn cmd_join(invite: &str) -> Result<(), AppError> {
     let interface_id = app.join_notebook(invite).await?;
 
     print_success("Joined notebook successfully");
-    print_info(&format!("ID: {}", hex::encode(&interface_id.as_bytes()[..8])));
+    print_info(&format!(
+        "ID: {}",
+        hex::encode(&interface_id.as_bytes()[..8])
+    ));
 
     Ok(())
 }
@@ -286,10 +295,11 @@ fn find_notebook_by_id(
     }
 
     // Try by index
-    if let Ok(index) = partial_id.parse::<usize>() {
-        if index > 0 && index <= notebooks.len() {
-            return Ok(notebooks[index - 1].interface_id);
-        }
+    if let Ok(index) = partial_id.parse::<usize>()
+        && index > 0
+        && index <= notebooks.len()
+    {
+        return Ok(notebooks[index - 1].interface_id);
     }
 
     Err(AppError::NotebookNotFound(partial_id.to_string()))
@@ -401,7 +411,10 @@ async fn interactive_mode(app: &mut App) -> Result<(), AppError> {
                 break;
             }
             _ => {
-                print_error(&format!("Unknown command: {}. Type 'help' for commands.", cmd));
+                print_error(&format!(
+                    "Unknown command: {}. Type 'help' for commands.",
+                    cmd
+                ));
             }
         }
     }
@@ -415,9 +428,10 @@ fn prompt_input(prompt: &str) -> Result<String, AppError> {
     io::stdout().flush().unwrap();
 
     let mut input = String::new();
-    io::stdin().lock().read_line(&mut input).map_err(|e| {
-        AppError::Storage(storage::StorageError::Io(e))
-    })?;
+    io::stdin()
+        .lock()
+        .read_line(&mut input)
+        .map_err(|e| AppError::Storage(storage::StorageError::Io(e)))?;
 
     Ok(input.trim().to_string())
 }
@@ -469,8 +483,7 @@ async fn cmd_run_script(path: &PathBuf) -> Result<(), AppError> {
 
 /// Evaluate a Lua expression
 async fn cmd_eval(code: &str) -> Result<(), AppError> {
-    let runtime = NotesLuaRuntime::new()
-        .map_err(|e| AppError::Lua(e.to_string()))?;
+    let runtime = NotesLuaRuntime::new().map_err(|e| AppError::Lua(e.to_string()))?;
 
     // Set up app for eval
     if let Ok(app) = App::new().await {

@@ -18,8 +18,8 @@ use std::path::{Path, PathBuf};
 
 use argon2::{Argon2, Params, Version};
 use chacha20poly1305::{
-    aead::{Aead, KeyInit},
     ChaCha20Poly1305, Nonce,
+    aead::{Aead, KeyInit},
 };
 use iroh::SecretKey;
 use rand::RngCore;
@@ -45,15 +45,19 @@ const PQ_KEM_DK_FILENAME: &str = "kem_dk.pq";
 const PQ_KEM_EK_FILENAME: &str = "kem_ek.pq";
 
 /// Filename suffix for encrypted key files
+#[allow(dead_code)] // Reserved for future encrypted keystore feature
 const ENCRYPTED_SUFFIX: &str = ".enc";
 
 /// Filename for the encryption salt
+#[allow(dead_code)] // Reserved for future encrypted keystore feature
 const SALT_FILENAME: &str = "keystore.salt";
 
 /// Nonce size for ChaCha20-Poly1305 (12 bytes)
+#[allow(dead_code)] // Reserved for future encrypted keystore feature
 const NONCE_SIZE: usize = 12;
 
 /// Key size for encryption (32 bytes)
+#[allow(dead_code)] // Reserved for future encrypted keystore feature
 const ENCRYPTION_KEY_SIZE: usize = 32;
 
 /// Keystore for managing node identity persistence
@@ -168,11 +172,13 @@ impl Keystore {
 
     /// Load existing PQ identity from disk
     pub fn load_pq_identity(&self) -> NodeResult<PQIdentity> {
-        let sk_bytes = std::fs::read(self.pq_signing_key_path())
-            .map_err(|e| NodeError::Keystore(format!("Failed to read PQ signing key file: {}", e)))?;
+        let sk_bytes = std::fs::read(self.pq_signing_key_path()).map_err(|e| {
+            NodeError::Keystore(format!("Failed to read PQ signing key file: {}", e))
+        })?;
 
-        let pk_bytes = std::fs::read(self.pq_verifying_key_path())
-            .map_err(|e| NodeError::Keystore(format!("Failed to read PQ verifying key file: {}", e)))?;
+        let pk_bytes = std::fs::read(self.pq_verifying_key_path()).map_err(|e| {
+            NodeError::Keystore(format!("Failed to read PQ verifying key file: {}", e))
+        })?;
 
         let identity = PQIdentity::from_keypair_bytes(&sk_bytes, &pk_bytes)
             .map_err(|e| NodeError::Keystore(format!("Invalid PQ identity files: {}", e)))?;
@@ -193,13 +199,15 @@ impl Keystore {
         let (sk_bytes, pk_bytes) = identity.to_keypair_bytes();
 
         let sk_path = self.pq_signing_key_path();
-        std::fs::write(&sk_path, sk_bytes.as_slice())
-            .map_err(|e| NodeError::Keystore(format!("Failed to write PQ signing key file: {}", e)))?;
+        std::fs::write(&sk_path, sk_bytes.as_slice()).map_err(|e| {
+            NodeError::Keystore(format!("Failed to write PQ signing key file: {}", e))
+        })?;
         Self::set_restrictive_permissions(&sk_path)?;
 
         let pk_path = self.pq_verifying_key_path();
-        std::fs::write(&pk_path, &pk_bytes)
-            .map_err(|e| NodeError::Keystore(format!("Failed to write PQ verifying key file: {}", e)))?;
+        std::fs::write(&pk_path, &pk_bytes).map_err(|e| {
+            NodeError::Keystore(format!("Failed to write PQ verifying key file: {}", e))
+        })?;
 
         info!(
             pq_identity = %identity.verifying_key().short_id(),
@@ -237,11 +245,19 @@ impl Keystore {
 
     /// Load existing PQ KEM key pair from disk
     pub fn load_pq_kem(&self) -> NodeResult<PQKemKeyPair> {
-        let dk_bytes = std::fs::read(self.pq_kem_dk_path())
-            .map_err(|e| NodeError::Keystore(format!("Failed to read PQ KEM decapsulation key file: {}", e)))?;
+        let dk_bytes = std::fs::read(self.pq_kem_dk_path()).map_err(|e| {
+            NodeError::Keystore(format!(
+                "Failed to read PQ KEM decapsulation key file: {}",
+                e
+            ))
+        })?;
 
-        let ek_bytes = std::fs::read(self.pq_kem_ek_path())
-            .map_err(|e| NodeError::Keystore(format!("Failed to read PQ KEM encapsulation key file: {}", e)))?;
+        let ek_bytes = std::fs::read(self.pq_kem_ek_path()).map_err(|e| {
+            NodeError::Keystore(format!(
+                "Failed to read PQ KEM encapsulation key file: {}",
+                e
+            ))
+        })?;
 
         let keypair = PQKemKeyPair::from_keypair_bytes(&dk_bytes, &ek_bytes)
             .map_err(|e| NodeError::Keystore(format!("Invalid PQ KEM key files: {}", e)))?;
@@ -262,13 +278,21 @@ impl Keystore {
         let (dk_bytes, ek_bytes) = keypair.to_keypair_bytes();
 
         let dk_path = self.pq_kem_dk_path();
-        std::fs::write(&dk_path, dk_bytes.as_slice())
-            .map_err(|e| NodeError::Keystore(format!("Failed to write PQ KEM decapsulation key file: {}", e)))?;
+        std::fs::write(&dk_path, dk_bytes.as_slice()).map_err(|e| {
+            NodeError::Keystore(format!(
+                "Failed to write PQ KEM decapsulation key file: {}",
+                e
+            ))
+        })?;
         Self::set_restrictive_permissions(&dk_path)?;
 
         let ek_path = self.pq_kem_ek_path();
-        std::fs::write(&ek_path, &ek_bytes)
-            .map_err(|e| NodeError::Keystore(format!("Failed to write PQ KEM encapsulation key file: {}", e)))?;
+        std::fs::write(&ek_path, &ek_bytes).map_err(|e| {
+            NodeError::Keystore(format!(
+                "Failed to write PQ KEM encapsulation key file: {}",
+                e
+            ))
+        })?;
 
         info!(
             pq_kem = %keypair.encapsulation_key().short_id(),
@@ -337,8 +361,9 @@ impl Keystore {
         {
             use std::os::unix::fs::PermissionsExt;
             let perms = std::fs::Permissions::from_mode(0o600);
-            std::fs::set_permissions(path, perms)
-                .map_err(|e| NodeError::Keystore(format!("Failed to set key permissions: {}", e)))?;
+            std::fs::set_permissions(path, perms).map_err(|e| {
+                NodeError::Keystore(format!("Failed to set key permissions: {}", e))
+            })?;
         }
         let _ = path; // Silence unused warning on non-Unix
         Ok(())
@@ -361,6 +386,7 @@ impl Keystore {
 /// // Now use like regular keystore
 /// let iroh_key = encrypted.load_or_generate_iroh()?;
 /// ```
+#[allow(dead_code)] // Reserved for future encrypted keystore feature
 pub struct EncryptedKeystore {
     /// The underlying unencrypted keystore
     inner: Keystore,
@@ -370,6 +396,7 @@ pub struct EncryptedKeystore {
     encrypted: bool,
 }
 
+#[allow(dead_code)] // Reserved for future encrypted keystore feature
 impl EncryptedKeystore {
     /// Create a new encrypted keystore
     ///
@@ -414,7 +441,9 @@ impl EncryptedKeystore {
         }
 
         if passphrase.is_empty() {
-            return Err(NodeError::Keystore("Passphrase cannot be empty".to_string()));
+            return Err(NodeError::Keystore(
+                "Passphrase cannot be empty".to_string(),
+            ));
         }
 
         let salt = self.load_or_create_salt()?;
@@ -445,7 +474,9 @@ impl EncryptedKeystore {
         }
 
         if new_passphrase.is_empty() {
-            return Err(NodeError::Keystore("New passphrase cannot be empty".to_string()));
+            return Err(NodeError::Keystore(
+                "New passphrase cannot be empty".to_string(),
+            ));
         }
 
         // Load all existing keys (check both encrypted and unencrypted paths)
@@ -455,7 +486,8 @@ impl EncryptedKeystore {
             None
         };
 
-        let pq_identity = if self.encrypted_pq_identity_exists() || self.inner.pq_identity_exists() {
+        let pq_identity = if self.encrypted_pq_identity_exists() || self.inner.pq_identity_exists()
+        {
             Some(self.load_pq_identity()?)
         } else {
             None
@@ -689,7 +721,9 @@ impl EncryptedKeystore {
 
     /// Get the path for an encrypted key file
     fn encrypted_path(&self, filename: &str) -> PathBuf {
-        self.inner.path.join(format!("{}{}", filename, ENCRYPTED_SUFFIX))
+        self.inner
+            .path
+            .join(format!("{}{}", filename, ENCRYPTED_SUFFIX))
     }
 
     /// Get the salt file path
@@ -801,9 +835,9 @@ impl EncryptedKeystore {
         let nonce = Nonce::from_slice(&data[..NONCE_SIZE]);
         let ciphertext = &data[NONCE_SIZE..];
 
-        cipher
-            .decrypt(nonce, ciphertext)
-            .map_err(|e| NodeError::Keystore(format!("Decryption failed (wrong passphrase?): {}", e)))
+        cipher.decrypt(nonce, ciphertext).map_err(|e| {
+            NodeError::Keystore(format!("Decryption failed (wrong passphrase?): {}", e))
+        })
     }
 
     /// Save encrypted data to a file
@@ -906,7 +940,9 @@ impl EncryptedKeystore {
             std::fs::read(self.inner.pq_signing_key_path())
                 .map_err(|e| NodeError::Keystore(format!("Failed to read file: {}", e)))?
         } else {
-            return Err(NodeError::Keystore("No PQ signing key file found".to_string()));
+            return Err(NodeError::Keystore(
+                "No PQ signing key file found".to_string(),
+            ));
         };
 
         let pk_bytes = if pk_path.exists() {
@@ -915,7 +951,9 @@ impl EncryptedKeystore {
             std::fs::read(self.inner.pq_verifying_key_path())
                 .map_err(|e| NodeError::Keystore(format!("Failed to read file: {}", e)))?
         } else {
-            return Err(NodeError::Keystore("No PQ verifying key file found".to_string()));
+            return Err(NodeError::Keystore(
+                "No PQ verifying key file found".to_string(),
+            ));
         };
 
         let identity = PQIdentity::from_keypair_bytes(&sk_bytes, &pk_bytes)
@@ -961,7 +999,9 @@ impl EncryptedKeystore {
             std::fs::read(self.inner.pq_kem_dk_path())
                 .map_err(|e| NodeError::Keystore(format!("Failed to read file: {}", e)))?
         } else {
-            return Err(NodeError::Keystore("No PQ KEM decapsulation key file found".to_string()));
+            return Err(NodeError::Keystore(
+                "No PQ KEM decapsulation key file found".to_string(),
+            ));
         };
 
         let ek_bytes = if ek_path.exists() {
@@ -970,7 +1010,9 @@ impl EncryptedKeystore {
             std::fs::read(self.inner.pq_kem_ek_path())
                 .map_err(|e| NodeError::Keystore(format!("Failed to read file: {}", e)))?
         } else {
-            return Err(NodeError::Keystore("No PQ KEM encapsulation key file found".to_string()));
+            return Err(NodeError::Keystore(
+                "No PQ KEM encapsulation key file found".to_string(),
+            ));
         };
 
         let keypair = PQKemKeyPair::from_keypair_bytes(&dk_bytes, &ek_bytes)
@@ -1123,7 +1165,11 @@ mod tests {
         // Write invalid data
         std::fs::create_dir_all(temp_dir.path()).unwrap();
         std::fs::write(temp_dir.path().join(PQ_SIGNING_KEY_FILENAME), b"too short").unwrap();
-        std::fs::write(temp_dir.path().join(PQ_VERIFYING_KEY_FILENAME), b"too short").unwrap();
+        std::fs::write(
+            temp_dir.path().join(PQ_VERIFYING_KEY_FILENAME),
+            b"too short",
+        )
+        .unwrap();
 
         let result = keystore.load_pq_identity();
         assert!(result.is_err());

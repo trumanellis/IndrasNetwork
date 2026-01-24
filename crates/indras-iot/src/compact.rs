@@ -211,7 +211,11 @@ impl CompactMessage {
         if data.len() < MIN_MESSAGE_SIZE {
             return Err(CompactError::Io(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
-                format!("message too short: {} bytes, minimum {}", data.len(), MIN_MESSAGE_SIZE),
+                format!(
+                    "message too short: {} bytes, minimum {}",
+                    data.len(),
+                    MIN_MESSAGE_SIZE
+                ),
             )));
         }
 
@@ -334,7 +338,7 @@ fn varint_size(value: u64) -> usize {
     if value == 0 {
         1
     } else {
-        ((64 - value.leading_zeros() as usize) + 6) / 7
+        (64 - value.leading_zeros() as usize).div_ceil(7)
     }
 }
 
@@ -498,7 +502,9 @@ mod tests {
     #[test]
     fn test_varint_overflow() {
         // Create a malformed varint with too many continuation bytes
-        let bad_varint = vec![0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x01];
+        let bad_varint = vec![
+            0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x01,
+        ];
         let result = decode_varint(&mut io::Cursor::new(&bad_varint));
         assert!(matches!(result, Err(CompactError::InvalidVarint)));
     }
@@ -551,8 +557,8 @@ mod tests {
     #[test]
     fn test_fragment_reassembly_info() {
         let fragmenter = Fragmenter::new(10);
-        let msg = CompactMessage::data(b"hello world this is a long message".to_vec())
-            .with_sequence(42);
+        let msg =
+            CompactMessage::data(b"hello world this is a long message".to_vec()).with_sequence(42);
 
         let fragments = fragmenter.fragment(&msg);
 
@@ -579,7 +585,7 @@ mod tests {
     fn test_invalid_message_type() {
         let mut buf = Vec::new();
         buf.push(255); // Invalid type
-        buf.push(0);   // flags
+        buf.push(0); // flags
         encode_varint(&mut buf, 0).unwrap();
         encode_varint(&mut buf, 0).unwrap();
         let crc = crc8(&buf);

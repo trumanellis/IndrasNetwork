@@ -9,7 +9,7 @@ use indras_core::InterfaceId;
 
 use crate::error::CryptoError;
 use crate::interface_key::{InterfaceKey, NONCE_SIZE};
-use crate::pq_kem::{PQEncapsulationKey, PQKemKeyPair, PQ_CIPHERTEXT_SIZE};
+use crate::pq_kem::{PQ_CIPHERTEXT_SIZE, PQEncapsulationKey, PQKemKeyPair};
 
 /// Key distribution utilities for member onboarding
 ///
@@ -297,7 +297,8 @@ mod tests {
         let key = InterfaceKey::generate(id);
 
         let bob_kem = PQKemKeyPair::generate();
-        let key_invite = KeyDistribution::create_invite(&key, &bob_kem.encapsulation_key()).unwrap();
+        let key_invite =
+            KeyDistribution::create_invite(&key, &bob_kem.encapsulation_key()).unwrap();
         let metadata = InviteMetadata::new().with_name("My Interface");
 
         let full_invite = FullInvite::new(key_invite).with_metadata(metadata);
@@ -318,11 +319,9 @@ mod tests {
         let key_bytes = [0x42u8; 32];
 
         let bob_kem = PQKemKeyPair::generate();
-        let invite = KeyDistribution::create_invite_from_bytes(
-            &key_bytes,
-            id,
-            &bob_kem.encapsulation_key(),
-        ).unwrap();
+        let invite =
+            KeyDistribution::create_invite_from_bytes(&key_bytes, id, &bob_kem.encapsulation_key())
+                .unwrap();
 
         let recovered_key = KeyDistribution::accept_invite(&invite, &bob_kem).unwrap();
         assert_eq!(recovered_key.as_bytes(), &key_bytes);

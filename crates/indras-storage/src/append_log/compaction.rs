@@ -21,7 +21,7 @@ impl Default for CompactionConfig {
     fn default() -> Self {
         Self {
             min_entries: 10000,
-            min_size: 50 * 1024 * 1024, // 50MB
+            min_size: 50 * 1024 * 1024,              // 50MB
             max_age_millis: 7 * 24 * 60 * 60 * 1000, // 7 days
         }
     }
@@ -61,6 +61,7 @@ impl CompactionResult {
 }
 
 /// Snapshot metadata stored alongside the blob
+#[allow(dead_code)] // Reserved for future compaction feature
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SnapshotMetadata {
     /// Interface ID
@@ -77,6 +78,7 @@ pub struct SnapshotMetadata {
     pub document_heads: Vec<[u8; 32]>,
 }
 
+#[allow(dead_code)] // Reserved for future compaction feature
 impl SnapshotMetadata {
     /// Create new snapshot metadata
     pub fn new(

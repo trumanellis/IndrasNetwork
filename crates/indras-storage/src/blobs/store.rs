@@ -10,8 +10,8 @@ use tokio::fs::{self, File};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::{debug, info, instrument, warn};
 
-use crate::error::StorageError;
 use super::content_ref::ContentRef;
+use crate::error::StorageError;
 
 /// Configuration for the blob store
 #[derive(Debug, Clone)]
@@ -28,7 +28,7 @@ impl Default for BlobStoreConfig {
     fn default() -> Self {
         Self {
             base_dir: PathBuf::from("./data/blobs"),
-            shard_depth: 2, // e.g., ab/cd/abcdef...
+            shard_depth: 2,                   // e.g., ab/cd/abcdef...
             max_blob_size: 100 * 1024 * 1024, // 100MB
         }
     }
@@ -110,15 +110,13 @@ impl BlobStore {
     pub async fn load(&self, content_ref: &ContentRef) -> Result<Bytes, StorageError> {
         let path = self.blob_path(content_ref);
 
-        let mut file = File::open(&path)
-            .await
-            .map_err(|e| {
-                if e.kind() == ErrorKind::NotFound {
-                    StorageError::PacketNotFound(content_ref.hash_hex())
-                } else {
-                    StorageError::Io(e.to_string())
-                }
-            })?;
+        let mut file = File::open(&path).await.map_err(|e| {
+            if e.kind() == ErrorKind::NotFound {
+                StorageError::PacketNotFound(content_ref.hash_hex())
+            } else {
+                StorageError::Io(e.to_string())
+            }
+        })?;
 
         let mut data = Vec::with_capacity(content_ref.size as usize);
         file.read_to_end(&mut data)
@@ -192,32 +190,36 @@ impl BlobStore {
         &'a self,
         dir: &'a Path,
         refs: &'a mut Vec<ContentRef>,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), StorageError>> + Send + 'a>> {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), StorageError>> + Send + 'a>>
+    {
         Box::pin(async move {
             let mut entries = fs::read_dir(dir)
                 .await
                 .map_err(|e| StorageError::Io(e.to_string()))?;
 
-            while let Some(entry) = entries.next_entry().await.map_err(|e| StorageError::Io(e.to_string()))? {
+            while let Some(entry) = entries
+                .next_entry()
+                .await
+                .map_err(|e| StorageError::Io(e.to_string()))?
+            {
                 let path = entry.path();
 
                 if path.is_dir() {
                     self.collect_blobs(&path, refs).await?;
                 } else if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                     // Try to parse as hash
-                    if name.len() == 64 {
-                        if let Ok(hash_bytes) = hex::decode(name) {
-                            if hash_bytes.len() == 32 {
-                                let mut hash = [0u8; 32];
-                                hash.copy_from_slice(&hash_bytes);
+                    if name.len() == 64
+                        && let Ok(hash_bytes) = hex::decode(name)
+                        && hash_bytes.len() == 32
+                    {
+                        let mut hash = [0u8; 32];
+                        hash.copy_from_slice(&hash_bytes);
 
-                                let metadata = fs::metadata(&path)
-                                    .await
-                                    .map_err(|e| StorageError::Io(e.to_string()))?;
+                        let metadata = fs::metadata(&path)
+                            .await
+                            .map_err(|e| StorageError::Io(e.to_string()))?;
 
-                                refs.push(ContentRef::new(hash, metadata.len()));
-                            }
-                        }
+                        refs.push(ContentRef::new(hash, metadata.len()));
                     }
                 }
             }
@@ -347,7 +349,9 @@ mod tests {
         let content_ref = store.store(data).await.unwrap();
 
         // Corrupt the file
-        let path = temp.path().join("blobs")
+        let path = temp
+            .path()
+            .join("blobs")
             .join(&content_ref.hash_hex()[0..2])
             .join(&content_ref.hash_hex()[2..4])
             .join(content_ref.hash_hex());
@@ -369,7 +373,10 @@ mod tests {
         let ref3 = store.store(b"Keep me too").await.unwrap();
 
         // GC keeping only ref1 and ref3
-        let result = store.gc(|r| r.content_equals(&ref1) || r.content_equals(&ref3)).await.unwrap();
+        let result = store
+            .gc(|r| r.content_equals(&ref1) || r.content_equals(&ref3))
+            .await
+            .unwrap();
 
         assert_eq!(result.deleted_count, 1);
         assert_eq!(result.retained_count, 2);

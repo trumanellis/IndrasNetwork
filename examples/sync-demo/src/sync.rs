@@ -36,20 +36,16 @@ pub fn sync_documents(
         let b_heads = doc_b.heads();
 
         let msg_to_b = doc_a.generate_sync_message(&b_heads);
-        if !msg_to_b.is_empty() {
-            if doc_b.apply_sync_message(&msg_to_b)? {
-                made_progress = true;
-                b_updated = true;
-            }
+        if !msg_to_b.is_empty() && doc_b.apply_sync_message(&msg_to_b)? {
+            made_progress = true;
+            b_updated = true;
         }
 
         // B -> A
         let msg_to_a = doc_b.generate_sync_message(&a_heads);
-        if !msg_to_a.is_empty() {
-            if doc_a.apply_sync_message(&msg_to_a)? {
-                made_progress = true;
-                a_updated = true;
-            }
+        if !msg_to_a.is_empty() && doc_a.apply_sync_message(&msg_to_a)? {
+            made_progress = true;
+            a_updated = true;
         }
 
         if !made_progress || rounds > 10 {
@@ -66,8 +62,12 @@ pub fn sync_documents(
 
 /// Create a copy of a document for another peer
 pub fn fork_document(doc: &mut Document, new_peer_char: char) -> Result<Document, DocumentError> {
-    let new_peer = SimulationIdentity::new(new_peer_char)
-        .ok_or_else(|| DocumentError::Sync(format!("Invalid peer identity: {} (must be A-Z)", new_peer_char)))?;
+    let new_peer = SimulationIdentity::new(new_peer_char).ok_or_else(|| {
+        DocumentError::Sync(format!(
+            "Invalid peer identity: {} (must be A-Z)",
+            new_peer_char
+        ))
+    })?;
     Ok(doc.fork(new_peer))
 }
 

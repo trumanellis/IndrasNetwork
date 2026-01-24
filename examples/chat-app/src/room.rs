@@ -2,6 +2,7 @@
 //!
 //! Provides a simplified chat room abstraction that can work in demo mode
 //! (single-user with simulated peers) or be extended for real networking.
+#![allow(dead_code)] // Example code with reserved error variants and methods
 
 use std::collections::HashMap;
 use std::fs;
@@ -247,7 +248,7 @@ impl RoomStorage {
             let entry = entry?;
             let path = entry.path();
 
-            if path.extension().map_or(false, |e| e == "json") {
+            if path.extension().is_some_and(|e| e == "json") {
                 let content = fs::read_to_string(&path)?;
                 if let Ok(room) = serde_json::from_str::<ChatRoom>(&content) {
                     self.rooms.insert(room.meta.id.clone(), room);
@@ -260,7 +261,10 @@ impl RoomStorage {
 
     /// Save a room to disk
     pub fn save(&self, room_id: &str) -> Result<(), RoomError> {
-        let room = self.rooms.get(room_id).ok_or_else(|| RoomError::NotFound(room_id.to_string()))?;
+        let room = self
+            .rooms
+            .get(room_id)
+            .ok_or_else(|| RoomError::NotFound(room_id.to_string()))?;
 
         let rooms_dir = self.data_dir.join("rooms");
         let path = rooms_dir.join(format!("{}.json", room_id));
@@ -350,13 +354,10 @@ impl RoomStorage {
 
         // Try name match
         let query_lower = query.to_lowercase();
-        for room in self.rooms.values() {
-            if room.name().to_lowercase().contains(&query_lower) {
-                return Some(room);
-            }
-        }
-
-        None
+        self.rooms
+            .values()
+            .find(|&room| room.name().to_lowercase().contains(&query_lower))
+            .map(|v| v as _)
     }
 
     /// Delete a room

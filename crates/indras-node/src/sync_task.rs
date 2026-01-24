@@ -17,17 +17,17 @@ use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
-use indras_core::{InterfaceId, NInterfaceTrait, PeerIdentity};
 use indras_core::transport::Transport;
+use indras_core::{InterfaceId, NInterfaceTrait, PeerIdentity};
 use indras_crypto::{InterfaceKey, PQIdentity};
 use indras_storage::CompositeStorage;
 use indras_transport::{IrohIdentity, IrohNetworkAdapter};
 
-use crate::message_handler::{
-    InterfaceEventMessage, InterfaceSyncRequest, NetworkMessage, SignedNetworkMessage,
-    SIGNED_MESSAGE_VERSION,
-};
 use crate::InterfaceState;
+use crate::message_handler::{
+    InterfaceEventMessage, InterfaceSyncRequest, NetworkMessage, SIGNED_MESSAGE_VERSION,
+    SignedNetworkMessage,
+};
 
 /// Background sync task
 pub struct SyncTask {
@@ -52,6 +52,7 @@ pub struct SyncTask {
 
 impl SyncTask {
     /// Create a new sync task
+    #[allow(clippy::too_many_arguments)] // Constructor with many dependencies
     pub fn new(
         local_identity: IrohIdentity,
         pq_identity: Arc<PQIdentity>,
@@ -75,6 +76,7 @@ impl SyncTask {
     }
 
     /// Spawn the sync task as a background task
+    #[allow(clippy::too_many_arguments)] // Constructor with many dependencies
     pub fn spawn(
         local_identity: IrohIdentity,
         pq_identity: Arc<PQIdentity>,
@@ -103,7 +105,10 @@ impl SyncTask {
 
     /// Run the sync task loop
     async fn run(mut self) {
-        info!(interval_secs = self.sync_interval.as_secs(), "Sync task started");
+        info!(
+            interval_secs = self.sync_interval.as_secs(),
+            "Sync task started"
+        );
 
         let mut interval = tokio::time::interval(self.sync_interval);
 
@@ -177,14 +182,16 @@ impl SyncTask {
             }
 
             // Deliver pending events
-            if let Some(ref key) = key {
-                if let Err(e) = self.deliver_pending_events(&interface, &member, key.value()).await {
-                    debug!(
-                        peer = %member.short_id(),
-                        error = %e,
-                        "Failed to deliver pending events"
-                    );
-                }
+            if let Some(ref key) = key
+                && let Err(e) = self
+                    .deliver_pending_events(&interface, &member, key.value())
+                    .await
+            {
+                debug!(
+                    peer = %member.short_id(),
+                    error = %e,
+                    "Failed to deliver pending events"
+                );
             }
         }
 
@@ -193,7 +200,8 @@ impl SyncTask {
 
     /// Sign and serialize a network message
     fn sign_message(&self, message: NetworkMessage) -> Result<Vec<u8>, SyncError> {
-        let message_bytes = message.to_bytes()
+        let message_bytes = message
+            .to_bytes()
             .map_err(|e| SyncError::Serialization(e.to_string()))?;
 
         let signature = self.pq_identity.sign(&message_bytes);
@@ -205,7 +213,8 @@ impl SyncTask {
             sender_verifying_key: self.pq_identity.verifying_key_bytes(),
         };
 
-        signed_msg.to_bytes()
+        signed_msg
+            .to_bytes()
             .map_err(|e| SyncError::Serialization(e.to_string()))
     }
 
@@ -231,7 +240,9 @@ impl SyncTask {
         let bytes = self.sign_message(msg)?;
 
         // Send to peer
-        self.transport.send(peer, bytes).await
+        self.transport
+            .send(peer, bytes)
+            .await
             .map_err(|e| SyncError::Transport(e.to_string()))?;
 
         debug!(
@@ -268,7 +279,8 @@ impl SyncTask {
                 .map_err(|e| SyncError::Serialization(e.to_string()))?;
 
             // Encrypt
-            let encrypted = key.encrypt(&plaintext)
+            let encrypted = key
+                .encrypt(&plaintext)
                 .map_err(|e| SyncError::Encryption(e.to_string()))?;
 
             // Get event ID from the event (skip events without IDs like Presence, SyncMarker)
@@ -291,7 +303,9 @@ impl SyncTask {
             let bytes = self.sign_message(network_msg)?;
 
             // Send
-            self.transport.send(peer, bytes).await
+            self.transport
+                .send(peer, bytes)
+                .await
                 .map_err(|e| SyncError::Transport(e.to_string()))?;
         }
 

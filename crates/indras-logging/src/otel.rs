@@ -4,11 +4,11 @@
 //! with the tracing ecosystem.
 
 use opentelemetry::trace::TracerProvider as _;
-use opentelemetry_sdk::{
-    trace::{RandomIdGenerator, Sampler, TracerProvider},
-    Resource,
-};
 use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_sdk::{
+    Resource,
+    trace::{RandomIdGenerator, Sampler, TracerProvider},
+};
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::registry::LookupSpan;
 
@@ -96,8 +96,8 @@ pub fn shutdown_otel() {
 /// Create an OpenTelemetry layer with default configuration from environment
 ///
 /// Uses OTEL_EXPORTER_OTLP_ENDPOINT and OTEL_SERVICE_NAME environment variables.
-pub fn init_otel_from_env<S>(
-) -> Result<OpenTelemetryLayer<S, opentelemetry_sdk::trace::Tracer>, OtelError>
+pub fn init_otel_from_env<S>()
+-> Result<OpenTelemetryLayer<S, opentelemetry_sdk::trace::Tracer>, OtelError>
 where
     S: tracing::Subscriber + for<'span> LookupSpan<'span>,
 {

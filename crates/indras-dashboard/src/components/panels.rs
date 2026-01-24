@@ -2,9 +2,9 @@
 //!
 //! Adaptive panels that display the most relevant metrics based on test type.
 
+use super::charts::{HealthGauge, LineChart, PhaseTimeline};
+use crate::state::{MetricsHistory, SimMetrics, TestCategory};
 use dioxus::prelude::*;
-use crate::state::{SimMetrics, TestCategory, MetricsHistory, DataPoint};
-use super::charts::{LineChart, HealthGauge, LatencyBars, PhaseTimeline};
 
 /// Adaptive metrics panel that shows relevant content based on test type
 #[component]
@@ -60,10 +60,7 @@ pub fn AdaptiveMetricsPanel(
 
 /// PQ Crypto specific panel
 #[component]
-pub fn PQCryptoPanel(
-    metrics: SimMetrics,
-    history: MetricsHistory,
-) -> Element {
+pub fn PQCryptoPanel(metrics: SimMetrics, history: MetricsHistory) -> Element {
     let signature_failure_rate = if metrics.pq_signatures_created > 0 {
         metrics.pq_signature_failures as f64 / metrics.pq_signatures_created as f64
     } else {
@@ -216,10 +213,7 @@ pub fn PQCryptoPanel(
 
 /// Routing specific panel
 #[component]
-pub fn RoutingPanel(
-    metrics: SimMetrics,
-    history: MetricsHistory,
-) -> Element {
+pub fn RoutingPanel(metrics: SimMetrics, history: MetricsHistory) -> Element {
     let delivery_rate = if metrics.messages_sent > 0 {
         metrics.messages_delivered as f64 / metrics.messages_sent as f64
     } else {
@@ -329,10 +323,7 @@ pub fn RoutingPanel(
 
 /// Transport specific panel
 #[component]
-pub fn TransportPanel(
-    metrics: SimMetrics,
-    history: MetricsHistory,
-) -> Element {
+pub fn TransportPanel(metrics: SimMetrics, history: MetricsHistory) -> Element {
     let delivery_rate = if metrics.messages_sent > 0 {
         metrics.messages_delivered as f64 / metrics.messages_sent as f64
     } else {
@@ -554,10 +545,7 @@ pub fn IntegrationPanel(
 
 /// Generic metrics panel (fallback)
 #[component]
-pub fn GenericMetricsPanel(
-    metrics: SimMetrics,
-    history: MetricsHistory,
-) -> Element {
+pub fn GenericMetricsPanel(metrics: SimMetrics, history: MetricsHistory) -> Element {
     let delivery_rate = if metrics.messages_sent > 0 {
         metrics.messages_delivered as f64 / metrics.messages_sent as f64
     } else {

@@ -134,7 +134,7 @@ mod tests {
     #[test]
     fn test_routing_decision_direct() {
         let peer = make_peer('A');
-        let decision = RoutingDecision::direct(peer.clone());
+        let decision = RoutingDecision::direct(peer);
 
         assert!(decision.is_delivery());
         assert!(!decision.is_relay());
@@ -151,7 +151,7 @@ mod tests {
     #[test]
     fn test_routing_decision_relay_single() {
         let peer = make_peer('B');
-        let decision = RoutingDecision::relay(peer.clone());
+        let decision = RoutingDecision::relay(peer);
 
         assert!(!decision.is_delivery());
         assert!(decision.is_relay());
@@ -238,7 +238,7 @@ mod tests {
     fn test_route_info_new() {
         let dest = make_peer('A');
         let next = make_peer('B');
-        let route = RouteInfo::new(dest.clone(), next.clone(), 3);
+        let route = RouteInfo::new(dest, next, 3);
 
         assert_eq!(route.destination, dest);
         assert_eq!(route.next_hop, next);
@@ -319,7 +319,7 @@ mod tests {
     fn test_route_info_serialization() {
         let dest = make_peer('A');
         let next = make_peer('B');
-        let route = RouteInfo::new(dest.clone(), next.clone(), 5);
+        let route = RouteInfo::new(dest, next, 5);
 
         let serialized = postcard::to_allocvec(&route).unwrap();
         let deserialized: RouteInfo<SimulationIdentity> =

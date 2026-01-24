@@ -105,8 +105,7 @@ impl StrategyCondition {
             }
             StrategyCondition::AgeAbove(threshold) => {
                 let age = bundle.age();
-                let age_duration =
-                    Duration::from_millis(age.num_milliseconds().max(0) as u64);
+                let age_duration = Duration::from_millis(age.num_milliseconds().max(0) as u64);
                 age_duration > *threshold
             }
             StrategyCondition::DestinationUnreachable(_duration) => {
@@ -132,7 +131,10 @@ pub struct StrategyRule {
 impl StrategyRule {
     /// Create a new strategy rule
     pub fn new(condition: StrategyCondition, strategy: DtnStrategy) -> Self {
-        Self { condition, strategy }
+        Self {
+            condition,
+            strategy,
+        }
     }
 }
 
@@ -305,10 +307,7 @@ mod tests {
     #[test]
     fn test_default_strategy() {
         let selector = StrategySelector::new(DtnStrategy::StoreAndForward);
-        assert_eq!(
-            selector.default_strategy(),
-            DtnStrategy::StoreAndForward
-        );
+        assert_eq!(selector.default_strategy(), DtnStrategy::StoreAndForward);
     }
 
     #[test]
@@ -325,9 +324,7 @@ mod tests {
             DtnStrategy::Epidemic,
         ));
 
-        let peers: Vec<_> = ('A'..='J')
-            .filter_map(SimulationIdentity::new)
-            .collect();
+        let peers: Vec<_> = ('A'..='J').filter_map(SimulationIdentity::new).collect();
         let topology = TestTopology::new(peers.clone());
 
         // Only 2 of 10 peers online = 20% connectivity
@@ -348,9 +345,7 @@ mod tests {
             DtnStrategy::Epidemic,
         ));
 
-        let peers: Vec<_> = ('A'..='J')
-            .filter_map(SimulationIdentity::new)
-            .collect();
+        let peers: Vec<_> = ('A'..='J').filter_map(SimulationIdentity::new).collect();
         let topology = TestTopology::new(peers);
         topology.set_all_online(); // 100% connectivity
 
@@ -381,8 +376,7 @@ mod tests {
         // Critical priority bundle
         let mut critical_packet = bundle.packet.clone();
         critical_packet.priority = Priority::Critical;
-        let critical_bundle =
-            Bundle::from_packet(critical_packet, ChronoDuration::hours(1));
+        let critical_bundle = Bundle::from_packet(critical_packet, ChronoDuration::hours(1));
         assert_eq!(
             selector.select(&critical_bundle, &topology),
             DtnStrategy::Epidemic

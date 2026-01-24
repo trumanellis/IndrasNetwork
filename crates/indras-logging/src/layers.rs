@@ -3,7 +3,7 @@
 //! This module provides layers that inject peer context and other
 //! Indras-specific fields into tracing events.
 
-use tracing::{span, Event, Subscriber};
+use tracing::{Event, Subscriber, span};
 use tracing_subscriber::{
     layer::{Context, Layer},
     registry::LookupSpan,
@@ -124,12 +124,10 @@ where
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use indras_core::SimulationIdentity;
-    use tracing_subscriber::prelude::*;
 
     #[test]
     fn test_peer_context_layer_creation() {

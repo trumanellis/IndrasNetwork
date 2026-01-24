@@ -1,5 +1,7 @@
 # Indra's Network
 
+[![CI](https://github.com/truman/IndrasNetwork/actions/workflows/ci.yml/badge.svg)](https://github.com/truman/IndrasNetwork/actions/workflows/ci.yml)
+
 A mesh network simulation with store-and-forward routing for offline peers, inspired by [iroh-examples](https://github.com/n0-computer/iroh-examples).
 
 ## Overview

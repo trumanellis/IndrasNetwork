@@ -44,8 +44,8 @@ pub struct MemoryBudget {
 impl Default for MemoryBudget {
     fn default() -> Self {
         Self {
-            max_heap_bytes: 64 * 1024,      // 64KB default
-            max_message_size: 1024,          // 1KB messages
+            max_heap_bytes: 64 * 1024, // 64KB default
+            max_message_size: 1024,    // 1KB messages
             max_connections: 4,
             max_pending_ops: 8,
         }
@@ -56,7 +56,7 @@ impl MemoryBudget {
     /// Create a minimal budget for very constrained devices
     pub fn minimal() -> Self {
         Self {
-            max_heap_bytes: 16 * 1024,       // 16KB
+            max_heap_bytes: 16 * 1024, // 16KB
             max_message_size: 256,
             max_connections: 2,
             max_pending_ops: 4,
@@ -66,7 +66,7 @@ impl MemoryBudget {
     /// Create a budget for moderate IoT devices
     pub fn moderate() -> Self {
         Self {
-            max_heap_bytes: 128 * 1024,      // 128KB
+            max_heap_bytes: 128 * 1024, // 128KB
             max_message_size: 4096,
             max_connections: 8,
             max_pending_ops: 16,
@@ -227,7 +227,9 @@ impl MemoryTracker {
 
     /// Get available memory
     pub fn available_bytes(&self) -> usize {
-        self.budget.max_heap_bytes.saturating_sub(self.allocated.load(Ordering::Relaxed))
+        self.budget
+            .max_heap_bytes
+            .saturating_sub(self.allocated.load(Ordering::Relaxed))
     }
 
     /// Get current connection count
@@ -264,7 +266,10 @@ impl MemoryGuard<'_> {
 
 impl Drop for MemoryGuard<'_> {
     fn drop(&mut self) {
-        let prev = self.tracker.allocated.fetch_sub(self.bytes, Ordering::AcqRel);
+        let prev = self
+            .tracker
+            .allocated
+            .fetch_sub(self.bytes, Ordering::AcqRel);
         debug_assert!(
             prev >= self.bytes,
             "MemoryGuard underflow: had {}, subtracting {}",
@@ -304,11 +309,7 @@ pub struct OpGuard<'a> {
 impl Drop for OpGuard<'_> {
     fn drop(&mut self) {
         let prev = self.tracker.pending_ops.fetch_sub(1, Ordering::AcqRel);
-        debug_assert!(
-            prev >= 1,
-            "OpGuard underflow: had {}, subtracting 1",
-            prev
-        );
+        debug_assert!(prev >= 1, "OpGuard underflow: had {}, subtracting 1", prev);
     }
 }
 
@@ -345,10 +346,7 @@ impl BufferPool {
         for (index, slot) in self.buffers.iter_mut().enumerate() {
             if let Some(buffer) = slot.take() {
                 self.available.fetch_sub(1, Ordering::AcqRel);
-                return Some(PooledBuffer {
-                    buffer,
-                    index,
-                });
+                return Some(PooledBuffer { buffer, index });
             }
         }
         None
@@ -458,7 +456,10 @@ mod tests {
 
         // Third connection should fail
         let result = tracker.try_add_connection();
-        assert!(matches!(result, Err(MemoryError::ConnectionLimitReached { .. })));
+        assert!(matches!(
+            result,
+            Err(MemoryError::ConnectionLimitReached { .. })
+        ));
     }
 
     #[test]
@@ -474,7 +475,10 @@ mod tests {
 
         // Third op should fail
         let result = tracker.try_queue_op();
-        assert!(matches!(result, Err(MemoryError::OperationQueueFull { .. })));
+        assert!(matches!(
+            result,
+            Err(MemoryError::OperationQueueFull { .. })
+        ));
     }
 
     #[test]

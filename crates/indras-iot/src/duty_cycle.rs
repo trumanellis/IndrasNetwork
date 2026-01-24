@@ -192,7 +192,9 @@ impl DutyCycleManager {
             PowerState::Waking => true,
             PowerState::PreSleep => is_urgent,
             // Allow urgent ops OR allow any op if pending threshold reached (to drain queue)
-            PowerState::Sleeping => is_urgent || self.pending_count >= self.config.max_pending_before_wake,
+            PowerState::Sleeping => {
+                is_urgent || self.pending_count >= self.config.max_pending_before_wake
+            }
         }
     }
 

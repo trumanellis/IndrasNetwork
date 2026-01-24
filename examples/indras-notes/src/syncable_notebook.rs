@@ -54,8 +54,8 @@ impl SyncableNotebook {
         local_peer: SimulationIdentity,
         bytes: &[u8],
     ) -> Result<Self, String> {
-        let doc =
-            InterfaceDocument::load(bytes).map_err(|e| format!("Failed to load document: {}", e))?;
+        let doc = InterfaceDocument::load(bytes)
+            .map_err(|e| format!("Failed to load document: {}", e))?;
 
         // Initialize event counter based on existing events to avoid ID collisions
         let event_count = doc.event_count() as u64;
@@ -138,10 +138,10 @@ impl SyncableNotebook {
         let events: Vec<InterfaceEvent<SimulationIdentity>> = self.doc.events();
 
         for event in events {
-            if let InterfaceEvent::Message { content, .. } = event {
-                if let Ok(op) = postcard::from_bytes::<NoteOperation>(&content) {
-                    self.apply_to_cache(op);
-                }
+            if let InterfaceEvent::Message { content, .. } = event
+                && let Ok(op) = postcard::from_bytes::<NoteOperation>(&content)
+            {
+                self.apply_to_cache(op);
             }
         }
     }
@@ -177,7 +177,11 @@ impl SyncableNotebook {
 
     /// Get heads as hex strings (for Lua interop)
     pub fn heads_hex(&mut self) -> Vec<String> {
-        self.doc.heads().into_iter().map(|h| hex::encode(h.0)).collect()
+        self.doc
+            .heads()
+            .into_iter()
+            .map(|h| hex::encode(h.0))
+            .collect()
     }
 
     /// Generate a sync message for a peer given their known heads
@@ -270,7 +274,6 @@ impl SyncableNotebook {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {

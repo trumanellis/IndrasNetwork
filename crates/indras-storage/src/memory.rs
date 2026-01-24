@@ -8,13 +8,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use async_trait::async_trait;
 use dashmap::DashMap;
-use indras_core::{EventId, Packet, PacketId, PacketStore, PeerIdentity};
 use indras_core::StorageError as CoreStorageError;
+use indras_core::{EventId, Packet, PacketId, PacketStore, PeerIdentity};
 use tracing::{debug, trace};
 
+use crate::PendingStore;
 use crate::error::StorageError;
 use crate::quota::QuotaManager;
-use crate::PendingStore;
 
 /// In-memory implementation of PendingStore
 ///
@@ -124,9 +124,10 @@ impl<I: PeerIdentity> PendingStore<I> for InMemoryPendingStore {
         trace!(peer = %peer, event = %event_id, "Marking event as delivered");
 
         if let Some(mut entry) = self.pending.get_mut(&key)
-            && entry.remove(&event_id) {
-                self.total_count.fetch_sub(1, Ordering::SeqCst);
-            }
+            && entry.remove(&event_id)
+        {
+            self.total_count.fetch_sub(1, Ordering::SeqCst);
+        }
 
         Ok(())
     }
@@ -142,9 +143,7 @@ impl<I: PeerIdentity> PendingStore<I> for InMemoryPendingStore {
             // For simplicity, we mark all events from the same sender with sequence <= up_to.sequence
             let to_remove: Vec<_> = events
                 .iter()
-                .filter(|id| {
-                    id.sender_hash == up_to.sender_hash && id.sequence <= up_to.sequence
-                })
+                .filter(|id| id.sender_hash == up_to.sender_hash && id.sequence <= up_to.sequence)
                 .copied()
                 .collect();
 
@@ -321,9 +320,18 @@ mod tests {
         let peer_a = SimulationIdentity::new('A').unwrap();
         let peer_b = SimulationIdentity::new('B').unwrap();
 
-        store.mark_pending(&peer_a, EventId::new(1, 1)).await.unwrap();
-        store.mark_pending(&peer_a, EventId::new(1, 2)).await.unwrap();
-        store.mark_pending(&peer_b, EventId::new(2, 1)).await.unwrap();
+        store
+            .mark_pending(&peer_a, EventId::new(1, 1))
+            .await
+            .unwrap();
+        store
+            .mark_pending(&peer_a, EventId::new(1, 2))
+            .await
+            .unwrap();
+        store
+            .mark_pending(&peer_b, EventId::new(2, 1))
+            .await
+            .unwrap();
 
         assert_eq!(store.pending_for(&peer_a).await.unwrap().len(), 2);
         assert_eq!(store.pending_for(&peer_b).await.unwrap().len(), 1);
@@ -342,7 +350,10 @@ mod tests {
         }
 
         // Mark delivered up to sequence 3
-        store.mark_delivered_up_to(&peer, EventId::new(1, 3)).await.unwrap();
+        store
+            .mark_delivered_up_to(&peer, EventId::new(1, 3))
+            .await
+            .unwrap();
 
         let pending = store.pending_for(&peer).await.unwrap();
         assert_eq!(pending.len(), 2); // Only 4 and 5 remain
@@ -455,9 +466,18 @@ mod tests {
         let dest_c = SimulationIdentity::new('C').unwrap();
 
         // Store packets for different destinations
-        store.store(create_test_packet(source, dest_b, 1)).await.unwrap();
-        store.store(create_test_packet(source, dest_b, 2)).await.unwrap();
-        store.store(create_test_packet(source, dest_c, 3)).await.unwrap();
+        store
+            .store(create_test_packet(source, dest_b, 1))
+            .await
+            .unwrap();
+        store
+            .store(create_test_packet(source, dest_b, 2))
+            .await
+            .unwrap();
+        store
+            .store(create_test_packet(source, dest_c, 3))
+            .await
+            .unwrap();
 
         // Check pending for B
         let pending_b = store.pending_for(&dest_b).await.unwrap();
@@ -475,7 +495,10 @@ mod tests {
         let dest = SimulationIdentity::new('B').unwrap();
 
         for i in 1..=5 {
-            store.store(create_test_packet(source, dest, i)).await.unwrap();
+            store
+                .store(create_test_packet(source, dest, i))
+                .await
+                .unwrap();
         }
 
         let all = store.all_packets().await.unwrap();
@@ -489,7 +512,10 @@ mod tests {
         let dest = SimulationIdentity::new('B').unwrap();
 
         for i in 1..=5 {
-            store.store(create_test_packet(source, dest, i)).await.unwrap();
+            store
+                .store(create_test_packet(source, dest, i))
+                .await
+                .unwrap();
         }
 
         store.clear().await.unwrap();

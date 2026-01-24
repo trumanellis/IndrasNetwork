@@ -175,8 +175,8 @@ mod tests {
 
     #[test]
     fn test_custom_quota_manager() {
-        let manager = QuotaManager::new(500, 50_000)
-            .with_eviction_policy(EvictionPolicy::OldestFirst);
+        let manager =
+            QuotaManager::new(500, 50_000).with_eviction_policy(EvictionPolicy::OldestFirst);
 
         assert_eq!(manager.max_pending_per_peer(), 500);
         assert_eq!(manager.max_total_pending(), 50_000);
@@ -287,9 +287,7 @@ mod tests {
     #[test]
     fn test_builder_partial() {
         // Only set some values, others should use defaults
-        let manager = QuotaManagerBuilder::new()
-            .max_pending_per_peer(500)
-            .build();
+        let manager = QuotaManagerBuilder::new().max_pending_per_peer(500).build();
 
         assert_eq!(manager.max_pending_per_peer(), 500);
         assert_eq!(manager.max_total_pending(), 100_000); // Default

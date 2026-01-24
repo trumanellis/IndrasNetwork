@@ -17,8 +17,8 @@
 //! [4 bytes: len][len bytes: serialized event][4 bytes: len][...]
 //! ```
 
-pub mod event_log;
 mod compaction;
+pub mod event_log;
 
-pub use event_log::{EventLog, EventLogConfig, EventLogEntry, BlobRef};
 pub use compaction::{CompactionConfig, CompactionResult};
+pub use event_log::{BlobRef, EventLog, EventLogConfig, EventLogEntry};

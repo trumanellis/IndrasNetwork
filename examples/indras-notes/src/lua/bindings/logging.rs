@@ -249,7 +249,8 @@ mod tests {
         assert_eq!(v, serde_json::json!(42));
 
         // Test number
-        let v = lua_value_to_json(&Value::Number(3.14)).unwrap();
-        assert!((v.as_f64().unwrap() - 3.14).abs() < f64::EPSILON);
+        let test_val = 1.23456;
+        let v = lua_value_to_json(&Value::Number(test_val)).unwrap();
+        assert!((v.as_f64().unwrap() - test_val).abs() < f64::EPSILON);
     }
 }

@@ -38,7 +38,11 @@ pub fn print_document(doc: &Document) {
     println!("{}", format!("=== {} ===", doc.title()).cyan().bold());
     println!("{}: {}", "ID".dimmed(), &doc.id()[..8]);
     println!("{}: {}", "Author".dimmed(), doc.author());
-    println!("{}: {}", "Updated".dimmed(), doc.updated_at().format("%Y-%m-%d %H:%M:%S"));
+    println!(
+        "{}: {}",
+        "Updated".dimmed(),
+        doc.updated_at().format("%Y-%m-%d %H:%M:%S")
+    );
     println!("{}", "---".dimmed());
     println!("{}", doc.content());
     println!("{}", "---".dimmed());
@@ -104,16 +108,9 @@ pub fn print_diff(old: &str, new: &str) {
 /// Print sync status
 pub fn print_sync_status(rounds: u32, doc_updated: bool) {
     if doc_updated {
-        println!(
-            "{} Synced in {} round(s)",
-            "[SYNC]".green().bold(),
-            rounds
-        );
+        println!("{} Synced in {} round(s)", "[SYNC]".green().bold(), rounds);
     } else {
-        println!(
-            "{} Already in sync",
-            "[SYNC]".blue().bold()
-        );
+        println!("{} Already in sync", "[SYNC]".blue().bold());
     }
 }
 
@@ -123,7 +120,10 @@ pub fn print_interactive_help() {
     println!("  {} - Show this document", "view".yellow());
     println!("  {} - Edit content", "edit".yellow());
     println!("  {} - Set title", "title <text>".yellow());
-    println!("  {} - Simulate sync with another instance", "sync".yellow());
+    println!(
+        "  {} - Simulate sync with another instance",
+        "sync".yellow()
+    );
     println!("  {} - Show diff between local and synced", "diff".yellow());
     println!("  {} - Save to disk", "save".yellow());
     println!("  {} - Load from disk", "load".yellow());

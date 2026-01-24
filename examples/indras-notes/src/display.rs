@@ -38,7 +38,11 @@ pub fn print_note(note: &Note) {
     println!("{}: {}", "Title".bold(), note.title.yellow());
     println!("{}: {}", "ID".dimmed(), &note.id[..8]);
     println!("{}: {}", "Author".dimmed(), note.author);
-    println!("{}: {}", "Modified".dimmed(), note.modified_at.format("%Y-%m-%d %H:%M"));
+    println!(
+        "{}: {}",
+        "Modified".dimmed(),
+        note.modified_at.format("%Y-%m-%d %H:%M")
+    );
     println!();
     if note.content.is_empty() {
         println!("{}", "(empty)".dimmed().italic());
@@ -83,9 +87,17 @@ pub fn print_note_list(notes: &[&Note]) {
 pub fn print_notebook(notebook: &Notebook) {
     println!("{}", "═".repeat(50).cyan());
     println!("{}: {}", "Notebook".bold(), notebook.name.cyan().bold());
-    println!("{}: {}", "ID".dimmed(), hex::encode(&notebook.interface_id.as_bytes()[..8]));
+    println!(
+        "{}: {}",
+        "ID".dimmed(),
+        hex::encode(&notebook.interface_id.as_bytes()[..8])
+    );
     println!("{}: {}", "Notes".dimmed(), notebook.count());
-    println!("{}: {}", "Created".dimmed(), notebook.created_at.format("%Y-%m-%d"));
+    println!(
+        "{}: {}",
+        "Created".dimmed(),
+        notebook.created_at.format("%Y-%m-%d")
+    );
     println!("{}", "═".repeat(50).cyan());
 }
 
@@ -120,7 +132,10 @@ pub fn print_invite(invite_b64: &str) {
     println!();
     println!("  {}", invite_b64.green());
     println!();
-    println!("{}", "They can join with: indras-notes join <invite>".dimmed());
+    println!(
+        "{}",
+        "They can join with: indras-notes join <invite>".dimmed()
+    );
 }
 
 /// Print interactive mode help

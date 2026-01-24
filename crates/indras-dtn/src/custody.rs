@@ -117,11 +117,7 @@ impl<I: PeerIdentity> CustodyManager<I> {
     ///
     /// Returns an error if we're at capacity or already have custody.
     #[instrument(skip(self, bundle, from), fields(bundle_id = %bundle.bundle_id, current_count = self.custody_records.len()))]
-    pub fn accept_custody(
-        &self,
-        bundle: &Bundle<I>,
-        from: Option<&I>,
-    ) -> Result<(), CustodyError> {
+    pub fn accept_custody(&self, bundle: &Bundle<I>, from: Option<&I>) -> Result<(), CustodyError> {
         // Check capacity
         if self.custody_records.len() >= self.config.max_custody_bundles {
             return Err(CustodyError::StorageFull {
@@ -206,10 +202,7 @@ impl<I: PeerIdentity> CustodyManager<I> {
 
     /// Get all bundle IDs we have custody of
     pub fn custodied_bundles(&self) -> Vec<BundleId> {
-        self.custody_records
-            .iter()
-            .map(|r| r.bundle_id)
-            .collect()
+        self.custody_records.iter().map(|r| r.bundle_id).collect()
     }
 
     /// Check if we have custody of a bundle

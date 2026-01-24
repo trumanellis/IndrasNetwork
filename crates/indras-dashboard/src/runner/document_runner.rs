@@ -7,6 +7,7 @@ use crate::state::document::{DocumentEvent, NoteSnapshot, PeerDocumentState};
 use std::collections::HashMap;
 
 /// Update types from document scenario execution
+#[allow(dead_code)] // Some variants reserved for future features
 #[derive(Debug, Clone)]
 pub enum DocumentUpdate {
     PeerState {
@@ -50,6 +51,7 @@ impl From<NoteInfo> for NoteSnapshot {
 }
 
 /// Document scenario definitions (in-memory, no Lua)
+#[allow(dead_code)] // Fields used in scenario definitions
 #[derive(Clone)]
 pub struct DocumentScenario {
     pub name: &'static str,
@@ -57,15 +59,34 @@ pub struct DocumentScenario {
     pub steps: Vec<ScenarioStep>,
 }
 
+#[allow(dead_code)] // Some variants reserved for future scenarios
 #[derive(Clone, Debug)]
 pub enum ScenarioStep {
-    CreatePeer { name: String },
-    ForkFrom { source: String, target: String },
-    CreateNote { peer: String, title: String, content: String },
-    UpdateNote { peer: String, note_idx: usize, content: String },
-    Sync { from: String, to: String },
+    CreatePeer {
+        name: String,
+    },
+    ForkFrom {
+        source: String,
+        target: String,
+    },
+    CreateNote {
+        peer: String,
+        title: String,
+        content: String,
+    },
+    UpdateNote {
+        peer: String,
+        note_idx: usize,
+        content: String,
+    },
+    Sync {
+        from: String,
+        to: String,
+    },
     CheckConvergence,
-    Phase { name: String },
+    Phase {
+        name: String,
+    },
 }
 
 pub fn get_scenarios() -> Vec<DocumentScenario> {
@@ -74,18 +95,47 @@ pub fn get_scenarios() -> Vec<DocumentScenario> {
             name: "full_sync",
             description: "Basic sync between Alice and Bob",
             steps: vec![
-                ScenarioStep::Phase { name: "Setup".into() },
-                ScenarioStep::CreatePeer { name: "Alice".into() },
-                ScenarioStep::ForkFrom { source: "Alice".into(), target: "Bob".into() },
-                ScenarioStep::Phase { name: "Alice creates note".into() },
-                ScenarioStep::CreateNote { peer: "Alice".into(), title: "First Note".into(), content: "Hello world".into() },
-                ScenarioStep::Phase { name: "Sync to Bob".into() },
-                ScenarioStep::Sync { from: "Alice".into(), to: "Bob".into() },
+                ScenarioStep::Phase {
+                    name: "Setup".into(),
+                },
+                ScenarioStep::CreatePeer {
+                    name: "Alice".into(),
+                },
+                ScenarioStep::ForkFrom {
+                    source: "Alice".into(),
+                    target: "Bob".into(),
+                },
+                ScenarioStep::Phase {
+                    name: "Alice creates note".into(),
+                },
+                ScenarioStep::CreateNote {
+                    peer: "Alice".into(),
+                    title: "First Note".into(),
+                    content: "Hello world".into(),
+                },
+                ScenarioStep::Phase {
+                    name: "Sync to Bob".into(),
+                },
+                ScenarioStep::Sync {
+                    from: "Alice".into(),
+                    to: "Bob".into(),
+                },
                 ScenarioStep::CheckConvergence,
-                ScenarioStep::Phase { name: "Bob creates note".into() },
-                ScenarioStep::CreateNote { peer: "Bob".into(), title: "Bob's Note".into(), content: "Hi Alice!".into() },
-                ScenarioStep::Phase { name: "Sync to Alice".into() },
-                ScenarioStep::Sync { from: "Bob".into(), to: "Alice".into() },
+                ScenarioStep::Phase {
+                    name: "Bob creates note".into(),
+                },
+                ScenarioStep::CreateNote {
+                    peer: "Bob".into(),
+                    title: "Bob's Note".into(),
+                    content: "Hi Alice!".into(),
+                },
+                ScenarioStep::Phase {
+                    name: "Sync to Alice".into(),
+                },
+                ScenarioStep::Sync {
+                    from: "Bob".into(),
+                    to: "Alice".into(),
+                },
                 ScenarioStep::CheckConvergence,
             ],
         },
@@ -93,17 +143,42 @@ pub fn get_scenarios() -> Vec<DocumentScenario> {
             name: "concurrent",
             description: "Concurrent edits from multiple peers",
             steps: vec![
-                ScenarioStep::Phase { name: "Setup".into() },
-                ScenarioStep::CreatePeer { name: "Alice".into() },
-                ScenarioStep::ForkFrom { source: "Alice".into(), target: "Bob".into() },
-                ScenarioStep::Phase { name: "Concurrent edits".into() },
+                ScenarioStep::Phase {
+                    name: "Setup".into(),
+                },
+                ScenarioStep::CreatePeer {
+                    name: "Alice".into(),
+                },
+                ScenarioStep::ForkFrom {
+                    source: "Alice".into(),
+                    target: "Bob".into(),
+                },
+                ScenarioStep::Phase {
+                    name: "Concurrent edits".into(),
+                },
                 // Both create notes concurrently
-                ScenarioStep::CreateNote { peer: "Alice".into(), title: "Alice's Work".into(), content: "Draft 1".into() },
-                ScenarioStep::CreateNote { peer: "Bob".into(), title: "Bob's Work".into(), content: "Ideas".into() },
-                ScenarioStep::Phase { name: "Bidirectional sync".into() },
+                ScenarioStep::CreateNote {
+                    peer: "Alice".into(),
+                    title: "Alice's Work".into(),
+                    content: "Draft 1".into(),
+                },
+                ScenarioStep::CreateNote {
+                    peer: "Bob".into(),
+                    title: "Bob's Work".into(),
+                    content: "Ideas".into(),
+                },
+                ScenarioStep::Phase {
+                    name: "Bidirectional sync".into(),
+                },
                 // Bidirectional sync
-                ScenarioStep::Sync { from: "Alice".into(), to: "Bob".into() },
-                ScenarioStep::Sync { from: "Bob".into(), to: "Alice".into() },
+                ScenarioStep::Sync {
+                    from: "Alice".into(),
+                    to: "Bob".into(),
+                },
+                ScenarioStep::Sync {
+                    from: "Bob".into(),
+                    to: "Alice".into(),
+                },
                 ScenarioStep::CheckConvergence,
             ],
         },
@@ -111,20 +186,53 @@ pub fn get_scenarios() -> Vec<DocumentScenario> {
             name: "offline",
             description: "Offline peer catches up after changes",
             steps: vec![
-                ScenarioStep::Phase { name: "Setup with 3 peers".into() },
-                ScenarioStep::CreatePeer { name: "Alice".into() },
-                ScenarioStep::ForkFrom { source: "Alice".into(), target: "Bob".into() },
-                ScenarioStep::ForkFrom { source: "Alice".into(), target: "Carol".into() },
-                ScenarioStep::Phase { name: "Carol goes offline".into() },
+                ScenarioStep::Phase {
+                    name: "Setup with 3 peers".into(),
+                },
+                ScenarioStep::CreatePeer {
+                    name: "Alice".into(),
+                },
+                ScenarioStep::ForkFrom {
+                    source: "Alice".into(),
+                    target: "Bob".into(),
+                },
+                ScenarioStep::ForkFrom {
+                    source: "Alice".into(),
+                    target: "Carol".into(),
+                },
+                ScenarioStep::Phase {
+                    name: "Carol goes offline".into(),
+                },
                 // Alice and Bob sync while Carol is "offline"
-                ScenarioStep::CreateNote { peer: "Alice".into(), title: "Update 1".into(), content: "Content".into() },
-                ScenarioStep::Sync { from: "Alice".into(), to: "Bob".into() },
-                ScenarioStep::Phase { name: "Bob edits while Carol offline".into() },
-                ScenarioStep::CreateNote { peer: "Bob".into(), title: "Update 2".into(), content: "More".into() },
-                ScenarioStep::Sync { from: "Bob".into(), to: "Alice".into() },
-                ScenarioStep::Phase { name: "Carol comes online".into() },
+                ScenarioStep::CreateNote {
+                    peer: "Alice".into(),
+                    title: "Update 1".into(),
+                    content: "Content".into(),
+                },
+                ScenarioStep::Sync {
+                    from: "Alice".into(),
+                    to: "Bob".into(),
+                },
+                ScenarioStep::Phase {
+                    name: "Bob edits while Carol offline".into(),
+                },
+                ScenarioStep::CreateNote {
+                    peer: "Bob".into(),
+                    title: "Update 2".into(),
+                    content: "More".into(),
+                },
+                ScenarioStep::Sync {
+                    from: "Bob".into(),
+                    to: "Alice".into(),
+                },
+                ScenarioStep::Phase {
+                    name: "Carol comes online".into(),
+                },
                 // Carol comes online and syncs
-                ScenarioStep::Sync { from: "Alice".into(), to: "Carol".into() },
+                ScenarioStep::Sync {
+                    from: "Alice".into(),
+                    to: "Carol".into(),
+                },
                 ScenarioStep::CheckConvergence,
             ],
         },
@@ -180,7 +288,11 @@ impl SimulatedNotebook {
     }
 
     pub fn create_note(&mut self, title: &str, content: &str) -> String {
-        let id = format!("note-{}-{}", self.peer_name.to_lowercase(), self.notes.len() + 1);
+        let id = format!(
+            "note-{}-{}",
+            self.peer_name.to_lowercase(),
+            self.notes.len() + 1
+        );
         self.notes.push(SimulatedNote {
             id: id.clone(),
             title: title.into(),
@@ -226,9 +338,18 @@ impl SimulatedNotebook {
                 changed = true;
             }
         }
+
+        // After merging, both peers should converge to the same version
+        // if they have the same content
         if changed {
-            // Update version to match highest + 1 to simulate merge
-            self.version = self.version.max(source.version) + 1;
+            // We received new content, merge versions
+            // Use max of both versions to indicate we've seen both histories
+            self.version = self.version.max(source.version);
+            self.heads = vec![format!("{:08x}", self.version)];
+        } else if source.version > self.version {
+            // No new notes, but source has a higher version (we're catching up)
+            // Adopt the source version since we now have all its content
+            self.version = source.version;
             self.heads = vec![format!("{:08x}", self.version)];
         }
         changed
@@ -242,16 +363,20 @@ impl SimulatedNotebook {
         PeerDocumentState {
             peer_name: self.peer_name.clone(),
             notebook_name: self.name.clone(),
-            notes: self.notes.iter().map(|n| NoteSnapshot {
-                id: n.id.clone(),
-                title: n.title.clone(),
-                content_preview: if n.content.len() > 50 {
-                    format!("{}...", &n.content[..47])
-                } else {
-                    n.content.clone()
-                },
-                author: n.author.clone(),
-            }).collect(),
+            notes: self
+                .notes
+                .iter()
+                .map(|n| NoteSnapshot {
+                    id: n.id.clone(),
+                    title: n.title.clone(),
+                    content_preview: if n.content.len() > 50 {
+                        format!("{}...", &n.content[..47])
+                    } else {
+                        n.content.clone()
+                    },
+                    author: n.author.clone(),
+                })
+                .collect(),
             heads: self.heads.clone(),
             note_count: self.notes.len(),
         }
@@ -312,7 +437,11 @@ impl DocumentRunner {
                     step: self.current_step,
                 }
             }
-            ScenarioStep::CreateNote { peer, title, content } => {
+            ScenarioStep::CreateNote {
+                peer,
+                title,
+                content,
+            } => {
                 let note_id = if let Some(nb) = self.notebooks.get_mut(&peer) {
                     nb.create_note(&title, &content)
                 } else {
@@ -325,10 +454,17 @@ impl DocumentRunner {
                     step: self.current_step,
                 }
             }
-            ScenarioStep::UpdateNote { peer, note_idx, content } => {
+            ScenarioStep::UpdateNote {
+                peer,
+                note_idx,
+                content,
+            } => {
                 let note_id = if let Some(nb) = self.notebooks.get_mut(&peer) {
                     nb.update_note(note_idx, &content);
-                    nb.notes.get(note_idx).map(|n| n.id.clone()).unwrap_or_default()
+                    nb.notes
+                        .get(note_idx)
+                        .map(|n| n.id.clone())
+                        .unwrap_or_default()
                 } else {
                     "unknown".into()
                 };
@@ -382,12 +518,10 @@ impl DocumentRunner {
                     }
                 }
             }
-            ScenarioStep::Phase { name } => {
-                DocumentEvent::PhaseChanged {
-                    phase: name,
-                    step: self.current_step,
-                }
-            }
+            ScenarioStep::Phase { name } => DocumentEvent::PhaseChanged {
+                phase: name,
+                step: self.current_step,
+            },
         };
 
         Some(DocumentUpdate::Event(event))
@@ -412,11 +546,13 @@ impl DocumentRunner {
     }
 
     /// Get total steps in current scenario
+    #[allow(dead_code)] // Reserved for future progress tracking
     pub fn total_steps(&self) -> usize {
         self.scenario.as_ref().map(|s| s.steps.len()).unwrap_or(0)
     }
 
     /// Check if scenario is complete
+    #[allow(dead_code)] // Reserved for future scenario control
     pub fn is_complete(&self) -> bool {
         self.scenario
             .as_ref()

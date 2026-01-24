@@ -14,7 +14,7 @@
 //! Secret keys are zeroized on drop to prevent leakage in memory dumps.
 
 use pqcrypto_dilithium::dilithium3;
-use pqcrypto_traits::sign::{PublicKey as _, SecretKey as _, DetachedSignature};
+use pqcrypto_traits::sign::{DetachedSignature, PublicKey as _, SecretKey as _};
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -102,8 +102,9 @@ impl PQIdentity {
             )));
         }
 
-        let _signing_key = dilithium3::SecretKey::from_bytes(bytes)
-            .map_err(|e| CryptoError::InvalidKey(format!("Invalid Dilithium signing key: {:?}", e)))?;
+        let _signing_key = dilithium3::SecretKey::from_bytes(bytes).map_err(|e| {
+            CryptoError::InvalidKey(format!("Invalid Dilithium signing key: {:?}", e))
+        })?;
 
         // Extract public key from secret key (it's embedded in the secret key)
         // We need to regenerate the keypair or extract it - for now we'll store both
@@ -115,7 +116,8 @@ impl PQIdentity {
         // and we'll need a different approach for persistence
 
         Err(CryptoError::InvalidKey(
-            "Cannot derive verifying key from signing key alone. Use from_keypair_bytes instead.".to_string()
+            "Cannot derive verifying key from signing key alone. Use from_keypair_bytes instead."
+                .to_string(),
         ))
     }
 
@@ -136,11 +138,13 @@ impl PQIdentity {
             )));
         }
 
-        let signing_key = dilithium3::SecretKey::from_bytes(sk_bytes)
-            .map_err(|e| CryptoError::InvalidKey(format!("Invalid Dilithium signing key: {:?}", e)))?;
+        let signing_key = dilithium3::SecretKey::from_bytes(sk_bytes).map_err(|e| {
+            CryptoError::InvalidKey(format!("Invalid Dilithium signing key: {:?}", e))
+        })?;
 
-        let verifying_key = dilithium3::PublicKey::from_bytes(pk_bytes)
-            .map_err(|e| CryptoError::InvalidKey(format!("Invalid Dilithium verifying key: {:?}", e)))?;
+        let verifying_key = dilithium3::PublicKey::from_bytes(pk_bytes).map_err(|e| {
+            CryptoError::InvalidKey(format!("Invalid Dilithium verifying key: {:?}", e))
+        })?;
 
         Ok(Self {
             signing_key,
@@ -171,7 +175,7 @@ impl PQIdentity {
     /// Get the public verifying key
     pub fn verifying_key(&self) -> PQPublicIdentity {
         PQPublicIdentity {
-            verifying_key: self.verifying_key.clone(),
+            verifying_key: self.verifying_key,
         }
     }
 
@@ -197,7 +201,10 @@ impl PQIdentity {
 impl std::fmt::Debug for PQIdentity {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PQIdentity")
-            .field("verifying_key", &hex::encode(&self.verifying_key_bytes()[..8]))
+            .field(
+                "verifying_key",
+                &hex::encode(&self.verifying_key_bytes()[..8]),
+            )
             .finish_non_exhaustive()
     }
 }
@@ -221,8 +228,9 @@ impl PQPublicIdentity {
             )));
         }
 
-        let verifying_key = dilithium3::PublicKey::from_bytes(bytes)
-            .map_err(|e| CryptoError::InvalidKey(format!("Invalid Dilithium verifying key: {:?}", e)))?;
+        let verifying_key = dilithium3::PublicKey::from_bytes(bytes).map_err(|e| {
+            CryptoError::InvalidKey(format!("Invalid Dilithium verifying key: {:?}", e))
+        })?;
 
         Ok(Self { verifying_key })
     }
@@ -239,7 +247,9 @@ impl PQPublicIdentity {
         }
 
         match dilithium3::DetachedSignature::from_bytes(&signature.bytes) {
-            Ok(sig) => dilithium3::verify_detached_signature(&sig, message, &self.verifying_key).is_ok(),
+            Ok(sig) => {
+                dilithium3::verify_detached_signature(&sig, message, &self.verifying_key).is_ok()
+            }
             Err(_) => false,
         }
     }

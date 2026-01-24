@@ -4,8 +4,8 @@
 //! simulation view, including peer positions, packet animations, and
 //! playback state.
 
+use indras_simulation::{NetworkEvent, PacketId, PeerId, Simulation};
 use std::collections::HashMap;
-use indras_simulation::{PeerId, PacketId, NetworkEvent, Simulation};
 
 /// State for live instance visualization
 #[derive(Default)]
@@ -44,6 +44,7 @@ impl InstanceState {
     }
 
     /// Initialize with a simulation
+    #[allow(dead_code)] // Reserved for builder pattern
     pub fn with_simulation(mut self, sim: Simulation) -> Self {
         self.simulation = Some(sim);
         self
@@ -56,7 +57,10 @@ impl InstanceState {
 
     /// Get the max ticks from simulation config
     pub fn max_ticks(&self) -> u64 {
-        self.simulation.as_ref().map(|s| s.config.max_ticks).unwrap_or(0)
+        self.simulation
+            .as_ref()
+            .map(|s| s.config.max_ticks)
+            .unwrap_or(0)
     }
 
     /// Check if a peer is online
@@ -167,6 +171,7 @@ impl PacketAnimation {
 }
 
 /// Visual representation of a peer for rendering
+#[allow(dead_code)] // Reserved for future visualization feature
 #[derive(Debug, Clone)]
 pub struct PeerVisual {
     /// Peer identifier
@@ -181,6 +186,7 @@ pub struct PeerVisual {
     pub position: (f64, f64),
 }
 
+#[allow(dead_code)] // Reserved for future visualization feature
 impl PeerVisual {
     /// Create from instance state
     pub fn from_state(id: PeerId, state: &InstanceState) -> Self {
@@ -197,17 +203,31 @@ impl PeerVisual {
 /// Helper to format NetworkEvent for display
 pub fn format_network_event(event: &NetworkEvent) -> (String, String, String) {
     match event {
-        NetworkEvent::Delivered { packet_id, to, tick } => (
+        NetworkEvent::Delivered {
+            packet_id,
+            to,
+            tick,
+        } => (
             "delivered".to_string(),
             format!("{}", tick),
             format!("{} delivered to {}", packet_id, to),
         ),
-        NetworkEvent::Relay { from, via, to, packet_id, tick } => (
+        NetworkEvent::Relay {
+            from,
+            via,
+            to,
+            packet_id,
+            tick,
+        } => (
             "relay".to_string(),
             format!("{}", tick),
             format!("{} relayed {} -> {} -> {}", packet_id, from, via, to),
         ),
-        NetworkEvent::Dropped { packet_id, reason, tick } => (
+        NetworkEvent::Dropped {
+            packet_id,
+            reason,
+            tick,
+        } => (
             "dropped".to_string(),
             format!("{}", tick),
             format!("{} dropped: {:?}", packet_id, reason),
@@ -227,7 +247,13 @@ pub fn format_network_event(event: &NetworkEvent) -> (String, String, String) {
             format!("{}", tick),
             format!("{} -> {} message sent", from, to),
         ),
-        NetworkEvent::BackProp { packet_id, from, via, to, tick } => (
+        NetworkEvent::BackProp {
+            packet_id,
+            from,
+            via,
+            to,
+            tick,
+        } => (
             "backprop".to_string(),
             format!("{}", tick),
             format!("{} backprop {} -> {} -> {}", packet_id, from, via, to),
@@ -237,20 +263,44 @@ pub fn format_network_event(event: &NetworkEvent) -> (String, String, String) {
             format!("{}", tick),
             format!("{} created PQ signature", peer),
         ),
-        NetworkEvent::PQSignatureVerified { peer, sender, success, tick, .. } => (
+        NetworkEvent::PQSignatureVerified {
+            peer,
+            sender,
+            success,
+            tick,
+            ..
+        } => (
             if *success { "pq" } else { "error" }.to_string(),
             format!("{}", tick),
-            format!("{} verified {} signature: {}", peer, sender, if *success { "OK" } else { "FAIL" }),
+            format!(
+                "{} verified {} signature: {}",
+                peer,
+                sender,
+                if *success { "OK" } else { "FAIL" }
+            ),
         ),
-        NetworkEvent::KEMEncapsulation { peer, target, tick, .. } => (
+        NetworkEvent::KEMEncapsulation {
+            peer, target, tick, ..
+        } => (
             "pq".to_string(),
             format!("{}", tick),
             format!("{} -> {} KEM encapsulation", peer, target),
         ),
-        NetworkEvent::KEMDecapsulation { peer, sender, success, tick, .. } => (
+        NetworkEvent::KEMDecapsulation {
+            peer,
+            sender,
+            success,
+            tick,
+            ..
+        } => (
             if *success { "pq" } else { "error" }.to_string(),
             format!("{}", tick),
-            format!("{} <- {} KEM decapsulation: {}", peer, sender, if *success { "OK" } else { "FAIL" }),
+            format!(
+                "{} <- {} KEM decapsulation: {}",
+                peer,
+                sender,
+                if *success { "OK" } else { "FAIL" }
+            ),
         ),
         NetworkEvent::InviteCreated { from, to, tick, .. } => (
             "invite".to_string(),
@@ -262,7 +312,9 @@ pub fn format_network_event(event: &NetworkEvent) -> (String, String, String) {
             format!("{}", tick),
             format!("{} accepted invite", peer),
         ),
-        NetworkEvent::InviteFailed { peer, reason, tick, .. } => (
+        NetworkEvent::InviteFailed {
+            peer, reason, tick, ..
+        } => (
             "error".to_string(),
             format!("{}", tick),
             format!("{} invite failed: {}", peer, reason),

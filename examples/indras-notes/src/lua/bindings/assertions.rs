@@ -14,8 +14,8 @@ pub fn register(lua: &Lua, notes: &Table) -> Result<()> {
         "eq",
         lua.create_function(|_, (a, b, msg): (Value, Value, Option<String>)| {
             if !values_equal(&a, &b) {
-                let message = msg
-                    .unwrap_or_else(|| format!("Assertion failed: {:?} == {:?}", a, b));
+                let message =
+                    msg.unwrap_or_else(|| format!("Assertion failed: {:?} == {:?}", a, b));
                 return Err(mlua::Error::external(message));
             }
             Ok(())
@@ -27,8 +27,8 @@ pub fn register(lua: &Lua, notes: &Table) -> Result<()> {
         "ne",
         lua.create_function(|_, (a, b, msg): (Value, Value, Option<String>)| {
             if values_equal(&a, &b) {
-                let message = msg
-                    .unwrap_or_else(|| format!("Assertion failed: {:?} ~= {:?}", a, b));
+                let message =
+                    msg.unwrap_or_else(|| format!("Assertion failed: {:?} ~= {:?}", a, b));
                 return Err(mlua::Error::external(message));
             }
             Ok(())
@@ -40,8 +40,7 @@ pub fn register(lua: &Lua, notes: &Table) -> Result<()> {
         "gt",
         lua.create_function(|_, (a, b, msg): (f64, f64, Option<String>)| {
             if a <= b {
-                let message =
-                    msg.unwrap_or_else(|| format!("Assertion failed: {} > {}", a, b));
+                let message = msg.unwrap_or_else(|| format!("Assertion failed: {} > {}", a, b));
                 return Err(mlua::Error::external(message));
             }
             Ok(())
@@ -53,8 +52,7 @@ pub fn register(lua: &Lua, notes: &Table) -> Result<()> {
         "ge",
         lua.create_function(|_, (a, b, msg): (f64, f64, Option<String>)| {
             if a < b {
-                let message =
-                    msg.unwrap_or_else(|| format!("Assertion failed: {} >= {}", a, b));
+                let message = msg.unwrap_or_else(|| format!("Assertion failed: {} >= {}", a, b));
                 return Err(mlua::Error::external(message));
             }
             Ok(())
@@ -66,8 +64,7 @@ pub fn register(lua: &Lua, notes: &Table) -> Result<()> {
         "lt",
         lua.create_function(|_, (a, b, msg): (f64, f64, Option<String>)| {
             if a >= b {
-                let message =
-                    msg.unwrap_or_else(|| format!("Assertion failed: {} < {}", a, b));
+                let message = msg.unwrap_or_else(|| format!("Assertion failed: {} < {}", a, b));
                 return Err(mlua::Error::external(message));
             }
             Ok(())
@@ -79,8 +76,7 @@ pub fn register(lua: &Lua, notes: &Table) -> Result<()> {
         "le",
         lua.create_function(|_, (a, b, msg): (f64, f64, Option<String>)| {
             if a > b {
-                let message =
-                    msg.unwrap_or_else(|| format!("Assertion failed: {} <= {}", a, b));
+                let message = msg.unwrap_or_else(|| format!("Assertion failed: {} <= {}", a, b));
                 return Err(mlua::Error::external(message));
             }
             Ok(())
@@ -92,8 +88,7 @@ pub fn register(lua: &Lua, notes: &Table) -> Result<()> {
         "true_",
         lua.create_function(|_, (cond, msg): (bool, Option<String>)| {
             if !cond {
-                let message =
-                    msg.unwrap_or_else(|| "Assertion failed: expected true".to_string());
+                let message = msg.unwrap_or_else(|| "Assertion failed: expected true".to_string());
                 return Err(mlua::Error::external(message));
             }
             Ok(())
@@ -105,8 +100,7 @@ pub fn register(lua: &Lua, notes: &Table) -> Result<()> {
         "false_",
         lua.create_function(|_, (cond, msg): (bool, Option<String>)| {
             if cond {
-                let message =
-                    msg.unwrap_or_else(|| "Assertion failed: expected false".to_string());
+                let message = msg.unwrap_or_else(|| "Assertion failed: expected false".to_string());
                 return Err(mlua::Error::external(message));
             }
             Ok(())
@@ -118,8 +112,8 @@ pub fn register(lua: &Lua, notes: &Table) -> Result<()> {
         "nil_",
         lua.create_function(|_, (val, msg): (Value, Option<String>)| {
             if !matches!(val, Value::Nil) {
-                let message = msg
-                    .unwrap_or_else(|| format!("Assertion failed: expected nil, got {:?}", val));
+                let message =
+                    msg.unwrap_or_else(|| format!("Assertion failed: expected nil, got {:?}", val));
                 return Err(mlua::Error::external(message));
             }
             Ok(())
@@ -146,8 +140,9 @@ pub fn register(lua: &Lua, notes: &Table) -> Result<()> {
             |_, (a, b, epsilon, msg): (f64, f64, Option<f64>, Option<String>)| {
                 let eps = epsilon.unwrap_or(1e-9);
                 if (a - b).abs() > eps {
-                    let message = msg
-                        .unwrap_or_else(|| format!("Assertion failed: {} ~= {} (epsilon={})", a, b, eps));
+                    let message = msg.unwrap_or_else(|| {
+                        format!("Assertion failed: {} ~= {} (epsilon={})", a, b, eps)
+                    });
                     return Err(mlua::Error::external(message));
                 }
                 Ok(())
@@ -168,8 +163,9 @@ pub fn register(lua: &Lua, notes: &Table) -> Result<()> {
                 }
             }
             if !found {
-                let message = msg
-                    .unwrap_or_else(|| format!("Assertion failed: table does not contain {:?}", value));
+                let message = msg.unwrap_or_else(|| {
+                    format!("Assertion failed: table does not contain {:?}", value)
+                });
                 return Err(mlua::Error::external(message));
             }
             Ok(())
@@ -179,19 +175,21 @@ pub fn register(lua: &Lua, notes: &Table) -> Result<()> {
     // assert.len(table, expected_len, msg?) - assert table length
     assert_table.set(
         "len",
-        lua.create_function(|_, (table, expected_len, msg): (Table, i64, Option<String>)| {
-            let actual_len = table.len()?;
-            if actual_len != expected_len {
-                let message = msg.unwrap_or_else(|| {
-                    format!(
-                        "Assertion failed: expected length {}, got {}",
-                        expected_len, actual_len
-                    )
-                });
-                return Err(mlua::Error::external(message));
-            }
-            Ok(())
-        })?,
+        lua.create_function(
+            |_, (table, expected_len, msg): (Table, i64, Option<String>)| {
+                let actual_len = table.len()?;
+                if actual_len != expected_len {
+                    let message = msg.unwrap_or_else(|| {
+                        format!(
+                            "Assertion failed: expected length {}, got {}",
+                            expected_len, actual_len
+                        )
+                    });
+                    return Err(mlua::Error::external(message));
+                }
+                Ok(())
+            },
+        )?,
     )?;
 
     // assert.fail(msg) - always fail with message
@@ -222,20 +220,15 @@ pub fn register(lua: &Lua, notes: &Table) -> Result<()> {
     // assert.str_starts_with(str, prefix, msg?) - assert string starts with prefix
     assert_table.set(
         "str_starts_with",
-        lua.create_function(
-            |_, (s, prefix, msg): (String, String, Option<String>)| {
-                if !s.starts_with(&prefix) {
-                    let message = msg.unwrap_or_else(|| {
-                        format!(
-                            "Assertion failed: '{}' does not start with '{}'",
-                            s, prefix
-                        )
-                    });
-                    return Err(mlua::Error::external(message));
-                }
-                Ok(())
-            },
-        )?,
+        lua.create_function(|_, (s, prefix, msg): (String, String, Option<String>)| {
+            if !s.starts_with(&prefix) {
+                let message = msg.unwrap_or_else(|| {
+                    format!("Assertion failed: '{}' does not start with '{}'", s, prefix)
+                });
+                return Err(mlua::Error::external(message));
+            }
+            Ok(())
+        })?,
     )?;
 
     notes.set("assert", assert_table)?;
@@ -273,7 +266,9 @@ mod tests {
     fn test_assert_eq_pass() {
         let lua = setup_lua();
         lua.load("notes.assert.eq(1, 1)").exec().unwrap();
-        lua.load("notes.assert.eq('hello', 'hello')").exec().unwrap();
+        lua.load("notes.assert.eq('hello', 'hello')")
+            .exec()
+            .unwrap();
     }
 
     #[test]

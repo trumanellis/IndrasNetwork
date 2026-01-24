@@ -37,8 +37,8 @@ use crate::append_log::{EventLog, EventLogConfig, EventLogEntry};
 use crate::blobs::{BlobStore, BlobStoreConfig, ContentRef};
 use crate::error::StorageError;
 use crate::structured::{
-    InterfaceRecord, InterfaceStore, MembershipRecord, PeerRecord, PeerRegistry, RedbStorage, RedbStorageConfig,
-    SyncStateStore,
+    InterfaceRecord, InterfaceStore, MembershipRecord, PeerRecord, PeerRegistry, RedbStorage,
+    RedbStorageConfig, SyncStateStore,
 };
 
 /// Configuration for composite storage
@@ -153,7 +153,10 @@ impl<I: PeerIdentity> CompositeStorage<I> {
     }
 
     /// Get or create an event log for an interface
-    pub async fn event_log(&self, interface_id: InterfaceId) -> Result<Arc<EventLog<I>>, StorageError> {
+    pub async fn event_log(
+        &self,
+        interface_id: InterfaceId,
+    ) -> Result<Arc<EventLog<I>>, StorageError> {
         if let Some(log) = self.event_logs.get(&interface_id) {
             return Ok(log.clone());
         }
@@ -179,10 +182,8 @@ impl<I: PeerIdentity> CompositeStorage<I> {
         // Check if payload should be stored as blob
         let sequence = if payload.len() >= self.config.blob_threshold {
             let content_ref = self.blobs.store(&payload).await?;
-            let blob_ref = crate::append_log::event_log::BlobRef::new(
-                content_ref.hash,
-                content_ref.size,
-            );
+            let blob_ref =
+                crate::append_log::event_log::BlobRef::new(content_ref.hash, content_ref.size);
             log.append_with_blob(event_id, blob_ref).await?
         } else {
             log.append(event_id, payload).await?
@@ -246,7 +247,11 @@ impl<I: PeerIdentity> CompositeStorage<I> {
     }
 
     /// Create a new interface
-    pub fn create_interface(&self, interface_id: InterfaceId, name: Option<String>) -> Result<(), StorageError> {
+    pub fn create_interface(
+        &self,
+        interface_id: InterfaceId,
+        name: Option<String>,
+    ) -> Result<(), StorageError> {
         let mut record = InterfaceRecord::new(interface_id);
         if let Some(n) = name {
             record = record.with_name(n);
@@ -266,7 +271,8 @@ impl<I: PeerIdentity> CompositeStorage<I> {
     /// Add a member to an interface
     pub fn add_member(&self, interface_id: &InterfaceId, peer: &I) -> Result<(), StorageError> {
         let membership = MembershipRecord::new(peer.as_bytes());
-        self.interface_store.add_member(interface_id, peer, &membership)
+        self.interface_store
+            .add_member(interface_id, peer, &membership)
     }
 
     /// Update sync state for a peer/interface
@@ -286,7 +292,8 @@ impl<I: PeerIdentity> CompositeStorage<I> {
         interface_id: &InterfaceId,
         up_to: EventId,
     ) -> Result<(), StorageError> {
-        self.sync_state.acknowledge_events(peer, interface_id, up_to)
+        self.sync_state
+            .acknowledge_events(peer, interface_id, up_to)
     }
 
     /// Queue an event for delivery to a peer
@@ -300,7 +307,11 @@ impl<I: PeerIdentity> CompositeStorage<I> {
     }
 
     /// Get pending events for a peer
-    pub fn pending_for(&self, peer: &I, interface_id: &InterfaceId) -> Result<Vec<EventId>, StorageError> {
+    pub fn pending_for(
+        &self,
+        peer: &I,
+        interface_id: &InterfaceId,
+    ) -> Result<Vec<EventId>, StorageError> {
         let pending = self.sync_state.get_pending(peer, interface_id)?;
         Ok(pending.into_iter().map(|p| p.event_id).collect())
     }
@@ -339,12 +350,15 @@ mod tests {
         let interface_id = InterfaceId::new([0x42; 32]);
 
         // Create interface
-        storage.create_interface(interface_id, Some("Test".to_string())).unwrap();
+        storage
+            .create_interface(interface_id, Some("Test".to_string()))
+            .unwrap();
 
         // Append events
         for i in 1..=5 {
             let event_id = EventId::new(1, i);
-            storage.append_event(&interface_id, event_id, Bytes::from(format!("data {}", i)))
+            storage
+                .append_event(&interface_id, event_id, Bytes::from(format!("data {}", i)))
                 .await
                 .unwrap();
         }
@@ -365,12 +379,17 @@ mod tests {
         let large_data = vec![0xAB; 10000];
         let event_id = EventId::new(1, 1);
 
-        storage.append_event(&interface_id, event_id, Bytes::from(large_data.clone()))
+        storage
+            .append_event(&interface_id, event_id, Bytes::from(large_data.clone()))
             .await
             .unwrap();
 
         // Read the event
-        let event = storage.get_event(&interface_id, event_id).await.unwrap().unwrap();
+        let event = storage
+            .get_event(&interface_id, event_id)
+            .await
+            .unwrap()
+            .unwrap();
 
         // Should have a blob reference
         assert!(event.blob_ref.is_some());
@@ -391,19 +410,27 @@ mod tests {
         let interface_id = InterfaceId::new([0xCD; 32]);
 
         // Register peer
-        storage.register_peer(&peer, Some("Alice".to_string())).unwrap();
+        storage
+            .register_peer(&peer, Some("Alice".to_string()))
+            .unwrap();
 
         // Create interface and add member
-        storage.create_interface(interface_id, Some("Chat".to_string())).unwrap();
+        storage
+            .create_interface(interface_id, Some("Chat".to_string()))
+            .unwrap();
         storage.add_member(&interface_id, &peer).unwrap();
 
         // Update sync state
         let heads = vec![[0x01; 32], [0x02; 32]];
-        storage.update_sync_state(&peer, &interface_id, heads.clone()).unwrap();
+        storage
+            .update_sync_state(&peer, &interface_id, heads.clone())
+            .unwrap();
 
         // Queue events for delivery
         for i in 1..=3 {
-            storage.queue_for_delivery(&peer, &interface_id, EventId::new(1, i)).unwrap();
+            storage
+                .queue_for_delivery(&peer, &interface_id, EventId::new(1, i))
+                .unwrap();
         }
 
         // Check pending
@@ -411,7 +438,9 @@ mod tests {
         assert_eq!(pending.len(), 3);
 
         // Acknowledge events
-        storage.acknowledge_events(&peer, &interface_id, EventId::new(1, 2)).unwrap();
+        storage
+            .acknowledge_events(&peer, &interface_id, EventId::new(1, 2))
+            .unwrap();
 
         // Check pending again
         let pending = storage.pending_for(&peer, &interface_id).unwrap();

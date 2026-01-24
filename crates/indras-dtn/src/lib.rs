@@ -228,9 +228,10 @@ impl DtnConfig {
 
         // Check strategy matches config
         if let DtnStrategy::SprayAndWait { copies } = self.default_strategy
-            && copies > self.epidemic.max_copies {
-                warnings.push(ConfigWarning::StrategyExceedsMaxCopies);
-            }
+            && copies > self.epidemic.max_copies
+        {
+            warnings.push(ConfigWarning::StrategyExceedsMaxCopies);
+        }
 
         // Warn about very short cleanup intervals
         if self.expiration.cleanup_interval < Duration::from_secs(10) {

@@ -14,9 +14,8 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
         "eq",
         lua.create_function(|_, (a, b, msg): (Value, Value, Option<String>)| {
             if !values_equal(&a, &b) {
-                let message = msg.unwrap_or_else(|| {
-                    format!("Assertion failed: {:?} == {:?}", a, b)
-                });
+                let message =
+                    msg.unwrap_or_else(|| format!("Assertion failed: {:?} == {:?}", a, b));
                 return Err(mlua::Error::external(message));
             }
             Ok(())
@@ -28,9 +27,8 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
         "ne",
         lua.create_function(|_, (a, b, msg): (Value, Value, Option<String>)| {
             if values_equal(&a, &b) {
-                let message = msg.unwrap_or_else(|| {
-                    format!("Assertion failed: {:?} ~= {:?}", a, b)
-                });
+                let message =
+                    msg.unwrap_or_else(|| format!("Assertion failed: {:?} ~= {:?}", a, b));
                 return Err(mlua::Error::external(message));
             }
             Ok(())
@@ -42,9 +40,7 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
         "gt",
         lua.create_function(|_, (a, b, msg): (f64, f64, Option<String>)| {
             if a <= b {
-                let message = msg.unwrap_or_else(|| {
-                    format!("Assertion failed: {} > {}", a, b)
-                });
+                let message = msg.unwrap_or_else(|| format!("Assertion failed: {} > {}", a, b));
                 return Err(mlua::Error::external(message));
             }
             Ok(())
@@ -56,9 +52,7 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
         "ge",
         lua.create_function(|_, (a, b, msg): (f64, f64, Option<String>)| {
             if a < b {
-                let message = msg.unwrap_or_else(|| {
-                    format!("Assertion failed: {} >= {}", a, b)
-                });
+                let message = msg.unwrap_or_else(|| format!("Assertion failed: {} >= {}", a, b));
                 return Err(mlua::Error::external(message));
             }
             Ok(())
@@ -70,9 +64,7 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
         "lt",
         lua.create_function(|_, (a, b, msg): (f64, f64, Option<String>)| {
             if a >= b {
-                let message = msg.unwrap_or_else(|| {
-                    format!("Assertion failed: {} < {}", a, b)
-                });
+                let message = msg.unwrap_or_else(|| format!("Assertion failed: {} < {}", a, b));
                 return Err(mlua::Error::external(message));
             }
             Ok(())
@@ -84,9 +76,7 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
         "le",
         lua.create_function(|_, (a, b, msg): (f64, f64, Option<String>)| {
             if a > b {
-                let message = msg.unwrap_or_else(|| {
-                    format!("Assertion failed: {} <= {}", a, b)
-                });
+                let message = msg.unwrap_or_else(|| format!("Assertion failed: {} <= {}", a, b));
                 return Err(mlua::Error::external(message));
             }
             Ok(())
@@ -122,7 +112,8 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
         "nil_",
         lua.create_function(|_, (val, msg): (Value, Option<String>)| {
             if !matches!(val, Value::Nil) {
-                let message = msg.unwrap_or_else(|| format!("Assertion failed: expected nil, got {:?}", val));
+                let message =
+                    msg.unwrap_or_else(|| format!("Assertion failed: expected nil, got {:?}", val));
                 return Err(mlua::Error::external(message));
             }
             Ok(())
@@ -134,7 +125,8 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
         "not_nil",
         lua.create_function(|_, (val, msg): (Value, Option<String>)| {
             if matches!(val, Value::Nil) {
-                let message = msg.unwrap_or_else(|| "Assertion failed: expected non-nil".to_string());
+                let message =
+                    msg.unwrap_or_else(|| "Assertion failed: expected non-nil".to_string());
                 return Err(mlua::Error::external(message));
             }
             Ok(())
@@ -144,16 +136,18 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
     // assert.approx(a, b, epsilon?, msg?) - assert approximate equality for floats
     assert_table.set(
         "approx",
-        lua.create_function(|_, (a, b, epsilon, msg): (f64, f64, Option<f64>, Option<String>)| {
-            let eps = epsilon.unwrap_or(1e-9);
-            if (a - b).abs() > eps {
-                let message = msg.unwrap_or_else(|| {
-                    format!("Assertion failed: {} ~= {} (epsilon={})", a, b, eps)
-                });
-                return Err(mlua::Error::external(message));
-            }
-            Ok(())
-        })?,
+        lua.create_function(
+            |_, (a, b, epsilon, msg): (f64, f64, Option<f64>, Option<String>)| {
+                let eps = epsilon.unwrap_or(1e-9);
+                if (a - b).abs() > eps {
+                    let message = msg.unwrap_or_else(|| {
+                        format!("Assertion failed: {} ~= {} (epsilon={})", a, b, eps)
+                    });
+                    return Err(mlua::Error::external(message));
+                }
+                Ok(())
+            },
+        )?,
     )?;
 
     // assert.contains(table, value, msg?) - assert table contains value
@@ -181,24 +175,27 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
     // assert.len(table, expected_len, msg?) - assert table length
     assert_table.set(
         "len",
-        lua.create_function(|_, (table, expected_len, msg): (Table, i64, Option<String>)| {
-            let actual_len = table.len()?;
-            if actual_len != expected_len {
-                let message = msg.unwrap_or_else(|| {
-                    format!("Assertion failed: expected length {}, got {}", expected_len, actual_len)
-                });
-                return Err(mlua::Error::external(message));
-            }
-            Ok(())
-        })?,
+        lua.create_function(
+            |_, (table, expected_len, msg): (Table, i64, Option<String>)| {
+                let actual_len = table.len()?;
+                if actual_len != expected_len {
+                    let message = msg.unwrap_or_else(|| {
+                        format!(
+                            "Assertion failed: expected length {}, got {}",
+                            expected_len, actual_len
+                        )
+                    });
+                    return Err(mlua::Error::external(message));
+                }
+                Ok(())
+            },
+        )?,
     )?;
 
     // assert.fail(msg) - always fail with message
     assert_table.set(
         "fail",
-        lua.create_function(|_, msg: String| {
-            Err::<(), _>(mlua::Error::external(msg))
-        })?,
+        lua.create_function(|_, msg: String| Err::<(), _>(mlua::Error::external(msg)))?,
     )?;
 
     indras.set("assert", assert_table)?;
@@ -236,7 +233,9 @@ mod tests {
     fn test_assert_eq_pass() {
         let lua = setup_lua();
         lua.load("indras.assert.eq(1, 1)").exec().unwrap();
-        lua.load("indras.assert.eq('hello', 'hello')").exec().unwrap();
+        lua.load("indras.assert.eq('hello', 'hello')")
+            .exec()
+            .unwrap();
     }
 
     #[test]
@@ -284,7 +283,9 @@ mod tests {
     #[test]
     fn test_assert_approx() {
         let lua = setup_lua();
-        lua.load("indras.assert.approx(1.0, 1.0000001, 0.001)").exec().unwrap();
+        lua.load("indras.assert.approx(1.0, 1.0000001, 0.001)")
+            .exec()
+            .unwrap();
         let result = lua.load("indras.assert.approx(1.0, 2.0, 0.001)").exec();
         assert!(result.is_err());
     }
@@ -292,7 +293,9 @@ mod tests {
     #[test]
     fn test_assert_contains() {
         let lua = setup_lua();
-        lua.load("indras.assert.contains({1, 2, 3}, 2)").exec().unwrap();
+        lua.load("indras.assert.contains({1, 2, 3}, 2)")
+            .exec()
+            .unwrap();
         let result = lua.load("indras.assert.contains({1, 2, 3}, 4)").exec();
         assert!(result.is_err());
     }
@@ -315,7 +318,9 @@ mod tests {
     #[test]
     fn test_custom_message() {
         let lua = setup_lua();
-        let result = lua.load("indras.assert.eq(1, 2, 'custom error message')").exec();
+        let result = lua
+            .load("indras.assert.eq(1, 2, 'custom error message')")
+            .exec();
         let err = result.unwrap_err();
         assert!(err.to_string().contains("custom error message"));
     }

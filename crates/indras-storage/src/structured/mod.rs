@@ -8,12 +8,12 @@
 //!
 //! Unlike the append-only log, this storage supports updates and deletions.
 
-mod tables;
-mod peer_registry;
 pub mod interface_store;
+mod peer_registry;
 mod sync_state;
+mod tables;
 
-pub use tables::{RedbStorage, RedbStorageConfig};
-pub use peer_registry::{PeerRecord, PeerRegistry};
 pub use interface_store::{InterfaceRecord, InterfaceStore, MembershipRecord};
+pub use peer_registry::{PeerRecord, PeerRegistry};
 pub use sync_state::{SyncStateRecord, SyncStateStore};
+pub use tables::{RedbStorage, RedbStorageConfig};

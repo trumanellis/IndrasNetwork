@@ -8,8 +8,8 @@
 //! to run the full network tests.
 
 use indras_transport::{
-    ConnectionManager, ConnectionConfig, IrohIdentity, SecretKey,
-    frame_message, parse_framed_message, WireMessage, PresenceInfo,
+    ConnectionConfig, ConnectionManager, IrohIdentity, PresenceInfo, SecretKey, WireMessage,
+    frame_message, parse_framed_message,
 };
 
 /// Test connection manager creation and basic properties
@@ -23,10 +23,7 @@ async fn test_connection_manager_basic() {
         .expect("Failed to create manager");
 
     // Verify identity matches secret key
-    assert_eq!(
-        manager.local_identity(),
-        IrohIdentity::new(secret.public())
-    );
+    assert_eq!(manager.local_identity(), IrohIdentity::new(secret.public()));
 
     // Verify no connections initially
     assert_eq!(manager.connected_peers().len(), 0);
@@ -85,8 +82,7 @@ fn test_presence_info_serialization() {
     let secret = SecretKey::generate(&mut rand::rng());
     let id = IrohIdentity::new(secret.public());
 
-    let presence = PresenceInfo::new(id)
-        .with_name("TestPeer");
+    let presence = PresenceInfo::new(id).with_name("TestPeer");
 
     let msg = WireMessage::PresenceAnnounce(presence.clone());
     let framed = frame_message(&msg).expect("Frame failed");
@@ -159,7 +155,9 @@ async fn test_two_peers_connect() {
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     // A connects to B
-    let conn = manager_a.connect(addr_b).await
+    let conn = manager_a
+        .connect(addr_b)
+        .await
         .expect("Failed to connect A to B");
 
     // Verify the connection
@@ -232,7 +230,9 @@ async fn test_bidirectional_stream() {
     let conn = manager_a.connect(addr_b).await.expect("Connect failed");
     let (mut send, mut recv) = conn.open_bi().await.expect("Open bi failed");
 
-    send.write_all(b"Hello from A!").await.expect("Write failed");
+    send.write_all(b"Hello from A!")
+        .await
+        .expect("Write failed");
     send.finish().expect("Finish failed");
 
     let response = recv.read_to_end(1024).await.expect("Read failed");

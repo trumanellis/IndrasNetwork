@@ -1,0 +1,4 @@
+{"timestamp":"2026-01-23T20:19:14.071932Z","level":"INFO","message":"Running Lua script: scripts/examples/prophet_routing.lua","target":"lua_runner","filename":"simulation/src/bin/lua_runner.rs","line_number":94}
+{"timestamp":"2026-01-23T20:19:14.074626Z","level":"INFO","message":"Packet A#0 delivered to C via B at tick 1 (latency: 0 ticks)","target":"indras_simulation::simulation","filename":"simulation/src/simulation.rs","line_number":360}
+{"timestamp":"2026-01-23T20:19:14.074674Z","level":"INFO","message":"Back-propagation complete for packet A#0 (latency: 1 ticks)","target":"indras_simulation::simulation","filename":"simulation/src/simulation.rs","line_number":766}
+{"timestamp":"2026-01-23T20:19:14.074756Z","level":"INFO","message":"Script completed successfully","target":"lua_runner","filename":"simulation/src/bin/lua_runner.rs","line_number":108}

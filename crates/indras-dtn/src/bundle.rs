@@ -402,8 +402,8 @@ mod tests {
     #[test]
     fn test_bundle_summary() {
         let packet = make_test_packet();
-        let bundle =
-            Bundle::from_packet(packet, Duration::hours(1)).with_class_of_service(ClassOfService::Expedited);
+        let bundle = Bundle::from_packet(packet, Duration::hours(1))
+            .with_class_of_service(ClassOfService::Expedited);
 
         let summary = bundle.summary();
         assert_eq!(summary.bundle_id, bundle.bundle_id);

@@ -3,8 +3,8 @@
 //! Provides visualization of Automerge CRDT document sync
 //! between simulated peer instances.
 
-use dioxus::prelude::*;
 use crate::state::document::*;
+use dioxus::prelude::*;
 
 /// Main Documents view component
 #[component]
@@ -65,7 +65,9 @@ pub fn PeerDocumentsGrid(state: Signal<DocumentState>) -> Element {
 /// Card showing a single peer's document state
 #[component]
 pub fn PeerDocumentCard(peer_state: PeerDocumentState) -> Element {
-    let head_preview = peer_state.heads.first()
+    let head_preview = peer_state
+        .heads
+        .first()
         .map(|h| {
             let len = h.len().min(8);
             format!("{}...", &h[..len])
@@ -157,24 +159,52 @@ pub fn DocumentEventTimeline(state: Signal<DocumentState>) -> Element {
 #[component]
 pub fn DocumentEventItem(event: DocumentEvent) -> Element {
     let (icon, class, text) = match &event {
-        DocumentEvent::NoteCreated { peer, title, .. } =>
-            ("+", "created", format!("{} created \"{}\"", peer, title)),
+        DocumentEvent::NoteCreated { peer, title, .. } => {
+            ("+", "created", format!("{} created \"{}\"", peer, title))
+        }
         DocumentEvent::NoteUpdated { peer, note_id, .. } => {
-            let id_preview = if note_id.len() > 12 { &note_id[..12] } else { note_id };
+            let id_preview = if note_id.len() > 12 {
+                &note_id[..12]
+            } else {
+                note_id
+            };
             ("~", "updated", format!("{} updated {}", peer, id_preview))
         }
         DocumentEvent::NoteDeleted { peer, note_id, .. } => {
-            let id_preview = if note_id.len() > 12 { &note_id[..12] } else { note_id };
+            let id_preview = if note_id.len() > 12 {
+                &note_id[..12]
+            } else {
+                note_id
+            };
             ("-", "deleted", format!("{} deleted {}", peer, id_preview))
         }
-        DocumentEvent::SyncGenerated { from, to, size_bytes, .. } =>
-            (">", "sync", format!("{} -> {} sync ({}B)", from, to, size_bytes)),
-        DocumentEvent::SyncApplied { peer, changes_applied, .. } =>
-            ("<", "sync", format!("{} applied: {}", peer, if *changes_applied { "changes" } else { "no-op" })),
-        DocumentEvent::Converged { peers, .. } =>
-            ("*", "converged", format!("Converged: {}", peers.join(", "))),
-        DocumentEvent::PhaseChanged { phase, .. } =>
-            ("#", "phase", format!("{}", phase)),
+        DocumentEvent::SyncGenerated {
+            from,
+            to,
+            size_bytes,
+            ..
+        } => (
+            ">",
+            "sync",
+            format!("{} -> {} sync ({}B)", from, to, size_bytes),
+        ),
+        DocumentEvent::SyncApplied {
+            peer,
+            changes_applied,
+            ..
+        } => (
+            "<",
+            "sync",
+            format!(
+                "{} applied: {}",
+                peer,
+                if *changes_applied { "changes" } else { "no-op" }
+            ),
+        ),
+        DocumentEvent::Converged { peers, .. } => {
+            ("*", "converged", format!("Converged: {}", peers.join(", ")))
+        }
+        DocumentEvent::PhaseChanged { phase, .. } => ("#", "phase", phase.to_string()),
     };
 
     rsx! {
