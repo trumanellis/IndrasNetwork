@@ -1,11 +1,13 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+pub mod discovery;
 pub mod document;
 pub mod instance;
 pub mod sdk;
 pub mod unified;
 
+pub use discovery::DiscoveryState;
 pub use document::DocumentState;
 pub use instance::{format_network_event, InstanceState, PacketAnimation};
 pub use sdk::SDKState;
@@ -190,6 +192,8 @@ pub enum Tab {
     Documents,
     /// SDK stress test dashboards
     SDK,
+    /// Discovery scenario dashboards
+    Discovery,
 }
 
 /// Event severity/type for display purposes
@@ -278,6 +282,20 @@ pub struct SimMetrics {
     pub p50_latency_us: f64,
     pub p95_latency_us: f64,
     pub p99_latency_us: f64,
+
+    // Discovery-specific metrics
+    pub peers_discovered: u64,
+    pub discovery_failures: u64,
+    pub discovery_completeness: f64,
+    pub pq_key_completeness: f64,
+    pub introduction_requests_sent: u64,
+    pub introduction_responses_received: u64,
+    pub rate_limited_count: u64,
+    pub rate_limit_violations: u64,
+    pub realms_available: u64,
+    pub churn_events: u64,
+    pub reconnect_count: u64,
+    pub discovery_latency_p99_ticks: u64,
 }
 
 impl SimMetrics {
@@ -379,6 +397,20 @@ impl SimMetrics {
         merge_float!(p50_latency_us);
         merge_float!(p95_latency_us);
         merge_float!(p99_latency_us);
+
+        // Discovery metrics
+        merge_field!(peers_discovered);
+        merge_field!(discovery_failures);
+        merge_float!(discovery_completeness);
+        merge_float!(pq_key_completeness);
+        merge_field!(introduction_requests_sent);
+        merge_field!(introduction_responses_received);
+        merge_field!(rate_limited_count);
+        merge_field!(rate_limit_violations);
+        merge_field!(realms_available);
+        merge_field!(churn_events);
+        merge_field!(reconnect_count);
+        merge_field!(discovery_latency_p99_ticks);
     }
 }
 

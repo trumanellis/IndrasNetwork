@@ -42,6 +42,10 @@ pub fn App() -> Element {
     let mut sdk_state = use_signal(SDKState::new);
     let mut sdk_cancel_token: Signal<Option<Arc<Mutex<bool>>>> = use_signal(|| None);
 
+    // Discovery view state
+    let mut discovery_state = use_signal(DiscoveryState::new);
+    let mut discovery_cancel_token: Signal<Option<Arc<Mutex<bool>>>> = use_signal(|| None);
+
     // Channel for receiving metrics updates from background task
     let mut cancel_token: Signal<Option<Arc<Mutex<bool>>>> = use_signal(|| None);
 
@@ -598,6 +602,110 @@ pub fn App() -> Element {
                         }
                     }
                 },
+                Tab::Discovery => rsx! {
+                    // Full-width content for Discovery tab
+                    div { class: "content", style: "padding: 0;",
+                        DiscoveryView {
+                            state: discovery_state,
+                            on_run: move |_| {
+                                let current_dashboard = discovery_state.read().current_dashboard;
+                                let scenario = current_dashboard.scenario_name().to_string();
+                                let level_str = discovery_state.read().stress_level.clone();
+                                let level = match level_str.as_str() {
+                                    "quick" => StressLevel::Quick,
+                                    "full" => StressLevel::Full,
+                                    _ => StressLevel::Medium,
+                                };
+
+                                // Reset state
+                                discovery_state.write().reset();
+                                discovery_state.write().running = true;
+
+                                // Create cancel token
+                                let token = Arc::new(Mutex::new(false));
+                                discovery_cancel_token.set(Some(token.clone()));
+
+                                // Spawn async task to run the scenario
+                                spawn(async move {
+                                    let runner = ScenarioRunner::new();
+                                    let (tx, mut rx) = mpsc::channel::<MetricsUpdate>(100);
+
+                                    // Spawn the scenario runner
+                                    let scenario_clone = scenario.clone();
+                                    let run_handle = tokio::spawn(async move {
+                                        runner.run_scenario(&scenario_clone, level, tx).await
+                                    });
+
+                                    // Process updates
+                                    while let Some(update) = rx.recv().await {
+                                        if *token.lock().await {
+                                            break;
+                                        }
+
+                                        match update {
+                                            MetricsUpdate::Stats(new_metrics) => {
+                                                discovery_state.write().metrics.merge(&new_metrics);
+                                            }
+                                            MetricsUpdate::Event(event) => {
+                                                discovery_state.write().add_event(event);
+                                            }
+                                            MetricsUpdate::Tick { current, max } => {
+                                                let mut state = discovery_state.write();
+                                                state.metrics.current_tick = current;
+                                                state.metrics.max_ticks = max;
+                                            }
+                                            MetricsUpdate::Complete(result) => {
+                                                discovery_state.write().add_event(SimEvent {
+                                                    tick: result.metrics.current_tick,
+                                                    event_type: if result.passed {
+                                                        EventType::Success
+                                                    } else {
+                                                        EventType::Error
+                                                    },
+                                                    description: if result.passed {
+                                                        format!("{} completed successfully", scenario)
+                                                    } else {
+                                                        format!("{} failed: {:?}", scenario, result.errors)
+                                                    },
+                                                });
+                                            }
+                                            MetricsUpdate::Error(err) => {
+                                                discovery_state.write().add_event(SimEvent {
+                                                    tick: 0,
+                                                    event_type: EventType::Error,
+                                                    description: err,
+                                                });
+                                            }
+                                        }
+                                    }
+
+                                    let _ = run_handle.await;
+                                    discovery_state.write().running = false;
+                                    discovery_cancel_token.set(None);
+                                });
+                            },
+                            on_stop: move |_| {
+                                if let Some(token) = discovery_cancel_token() {
+                                    spawn(async move {
+                                        *token.lock().await = true;
+                                    });
+                                }
+                                discovery_state.write().running = false;
+                                let current_tick = discovery_state.read().metrics.current_tick;
+                                discovery_state.write().add_event(SimEvent {
+                                    tick: current_tick,
+                                    event_type: EventType::Warning,
+                                    description: "Test execution stopped by user".to_string(),
+                                });
+                            },
+                            on_level_change: move |level: String| {
+                                if !discovery_state.read().running {
+                                    discovery_state.write().stress_level = level;
+                                }
+                            },
+                        }
+                    }
+                },
             }
         }
 
@@ -608,6 +716,7 @@ pub fn App() -> Element {
                     &instance_state.read(),
                     &document_state.read(),
                     &sdk_state.read(),
+                    &discovery_state.read(),
                     &metrics(),
                     running(),
                     selected_scenario().as_deref(),
@@ -805,6 +914,85 @@ pub fn App() -> Element {
                                 run_scenario(());
                             }
                         }
+                        Tab::Discovery => {
+                            let is_running = discovery_state.read().running;
+                            if is_running {
+                                // Stop
+                                if let Some(token) = discovery_cancel_token() {
+                                    spawn(async move {
+                                        *token.lock().await = true;
+                                    });
+                                }
+                                discovery_state.write().running = false;
+                            } else {
+                                // Start Discovery test
+                                let current_dashboard = discovery_state.read().current_dashboard;
+                                let scenario = current_dashboard.scenario_name().to_string();
+                                let level_str = discovery_state.read().stress_level.clone();
+                                let level = match level_str.as_str() {
+                                    "quick" => StressLevel::Quick,
+                                    "full" => StressLevel::Full,
+                                    _ => StressLevel::Medium,
+                                };
+
+                                discovery_state.write().reset();
+                                discovery_state.write().running = true;
+
+                                let token = Arc::new(Mutex::new(false));
+                                discovery_cancel_token.set(Some(token.clone()));
+
+                                spawn(async move {
+                                    let runner = ScenarioRunner::new();
+                                    let (tx, mut rx) = mpsc::channel::<MetricsUpdate>(100);
+
+                                    let scenario_clone = scenario.clone();
+                                    let run_handle = tokio::spawn(async move {
+                                        runner.run_scenario(&scenario_clone, level, tx).await
+                                    });
+
+                                    while let Some(update) = rx.recv().await {
+                                        if *token.lock().await {
+                                            break;
+                                        }
+                                        match update {
+                                            MetricsUpdate::Stats(new_metrics) => {
+                                                discovery_state.write().metrics.merge(&new_metrics);
+                                            }
+                                            MetricsUpdate::Event(event) => {
+                                                discovery_state.write().add_event(event);
+                                            }
+                                            MetricsUpdate::Tick { current, max } => {
+                                                let mut state = discovery_state.write();
+                                                state.metrics.current_tick = current;
+                                                state.metrics.max_ticks = max;
+                                            }
+                                            MetricsUpdate::Complete(result) => {
+                                                discovery_state.write().add_event(SimEvent {
+                                                    tick: result.metrics.current_tick,
+                                                    event_type: if result.passed { EventType::Success } else { EventType::Error },
+                                                    description: if result.passed {
+                                                        format!("{} completed successfully", scenario)
+                                                    } else {
+                                                        format!("{} failed: {:?}", scenario, result.errors)
+                                                    },
+                                                });
+                                            }
+                                            MetricsUpdate::Error(err) => {
+                                                discovery_state.write().add_event(SimEvent {
+                                                    tick: 0,
+                                                    event_type: EventType::Error,
+                                                    description: err,
+                                                });
+                                            }
+                                        }
+                                    }
+
+                                    let _ = run_handle.await;
+                                    discovery_state.write().running = false;
+                                    discovery_cancel_token.set(None);
+                                });
+                            }
+                        }
                     }
                 },
                 on_reset: move |_| {
@@ -838,6 +1026,14 @@ pub fn App() -> Element {
                             metrics.set(SimMetrics::default());
                             events.set(Vec::new());
                         }
+                        Tab::Discovery => {
+                            if let Some(token) = discovery_cancel_token() {
+                                spawn(async move {
+                                    *token.lock().await = true;
+                                });
+                            }
+                            discovery_state.write().reset();
+                        }
                     }
                 },
                 on_speed_change: move |speed: f64| {
@@ -855,6 +1051,11 @@ pub fn App() -> Element {
                         Tab::SDK => {
                             if !sdk_state.read().running {
                                 sdk_state.write().stress_level = level;
+                            }
+                        }
+                        Tab::Discovery => {
+                            if !discovery_state.read().running {
+                                discovery_state.write().stress_level = level;
                             }
                         }
                         _ => {}

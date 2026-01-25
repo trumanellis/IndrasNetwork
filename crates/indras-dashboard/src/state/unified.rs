@@ -2,7 +2,7 @@
 //!
 //! Provides a common interface across all tab types for the unified control bar.
 
-use super::{DocumentState, InstanceState, SDKState, SimMetrics, Tab};
+use super::{DiscoveryState, DocumentState, InstanceState, SDKState, SimMetrics, Tab};
 
 /// Which context is currently active
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -13,6 +13,7 @@ pub enum ActiveContext {
     Documents,
     SDK,
     Metrics,
+    Discovery,
 }
 
 impl ActiveContext {
@@ -24,6 +25,7 @@ impl ActiveContext {
             ActiveContext::Documents => "Document Sync",
             ActiveContext::SDK => "SDK Stress Test",
             ActiveContext::Metrics => "Stress Test",
+            ActiveContext::Discovery => "Discovery Test",
         }
     }
 
@@ -35,6 +37,7 @@ impl ActiveContext {
             ActiveContext::Documents => "📄",
             ActiveContext::SDK => "⚡",
             ActiveContext::Metrics => "📊",
+            ActiveContext::Discovery => "🔍",
         }
     }
 }
@@ -172,12 +175,35 @@ impl UnifiedPlaybackState {
         }
     }
 
+    /// Create state from the Discovery tab
+    pub fn from_discovery(state: &DiscoveryState) -> Self {
+        let dashboard_name = state.current_dashboard.display_name().to_string();
+
+        Self {
+            context: ActiveContext::Discovery,
+            context_name: dashboard_name,
+            is_active: true,
+            is_running: state.running,
+            is_paused: false,
+            current_tick: state.metrics.current_tick,
+            max_ticks: state.metrics.max_ticks,
+            playback_speed: 1.0,
+            can_step: false,
+            can_play: true,
+            can_reset: state.running,
+            has_speed_control: false,
+            has_stress_control: true,
+            stress_level: state.stress_level.clone(),
+        }
+    }
+
     /// Get the current state based on active tab
     pub fn from_tab(
         tab: Tab,
         instance_state: &InstanceState,
         document_state: &DocumentState,
         sdk_state: &SDKState,
+        discovery_state: &DiscoveryState,
         metrics: &SimMetrics,
         metrics_running: bool,
         metrics_scenario: Option<&str>,
@@ -187,6 +213,7 @@ impl UnifiedPlaybackState {
             Tab::Simulations => Self::from_simulations(instance_state),
             Tab::Documents => Self::from_documents(document_state),
             Tab::SDK => Self::from_sdk(sdk_state),
+            Tab::Discovery => Self::from_discovery(discovery_state),
             Tab::Metrics => Self::from_metrics(metrics, metrics_running, metrics_scenario, metrics_stress_level),
         }
     }
