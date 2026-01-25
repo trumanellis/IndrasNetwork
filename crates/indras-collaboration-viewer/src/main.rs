@@ -11,7 +11,7 @@ mod components;
 mod state;
 mod theme;
 
-use components::{ControlBar, Header, PeerPanel, RightPanel, VisualizationPanel};
+use components::{ControlBar, Header, PeerPanel, POVDashboard, RightPanel, VisualizationPanel};
 use state::{CollaborationState, EventType, Peer, Phase, PlanSection, Quest, QuestStatus, ScenarioData};
 use theme::{ThemedRoot, ThemeSwitcher};
 
@@ -89,25 +89,52 @@ fn App() -> Element {
         state.write().speed = speed;
     };
 
+    // POV mode handlers
+    let on_select_pov = move |peer: Peer| {
+        state.write().selected_pov = Some(peer);
+    };
+
+    let on_back_to_overview = move |_| {
+        state.write().selected_pov = None;
+    };
+
+    let on_switch_pov = move |peer: Peer| {
+        state.write().selected_pov = Some(peer);
+    };
+
     let current_state = state.read().clone();
 
     rsx! {
         ThemedRoot {
             ThemeSwitcher {}
-            div { class: "app-container",
-                Header { state: current_state.clone() }
-                main { class: "main-content",
-                    PeerPanel { state: current_state.clone() }
-                    VisualizationPanel { state: current_state.clone() }
-                    RightPanel { state: current_state.clone() }
+            // Conditionally render Overview or POV Dashboard
+            if let Some(pov_peer) = current_state.selected_pov {
+                // POV Mode
+                POVDashboard {
+                    peer: pov_peer,
+                    state: current_state.clone(),
+                    on_back: on_back_to_overview,
+                    on_switch_pov: on_switch_pov,
                 }
-                ControlBar {
-                    state: current_state,
-                    on_step: on_step,
-                    on_play_pause: on_play_pause,
-                    on_reset: on_reset,
-                    on_speed_change: on_speed_change,
+            } else {
+                // Overview Mode
+                div { class: "app-container",
+                    Header { state: current_state.clone() }
+                    main { class: "main-content",
+                        PeerPanel { state: current_state.clone(), on_select_pov: on_select_pov }
+                        VisualizationPanel { state: current_state.clone() }
+                        RightPanel { state: current_state.clone() }
+                    }
                 }
+            }
+
+            // Floating controls - always visible on all screens
+            ControlBar {
+                state: current_state,
+                on_step: on_step,
+                on_play_pause: on_play_pause,
+                on_reset: on_reset,
+                on_speed_change: on_speed_change,
             }
         }
     }

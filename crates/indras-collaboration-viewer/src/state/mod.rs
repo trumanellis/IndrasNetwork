@@ -198,6 +198,15 @@ pub struct PeerState {
     pub messages_sent: u32,
 }
 
+/// Stats for a specific peer
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PeerStats {
+    pub quests_created: usize,
+    pub quests_assigned: usize,
+    pub quests_completed: usize,
+    pub sections_written: usize,
+}
+
 /// Main simulation state
 #[derive(Clone, Debug, PartialEq)]
 pub struct CollaborationState {
@@ -220,6 +229,9 @@ pub struct CollaborationState {
     pub active_packets: Vec<PacketAnimation>,
     pub active_edges: Vec<(Peer, Peer)>,
     pub highlighted_quest: Option<u32>,
+
+    // POV mode
+    pub selected_pov: Option<Peer>,
 }
 
 impl Default for CollaborationState {
@@ -249,6 +261,7 @@ impl Default for CollaborationState {
             active_packets: Vec::new(),
             active_edges: Vec::new(),
             highlighted_quest: None,
+            selected_pov: None,
         }
     }
 }
@@ -260,6 +273,52 @@ impl CollaborationState {
             .iter()
             .filter(|q| q.status == status)
             .collect()
+    }
+
+    /// Filter quests by peer involvement (creator OR assignee)
+    pub fn quests_for_peer(&self, peer: Peer) -> Vec<&Quest> {
+        self.quests
+            .iter()
+            .filter(|q| q.creator == peer || q.assignee == peer)
+            .collect()
+    }
+
+    /// Filter quests for peer by status
+    pub fn quests_for_peer_by_status(&self, peer: Peer, status: QuestStatus) -> Vec<&Quest> {
+        self.quests
+            .iter()
+            .filter(|q| (q.creator == peer || q.assignee == peer) && q.status == status)
+            .collect()
+    }
+
+    /// Filter sections by author
+    pub fn sections_for_peer(&self, peer: Peer) -> Vec<&PlanSection> {
+        self.plan_sections
+            .iter()
+            .filter(|s| s.author == peer)
+            .collect()
+    }
+
+    /// Filter events involving peer
+    pub fn events_for_peer(&self, peer: Peer) -> Vec<&SimEvent> {
+        self.events
+            .iter()
+            .filter(|e| e.peer == Some(peer))
+            .collect()
+    }
+
+    /// Stats for a specific peer
+    pub fn stats_for_peer(&self, peer: Peer) -> PeerStats {
+        let quests = self.quests_for_peer(peer);
+        PeerStats {
+            quests_created: quests.iter().filter(|q| q.creator == peer).count(),
+            quests_assigned: quests.iter().filter(|q| q.assignee == peer).count(),
+            quests_completed: quests
+                .iter()
+                .filter(|q| q.assignee == peer && q.status == QuestStatus::Completed)
+                .count(),
+            sections_written: self.sections_for_peer(peer).len(),
+        }
     }
 
     /// Add an event
