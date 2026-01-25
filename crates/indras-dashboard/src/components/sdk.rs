@@ -10,16 +10,15 @@ use crate::state::{EventType, SimEvent};
 use dioxus::prelude::*;
 
 /// Main SDK tab view with dashboard selector and content
+/// Playback controls and stress level moved to unified bottom control bar
 #[component]
 pub fn SDKView(
     state: Signal<SDKState>,
-    on_run: EventHandler<()>,
-    on_stop: EventHandler<()>,
-    on_level_change: EventHandler<String>,
+    #[allow(unused)] on_run: EventHandler<()>,
+    #[allow(unused)] on_stop: EventHandler<()>,
+    #[allow(unused)] on_level_change: EventHandler<String>,
 ) -> Element {
     let current_dashboard = state.read().current_dashboard;
-    let running = state.read().running;
-    let stress_level = state.read().stress_level.clone();
 
     rsx! {
         div { class: "sdk-view",
@@ -48,47 +47,7 @@ pub fn SDKView(
                     }
                 }
 
-                // Stress level selector
-                div { class: "stress-selector",
-                    h3 { "Stress Level" }
-                    div { class: "level-buttons",
-                        button {
-                            class: if stress_level == "quick" { "level-btn active" } else { "level-btn" },
-                            disabled: running,
-                            onclick: move |_| on_level_change.call("quick".to_string()),
-                            "Quick"
-                        }
-                        button {
-                            class: if stress_level == "medium" { "level-btn active" } else { "level-btn" },
-                            disabled: running,
-                            onclick: move |_| on_level_change.call("medium".to_string()),
-                            "Medium"
-                        }
-                        button {
-                            class: if stress_level == "full" { "level-btn active" } else { "level-btn" },
-                            disabled: running,
-                            onclick: move |_| on_level_change.call("full".to_string()),
-                            "Full"
-                        }
-                    }
-                }
-
-                // Run/Stop button
-                div { class: "action-buttons",
-                    if running {
-                        button {
-                            class: "stop-button",
-                            onclick: move |_| on_stop.call(()),
-                            "⏹ Stop"
-                        }
-                    } else {
-                        button {
-                            class: "run-button",
-                            onclick: move |_| on_run.call(()),
-                            "▶ Run {current_dashboard.display_name()}"
-                        }
-                    }
-                }
+                // Controls moved to unified bottom control bar
             }
 
             // Main dashboard content area

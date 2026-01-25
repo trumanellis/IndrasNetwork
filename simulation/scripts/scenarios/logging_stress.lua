@@ -23,7 +23,7 @@ local CONFIG = {
 }
 
 -- Select config level (default to quick)
-local LEVEL = os.getenv("LOG_STRESS_LEVEL") or "quick"
+local LEVEL = os.getenv("STRESS_LEVEL") or "quick"
 local config = CONFIG[LEVEL] or CONFIG.quick
 
 -- Test parameters
@@ -140,10 +140,10 @@ local sample_peers = {
 -- PHASE 1: High-volume logging at info level
 indras.log.info("Phase 1: High-volume info logging", {
     trace_id = scenario_ctx.trace_id,
-    target_events = math.floor(LOG_EVENTS_TARGET * 0.4)
+    target_events = math.floor(LOG_EVENTS_TARGET * 0.5)
 })
 
-local phase1_target = math.floor(LOG_EVENTS_TARGET * 0.4)
+local phase1_target = math.floor(LOG_EVENTS_TARGET * 0.5)
 for i = 1, phase1_target do
     local event_type = sample_strings[math.random(#sample_strings)]
     local peer_id = sample_peers[math.random(#sample_peers)]
@@ -170,10 +170,10 @@ indras.log.info("Phase 1 complete", {
 -- PHASE 2: Mixed log levels with various data types
 indras.log.info("Phase 2: Mixed log levels", {
     trace_id = scenario_ctx.trace_id,
-    target_events = math.floor(LOG_EVENTS_TARGET * 0.3)
+    target_events = math.floor(LOG_EVENTS_TARGET * 0.4)
 })
 
-local phase2_target = math.floor(LOG_EVENTS_TARGET * 0.3)
+local phase2_target = math.floor(LOG_EVENTS_TARGET * 0.4)
 local log_levels = {"trace", "debug", "info", "warn", "error"}
 local level_weights = {10, 20, 40, 20, 10}  -- Percentage distribution
 

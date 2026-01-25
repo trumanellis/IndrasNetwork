@@ -6,10 +6,12 @@ use dioxus::prelude::*;
 use indras_simulation::{NetworkEvent, PacketId, PeerId};
 
 pub mod charts;
+pub mod control_bar;
 pub mod documents;
 pub mod panels;
 pub mod sdk;
 
+pub use control_bar::UnifiedControlBar;
 pub use documents::DocumentsView;
 pub use sdk::SDKView;
 
@@ -96,89 +98,21 @@ pub fn ScenarioDescription(selected: Option<String>) -> Element {
     }
 }
 
-/// Controls component for stress level selection and run/stop actions
+/// Controls component - now just shows running indicator
+/// Stress level and Run/Stop moved to unified bottom control bar
 #[component]
 pub fn Controls(
-    selected: Option<String>,
-    level: String,
+    #[allow(unused)] selected: Option<String>,
+    #[allow(unused)] level: String,
     running: bool,
-    on_run: EventHandler<()>,
-    on_stop: EventHandler<()>,
-    on_level_change: EventHandler<String>,
+    #[allow(unused)] on_run: EventHandler<()>,
+    #[allow(unused)] on_stop: EventHandler<()>,
+    #[allow(unused)] on_level_change: EventHandler<String>,
 ) -> Element {
-    let has_selection = selected.is_some();
-
     rsx! {
-        div {
-            class: "controls",
+        if running {
             div {
-                class: "stress-level-selector",
-                h3 { "Stress Level" }
-                div {
-                    class: "radio-group",
-                    label {
-                        input {
-                            r#type: "radio",
-                            name: "stress-level",
-                            value: "quick",
-                            checked: level == "quick",
-                            disabled: running,
-                            onchange: move |_| on_level_change.call("quick".to_string()),
-                        }
-                        "Quick"
-                    }
-                    label {
-                        input {
-                            r#type: "radio",
-                            name: "stress-level",
-                            value: "medium",
-                            checked: level == "medium",
-                            disabled: running,
-                            onchange: move |_| on_level_change.call("medium".to_string()),
-                        }
-                        "Medium"
-                    }
-                    label {
-                        input {
-                            r#type: "radio",
-                            name: "stress-level",
-                            value: "full",
-                            checked: level == "full",
-                            disabled: running,
-                            onchange: move |_| on_level_change.call("full".to_string()),
-                        }
-                        "Full"
-                    }
-                }
-                div {
-                    style: "font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;",
-                    match level.as_str() {
-                        "quick" => "Fast smoke test (~10 peers, 100 ops)",
-                        "full" => "Maximum stress (~26 peers, 10k ops)",
-                        _ => "Balanced test (~20 peers, 1k ops)",
-                    }
-                }
-            }
-
-            div {
-                class: "action-buttons",
-                if !running {
-                    button {
-                        class: "run-button",
-                        disabled: !has_selection,
-                        onclick: move |_| on_run.call(()),
-                        "Run"
-                    }
-                } else {
-                    button {
-                        class: "stop-button",
-                        onclick: move |_| on_stop.call(()),
-                        "Stop"
-                    }
-                }
-            }
-
-            if running {
+                class: "controls",
                 div {
                     class: "progress-indicator",
                     div { class: "spinner" }
@@ -642,10 +576,7 @@ pub fn SimulationsView(
 
             // Main content area
             main { class: "simulations-main",
-                // Playback controls at top - always show, disabled when no simulation
-                SimulationControls { state: state }
-
-                // Topology visualization
+                // Topology visualization (controls now in unified bottom bar)
                 TopologyView { state: state }
 
                 // Bottom panels in a grid
@@ -659,8 +590,10 @@ pub fn SimulationsView(
 }
 
 /// Playback controls for the simulation
+/// NOTE: Replaced by UnifiedControlBar - kept for reference/fallback
+#[allow(dead_code)]
 #[component]
-pub fn SimulationControls(state: Signal<InstanceState>) -> Element {
+fn SimulationControls(state: Signal<InstanceState>) -> Element {
     let has_simulation = state.read().simulation.is_some();
     let tick = state.read().current_tick();
     let max_ticks = state.read().max_ticks();
@@ -969,8 +902,10 @@ pub fn PeerNode(peer: PeerId, x: f64, y: f64, online: bool, queue_depth: usize) 
 }
 
 /// Playback controls for the instance view
+/// NOTE: Replaced by UnifiedControlBar - kept for reference/fallback
+#[allow(dead_code)]
 #[component]
-pub fn InstanceControls(
+fn InstanceControls(
     state: Signal<InstanceState>,
     on_load_scenario: EventHandler<String>,
 ) -> Element {

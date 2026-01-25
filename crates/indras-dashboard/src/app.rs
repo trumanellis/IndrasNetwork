@@ -46,7 +46,7 @@ pub fn App() -> Element {
     let mut cancel_token: Signal<Option<Arc<Mutex<bool>>>> = use_signal(|| None);
 
     // Handle running a scenario
-    let run_scenario = move |_| {
+    let mut run_scenario = move |_| {
         if running() {
             return;
         }
@@ -600,6 +600,267 @@ pub fn App() -> Element {
                 },
             }
         }
+
+        // Unified Control Bar at the bottom (outside dashboard, inside ThemedRoot)
+        UnifiedControlBar {
+                playback_state: UnifiedPlaybackState::from_tab(
+                    current_tab(),
+                    &instance_state.read(),
+                    &document_state.read(),
+                    &sdk_state.read(),
+                    &metrics(),
+                    running(),
+                    selected_scenario().as_deref(),
+                    &stress_level(),
+                ),
+                on_step: move |_| {
+                    match current_tab() {
+                        Tab::Simulations => {
+                            // Step the simulation
+                            let new_events = {
+                                let mut state_write = instance_state.write();
+                                if let Some(ref mut sim) = state_write.simulation {
+                                    sim.step();
+                                    sim.event_log.clone()
+                                } else {
+                                    return;
+                                }
+                            };
+                            let mut state_write = instance_state.write();
+                            let current_count = state_write.recent_events.len();
+                            let current_tick = state_write.current_tick();
+
+                            for event in new_events.into_iter().skip(current_count) {
+                                match &event {
+                                    NetworkEvent::Send { from, to, .. } => {
+                                        let packet_id = PacketId { source: *from, sequence: current_tick };
+                                        state_write.packets_in_flight.push(PacketAnimation::new(
+                                            packet_id, *from, *to, current_tick
+                                        ));
+                                    }
+                                    NetworkEvent::Relay { via, to, packet_id, .. } => {
+                                        state_write.packets_in_flight.push(PacketAnimation::new(
+                                            *packet_id, *via, *to, current_tick
+                                        ));
+                                    }
+                                    NetworkEvent::Delivered { packet_id, .. } => {
+                                        state_write.packets_in_flight.retain(|p| p.packet_id != *packet_id);
+                                    }
+                                    _ => {}
+                                }
+                                state_write.add_event(event);
+                            }
+                            state_write.packets_in_flight.iter_mut().for_each(|p| p.update(current_tick));
+                            state_write.packets_in_flight.retain(|p| !p.is_complete());
+                        }
+                        Tab::Documents => {
+                            // Step the document scenario
+                            if let Some(ref mut runner) = *document_runner.write() {
+                                let mut state = document_state.write();
+                                if state.current_step < state.total_steps {
+                                    if let Some(update) = runner.step() {
+                                        use crate::runner::document_runner::DocumentUpdate;
+                                        match update {
+                                            DocumentUpdate::Event(evt) => {
+                                                state.add_event(evt);
+                                            }
+                                            DocumentUpdate::PeerState { peer_name, notebook_name, notes, heads } => {
+                                                use crate::state::document::{PeerDocumentState, NoteSnapshot};
+                                                let peer_state = PeerDocumentState {
+                                                    peer_name: peer_name.clone(),
+                                                    notebook_name,
+                                                    notes: notes.iter().map(|n| NoteSnapshot {
+                                                        id: n.id.clone(),
+                                                        title: n.title.clone(),
+                                                        content_preview: n.content_preview.clone(),
+                                                        author: n.author.clone(),
+                                                    }).collect(),
+                                                    heads,
+                                                    note_count: notes.len(),
+                                                };
+                                                state.peers.insert(peer_name, peer_state);
+                                            }
+                                            DocumentUpdate::Complete { .. } => {
+                                                state.running = false;
+                                            }
+                                            DocumentUpdate::StepComplete { .. } => {
+                                                // Just continue
+                                            }
+                                            DocumentUpdate::ScenarioLoaded { .. } => {
+                                                // Already handled
+                                            }
+                                            DocumentUpdate::Error(_) => {
+                                                state.running = false;
+                                            }
+                                        }
+                                        state.current_step += 1;
+                                    }
+                                }
+                            }
+                        }
+                        _ => {} // No step for SDK/Metrics
+                    }
+                },
+                on_play_pause: move |_| {
+                    match current_tab() {
+                        Tab::Simulations => {
+                            let paused = instance_state.read().paused;
+                            instance_state.write().paused = !paused;
+                        }
+                        Tab::Documents => {
+                            let is_running = document_state.read().running;
+                            document_state.write().running = !is_running;
+                        }
+                        Tab::SDK => {
+                            let is_running = sdk_state.read().running;
+                            if is_running {
+                                // Stop
+                                if let Some(token) = sdk_cancel_token() {
+                                    spawn(async move {
+                                        *token.lock().await = true;
+                                    });
+                                }
+                                sdk_state.write().running = false;
+                            } else {
+                                // Start SDK test
+                                let current_dashboard = sdk_state.read().current_dashboard;
+                                let scenario = current_dashboard.scenario_name().to_string();
+                                let level_str = sdk_state.read().stress_level.clone();
+                                let level = match level_str.as_str() {
+                                    "quick" => StressLevel::Quick,
+                                    "full" => StressLevel::Full,
+                                    _ => StressLevel::Medium,
+                                };
+
+                                sdk_state.write().reset();
+                                sdk_state.write().running = true;
+
+                                let token = Arc::new(Mutex::new(false));
+                                sdk_cancel_token.set(Some(token.clone()));
+
+                                spawn(async move {
+                                    let runner = ScenarioRunner::new();
+                                    let (tx, mut rx) = mpsc::channel::<MetricsUpdate>(100);
+
+                                    let scenario_clone = scenario.clone();
+                                    let run_handle = tokio::spawn(async move {
+                                        runner.run_scenario(&scenario_clone, level, tx).await
+                                    });
+
+                                    while let Some(update) = rx.recv().await {
+                                        if *token.lock().await {
+                                            break;
+                                        }
+                                        match update {
+                                            MetricsUpdate::Stats(new_metrics) => {
+                                                sdk_state.write().metrics.merge(&new_metrics);
+                                            }
+                                            MetricsUpdate::Event(event) => {
+                                                sdk_state.write().add_event(event);
+                                            }
+                                            MetricsUpdate::Tick { current, max } => {
+                                                let mut state = sdk_state.write();
+                                                state.metrics.current_tick = current;
+                                                state.metrics.max_ticks = max;
+                                            }
+                                            MetricsUpdate::Complete(result) => {
+                                                sdk_state.write().add_event(SimEvent {
+                                                    tick: result.metrics.current_tick,
+                                                    event_type: if result.passed { EventType::Success } else { EventType::Error },
+                                                    description: if result.passed {
+                                                        format!("{} completed successfully", scenario)
+                                                    } else {
+                                                        format!("{} failed: {:?}", scenario, result.errors)
+                                                    },
+                                                });
+                                            }
+                                            MetricsUpdate::Error(err) => {
+                                                sdk_state.write().add_event(SimEvent {
+                                                    tick: 0,
+                                                    event_type: EventType::Error,
+                                                    description: err,
+                                                });
+                                            }
+                                        }
+                                    }
+
+                                    let _ = run_handle.await;
+                                    sdk_state.write().running = false;
+                                    sdk_cancel_token.set(None);
+                                });
+                            }
+                        }
+                        Tab::Metrics => {
+                            let is_running = running();
+                            if is_running {
+                                // Stop
+                                if let Some(token) = cancel_token() {
+                                    spawn(async move {
+                                        *token.lock().await = true;
+                                    });
+                                }
+                                running.set(false);
+                            } else {
+                                // Start - call the run_scenario logic
+                                run_scenario(());
+                            }
+                        }
+                    }
+                },
+                on_reset: move |_| {
+                    match current_tab() {
+                        Tab::Simulations => {
+                            instance_state.write().simulation = None;
+                            instance_state.write().clear_events();
+                            instance_state.write().packets_in_flight.clear();
+                            instance_state.write().peer_positions.clear();
+                            instance_state.write().scenario_name = None;
+                        }
+                        Tab::Documents => {
+                            document_state.write().reset();
+                            document_runner.set(None);
+                        }
+                        Tab::SDK => {
+                            if let Some(token) = sdk_cancel_token() {
+                                spawn(async move {
+                                    *token.lock().await = true;
+                                });
+                            }
+                            sdk_state.write().reset();
+                        }
+                        Tab::Metrics => {
+                            if let Some(token) = cancel_token() {
+                                spawn(async move {
+                                    *token.lock().await = true;
+                                });
+                            }
+                            running.set(false);
+                            metrics.set(SimMetrics::default());
+                            events.set(Vec::new());
+                        }
+                    }
+                },
+                on_speed_change: move |speed: f64| {
+                    if current_tab() == Tab::Simulations {
+                        instance_state.write().playback_speed = speed;
+                    }
+                },
+                on_level_change: move |level: String| {
+                    match current_tab() {
+                        Tab::Metrics => {
+                            if !running() {
+                                stress_level.set(level);
+                            }
+                        }
+                        Tab::SDK => {
+                            if !sdk_state.read().running {
+                                sdk_state.write().stress_level = level;
+                            }
+                        }
+                        _ => {}
+                    }
+                },
+            }
         }
     }
 }
