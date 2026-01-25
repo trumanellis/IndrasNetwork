@@ -100,6 +100,7 @@
 
 // Modules
 pub mod artifact;
+pub mod attention;
 pub mod config;
 pub mod contacts;
 pub mod document;
@@ -115,6 +116,9 @@ pub mod stream;
 
 // Re-export main types at crate root
 pub use artifact::{Artifact, ArtifactDownload, ArtifactId, DownloadProgress};
+pub use attention::{
+    AttentionDocument, AttentionError, AttentionEventId, AttentionSwitchEvent, QuestAttention,
+};
 pub use config::{NetworkBuilder, NetworkConfig, Preset};
 pub use contacts::{ContactsDocument, ContactsRealm};
 pub use document::{Document, DocumentChange, DocumentSchema};
@@ -123,7 +127,7 @@ pub use invite::InviteCode;
 pub use member::{Member, MemberEvent, MemberId, MemberInfo};
 pub use message::{Content, Message, MessageId};
 pub use network::{IndrasNetwork, RealmId};
-pub use quest::{Quest, QuestDocument, QuestError, QuestId};
+pub use quest::{Quest, QuestClaim, QuestDocument, QuestError, QuestId};
 pub use realm::Realm;
 
 /// Prelude module for convenient imports.

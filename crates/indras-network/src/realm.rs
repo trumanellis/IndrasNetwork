@@ -4,6 +4,7 @@
 //! for messaging, documents, and artifact sharing.
 
 use crate::artifact::{Artifact, ArtifactDownload, ArtifactId, DownloadProgress};
+use crate::attention::{AttentionDocument, AttentionEventId, QuestAttention};
 use crate::document::Document;
 use crate::error::{IndraError, Result};
 use crate::invite::InviteCode;
@@ -394,19 +395,55 @@ impl Realm {
         Ok(quest_id)
     }
 
-    /// Claim a quest for a member.
+    /// Submit a claim/proof of service for a quest.
     ///
-    /// Once claimed, the quest shows who is working on it.
+    /// Members submit claims with optional proof artifacts to demonstrate
+    /// they've completed work for the quest. Multiple members can submit
+    /// claims for the same quest.
     ///
     /// # Arguments
     ///
     /// * `quest_id` - The quest to claim
-    /// * `doer` - The member claiming the quest
-    pub async fn claim_quest(&self, quest_id: QuestId, doer: MemberId) -> Result<()> {
+    /// * `claimant` - The member submitting the claim
+    /// * `proof` - Optional proof artifact (document, image, etc.)
+    ///
+    /// # Returns
+    ///
+    /// The index of the newly created claim.
+    pub async fn submit_quest_claim(
+        &self,
+        quest_id: QuestId,
+        claimant: MemberId,
+        proof: Option<ArtifactId>,
+    ) -> Result<usize> {
+        let mut claim_index = 0;
         let doc = self.quests().await?;
         doc.update(|d| {
             if let Some(quest) = d.find_mut(&quest_id) {
-                let _ = quest.claim(doer);
+                if let Ok(idx) = quest.submit_claim(claimant, proof) {
+                    claim_index = idx;
+                }
+            }
+        })
+        .await?;
+
+        Ok(claim_index)
+    }
+
+    /// Verify a claim on a quest.
+    ///
+    /// The quest creator should call this to verify that a claim is valid.
+    /// Verified claims indicate the work was completed satisfactorily.
+    ///
+    /// # Arguments
+    ///
+    /// * `quest_id` - The quest containing the claim
+    /// * `claim_index` - The index of the claim to verify
+    pub async fn verify_quest_claim(&self, quest_id: QuestId, claim_index: usize) -> Result<()> {
+        let doc = self.quests().await?;
+        doc.update(|d| {
+            if let Some(quest) = d.find_mut(&quest_id) {
+                let _ = quest.verify_claim(claim_index);
             }
         })
         .await?;
@@ -415,6 +452,8 @@ impl Realm {
     }
 
     /// Mark a quest as complete.
+    ///
+    /// The quest creator should call this after verifying claims.
     ///
     /// # Arguments
     ///
@@ -431,11 +470,21 @@ impl Realm {
         Ok(())
     }
 
-    /// Unclaim a quest (release it back to open status).
+    /// Claim a quest for a member (legacy compatibility).
     ///
-    /// # Arguments
+    /// This submits a claim without proof. For the new proof-of-service
+    /// model, use `submit_quest_claim` instead.
+    #[deprecated(since = "0.2.0", note = "Use submit_quest_claim() instead")]
+    pub async fn claim_quest(&self, quest_id: QuestId, doer: MemberId) -> Result<()> {
+        self.submit_quest_claim(quest_id, doer, None).await?;
+        Ok(())
+    }
+
+    /// Unclaim a quest (legacy compatibility).
     ///
-    /// * `quest_id` - The quest to unclaim
+    /// In the proof-of-service model, claims cannot be removed once submitted.
+    #[deprecated(since = "0.2.0", note = "Claims cannot be removed in proof-of-service model")]
+    #[allow(deprecated)]
     pub async fn unclaim_quest(&self, quest_id: QuestId) -> Result<()> {
         let doc = self.quests().await?;
         doc.update(|d| {
@@ -446,6 +495,99 @@ impl Realm {
         .await?;
 
         Ok(())
+    }
+
+    // ============================================================
+    // Attention Tracking
+    // ============================================================
+
+    /// Get the attention tracking document for this realm.
+    ///
+    /// The attention document tracks which members are focused on which quests,
+    /// enabling attention-based quest ranking.
+    pub async fn attention(&self) -> Result<Document<AttentionDocument>> {
+        self.document("attention").await
+    }
+
+    /// Focus on a specific quest.
+    ///
+    /// Members can focus on one quest at a time. Focusing on a new quest
+    /// automatically ends focus on any previous quest. Time spent focusing
+    /// contributes to the quest's attention ranking.
+    ///
+    /// # Arguments
+    ///
+    /// * `quest_id` - The quest to focus on
+    /// * `member` - The member focusing (typically your own ID)
+    ///
+    /// # Returns
+    ///
+    /// The event ID of the attention switch event.
+    pub async fn focus_on_quest(
+        &self,
+        quest_id: QuestId,
+        member: MemberId,
+    ) -> Result<AttentionEventId> {
+        let mut event_id = [0u8; 16];
+        let doc = self.attention().await?;
+        doc.update(|d| {
+            event_id = d.focus_on_quest(member, quest_id);
+        })
+        .await?;
+
+        Ok(event_id)
+    }
+
+    /// Clear attention (stop focusing on any quest).
+    ///
+    /// Call this when you want to stop contributing attention to any quest.
+    ///
+    /// # Arguments
+    ///
+    /// * `member` - The member clearing attention (typically your own ID)
+    ///
+    /// # Returns
+    ///
+    /// The event ID of the attention clear event.
+    pub async fn clear_attention(&self, member: MemberId) -> Result<AttentionEventId> {
+        let mut event_id = [0u8; 16];
+        let doc = self.attention().await?;
+        doc.update(|d| {
+            event_id = d.clear_attention(member);
+        })
+        .await?;
+
+        Ok(event_id)
+    }
+
+    /// Get current focus for a member.
+    ///
+    /// Returns the quest ID the member is currently focused on, or None
+    /// if they're not focused on any quest.
+    pub async fn get_member_focus(&self, member: &MemberId) -> Result<Option<QuestId>> {
+        let doc = self.attention().await?;
+        Ok(doc.read().await.current_focus(member))
+    }
+
+    /// Get all members currently focusing on a quest.
+    pub async fn get_quest_focusers(&self, quest_id: &QuestId) -> Result<Vec<MemberId>> {
+        let doc = self.attention().await?;
+        Ok(doc.read().await.members_focusing_on(quest_id))
+    }
+
+    /// Get quests ranked by total attention time.
+    ///
+    /// Returns quests sorted by accumulated attention (highest first).
+    /// Use this for attention-based quest prioritization in the UI.
+    pub async fn quests_by_attention(&self) -> Result<Vec<QuestAttention>> {
+        let doc = self.attention().await?;
+        Ok(doc.read().await.quests_by_attention(None))
+    }
+
+    /// Get attention details for a specific quest.
+    pub async fn quest_attention(&self, quest_id: &QuestId) -> Result<QuestAttention> {
+        let doc = self.attention().await?;
+        Ok(doc.read().await.quest_attention(quest_id, None))
     }
 
     // ============================================================
