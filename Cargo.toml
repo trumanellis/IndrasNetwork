@@ -15,6 +15,7 @@ members = [
     "crates/indras-node",
     "crates/indras-network",
     "crates/indras-dashboard",
+    "crates/indras-collaboration-viewer",
     "simulation",
     "examples/chat-app",
     "examples/sync-demo",

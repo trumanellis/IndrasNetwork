@@ -3157,6 +3157,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "indras-collaboration-viewer"
+version = "1.0.0"
+dependencies = [
+ "dioxus",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "indras-core"
 version = "1.0.0"
 dependencies = [
