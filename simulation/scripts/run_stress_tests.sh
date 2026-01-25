@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/opt/homebrew/bin/bash
 
 # run_stress_tests.sh - Comprehensive stress test runner for IndrasNetwork
 # Usage: ./run_stress_tests.sh [module|all] [stress_level] [--parallel] [--verbose] [--output-dir DIR]
@@ -54,6 +54,8 @@ declare -A MODULE_SCENARIOS=(
     ["engine"]="engine_stress.lua"
     ["integration"]="integration_full_stack.lua partition_recovery.lua scalability_limit.lua"
     ["pq"]="pq_baseline_benchmark.lua pq_chaos_monkey.lua pq_concurrent_joins.lua pq_invite_stress.lua pq_large_interface_sync.lua pq_signature_throughput.lua"
+    ["discovery"]="discovery_two_peer.lua discovery_peer_group.lua discovery_late_joiner.lua discovery_rate_limit.lua discovery_reconnect.lua discovery_pq_keys.lua discovery_stress.lua"
+    ["sdk"]="sdk_peer_realm_stress.lua sdk_quest_lifecycle.lua sdk_contacts_stress.lua sdk_attention_stress.lua"
 )
 
 # ============================================================================
@@ -68,7 +70,7 @@ Arguments:
   MODULE          Module to test or 'all' (default: all)
                   Available modules: crypto, transport, routing, storage, sync,
                   gossip, messaging, logging, dtn, node, core, engine,
-                  integration, pq
+                  integration, pq, discovery, sdk
 
   STRESS_LEVEL    Test intensity level (default: medium)
                   - quick:  Fast smoke test (~1-5 min per scenario)
@@ -204,13 +206,15 @@ run_scenario() {
     # Set environment variables for the scenario
     export STRESS_LEVEL
 
-    # Run the scenario
+    # Run the scenario from the scripts directory (required for Lua require paths)
     local exit_code=0
+    pushd "$SCRIPT_DIR" > /dev/null
     if [[ "$VERBOSE" == true ]]; then
-        "$BINARY" "$scenario_path" 2>&1 | tee "$log_file" || exit_code=$?
+        "$BINARY" "scenarios/${scenario}" 2>&1 | tee "$log_file" || exit_code=$?
     else
-        "$BINARY" "$scenario_path" > "$log_file" 2>&1 || exit_code=$?
+        "$BINARY" "scenarios/${scenario}" > "$log_file" 2>&1 || exit_code=$?
     fi
+    popd > /dev/null
 
     local scenario_end=$(date +%s)
     local scenario_duration=$((scenario_end - scenario_start))
