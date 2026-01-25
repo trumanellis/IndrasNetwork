@@ -1,0 +1,18 @@
+[package]
+name = "indras-collaboration-viewer"
+version = "1.0.0"
+edition = "2021"
+description = "Standalone viewer for the Collaboration Trio simulation scenario"
+license = "MIT OR Apache-2.0"
+
+[[bin]]
+name = "collaboration-viewer"
+path = "src/main.rs"
+
+[dependencies]
+dioxus = { version = "0.7", features = ["desktop"] }
+tokio = { version = "1", features = ["full", "sync", "rt-multi-thread"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1"
+tracing-subscriber = "0.3"
