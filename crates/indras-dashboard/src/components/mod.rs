@@ -7,11 +7,13 @@ use indras_simulation::{NetworkEvent, PacketId, PeerId};
 
 pub mod charts;
 pub mod control_bar;
+pub mod discovery;
 pub mod documents;
 pub mod panels;
 pub mod sdk;
 
 pub use control_bar::UnifiedControlBar;
+pub use discovery::DiscoveryView;
 pub use documents::DocumentsView;
 pub use sdk::SDKView;
 
@@ -452,7 +454,7 @@ fn format_event_type(event_type: &EventType) -> &'static str {
 // Tab Navigation Components
 // ============================================================================
 
-/// Tab bar for switching between Metrics, Simulations, Documents, and SDK views
+/// Tab bar for switching between Metrics, Simulations, Documents, SDK, and Discovery views
 #[component]
 pub fn TabBar(current_tab: Tab, on_select: EventHandler<Tab>) -> Element {
     rsx! {
@@ -476,6 +478,11 @@ pub fn TabBar(current_tab: Tab, on_select: EventHandler<Tab>) -> Element {
                 class: if current_tab == Tab::SDK { "tab-btn active" } else { "tab-btn" },
                 onclick: move |_| on_select.call(Tab::SDK),
                 "SDK"
+            }
+            button {
+                class: if current_tab == Tab::Discovery { "tab-btn active" } else { "tab-btn" },
+                onclick: move |_| on_select.call(Tab::Discovery),
+                "Discovery"
             }
         }
     }

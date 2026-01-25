@@ -338,11 +338,15 @@ impl ScenarioRunner {
         let start_time = std::time::Instant::now();
 
         // Spawn lua_runner process with --pretty flag for console output
-        // Set working directory to workspace root so Lua package paths resolve correctly
+        // Set working directory to simulation/scripts so Lua package paths resolve correctly
+        let scripts_dir = self.workspace_root.join("simulation/scripts");
+        let relative_scenario_path = scenario_path
+            .strip_prefix(&scripts_dir)
+            .unwrap_or(&scenario_path);
         let mut child = Command::new(&self.lua_runner_path)
             .arg("--pretty") // Output to console instead of file
-            .arg(&scenario_path)
-            .current_dir(&self.workspace_root)
+            .arg(relative_scenario_path)
+            .current_dir(&scripts_dir)
             .env("STRESS_LEVEL", level.as_str())
             .env("RUST_LOG", "info")
             .stdout(Stdio::piped())
@@ -647,6 +651,17 @@ fn has_metrics_fields(fields: &serde_json::Value) -> bool {
         // SDK Network metrics
         || fields.get("networks_created").is_some()
         || fields.get("realms_created").is_some()
+        // Discovery metrics
+        || fields.get("peers_discovered").is_some()
+        || fields.get("discovery_completeness").is_some()
+        || fields.get("pq_completeness").is_some()
+        || fields.get("total_discoveries").is_some()
+        || fields.get("realms_formed").is_some()
+        || fields.get("churn_events").is_some()
+        || fields.get("reconnect_count").is_some()
+        || fields.get("introduction_requests_sent").is_some()
+        || fields.get("rate_limited_count").is_some()
+        || fields.get("discovery_latency_ticks").is_some()
 }
 
 /// Extracts metrics from log fields
@@ -889,6 +904,66 @@ fn extract_metrics(fields: &serde_json::Value, tick: u64) -> SimMetrics {
             .or(fields.get("message_send_p99_us"))
             .and_then(|v| v.as_f64())
             .unwrap_or(0.0),
+
+        // Discovery-specific metrics
+        peers_discovered: fields
+            .get("peers_discovered")
+            .or(fields.get("total_discoveries"))
+            .or(fields.get("discoveries"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        discovery_failures: fields
+            .get("discovery_failures")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        discovery_completeness: fields
+            .get("discovery_completeness")
+            .or(fields.get("completeness"))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0),
+        pq_key_completeness: fields
+            .get("pq_key_completeness")
+            .or(fields.get("pq_completeness"))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0),
+        introduction_requests_sent: fields
+            .get("introduction_requests_sent")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        introduction_responses_received: fields
+            .get("introduction_responses_received")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        rate_limited_count: fields
+            .get("rate_limited_count")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        rate_limit_violations: fields
+            .get("rate_limit_violations")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        realms_available: fields
+            .get("realms_available")
+            .or(fields.get("realms_formed"))
+            .or(fields.get("realms_created"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        churn_events: fields
+            .get("churn_events")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        reconnect_count: fields
+            .get("reconnect_count")
+            .or(fields.get("reconnects"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        discovery_latency_p99_ticks: fields
+            .get("discovery_latency_p99_ticks")
+            .or(fields.get("discovery_latency_p99"))
+            .or(fields.get("discovery_latency_ticks"))
+            .or(fields.get("avg_discovery_latency"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
     }
 }
 
