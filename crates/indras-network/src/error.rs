@@ -62,6 +62,10 @@ pub enum IndraError {
     #[error("Not a member of this realm")]
     NotMember,
 
+    /// Invalid operation for the current state.
+    #[error("Invalid operation: {0}")]
+    InvalidOperation(String),
+
     // ============================================================
     // Wrapped infrastructure errors
     // ============================================================

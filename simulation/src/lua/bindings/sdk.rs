@@ -1179,6 +1179,101 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
 
     sdk.set("Realm", realm)?;
 
+    // =================================
+    // Peer-based Realm utilities
+    // =================================
+
+    // compute_realm_id(peer_ids) -> realm_id string
+    // Computes a deterministic realm ID from a set of peer IDs
+    sdk.set(
+        "compute_realm_id",
+        lua.create_function(|_, peer_ids: Vec<String>| {
+            if peer_ids.len() < 2 {
+                return Err(mlua::Error::external(
+                    "Peer-based realms require at least 2 peers",
+                ));
+            }
+            Ok(compute_realm_id_for_peers(&peer_ids))
+        })?,
+    )?;
+
+    // normalize_peers(peer_ids) -> sorted, deduped peer_ids
+    sdk.set(
+        "normalize_peers",
+        lua.create_function(|_, peer_ids: Vec<String>| Ok(normalize_peers(&peer_ids)))?,
+    )?;
+
+    // =================================
+    // Quest constructors and operations
+    // =================================
+    let quest = lua.create_table()?;
+
+    // Quest.new(title, description, creator) -> Quest
+    quest.set(
+        "new",
+        lua.create_function(
+            |_, (title, description, image, creator): (String, String, Option<String>, String)| {
+                Ok(LuaQuest::new(&title, &description, image, &creator))
+            },
+        )?,
+    )?;
+
+    // Quest.create(realm_id, title, description, creator) -> Quest
+    // Creates a quest and returns it (for simulation, realm_id is tracked externally)
+    quest.set(
+        "create",
+        lua.create_function(
+            |_,
+             (realm_id, title, description, creator): (
+                String,
+                String,
+                String,
+                String,
+            )| {
+                let mut quest = LuaQuest::new(&title, &description, None, &creator);
+                // Include realm_id in quest id for tracking
+                quest.id = format!("{}:{}", &realm_id[..8.min(realm_id.len())], quest.id);
+                Ok(quest)
+            },
+        )?,
+    )?;
+
+    sdk.set("quest", quest)?;
+
+    // =================================
+    // QuestClaim constructor
+    // =================================
+    let quest_claim = lua.create_table()?;
+
+    quest_claim.set(
+        "new",
+        lua.create_function(|_, (claimant, proof): (String, Option<String>)| {
+            Ok(LuaQuestClaim::new(&claimant, proof))
+        })?,
+    )?;
+
+    sdk.set("QuestClaim", quest_claim)?;
+
+    // =================================
+    // Contacts operations
+    // =================================
+    let contacts = lua.create_table()?;
+
+    // Contacts.new() -> Contacts
+    contacts.set("new", lua.create_function(|_, ()| Ok(LuaContacts::new()))?)?;
+
+    sdk.set("contacts", contacts)?;
+
+    // =================================
+    // Attention tracking operations
+    // =================================
+    let attention = lua.create_table()?;
+
+    // Attention.new() -> AttentionDocument
+    attention.set("new", lua.create_function(|_, ()| Ok(LuaAttentionDocument::new()))?)?;
+
+    sdk.set("attention", attention)?;
+
     // Set sdk namespace on indras
     indras.set("sdk", sdk)?;
 
@@ -1214,6 +1309,639 @@ fn base64_encode(data: &[u8]) -> String {
 
 fn base64_decode(s: &str) -> std::result::Result<Vec<u8>, base64::DecodeError> {
     URL_SAFE_NO_PAD.decode(s)
+}
+
+/// Compute a deterministic realm ID from a set of peer IDs.
+///
+/// This uses a deterministic hash approach:
+/// - Sort peer IDs deterministically
+/// - Concatenate with prefix and compute a simple hash
+/// - Return as hex string
+///
+/// For simulation purposes, this provides a deterministic mapping
+/// without requiring the exact same hash as the Rust implementation.
+fn compute_realm_id_for_peers(peer_ids: &[String]) -> String {
+    use std::collections::BTreeSet;
+
+    // Sort and dedupe peer IDs
+    let sorted: BTreeSet<&String> = peer_ids.iter().collect();
+
+    // Use a deterministic hasher (FNV-like approach)
+    let mut hash: u64 = 0xcbf29ce484222325; // FNV offset basis
+    let fnv_prime: u64 = 0x100000001b3;
+
+    // Hash the prefix
+    for byte in b"realm-peers-v1:" {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(fnv_prime);
+    }
+
+    // Hash each peer ID
+    for peer_id in sorted {
+        for byte in peer_id.as_bytes() {
+            hash ^= *byte as u64;
+            hash = hash.wrapping_mul(fnv_prime);
+        }
+        // Separator between peer IDs
+        hash ^= 0xFF;
+        hash = hash.wrapping_mul(fnv_prime);
+    }
+
+    // Generate a 32-character hex string (16 bytes)
+    let hash2 = hash.wrapping_mul(fnv_prime);
+    format!("{:016x}{:016x}", hash, hash2)
+}
+
+/// Normalize a list of peer IDs (sort and dedupe).
+fn normalize_peers(peer_ids: &[String]) -> Vec<String> {
+    use std::collections::BTreeSet;
+    let sorted: BTreeSet<String> = peer_ids.iter().cloned().collect();
+    sorted.into_iter().collect()
+}
+
+// =============================================================================
+// Quest and QuestClaim bindings
+// =============================================================================
+
+/// Lua wrapper for QuestClaim
+#[derive(Debug, Clone)]
+pub struct LuaQuestClaim {
+    pub claimant: String,
+    pub proof: Option<String>,
+    pub submitted_at_millis: i64,
+    pub verified: bool,
+    pub verified_at_millis: Option<i64>,
+}
+
+impl LuaQuestClaim {
+    pub fn new(claimant: &str, proof: Option<String>) -> Self {
+        Self {
+            claimant: claimant.to_string(),
+            proof,
+            submitted_at_millis: current_timestamp(),
+            verified: false,
+            verified_at_millis: None,
+        }
+    }
+
+    pub fn verify(&mut self) {
+        if !self.verified {
+            self.verified = true;
+            self.verified_at_millis = Some(current_timestamp());
+        }
+    }
+}
+
+impl UserData for LuaQuestClaim {
+    fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {
+        fields.add_field_method_get("claimant", |_, this| Ok(this.claimant.clone()));
+        fields.add_field_method_get("proof", |_, this| Ok(this.proof.clone()));
+        fields.add_field_method_get("submitted_at_millis", |_, this| Ok(this.submitted_at_millis));
+        fields.add_field_method_get("verified", |_, this| Ok(this.verified));
+        fields.add_field_method_get("verified_at_millis", |_, this| Ok(this.verified_at_millis));
+    }
+
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+        methods.add_method("is_verified", |_, this, ()| Ok(this.verified));
+
+        methods.add_meta_method(MetaMethod::ToString, |_, this, ()| {
+            Ok(format!(
+                "QuestClaim(claimant={}, verified={})",
+                truncate(&this.claimant, 8),
+                this.verified
+            ))
+        });
+    }
+}
+
+/// Lua wrapper for Quest
+#[derive(Clone)]
+pub struct LuaQuest {
+    pub id: String,
+    pub title: String,
+    pub description: String,
+    pub image: Option<String>,
+    pub creator: String,
+    pub claims: Arc<RwLock<Vec<LuaQuestClaim>>>,
+    pub created_at_millis: i64,
+    pub completed_at_millis: Option<i64>,
+}
+
+impl LuaQuest {
+    pub fn new(title: &str, description: &str, image: Option<String>, creator: &str) -> Self {
+        Self {
+            id: generate_id(),
+            title: title.to_string(),
+            description: description.to_string(),
+            image,
+            creator: creator.to_string(),
+            claims: Arc::new(RwLock::new(Vec::new())),
+            created_at_millis: current_timestamp(),
+            completed_at_millis: None,
+        }
+    }
+}
+
+impl UserData for LuaQuest {
+    fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {
+        fields.add_field_method_get("id", |_, this| Ok(this.id.clone()));
+        fields.add_field_method_get("title", |_, this| Ok(this.title.clone()));
+        fields.add_field_method_get("description", |_, this| Ok(this.description.clone()));
+        fields.add_field_method_get("image", |_, this| Ok(this.image.clone()));
+        fields.add_field_method_get("creator", |_, this| Ok(this.creator.clone()));
+        fields.add_field_method_get("created_at_millis", |_, this| Ok(this.created_at_millis));
+        fields.add_field_method_get("completed_at_millis", |_, this| Ok(this.completed_at_millis));
+    }
+
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+        // has_claims() -> bool (async for compatibility)
+        methods.add_async_method("has_claims", |_, this, ()| async move {
+            Ok(!this.claims.read().await.is_empty())
+        });
+
+        // has_verified_claims() -> bool (async for compatibility)
+        methods.add_async_method("has_verified_claims", |_, this, ()| async move {
+            Ok(this.claims.read().await.iter().any(|c| c.verified))
+        });
+
+        // is_complete() -> bool
+        methods.add_method("is_complete", |_, this, ()| {
+            Ok(this.completed_at_millis.is_some())
+        });
+
+        // is_open() -> bool (async for compatibility)
+        methods.add_async_method("is_open", |_, this, ()| async move {
+            Ok(this.claims.read().await.is_empty() && this.completed_at_millis.is_none())
+        });
+
+        // claim_count() -> number (async for compatibility)
+        methods.add_async_method("claim_count", |_, this, ()| async move {
+            Ok(this.claims.read().await.len())
+        });
+
+        // get_claim(index) -> QuestClaim or nil (async for compatibility)
+        methods.add_async_method("get_claim", |_, this, index: usize| async move {
+            Ok(this.claims.read().await.get(index).cloned())
+        });
+
+        // pending_claims() -> [QuestClaim] (async for compatibility)
+        methods.add_async_method("pending_claims", |_, this, ()| async move {
+            let claims: Vec<LuaQuestClaim> = this
+                .claims
+                .read()
+                .await
+                .iter()
+                .filter(|c| !c.verified)
+                .cloned()
+                .collect();
+            Ok(claims)
+        });
+
+        // verified_claims() -> [QuestClaim] (async for compatibility)
+        methods.add_async_method("verified_claims", |_, this, ()| async move {
+            let claims: Vec<LuaQuestClaim> = this
+                .claims
+                .read()
+                .await
+                .iter()
+                .filter(|c| c.verified)
+                .cloned()
+                .collect();
+            Ok(claims)
+        });
+
+        // submit_claim(claimant, proof) -> claim_index
+        methods.add_async_method(
+            "submit_claim",
+            |_, this, (claimant, proof): (String, Option<String>)| async move {
+                if this.completed_at_millis.is_some() {
+                    return Err(mlua::Error::external("Quest is already complete"));
+                }
+                let claim = LuaQuestClaim::new(&claimant, proof);
+                let mut claims = this.claims.write().await;
+                claims.push(claim);
+                Ok(claims.len() - 1)
+            },
+        );
+
+        // verify_claim(claim_index)
+        methods.add_async_method("verify_claim", |_, this, claim_index: usize| async move {
+            let mut claims = this.claims.write().await;
+            if claim_index >= claims.len() {
+                return Err(mlua::Error::external("Claim not found"));
+            }
+            claims[claim_index].verify();
+            Ok(())
+        });
+
+        methods.add_meta_method(MetaMethod::ToString, |_, this, ()| {
+            // For toString, we need a sync version - use try_read with fallback
+            let claim_count = this.claims.try_read().map(|c| c.len()).unwrap_or(0);
+            Ok(format!(
+                "Quest(id={}, title=\"{}\", claims={})",
+                truncate(&this.id, 8),
+                truncate(&this.title, 20),
+                claim_count
+            ))
+        });
+    }
+}
+
+// =============================================================================
+// Contacts binding
+// =============================================================================
+
+/// Lua wrapper for contacts management
+#[derive(Clone)]
+pub struct LuaContacts {
+    /// Set of contact member IDs
+    contacts: Arc<RwLock<std::collections::HashSet<String>>>,
+}
+
+impl LuaContacts {
+    pub fn new() -> Self {
+        Self {
+            contacts: Arc::new(RwLock::new(std::collections::HashSet::new())),
+        }
+    }
+}
+
+impl Default for LuaContacts {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl UserData for LuaContacts {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+        // add(member_id) -> bool (true if newly added)
+        methods.add_async_method("add", |_, this, member_id: String| async move {
+            Ok(this.contacts.write().await.insert(member_id))
+        });
+
+        // remove(member_id) -> bool (true if was present)
+        methods.add_async_method("remove", |_, this, member_id: String| async move {
+            Ok(this.contacts.write().await.remove(&member_id))
+        });
+
+        // contains(member_id) -> bool (async for compatibility)
+        methods.add_async_method("contains", |_, this, member_id: String| async move {
+            Ok(this.contacts.read().await.contains(&member_id))
+        });
+
+        // list() -> [member_id] (async for compatibility)
+        methods.add_async_method("list", |_, this, ()| async move {
+            let contacts: Vec<String> = this.contacts.read().await.iter().cloned().collect();
+            Ok(contacts)
+        });
+
+        // count() -> number (async for compatibility)
+        methods.add_async_method("count", |_, this, ()| async move {
+            Ok(this.contacts.read().await.len())
+        });
+
+        methods.add_meta_method(MetaMethod::ToString, |_, this, ()| {
+            // For toString, use try_read with fallback
+            let count = this.contacts.try_read().map(|c| c.len()).unwrap_or(0);
+            Ok(format!("Contacts(count={})", count))
+        });
+    }
+}
+
+// =============================================================================
+// Attention tracking binding
+// =============================================================================
+
+/// Attention switch event in the attention log.
+#[derive(Debug, Clone)]
+pub struct LuaAttentionEvent {
+    pub event_id: String,
+    pub member: String,
+    pub quest_id: Option<String>,
+    pub timestamp_millis: i64,
+}
+
+impl LuaAttentionEvent {
+    pub fn new(member: &str, quest_id: Option<String>) -> Self {
+        Self {
+            event_id: generate_id(),
+            member: member.to_string(),
+            quest_id,
+            timestamp_millis: current_timestamp(),
+        }
+    }
+}
+
+impl UserData for LuaAttentionEvent {
+    fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {
+        fields.add_field_method_get("event_id", |_, this| Ok(this.event_id.clone()));
+        fields.add_field_method_get("member", |_, this| Ok(this.member.clone()));
+        fields.add_field_method_get("quest_id", |_, this| Ok(this.quest_id.clone()));
+        fields.add_field_method_get("timestamp_millis", |_, this| Ok(this.timestamp_millis));
+    }
+
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+        methods.add_meta_method(MetaMethod::ToString, |_, this, ()| {
+            Ok(format!(
+                "AttentionEvent(member={}, quest={})",
+                truncate(&this.member, 8),
+                this.quest_id.as_deref().unwrap_or("none")
+            ))
+        });
+    }
+}
+
+/// Computed attention value for a quest.
+#[derive(Debug, Clone, Default)]
+pub struct LuaQuestAttention {
+    pub quest_id: String,
+    pub total_attention_millis: u64,
+    pub attention_by_member: std::collections::HashMap<String, u64>,
+    pub currently_focused_members: Vec<String>,
+}
+
+impl UserData for LuaQuestAttention {
+    fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {
+        fields.add_field_method_get("quest_id", |_, this| Ok(this.quest_id.clone()));
+        fields.add_field_method_get("total_attention_millis", |_, this| {
+            Ok(this.total_attention_millis)
+        });
+        fields.add_field_method_get("currently_focused_members", |_, this| {
+            Ok(this.currently_focused_members.clone())
+        });
+    }
+
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+        methods.add_method("attention_by_member", |_, this, member: String| {
+            Ok(this.attention_by_member.get(&member).copied().unwrap_or(0))
+        });
+
+        methods.add_method("total_attention_secs", |_, this, ()| {
+            Ok(this.total_attention_millis as f64 / 1000.0)
+        });
+    }
+}
+
+/// Lua wrapper for attention tracking document.
+#[derive(Clone)]
+pub struct LuaAttentionDocument {
+    /// Append-only log of attention events
+    events: Arc<RwLock<Vec<LuaAttentionEvent>>>,
+    /// Current focus per member
+    current_focus: Arc<RwLock<std::collections::HashMap<String, Option<String>>>>,
+}
+
+impl LuaAttentionDocument {
+    pub fn new() -> Self {
+        Self {
+            events: Arc::new(RwLock::new(Vec::new())),
+            current_focus: Arc::new(RwLock::new(std::collections::HashMap::new())),
+        }
+    }
+}
+
+impl Default for LuaAttentionDocument {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl UserData for LuaAttentionDocument {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+        // focus_on_quest(member, quest_id) -> event_id
+        methods.add_async_method(
+            "focus_on_quest",
+            |_, this, (member, quest_id): (String, String)| async move {
+                let event = LuaAttentionEvent::new(&member, Some(quest_id.clone()));
+                let event_id = event.event_id.clone();
+
+                this.events.write().await.push(event);
+                this.current_focus
+                    .write()
+                    .await
+                    .insert(member, Some(quest_id));
+
+                Ok(event_id)
+            },
+        );
+
+        // clear_attention(member) -> event_id
+        methods.add_async_method("clear_attention", |_, this, member: String| async move {
+            let event = LuaAttentionEvent::new(&member, None);
+            let event_id = event.event_id.clone();
+
+            this.events.write().await.push(event);
+            this.current_focus.write().await.insert(member, None);
+
+            Ok(event_id)
+        });
+
+        // current_focus(member) -> quest_id or nil
+        methods.add_async_method("current_focus", |_, this, member: String| async move {
+            Ok(this
+                .current_focus
+                .read()
+                .await
+                .get(&member)
+                .cloned()
+                .flatten())
+        });
+
+        // members_focusing_on(quest_id) -> [member]
+        methods.add_async_method(
+            "members_focusing_on",
+            |_, this, quest_id: String| async move {
+                let focusers: Vec<String> = this
+                    .current_focus
+                    .read()
+                    .await
+                    .iter()
+                    .filter_map(|(member, focus)| {
+                        if focus.as_ref() == Some(&quest_id) {
+                            Some(member.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                Ok(focusers)
+            },
+        );
+
+        // event_count() -> number
+        methods.add_async_method("event_count", |_, this, ()| async move {
+            Ok(this.events.read().await.len())
+        });
+
+        // calculate_attention(as_of_millis) -> [QuestAttention]
+        methods.add_async_method(
+            "calculate_attention",
+            |_, this, as_of: Option<i64>| async move {
+                let as_of = as_of.unwrap_or_else(current_timestamp);
+                let events = this.events.read().await;
+
+                // Track attention windows per member
+                let mut member_windows: std::collections::HashMap<String, (String, i64)> =
+                    std::collections::HashMap::new();
+
+                // Accumulated attention per quest per member
+                let mut quest_attention: std::collections::HashMap<
+                    String,
+                    std::collections::HashMap<String, u64>,
+                > = std::collections::HashMap::new();
+
+                // Sort events by timestamp
+                let mut sorted_events: Vec<_> = events.iter().collect();
+                sorted_events.sort_by_key(|e| e.timestamp_millis);
+
+                for event in sorted_events {
+                    if event.timestamp_millis > as_of {
+                        continue;
+                    }
+
+                    // Close any open window for this member
+                    if let Some((prev_quest, start_time)) = member_windows.remove(&event.member) {
+                        let duration = (event.timestamp_millis - start_time).max(0) as u64;
+                        *quest_attention
+                            .entry(prev_quest)
+                            .or_default()
+                            .entry(event.member.clone())
+                            .or_default() += duration;
+                    }
+
+                    // Open new window if focusing on a quest
+                    if let Some(ref quest_id) = event.quest_id {
+                        member_windows
+                            .insert(event.member.clone(), (quest_id.clone(), event.timestamp_millis));
+                    }
+                }
+
+                // Close open windows at as_of time
+                for (member, (quest_id, start_time)) in &member_windows {
+                    let duration = (as_of - start_time).max(0) as u64;
+                    *quest_attention
+                        .entry(quest_id.clone())
+                        .or_default()
+                        .entry(member.clone())
+                        .or_default() += duration;
+                }
+
+                // Build result
+                let mut result: Vec<LuaQuestAttention> = quest_attention
+                    .into_iter()
+                    .map(|(quest_id, by_member)| {
+                        let total_attention_millis: u64 = by_member.values().sum();
+                        let currently_focused_members: Vec<String> = member_windows
+                            .iter()
+                            .filter_map(|(m, (q, _))| {
+                                if q == &quest_id {
+                                    Some(m.clone())
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
+
+                        LuaQuestAttention {
+                            quest_id,
+                            total_attention_millis,
+                            attention_by_member: by_member,
+                            currently_focused_members,
+                        }
+                    })
+                    .collect();
+
+                // Sort by total attention (highest first), then by quest_id for stable ordering
+                result.sort_by(|a, b| {
+                    match b.total_attention_millis.cmp(&a.total_attention_millis) {
+                        std::cmp::Ordering::Equal => a.quest_id.cmp(&b.quest_id),
+                        other => other,
+                    }
+                });
+
+                Ok(result)
+            },
+        );
+
+        // quests_by_attention() -> [QuestAttention] (sorted by attention, highest first)
+        methods.add_async_method("quests_by_attention", |_, this, ()| async move {
+            // Delegate to calculate_attention with current time
+            let as_of = current_timestamp();
+            let events = this.events.read().await;
+
+            let mut member_windows: std::collections::HashMap<String, (String, i64)> =
+                std::collections::HashMap::new();
+            let mut quest_attention: std::collections::HashMap<
+                String,
+                std::collections::HashMap<String, u64>,
+            > = std::collections::HashMap::new();
+
+            let mut sorted_events: Vec<_> = events.iter().collect();
+            sorted_events.sort_by_key(|e| e.timestamp_millis);
+
+            for event in sorted_events {
+                if let Some((prev_quest, start_time)) = member_windows.remove(&event.member) {
+                    let duration = (event.timestamp_millis - start_time).max(0) as u64;
+                    *quest_attention
+                        .entry(prev_quest)
+                        .or_default()
+                        .entry(event.member.clone())
+                        .or_default() += duration;
+                }
+                if let Some(ref quest_id) = event.quest_id {
+                    member_windows
+                        .insert(event.member.clone(), (quest_id.clone(), event.timestamp_millis));
+                }
+            }
+
+            for (member, (quest_id, start_time)) in &member_windows {
+                let duration = (as_of - start_time).max(0) as u64;
+                *quest_attention
+                    .entry(quest_id.clone())
+                    .or_default()
+                    .entry(member.clone())
+                    .or_default() += duration;
+            }
+
+            let mut result: Vec<LuaQuestAttention> = quest_attention
+                .into_iter()
+                .map(|(quest_id, by_member)| {
+                    let total_attention_millis: u64 = by_member.values().sum();
+                    let currently_focused_members: Vec<String> = member_windows
+                        .iter()
+                        .filter_map(|(m, (q, _))| {
+                            if q == &quest_id {
+                                Some(m.clone())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+
+                    LuaQuestAttention {
+                        quest_id,
+                        total_attention_millis,
+                        attention_by_member: by_member,
+                        currently_focused_members,
+                    }
+                })
+                .collect();
+
+            // Sort by attention (descending), then by quest_id (ascending) for stable ordering
+            result.sort_by(|a, b| {
+                match b.total_attention_millis.cmp(&a.total_attention_millis) {
+                    std::cmp::Ordering::Equal => a.quest_id.cmp(&b.quest_id),
+                    other => other,
+                }
+            });
+            Ok(result)
+        });
+
+        methods.add_meta_method(MetaMethod::ToString, |_, this, ()| {
+            let count = this.events.try_read().map(|e| e.len()).unwrap_or(0);
+            Ok(format!("AttentionDocument(events={})", count))
+        });
+    }
 }
 
 // =============================================================================
@@ -1479,5 +2207,231 @@ mod tests {
             .await
             .unwrap();
         assert!(result);
+    }
+
+    // =================================
+    // Peer-based Realm Tests
+    // =================================
+
+    #[test]
+    fn test_compute_realm_id_deterministic() {
+        let lua = setup_lua();
+
+        let result: bool = lua
+            .load(
+                r#"
+                -- Same peer set in different order should produce same realm ID
+                local realm1 = indras.sdk.compute_realm_id({"alice", "bob", "charlie"})
+                local realm2 = indras.sdk.compute_realm_id({"charlie", "alice", "bob"})
+                local realm3 = indras.sdk.compute_realm_id({"bob", "charlie", "alice"})
+                return realm1 == realm2 and realm2 == realm3
+            "#,
+            )
+            .eval()
+            .unwrap();
+        assert!(result);
+    }
+
+    #[test]
+    fn test_compute_realm_id_uniqueness() {
+        let lua = setup_lua();
+
+        let result: bool = lua
+            .load(
+                r#"
+                -- Different peer sets should produce different realm IDs
+                local realm1 = indras.sdk.compute_realm_id({"alice", "bob"})
+                local realm2 = indras.sdk.compute_realm_id({"alice", "charlie"})
+                local realm3 = indras.sdk.compute_realm_id({"bob", "charlie"})
+                return realm1 ~= realm2 and realm2 ~= realm3 and realm1 ~= realm3
+            "#,
+            )
+            .eval()
+            .unwrap();
+        assert!(result);
+    }
+
+    #[test]
+    fn test_compute_realm_id_min_peers() {
+        let lua = setup_lua();
+
+        // Should fail with less than 2 peers
+        let result = lua
+            .load(
+                r#"
+                indras.sdk.compute_realm_id({"alice"})
+            "#,
+            )
+            .eval::<String>();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_normalize_peers() {
+        let lua = setup_lua();
+
+        let result: Vec<String> = lua
+            .load(
+                r#"
+                return indras.sdk.normalize_peers({"charlie", "alice", "bob", "alice"})
+            "#,
+            )
+            .eval()
+            .unwrap();
+        assert_eq!(result, vec!["alice", "bob", "charlie"]);
+    }
+
+    // =================================
+    // Quest Tests
+    // =================================
+
+    #[test]
+    fn test_quest_creation() {
+        let lua = setup_lua();
+
+        let (title, creator, is_open): (String, String, bool) = lua
+            .load(
+                r#"
+                local quest = indras.sdk.quest.new(
+                    "Review design doc",
+                    "Please review the attached PDF",
+                    nil,
+                    "alice123"
+                )
+                return quest.title, quest.creator, quest:is_open()
+            "#,
+            )
+            .eval()
+            .unwrap();
+        assert_eq!(title, "Review design doc");
+        assert_eq!(creator, "alice123");
+        assert!(is_open);
+    }
+
+    #[tokio::test]
+    async fn test_quest_submit_claim() {
+        let lua = setup_lua();
+
+        let (claim_count, has_claims, is_open): (usize, bool, bool) = lua
+            .load(
+                r#"
+                local quest = indras.sdk.quest.new(
+                    "Review design doc",
+                    "Please review the attached PDF",
+                    nil,
+                    "alice123"
+                )
+
+                -- Submit a claim
+                quest:submit_claim("bob456", "proof_artifact_id")
+
+                return quest:claim_count(), quest:has_claims(), quest:is_open()
+            "#,
+            )
+            .eval_async()
+            .await
+            .unwrap();
+        assert_eq!(claim_count, 1);
+        assert!(has_claims);
+        assert!(!is_open);
+    }
+
+    #[tokio::test]
+    async fn test_quest_verify_claim() {
+        let lua = setup_lua();
+
+        let (pending_before, verified_before, pending_after, verified_after): (
+            usize,
+            usize,
+            usize,
+            usize,
+        ) = lua
+            .load(
+                r#"
+                local quest = indras.sdk.quest.new(
+                    "Review design doc",
+                    "Please review the attached PDF",
+                    nil,
+                    "alice123"
+                )
+
+                quest:submit_claim("bob456", "proof1")
+                quest:submit_claim("charlie789", "proof2")
+
+                local pending_before = #quest:pending_claims()
+                local verified_before = #quest:verified_claims()
+
+                -- Verify first claim
+                quest:verify_claim(0)
+
+                local pending_after = #quest:pending_claims()
+                local verified_after = #quest:verified_claims()
+
+                return pending_before, verified_before, pending_after, verified_after
+            "#,
+            )
+            .eval_async()
+            .await
+            .unwrap();
+        assert_eq!(pending_before, 2);
+        assert_eq!(verified_before, 0);
+        assert_eq!(pending_after, 1);
+        assert_eq!(verified_after, 1);
+    }
+
+    // =================================
+    // Contacts Tests
+    // =================================
+
+    #[tokio::test]
+    async fn test_contacts_operations() {
+        let lua = setup_lua();
+
+        let (count_after_add, contains, count_after_remove): (usize, bool, usize) = lua
+            .load(
+                r#"
+                local contacts = indras.sdk.contacts.new()
+
+                contacts:add("alice123")
+                contacts:add("bob456")
+                contacts:add("charlie789")
+
+                local count_after_add = contacts:count()
+                local contains = contacts:contains("bob456")
+
+                contacts:remove("bob456")
+
+                local count_after_remove = contacts:count()
+
+                return count_after_add, contains, count_after_remove
+            "#,
+            )
+            .eval_async()
+            .await
+            .unwrap();
+        assert_eq!(count_after_add, 3);
+        assert!(contains);
+        assert_eq!(count_after_remove, 2);
+    }
+
+    #[tokio::test]
+    async fn test_contacts_list() {
+        let lua = setup_lua();
+
+        let contacts: Vec<String> = lua
+            .load(
+                r#"
+                local contacts = indras.sdk.contacts.new()
+                contacts:add("bob")
+                contacts:add("alice")
+                return contacts:list()
+            "#,
+            )
+            .eval_async()
+            .await
+            .unwrap();
+        assert_eq!(contacts.len(), 2);
+        assert!(contacts.contains(&"alice".to_string()));
+        assert!(contacts.contains(&"bob".to_string()));
     }
 }
