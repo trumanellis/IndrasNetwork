@@ -3,7 +3,8 @@
 //! Provides a high-level API for building P2P applications on Indra's Network.
 
 use crate::config::{NetworkBuilder, NetworkConfig, Preset};
-use crate::error::Result;
+use crate::contacts::{contacts_realm_id, ContactsRealm};
+use crate::error::{IndraError, Result};
 use crate::invite::InviteCode;
 use crate::member::{Member, MemberId};
 use crate::realm::Realm;
@@ -13,8 +14,10 @@ use indras_core::InterfaceId;
 use indras_node::IndrasNode;
 use indras_storage::CompositeStorage;
 use indras_transport::IrohIdentity;
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::Arc;
+use tokio::sync::RwLock;
 
 /// Unique identifier for a realm.
 pub type RealmId = InterfaceId;
@@ -46,6 +49,10 @@ pub struct IndrasNetwork {
     inner: Arc<IndrasNode>,
     /// Cached realm wrappers.
     realms: Arc<DashMap<RealmId, RealmState>>,
+    /// Mapping from peer sets to realm IDs (for peer-based realm lookup).
+    peer_realms: Arc<DashMap<Vec<MemberId>, RealmId>>,
+    /// The contacts realm (lazily initialized).
+    contacts_realm: RwLock<Option<ContactsRealm>>,
     /// Configuration.
     config: NetworkConfig,
     /// Our identity.
@@ -114,6 +121,8 @@ impl IndrasNetwork {
         Ok(Self {
             inner: Arc::new(node),
             realms: Arc::new(DashMap::new()),
+            peer_realms: Arc::new(DashMap::new()),
+            contacts_realm: RwLock::new(None),
             config,
             identity,
         })
@@ -248,7 +257,7 @@ impl IndrasNetwork {
     /// Get a realm by ID.
     ///
     /// Returns None if the realm is not loaded.
-    pub fn realm(&self, id: &RealmId) -> Option<Realm> {
+    pub fn get_realm_by_id(&self, id: &RealmId) -> Option<Realm> {
         self.realms.get(id).map(|state| {
             // We need to reconstruct the invite code, which we may not have
             // For now, return a realm without a valid invite code
@@ -259,6 +268,185 @@ impl IndrasNetwork {
     /// List all loaded realms.
     pub fn realms(&self) -> Vec<RealmId> {
         self.realms.iter().map(|r| *r.key()).collect()
+    }
+
+    // ============================================================
+    // Peer-based realm operations
+    // ============================================================
+
+    /// Compute a deterministic realm ID from a set of peers.
+    ///
+    /// The same set of peers always produces the same realm ID,
+    /// regardless of the order they're provided in.
+    fn compute_realm_id_for_peers(peers: &[MemberId]) -> RealmId {
+        let sorted: BTreeSet<&MemberId> = peers.iter().collect();
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"realm-peers-v1:");
+        for peer_id in sorted {
+            hasher.update(peer_id);
+        }
+        InterfaceId::new(*hasher.finalize().as_bytes())
+    }
+
+    /// Normalize a peer set to a canonical sorted form.
+    fn normalize_peers(peers: &[MemberId]) -> Vec<MemberId> {
+        let mut sorted: Vec<MemberId> = peers.to_vec();
+        sorted.sort();
+        sorted.dedup();
+        sorted
+    }
+
+    /// Get or create a realm for a specific set of peers.
+    ///
+    /// This is the primary way to access realms in the "tag friends" pattern.
+    /// The peer set IS the realm identity - the same peers always return
+    /// the same realm.
+    ///
+    /// # Arguments
+    ///
+    /// * `peers` - The set of member IDs that define this realm (must include yourself)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Tag friends to access a realm
+    /// let peers = vec![my_id, friend1, friend2];
+    /// let realm = network.realm(peers).await?;
+    ///
+    /// // Same peers = same realm (order doesn't matter)
+    /// let realm2 = network.realm(vec![friend2, my_id, friend1]).await?;
+    /// assert_eq!(realm.id(), realm2.id());
+    /// ```
+    pub async fn realm(&self, peers: Vec<MemberId>) -> Result<Realm> {
+        // Ensure we're in the peer set
+        let my_id = self.id();
+        if !peers.contains(&my_id) {
+            return Err(IndraError::InvalidOperation(
+                "Peer set must include yourself".to_string(),
+            ));
+        }
+
+        // Normalize and compute ID
+        let normalized = Self::normalize_peers(&peers);
+        let realm_id = Self::compute_realm_id_for_peers(&normalized);
+
+        // Check if already loaded
+        if let Some(state) = self.realms.get(&realm_id) {
+            return Ok(Realm::from_id(realm_id, state.name.clone(), Arc::clone(&self.inner)));
+        }
+
+        // Ensure network is started
+        if !self.is_running() {
+            self.start().await?;
+        }
+
+        // Create the realm with deterministic ID
+        let (interface_id, invite_key) = self
+            .inner
+            .create_interface_with_id(realm_id, None)
+            .await?;
+
+        // Cache the realm state
+        self.realms.insert(interface_id, RealmState { name: None });
+
+        // Cache the peer mapping
+        self.peer_realms.insert(normalized, interface_id);
+
+        Ok(Realm::new(
+            interface_id,
+            None,
+            InviteCode::new(invite_key),
+            Arc::clone(&self.inner),
+        ))
+    }
+
+    /// Get an existing realm for a peer set without creating it.
+    ///
+    /// Returns None if the realm hasn't been accessed yet via `realm()`.
+    ///
+    /// # Arguments
+    ///
+    /// * `peers` - The set of member IDs that define this realm
+    pub fn get_realm(&self, peers: &[MemberId]) -> Option<Realm> {
+        let normalized = Self::normalize_peers(peers);
+        let realm_id = Self::compute_realm_id_for_peers(&normalized);
+
+        self.realms.get(&realm_id).map(|state| {
+            Realm::from_id(realm_id, state.name.clone(), Arc::clone(&self.inner))
+        })
+    }
+
+    // ============================================================
+    // Contacts realm
+    // ============================================================
+
+    /// Join the global contacts realm.
+    ///
+    /// The contacts realm is used for:
+    /// - Managing your contact list
+    /// - Exchanging cryptographic keys with contacts
+    /// - Auto-subscribing to peer-set realms
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let contacts = network.join_contacts_realm().await?;
+    /// contacts.add_contact(friend_id).await?;
+    /// ```
+    pub async fn join_contacts_realm(&self) -> Result<ContactsRealm> {
+        // Check if already joined
+        {
+            let guard = self.contacts_realm.read().await;
+            if let Some(ref contacts) = *guard {
+                return Ok(contacts.clone());
+            }
+        }
+
+        // Ensure network is started
+        if !self.is_running() {
+            self.start().await?;
+        }
+
+        // Get the deterministic contacts realm ID
+        let realm_id = contacts_realm_id();
+
+        // Create or join the contacts realm
+        let (_interface_id, _invite_key) = self
+            .inner
+            .create_interface_with_id(realm_id, Some("Contacts"))
+            .await?;
+
+        // Cache the realm state
+        self.realms.insert(
+            realm_id,
+            RealmState {
+                name: Some("Contacts".to_string()),
+            },
+        );
+
+        // Create the contacts realm wrapper
+        let contacts = ContactsRealm::new(
+            realm_id,
+            Arc::clone(&self.inner),
+            self.id(),
+        )
+        .await?;
+
+        // Cache it
+        {
+            let mut guard = self.contacts_realm.write().await;
+            *guard = Some(contacts.clone());
+        }
+
+        Ok(contacts)
+    }
+
+    /// Get the contacts realm if already joined.
+    ///
+    /// Returns None if `join_contacts_realm()` hasn't been called yet.
+    pub async fn contacts_realm(&self) -> Option<ContactsRealm> {
+        let guard = self.contacts_realm.read().await;
+        guard.clone()
     }
 
     // ============================================================

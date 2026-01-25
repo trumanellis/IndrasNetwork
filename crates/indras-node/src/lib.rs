@@ -62,7 +62,7 @@ use indras_crypto::{
 };
 use indras_storage::CompositeStorage;
 use indras_sync::NInterface;
-use indras_transport::{IrohIdentity, IrohNetworkAdapter};
+use indras_transport::{IrohIdentity, IrohNetworkAdapter, PeerEvent};
 
 use message_handler::MessageHandler;
 use sync_task::SyncTask;
@@ -333,6 +333,19 @@ impl IndrasNode {
             IrohNetworkAdapter::new(self.secret_key.clone(), self.config.transport.clone()).await?;
         adapter.start(vec![]).await?;
         let adapter = Arc::new(adapter);
+
+        // Configure discovery service with our PQ keys for realm discovery
+        let discovery = adapter.discovery_service();
+        discovery
+            .set_pq_keys(
+                self.pq_kem_keypair.encapsulation_key_bytes(),
+                self.pq_identity.verifying_key_bytes(),
+            )
+            .await;
+        if let Some(name) = &self.config.display_name {
+            discovery.set_display_name(name.clone()).await;
+        }
+
         *self.transport.write().await = Some(adapter.clone());
 
         // Load persisted interfaces
@@ -389,16 +402,128 @@ impl IndrasNode {
             self.shutdown_tx.subscribe(),
         );
 
+        // Spawn realm discovery event handler
+        let realm_discovery_task = Self::spawn_realm_discovery_handler(
+            self.identity,
+            adapter.clone(),
+            self.interfaces.clone(),
+            self.storage.clone(),
+            self.shutdown_tx.subscribe(),
+        );
+
         // Store task handles
         {
             let mut tasks = self.background_tasks.write().await;
             tasks.push(receiver_task);
             tasks.push(handler_task);
             tasks.push(sync_task);
+            tasks.push(realm_discovery_task);
         }
 
         info!("Node started");
         Ok(())
+    }
+
+    /// Spawn the realm discovery event handler task
+    fn spawn_realm_discovery_handler(
+        local_identity: IrohIdentity,
+        transport: Arc<IrohNetworkAdapter>,
+        interfaces: Arc<DashMap<InterfaceId, InterfaceState>>,
+        storage: Arc<CompositeStorage<IrohIdentity>>,
+        mut shutdown_rx: broadcast::Receiver<()>,
+    ) -> JoinHandle<()> {
+        tokio::spawn(async move {
+            let discovery = transport.discovery_service();
+            let mut events = discovery.subscribe();
+
+            loop {
+                tokio::select! {
+                    _ = shutdown_rx.recv() => {
+                        debug!("Realm discovery handler shutting down");
+                        break;
+                    }
+                    Ok(event) = events.recv() => {
+                        match event {
+                            PeerEvent::RealmPeerJoined { interface_id, peer_info } => {
+                                // Skip ourselves
+                                if peer_info.peer_id == local_identity {
+                                    continue;
+                                }
+
+                                // Check if we're in this interface
+                                if let Some(state) = interfaces.get(&interface_id) {
+                                    let mut interface = state.interface.write().await;
+
+                                    // Add peer as member if not already
+                                    if interface.add_member(peer_info.peer_id).is_ok() {
+                                        info!(
+                                            peer = %peer_info.peer_id.short_id(),
+                                            realm = %hex::encode(&interface_id.as_bytes()[..8]),
+                                            "Discovered new realm member via gossip"
+                                        );
+
+                                        // Persist to storage
+                                        if let Err(e) = storage.register_peer(&peer_info.peer_id, peer_info.display_name.clone()) {
+                                            warn!(error = %e, "Failed to register discovered peer");
+                                        }
+                                        if let Err(e) = storage.add_member(&interface_id, &peer_info.peer_id) {
+                                            warn!(error = %e, "Failed to add discovered peer as member");
+                                        }
+
+                                        // TODO: Store PQ keys for future direct encrypted communication
+                                        // peer_info.pq_encapsulation_key
+                                        // peer_info.pq_verifying_key
+
+                                        // Broadcast a PeerIntroduction so others learn about this peer
+                                        if let Err(e) = discovery.broadcast_peer_introduction(interface_id, peer_info.clone()).await {
+                                            debug!(error = %e, "Failed to broadcast peer introduction");
+                                        }
+                                    }
+                                }
+                            }
+                            PeerEvent::RealmPeerLeft { interface_id, peer_id } => {
+                                // Skip ourselves
+                                if peer_id == local_identity {
+                                    continue;
+                                }
+
+                                // Check if we're in this interface
+                                if let Some(state) = interfaces.get(&interface_id) {
+                                    let mut interface = state.interface.write().await;
+                                    if interface.remove_member(&peer_id).is_ok() {
+                                        info!(
+                                            peer = %peer_id.short_id(),
+                                            realm = %hex::encode(&interface_id.as_bytes()[..8]),
+                                            "Realm member left"
+                                        );
+                                    }
+                                }
+                            }
+                            PeerEvent::IntroductionRequested { interface_id, requester, known_peers } => {
+                                // Skip our own requests
+                                if requester == local_identity {
+                                    continue;
+                                }
+
+                                // Respond with members we know (discovery service handles rate limiting)
+                                if interfaces.contains_key(&interface_id) {
+                                    if let Err(e) = discovery.send_introduction_response(
+                                        interface_id,
+                                        requester,
+                                        &known_peers,
+                                    ).await {
+                                        debug!(error = %e, "Failed to send introduction response");
+                                    }
+                                }
+                            }
+                            _ => {
+                                // Ignore other events (global presence)
+                            }
+                        }
+                    }
+                }
+            }
+        })
     }
 
     /// Load persisted interfaces from storage
@@ -483,6 +608,16 @@ impl IndrasNode {
             return Ok(()); // Already stopped
         }
 
+        // Leave all realm topics before shutdown
+        if let Some(transport) = self.transport.read().await.as_ref() {
+            let discovery = transport.discovery_service();
+            for realm in discovery.active_realms() {
+                if let Err(e) = discovery.leave_realm_topic(realm).await {
+                    warn!(error = %e, "Failed to leave realm topic during shutdown");
+                }
+            }
+        }
+
         // Signal shutdown
         let _ = self.shutdown_tx.send(());
 
@@ -559,6 +694,48 @@ impl IndrasNode {
         // Create NInterface with us as the creator
         let interface = NInterface::new(self.identity);
         let interface_id = interface.id();
+        self.setup_interface(interface_id, interface, name).await
+    }
+
+    /// Create a new interface with a specific ID (for deterministic peer-set realms).
+    ///
+    /// This is used internally when the interface ID is pre-computed (e.g., from a peer set hash).
+    /// Returns the interface ID and an invite key for sharing with peers.
+    #[instrument(skip(self))]
+    pub async fn create_interface_with_id(
+        &self,
+        interface_id: InterfaceId,
+        name: Option<&str>,
+    ) -> NodeResult<(InterfaceId, InviteKey)> {
+        // Check if we're already in this interface
+        if self.interfaces.contains_key(&interface_id) {
+            // Already exists, return existing invite
+            let mut invite = InviteKey::new(interface_id)
+                .with_inviter_encapsulation_key(self.pq_kem_keypair.encapsulation_key_bytes())
+                .with_inviter_pq_verifying_key(self.pq_identity.verifying_key_bytes());
+
+            if let Some(transport) = self.transport.read().await.as_ref() {
+                let addr = transport.endpoint_addr();
+                if let Ok(addr_bytes) = postcard::to_allocvec(&addr) {
+                    invite = invite.with_bootstrap(addr_bytes);
+                }
+            }
+
+            return Ok((interface_id, invite));
+        }
+
+        // Create NInterface with the specified ID
+        let interface = NInterface::with_id(interface_id, self.identity);
+        self.setup_interface(interface_id, interface, name).await
+    }
+
+    /// Internal helper to set up an interface after creation.
+    async fn setup_interface(
+        &self,
+        interface_id: InterfaceId,
+        interface: NInterface<IrohIdentity>,
+        name: Option<&str>,
+    ) -> NodeResult<(InterfaceId, InviteKey)> {
 
         // Generate interface encryption key
         let interface_key = InterfaceKey::generate(interface_id);
@@ -587,8 +764,6 @@ impl IndrasNode {
         };
         self.interfaces.insert(interface_id, state);
 
-        info!(interface_id = %hex::encode(interface_id.as_bytes()), "Interface created");
-
         // Create invite with our endpoint address and PQ keys
         let mut invite = InviteKey::new(interface_id)
             .with_inviter_encapsulation_key(self.pq_kem_keypair.encapsulation_key_bytes())
@@ -600,8 +775,15 @@ impl IndrasNode {
             if let Ok(addr_bytes) = postcard::to_allocvec(&addr) {
                 invite = invite.with_bootstrap(addr_bytes);
             }
+
+            // Join the realm's gossip topic for peer discovery (as creator)
+            let discovery = transport.discovery_service();
+            if let Err(e) = discovery.join_realm_topic(interface_id, vec![]).await {
+                warn!(error = %e, "Failed to join realm gossip topic");
+            }
         }
 
+        info!(interface_id = %hex::encode(interface_id.as_bytes()), "Interface created");
         Ok((interface_id, invite))
     }
 
@@ -698,18 +880,30 @@ impl IndrasNode {
 
         // Connect to bootstrap peers and track which peers we connected to
         let mut bootstrap_peer_ids = Vec::new();
+        let mut bootstrap_public_keys = Vec::new();
         if let Some(transport) = self.transport.read().await.as_ref() {
             for peer_bytes in &invite.bootstrap_peers {
                 // Deserialize endpoint address using postcard
                 if let Ok(addr) = postcard::from_bytes::<iroh::EndpointAddr>(peer_bytes) {
                     let peer_id = IrohIdentity::new(addr.id);
                     debug!(peer = %peer_id.short_id(), "Connecting to bootstrap peer");
+                    bootstrap_public_keys.push(addr.id);
                     if let Err(e) = transport.connection_manager().connect(addr).await {
                         warn!(error = %e, "Failed to connect to bootstrap peer");
                     } else {
                         bootstrap_peer_ids.push(peer_id);
                     }
                 }
+            }
+
+            // Join the realm's gossip topic for peer discovery
+            // This broadcasts our InterfaceJoin with PQ keys and sends IntroductionRequest
+            let discovery = transport.discovery_service();
+            if let Err(e) = discovery
+                .join_realm_topic(interface_id, bootstrap_public_keys)
+                .await
+            {
+                warn!(error = %e, "Failed to join realm gossip topic");
             }
 
             // Send initial sync request ONLY to bootstrap peers we connected to (signed)
@@ -745,6 +939,37 @@ impl IndrasNode {
 
         info!(interface_id = %hex::encode(interface_id.as_bytes()), "Joined interface");
         Ok(interface_id)
+    }
+
+    /// Leave an interface
+    ///
+    /// Broadcasts a leave message and cleans up all state for this interface.
+    #[instrument(skip(self), fields(interface_id = %hex::encode(interface_id.as_bytes())))]
+    pub async fn leave_interface(&self, interface_id: &InterfaceId) -> NodeResult<()> {
+        // Check if we're in this interface
+        if !self.interfaces.contains_key(interface_id) {
+            return Err(NodeError::InterfaceNotFound(hex::encode(
+                interface_id.as_bytes(),
+            )));
+        }
+
+        // Leave the realm's gossip topic (broadcasts leave message)
+        if let Some(transport) = self.transport.read().await.as_ref() {
+            let discovery = transport.discovery_service();
+            if let Err(e) = discovery.leave_realm_topic(*interface_id).await {
+                warn!(error = %e, "Failed to leave realm gossip topic");
+            }
+        }
+
+        // Remove from memory
+        self.interfaces.remove(interface_id);
+        self.interface_keys.remove(interface_id);
+
+        // Note: We don't remove from storage to allow rejoining later
+        // The storage can be cleaned up separately if needed
+
+        info!("Left interface");
+        Ok(())
     }
 
     /// Send a message to an interface
@@ -858,6 +1083,8 @@ impl IndrasNode {
     }
 
     /// Get all members of an interface
+    ///
+    /// Returns members from both the CRDT state and discovered peers via gossip.
     pub async fn members(&self, interface_id: &InterfaceId) -> NodeResult<Vec<IrohIdentity>> {
         let state = self
             .interfaces
@@ -865,7 +1092,48 @@ impl IndrasNode {
             .ok_or_else(|| NodeError::InterfaceNotFound(hex::encode(interface_id.as_bytes())))?;
 
         let interface = state.interface.read().await;
-        Ok(interface.members().into_iter().collect())
+        let mut members: Vec<IrohIdentity> = interface.members().into_iter().collect();
+
+        // Also include peers discovered via gossip that may not be in CRDT yet
+        if let Some(transport) = self.transport.read().await.as_ref() {
+            let discovery = transport.discovery_service();
+            for peer_info in discovery.realm_members(interface_id) {
+                if !members.contains(&peer_info.peer_id) {
+                    members.push(peer_info.peer_id);
+                }
+            }
+        }
+
+        Ok(members)
+    }
+
+    /// Get realm members with full info including PQ keys
+    ///
+    /// Returns detailed member info including PQ keys for secure communication.
+    pub async fn members_with_info(
+        &self,
+        interface_id: &InterfaceId,
+    ) -> NodeResult<Vec<indras_transport::RealmPeerInfo>> {
+        if !self.interfaces.contains_key(interface_id) {
+            return Err(NodeError::InterfaceNotFound(hex::encode(
+                interface_id.as_bytes(),
+            )));
+        }
+
+        if let Some(transport) = self.transport.read().await.as_ref() {
+            Ok(transport.discovery_service().realm_members(interface_id))
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
+    /// Subscribe to realm peer discovery events
+    ///
+    /// Returns a receiver for peer events (joins, leaves).
+    pub fn subscribe_peer_events(&self) -> Option<broadcast::Receiver<PeerEvent>> {
+        // We need to return a future here since transport requires async access
+        // For now, this is called after transport is available
+        None // Will be set up differently
     }
 
     /// Add a member to an interface
