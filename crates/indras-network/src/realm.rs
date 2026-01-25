@@ -7,9 +7,10 @@ use crate::artifact::{Artifact, ArtifactDownload, ArtifactId, DownloadProgress};
 use crate::document::Document;
 use crate::error::{IndraError, Result};
 use crate::invite::InviteCode;
-use crate::member::{Member, MemberEvent};
+use crate::member::{Member, MemberEvent, MemberId, MemberInfo};
 use crate::message::{Content, Message, MessageId, MessagePayload};
 use crate::network::RealmId;
+use crate::quest::{Quest, QuestDocument, QuestId};
 use crate::stream::broadcast_to_stream;
 
 use chrono::Utc;
@@ -218,7 +219,25 @@ impl Realm {
     // ============================================================
 
     /// Get a stream of member events (joins, leaves, updates).
-    pub fn members(&self) -> impl Stream<Item = MemberEvent> + Send + '_ {
+    ///
+    /// This stream includes both CRDT-based membership changes and
+    /// gossip-based discovery events. Use this to react to members
+    /// joining or leaving the realm in real-time.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let mut events = realm.member_events();
+    /// while let Some(event) = events.next().await {
+    ///     match event {
+    ///         MemberEvent::Joined(member) => println!("{} joined", member.name()),
+    ///         MemberEvent::Left(member) => println!("{} left", member.name()),
+    ///         MemberEvent::Discovered(info) => println!("Discovered {} via gossip", info.member.name()),
+    ///         _ => {}
+    ///     }
+    /// }
+    /// ```
+    pub fn member_events(&self) -> impl Stream<Item = MemberEvent> + Send + '_ {
         let rx = self.node.events(&self.id).ok();
 
         async_stream::stream! {
@@ -235,11 +254,47 @@ impl Realm {
         }
     }
 
+    /// Get a stream of member events (alias for member_events).
+    #[deprecated(since = "0.1.0", note = "Use member_events() instead")]
+    pub fn members(&self) -> impl Stream<Item = MemberEvent> + Send + '_ {
+        self.member_events()
+    }
+
     /// Get the current list of realm members.
+    ///
+    /// Returns all known members including those discovered via gossip.
+    /// Use `member_list_with_info()` to get PQ keys for secure communication.
     pub async fn member_list(&self) -> Result<Vec<Member>> {
         let identities: Vec<IrohIdentity> = self.node.members(&self.id).await?;
 
         Ok(identities.into_iter().map(Member::new).collect())
+    }
+
+    /// Get realm members with extended info including PQ keys.
+    ///
+    /// Returns member information discovered via gossip, including
+    /// post-quantum cryptographic keys for secure direct communication.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let members = realm.member_list_with_info().await?;
+    /// for info in members {
+    ///     println!("{}: has PQ keys = {}", info.member.name(), info.has_pq_keys());
+    /// }
+    /// ```
+    pub async fn member_list_with_info(&self) -> Result<Vec<MemberInfo>> {
+        let peer_infos = self.node.members_with_info(&self.id).await?;
+
+        Ok(peer_infos
+            .into_iter()
+            .map(MemberInfo::from_realm_peer_info)
+            .collect())
+    }
+
+    /// Get the number of members in the realm.
+    pub async fn member_count(&self) -> Result<usize> {
+        Ok(self.node.members(&self.id).await?.len())
     }
 
     // ============================================================
@@ -280,6 +335,117 @@ impl Realm {
         name: &str,
     ) -> Result<Document<T>> {
         Document::new(self.id, name.to_string(), Arc::clone(&self.node)).await
+    }
+
+    // ============================================================
+    // Quests
+    // ============================================================
+
+    /// Get the quests document for this realm.
+    ///
+    /// Returns a CRDT-synchronized quest list that all realm members share.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let quests = realm.quests().await?;
+    /// let open = quests.read().await.open_quests();
+    /// println!("Open quests: {}", open.len());
+    /// ```
+    pub async fn quests(&self) -> Result<Document<QuestDocument>> {
+        self.document::<QuestDocument>("quests").await
+    }
+
+    /// Create a new quest in this realm.
+    ///
+    /// # Arguments
+    ///
+    /// * `title` - Short title describing the quest
+    /// * `description` - Detailed description of what needs to be done
+    /// * `image` - Optional artifact ID for an image
+    /// * `creator` - The member ID of the quest creator
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let quest_id = realm.create_quest(
+    ///     "Review design doc",
+    ///     "Please review the PDF and leave comments",
+    ///     None,
+    ///     my_id,
+    /// ).await?;
+    /// ```
+    pub async fn create_quest(
+        &self,
+        title: impl Into<String>,
+        description: impl Into<String>,
+        image: Option<ArtifactId>,
+        creator: MemberId,
+    ) -> Result<QuestId> {
+        let quest = Quest::new(title, description, image, creator);
+        let quest_id = quest.id;
+
+        let doc = self.quests().await?;
+        doc.update(|d| {
+            d.add(quest);
+        })
+        .await?;
+
+        Ok(quest_id)
+    }
+
+    /// Claim a quest for a member.
+    ///
+    /// Once claimed, the quest shows who is working on it.
+    ///
+    /// # Arguments
+    ///
+    /// * `quest_id` - The quest to claim
+    /// * `doer` - The member claiming the quest
+    pub async fn claim_quest(&self, quest_id: QuestId, doer: MemberId) -> Result<()> {
+        let doc = self.quests().await?;
+        doc.update(|d| {
+            if let Some(quest) = d.find_mut(&quest_id) {
+                let _ = quest.claim(doer);
+            }
+        })
+        .await?;
+
+        Ok(())
+    }
+
+    /// Mark a quest as complete.
+    ///
+    /// # Arguments
+    ///
+    /// * `quest_id` - The quest to complete
+    pub async fn complete_quest(&self, quest_id: QuestId) -> Result<()> {
+        let doc = self.quests().await?;
+        doc.update(|d| {
+            if let Some(quest) = d.find_mut(&quest_id) {
+                let _ = quest.complete();
+            }
+        })
+        .await?;
+
+        Ok(())
+    }
+
+    /// Unclaim a quest (release it back to open status).
+    ///
+    /// # Arguments
+    ///
+    /// * `quest_id` - The quest to unclaim
+    pub async fn unclaim_quest(&self, quest_id: QuestId) -> Result<()> {
+        let doc = self.quests().await?;
+        doc.update(|d| {
+            if let Some(quest) = d.find_mut(&quest_id) {
+                let _ = quest.unclaim();
+            }
+        })
+        .await?;
+
+        Ok(())
     }
 
     // ============================================================

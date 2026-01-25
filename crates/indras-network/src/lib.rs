@@ -101,6 +101,7 @@
 // Modules
 pub mod artifact;
 pub mod config;
+pub mod contacts;
 pub mod document;
 pub mod error;
 pub mod escape;
@@ -108,18 +109,21 @@ pub mod invite;
 pub mod member;
 pub mod message;
 pub mod network;
+pub mod quest;
 pub mod realm;
 pub mod stream;
 
 // Re-export main types at crate root
 pub use artifact::{Artifact, ArtifactDownload, ArtifactId, DownloadProgress};
 pub use config::{NetworkBuilder, NetworkConfig, Preset};
+pub use contacts::{ContactsDocument, ContactsRealm};
 pub use document::{Document, DocumentChange, DocumentSchema};
 pub use error::{IndraError, Result};
 pub use invite::InviteCode;
-pub use member::{Member, MemberEvent, MemberId};
+pub use member::{Member, MemberEvent, MemberId, MemberInfo};
 pub use message::{Content, Message, MessageId};
 pub use network::{IndrasNetwork, RealmId};
+pub use quest::{Quest, QuestDocument, QuestError, QuestId};
 pub use realm::Realm;
 
 /// Prelude module for convenient imports.
@@ -131,9 +135,9 @@ pub use realm::Realm;
 /// ```
 pub mod prelude {
     pub use crate::{
-        Artifact, ArtifactDownload, Content, Document, DocumentSchema, IndraError,
-        IndrasNetwork, InviteCode, Member, MemberEvent, Message, Preset, Realm, RealmId,
-        Result,
+        Artifact, ArtifactDownload, ContactsRealm, Content, Document, DocumentSchema,
+        IndraError, IndrasNetwork, InviteCode, Member, MemberEvent, MemberInfo, Message,
+        Preset, Quest, QuestDocument, Realm, RealmId, Result,
     };
 
     // Re-export futures StreamExt for convenient stream iteration
