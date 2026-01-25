@@ -215,69 +215,41 @@ pub fn DocumentEventItem(event: DocumentEvent) -> Element {
     }
 }
 
-/// Scenario controls
+/// Scenario selection controls (playback controls moved to unified bottom bar)
 #[component]
 pub fn DocumentControls(
     state: Signal<DocumentState>,
     on_load_scenario: EventHandler<String>,
-    on_run: EventHandler<()>,
-    on_pause: EventHandler<()>,
-    on_reset: EventHandler<()>,
-    on_step: EventHandler<()>,
+    #[allow(unused)] on_run: EventHandler<()>,
+    #[allow(unused)] on_pause: EventHandler<()>,
+    #[allow(unused)] on_reset: EventHandler<()>,
+    #[allow(unused)] on_step: EventHandler<()>,
 ) -> Element {
-    let running = state.read().running;
-    let has_scenario = state.read().scenario_name.is_some();
-    let current_step = state.read().current_step;
-    let total_steps = state.read().total_steps;
+    let scenario_name = state.read().scenario_name.clone();
 
     rsx! {
         div { class: "document-controls",
             div { class: "scenario-buttons",
-                span { class: "control-label", "Load: " }
+                span { class: "control-label", "Load Scenario: " }
                 button {
-                    class: "control-btn secondary",
+                    class: if scenario_name.as_deref() == Some("full_sync") { "control-btn secondary active" } else { "control-btn secondary" },
                     onclick: move |_| on_load_scenario.call("full_sync".to_string()),
                     "Full Sync Test"
                 }
                 button {
-                    class: "control-btn secondary",
+                    class: if scenario_name.as_deref() == Some("concurrent") { "control-btn secondary active" } else { "control-btn secondary" },
                     onclick: move |_| on_load_scenario.call("concurrent".to_string()),
                     "Concurrent Edits"
                 }
                 button {
-                    class: "control-btn secondary",
+                    class: if scenario_name.as_deref() == Some("offline") { "control-btn secondary active" } else { "control-btn secondary" },
                     onclick: move |_| on_load_scenario.call("offline".to_string()),
                     "Offline Sync"
                 }
             }
-            div { class: "playback-controls",
-                button {
-                    class: "control-btn",
-                    disabled: !has_scenario || running,
-                    onclick: move |_| on_step.call(()),
-                    "Step"
-                }
-                button {
-                    class: "control-btn",
-                    disabled: !has_scenario,
-                    onclick: move |_| {
-                        if running {
-                            on_pause.call(());
-                        } else {
-                            on_run.call(());
-                        }
-                    },
-                    if running { "Pause" } else { "Run" }
-                }
-                button {
-                    class: "control-btn secondary",
-                    disabled: !has_scenario,
-                    onclick: move |_| on_reset.call(()),
-                    "Reset"
-                }
-                if has_scenario {
-                    span { class: "step-counter", "Step {current_step} / {total_steps}" }
-                }
+            // Playback controls removed - now in unified bottom bar
+            if let Some(ref name) = scenario_name {
+                span { class: "current-scenario", "Current: {name}" }
             }
         }
     }

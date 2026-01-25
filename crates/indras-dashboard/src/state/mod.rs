@@ -4,10 +4,12 @@ use serde::{Deserialize, Serialize};
 pub mod document;
 pub mod instance;
 pub mod sdk;
+pub mod unified;
 
 pub use document::DocumentState;
 pub use instance::{format_network_event, InstanceState, PacketAnimation};
 pub use sdk::SDKState;
+pub use unified::UnifiedPlaybackState;
 
 /// A data point for charts
 #[derive(Clone, Debug, Default, PartialEq)]
