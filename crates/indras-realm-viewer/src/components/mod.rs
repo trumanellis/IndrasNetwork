@@ -644,6 +644,24 @@ fn ChatMessageItem(message: crate::state::ChatMessage) -> Element {
                 }
             }
         }
+        crate::state::ChatMessageType::ProofFolderSubmitted { artifact_count, narrative_preview, .. } => {
+            let preview = if narrative_preview.is_empty() {
+                format!("{} files", artifact_count)
+            } else {
+                narrative_preview.clone()
+            };
+            rsx! {
+                div { class: "chat-message proof-folder-message",
+                    span { class: "chat-tick", "[{message.tick}]" }
+                    span { class: "chat-icon", "📂" }
+                    span { class: "chat-sender {color_class}", "{name}" }
+                    div { class: "proof-content",
+                        span { class: "proof-label", "Proof folder: " }
+                        span { class: "proof-preview", "{preview}" }
+                    }
+                }
+            }
+        }
     }
 }
 

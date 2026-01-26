@@ -726,6 +726,299 @@ impl Realm {
     }
 
     // ============================================================
+    // Proof Folders
+    // ============================================================
+
+    /// Get the proof folders document for this realm.
+    ///
+    /// Proof folders contain multi-artifact documentation of quest fulfillment
+    /// with a narrative explanation and supporting media.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let folders = realm.proof_folders().await?;
+    /// let all_folders = folders.read().await.folders.clone();
+    /// ```
+    pub async fn proof_folders(&self) -> Result<Document<crate::proof_folder::ProofFolderDocument>> {
+        self.document("proof_folders").await
+    }
+
+    /// Create a new proof folder in draft status.
+    ///
+    /// The folder starts empty and in draft status. Add a narrative and
+    /// artifacts, then call `submit_proof_folder()` to finalize.
+    ///
+    /// # Arguments
+    ///
+    /// * `quest_id` - The quest this proof is for
+    /// * `claimant` - The member creating the proof (typically your own ID)
+    ///
+    /// # Returns
+    ///
+    /// The ID of the new proof folder.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let folder_id = realm.create_proof_folder(quest_id, my_id).await?;
+    /// realm.update_proof_folder_narrative(folder_id, "# My Work\n\nI did the thing...").await?;
+    /// ```
+    pub async fn create_proof_folder(
+        &self,
+        quest_id: QuestId,
+        claimant: MemberId,
+    ) -> Result<crate::proof_folder::ProofFolderId> {
+        use crate::proof_folder::ProofFolder;
+
+        let folder = ProofFolder::new(quest_id, claimant);
+        let folder_id = folder.id;
+
+        let doc = self.proof_folders().await?;
+        doc.update(|d| {
+            d.add(folder);
+        })
+        .await?;
+
+        Ok(folder_id)
+    }
+
+    /// Update the narrative in a proof folder.
+    ///
+    /// The narrative is a markdown document explaining what work was done.
+    /// Only works while folder is in draft status.
+    ///
+    /// # Arguments
+    ///
+    /// * `folder_id` - The proof folder to update
+    /// * `narrative` - The new narrative content (markdown)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// realm.update_proof_folder_narrative(folder_id, "## Work completed\n\nI finished the task by...").await?;
+    /// ```
+    pub async fn update_proof_folder_narrative(
+        &self,
+        folder_id: crate::proof_folder::ProofFolderId,
+        narrative: impl Into<String>,
+    ) -> Result<()> {
+        use crate::proof_folder::ProofFolderError;
+
+        let narrative = narrative.into();
+        let doc = self.proof_folders().await?;
+
+        let mut result = Ok(());
+        doc.update(|d| {
+            if let Some(folder) = d.find_mut(&folder_id) {
+                result = folder.set_narrative(&narrative).map_err(|e| match e {
+                    ProofFolderError::NotDraft => IndraError::InvalidOperation(
+                        "Cannot update narrative: folder is not in draft status".into(),
+                    ),
+                    _ => IndraError::InvalidOperation(e.to_string()),
+                });
+            } else {
+                result = Err(IndraError::InvalidOperation("Proof folder not found".into()));
+            }
+        })
+        .await?;
+
+        result
+    }
+
+    /// Add an artifact to a proof folder.
+    ///
+    /// Only works while folder is in draft status. The artifact should
+    /// already be stored via `share_artifact()`.
+    ///
+    /// # Arguments
+    ///
+    /// * `folder_id` - The proof folder to update
+    /// * `artifact` - Metadata for the artifact to add
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let artifact = ProofFolderArtifact::new(photo_hash, "before.jpg", 1024, Some("image/jpeg".into()));
+    /// realm.add_artifact_to_proof_folder(folder_id, artifact).await?;
+    /// ```
+    pub async fn add_artifact_to_proof_folder(
+        &self,
+        folder_id: crate::proof_folder::ProofFolderId,
+        artifact: crate::proof_folder::ProofFolderArtifact,
+    ) -> Result<()> {
+        use crate::proof_folder::ProofFolderError;
+
+        let doc = self.proof_folders().await?;
+
+        let mut result = Ok(());
+        doc.update(|d| {
+            if let Some(folder) = d.find_mut(&folder_id) {
+                result = folder.add_artifact(artifact.clone()).map_err(|e| match e {
+                    ProofFolderError::NotDraft => IndraError::InvalidOperation(
+                        "Cannot add artifact: folder is not in draft status".into(),
+                    ),
+                    _ => IndraError::InvalidOperation(e.to_string()),
+                });
+            } else {
+                result = Err(IndraError::InvalidOperation("Proof folder not found".into()));
+            }
+        })
+        .await?;
+
+        result
+    }
+
+    /// Remove an artifact from a proof folder.
+    ///
+    /// Only works while folder is in draft status.
+    ///
+    /// # Arguments
+    ///
+    /// * `folder_id` - The proof folder to update
+    /// * `artifact_id` - The artifact ID to remove
+    pub async fn remove_artifact_from_proof_folder(
+        &self,
+        folder_id: crate::proof_folder::ProofFolderId,
+        artifact_id: ArtifactId,
+    ) -> Result<()> {
+        use crate::proof_folder::ProofFolderError;
+
+        let doc = self.proof_folders().await?;
+
+        let mut result = Ok(());
+        doc.update(|d| {
+            if let Some(folder) = d.find_mut(&folder_id) {
+                result = folder.remove_artifact(&artifact_id).map_err(|e| match e {
+                    ProofFolderError::NotDraft => IndraError::InvalidOperation(
+                        "Cannot remove artifact: folder is not in draft status".into(),
+                    ),
+                    ProofFolderError::ArtifactNotFound => {
+                        IndraError::InvalidOperation("Artifact not found in folder".into())
+                    }
+                    _ => IndraError::InvalidOperation(e.to_string()),
+                });
+            } else {
+                result = Err(IndraError::InvalidOperation("Proof folder not found".into()));
+            }
+        })
+        .await?;
+
+        result
+    }
+
+    /// Submit a proof folder for review.
+    ///
+    /// Changes the folder status to Submitted, creates/updates a QuestClaim
+    /// linking to the folder, and posts a chat notification to the realm.
+    ///
+    /// This action is irreversible - once submitted, the folder cannot be edited.
+    ///
+    /// # Arguments
+    ///
+    /// * `folder_id` - The proof folder to submit
+    ///
+    /// # Returns
+    ///
+    /// The index of the claim in the quest's claims list.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Prepare folder
+    /// let folder_id = realm.create_proof_folder(quest_id, my_id).await?;
+    /// realm.update_proof_folder_narrative(folder_id, "Work done...").await?;
+    /// // ... add artifacts ...
+    ///
+    /// // Submit for review (triggers chat notification)
+    /// let claim_index = realm.submit_proof_folder(folder_id).await?;
+    /// ```
+    pub async fn submit_proof_folder(
+        &self,
+        folder_id: crate::proof_folder::ProofFolderId,
+    ) -> Result<usize> {
+        use crate::message::{Content, MessagePayload};
+        use crate::proof_folder::ProofFolderError;
+
+        // First, get folder info and submit it
+        let doc = self.proof_folders().await?;
+        let guard = doc.read().await;
+        let folder = guard.find(&folder_id).ok_or_else(|| {
+            IndraError::InvalidOperation("Proof folder not found".into())
+        })?;
+
+        if folder.is_submitted() {
+            return Err(IndraError::InvalidOperation(
+                "Proof folder has already been submitted".into(),
+            ));
+        }
+
+        let quest_id = folder.quest_id;
+        let claimant = folder.claimant;
+        let narrative_preview = folder.narrative_preview();
+        let artifact_count = folder.artifact_count();
+
+        drop(guard);
+
+        // Submit the folder
+        let mut submit_result = Ok(());
+        doc.update(|d| {
+            if let Some(f) = d.find_mut(&folder_id) {
+                submit_result = f.submit().map_err(|e| match e {
+                    ProofFolderError::AlreadySubmitted => IndraError::InvalidOperation(
+                        "Proof folder has already been submitted".into(),
+                    ),
+                    _ => IndraError::InvalidOperation(e.to_string()),
+                });
+            }
+        })
+        .await?;
+
+        submit_result?;
+
+        // Create or update quest claim with proof folder
+        let mut claim_index = 0usize;
+        let quests = self.quests().await?;
+        quests
+            .update(|d| {
+                if let Some(quest) = d.find_mut(&quest_id) {
+                    // Check if claimant already has a claim
+                    if let Some((idx, claim)) = quest
+                        .claims
+                        .iter_mut()
+                        .enumerate()
+                        .find(|(_, c)| c.claimant == claimant)
+                    {
+                        // Update existing claim with proof folder
+                        claim.set_proof_folder(folder_id);
+                        claim_index = idx;
+                    } else {
+                        // Create new claim with proof folder
+                        let claim = crate::quest::QuestClaim::with_proof_folder(claimant, folder_id);
+                        quest.claims.push(claim);
+                        claim_index = quest.claims.len() - 1;
+                    }
+                }
+            })
+            .await?;
+
+        // Post chat notification
+        let content = Content::ProofFolderSubmitted {
+            quest_id,
+            claimant,
+            folder_id,
+            narrative_preview,
+            artifact_count,
+        };
+
+        let payload = MessagePayload::new(content);
+        let bytes = postcard::to_allocvec(&payload)?;
+        self.node.send_message(&self.id, bytes).await?;
+
+        Ok(claim_index)
+    }
+
+    // ============================================================
     // Attention Tracking
     // ============================================================
 
