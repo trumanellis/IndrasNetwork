@@ -104,4 +104,13 @@ impl RealmState {
     pub fn member_count(&self) -> usize {
         self.all_members.len()
     }
+
+    /// Get realms containing the specified member
+    pub fn realms_for_member(&self, member: &str) -> Vec<&RealmInfo> {
+        let mut realms: Vec<_> = self.realms.values()
+            .filter(|r| r.members.contains(member))
+            .collect();
+        realms.sort_by(|a, b| b.members.len().cmp(&a.members.len()));
+        realms
+    }
 }

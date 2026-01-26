@@ -213,4 +213,30 @@ impl QuestState {
     pub fn total_quests(&self) -> usize {
         self.quests.len()
     }
+
+    /// Get quests where member is creator or has claims
+    pub fn quests_for_member(&self, member: &str) -> Vec<&QuestInfo> {
+        self.quests
+            .values()
+            .filter(|q| {
+                q.creator == member || q.claims.iter().any(|c| c.claimant == member)
+            })
+            .collect()
+    }
+
+    /// Get quests by status filtered to member (creator or claimant)
+    pub fn quests_for_member_by_status(&self, member: &str, status: QuestStatus) -> Vec<&QuestInfo> {
+        self.quests
+            .values()
+            .filter(|q| {
+                q.status == status
+                    && (q.creator == member || q.claims.iter().any(|c| c.claimant == member))
+                    && self
+                        .selected_realm
+                        .as_ref()
+                        .map(|r| &q.realm_id == r)
+                        .unwrap_or(true)
+            })
+            .collect()
+    }
 }
