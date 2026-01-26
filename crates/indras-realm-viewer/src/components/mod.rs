@@ -1,199 +1,97 @@
 //! UI Components for Realm Viewer
 //!
-//! All Dioxus components for the dashboard views.
+//! Redesigned 3-panel dashboard with frosted glass controls.
 
 use dioxus::prelude::*;
 
 use crate::playback;
 use crate::state::{
-    member_name, short_id, ActiveTab, AppState, ClaimInfo, QuestAttention, QuestInfo, QuestStatus,
-    RealmInfo,
+    member_name, short_id, AppState, ClaimInfo, MemberStats, QuestAttention, QuestInfo,
+    QuestStatus, RealmInfo,
 };
 use crate::theme::{ThemeSwitcher, ThemedRoot};
 
 /// Main application component
 #[component]
 pub fn App(state: Signal<AppState>) -> Element {
-    rsx! {
-        ThemedRoot {
-            ThemeSwitcher {}
-            div { class: "app-container",
-                Header { state }
-                main { class: "main-content",
-                    TabContent { state }
+    let is_pov_mode = state.read().selected_pov.is_some();
+
+    if is_pov_mode {
+        rsx! {
+            POVDashboard { state }
+        }
+    } else {
+        rsx! {
+            ThemedRoot {
+                ThemeSwitcher {}
+                div { class: "app-container",
+                    Header { state }
+                    main { class: "main-content",
+                        LeftPanel { state }
+                        CenterPanel { state }
+                        RightPanel { state }
+                    }
                 }
-                EventLogPanel { state }
+                FloatingControlBar { state }
             }
         }
     }
 }
 
-/// Header with tab navigation and playback controls
+/// Simplified header for Overview mode
 #[component]
 fn Header(state: Signal<AppState>) -> Element {
-    let mut state_write = state;
-    let is_paused = state.read().playback.paused;
-    let speed = state.read().playback.speed;
-    let is_pov_mode = state.read().is_pov_mode();
+    let tick = state.read().tick;
+    let total_events = state.read().total_events;
+    let realm_count = state.read().realms.realms.len();
+    let member_count = state.read().all_members().len();
 
     rsx! {
-        header { class: if is_pov_mode { "header pov-mode" } else { "header" },
+        header { class: "header",
             div { class: "header-left",
                 h1 { class: "app-title", "Realm Viewer" }
-
-                // Playback controls inline with title
-                div { class: "playback-controls",
-                    button {
-                        class: "control-btn reset",
-                        onclick: move |_| {
-                            state_write.write().reset();
-                            playback::reset();
-                            playback::request_reset();
-                        },
-                        "↻"
-                    }
-                    button {
-                        class: "control-btn play-pause",
-                        onclick: move |_| {
-                            let new_paused = !is_paused;
-                            state_write.write().playback.paused = new_paused;
-                            playback::set_paused(new_paused);
-                        },
-                        if is_paused { "▶" } else { "⏸" }
-                    }
-                    div { class: "speed-control",
-                        label { "{speed}x" }
-                        input {
-                            r#type: "range",
-                            min: "0.5",
-                            max: "10",
-                            step: "0.5",
-                            value: "{speed}",
-                            onchange: move |evt| {
-                                if let Ok(v) = evt.value().parse::<f32>() {
-                                    state_write.write().playback.speed = v;
-                                    playback::set_speed(v);
-                                }
-                            },
-                        }
-                    }
-                    button {
-                        class: "control-btn step",
-                        disabled: !is_paused,
-                        onclick: move |_| {
-                            playback::request_step();
-                        },
-                        "⏭"
-                    }
-                }
-
-                // POV Selector
-                POVSelector { state }
             }
-
-            nav { class: "tab-nav",
-                for tab in ActiveTab::all() {
-                    button {
-                        class: if state.read().active_tab == *tab { "tab-button active" } else { "tab-button" },
-                        onclick: move |_| {
-                            state_write.write().active_tab = *tab;
-                        },
-                        "{tab.display_name()}"
-                    }
-                }
-            }
-
-            div { class: "stats",
-                span { class: "stat", "Tick: {state.read().tick}" }
-                span { class: "stat", "Events: {state.read().total_events}" }
+            div { class: "header-stats",
+                span { class: "stat", "Tick: ", span { class: "stat-value", "{tick}" } }
+                span { class: "stat", "Events: ", span { class: "stat-value", "{total_events}" } }
+                span { class: "stat", "Realms: ", span { class: "stat-value", "{realm_count}" } }
+                span { class: "stat", "Members: ", span { class: "stat-value", "{member_count}" } }
             }
         }
     }
 }
 
-/// POV (Point of View) selector dropdown
-#[component]
-fn POVSelector(state: Signal<AppState>) -> Element {
-    let mut state_write = state;
-    let members = state.read().all_members();
-    let selected = state.read().selected_pov.clone();
-    let is_pov_mode = selected.is_some();
+// ============================================================================
+// LEFT PANEL - Realms & Members
+// ============================================================================
 
+#[component]
+fn LeftPanel(state: Signal<AppState>) -> Element {
     rsx! {
-        div { class: if is_pov_mode { "pov-selector active" } else { "pov-selector" },
-            span { class: "pov-icon", "👁" }
-            select {
-                class: "pov-dropdown",
-                value: selected.as_deref().unwrap_or(""),
-                onchange: move |evt| {
-                    let value = evt.value();
-                    state_write.write().selected_pov = if value.is_empty() {
-                        None
-                    } else {
-                        Some(value)
-                    };
-                },
-                option { value: "", "All Members" }
-                for member in members {
-                    option { value: "{member}", "{member_name(&member)}" }
-                }
-            }
+        div { class: "left-panel",
+            RealmsSection { state }
+            MembersSection { state }
         }
     }
 }
 
-/// Tab content router
 #[component]
-fn TabContent(state: Signal<AppState>) -> Element {
-    match state.read().active_tab {
-        ActiveTab::Realms => rsx! { RealmsView { state } },
-        ActiveTab::Quests => rsx! { QuestsView { state } },
-        ActiveTab::Attention => rsx! { AttentionView { state } },
-        ActiveTab::Contacts => rsx! { ContactsView { state } },
-    }
-}
-
-// ============================================================================
-// REALMS VIEW
-// ============================================================================
-
-#[component]
-fn RealmsView(state: Signal<AppState>) -> Element {
-    let state_read = state.read();
-    let pov = state_read.selected_pov.clone();
-    let realms: Vec<RealmInfo> = if let Some(ref pov_member) = pov {
-        state_read.realms.realms_for_member(pov_member).into_iter().cloned().collect()
-    } else {
-        state_read.realms.realms_by_size().into_iter().cloned().collect()
-    };
+fn RealmsSection(state: Signal<AppState>) -> Element {
+    let realms: Vec<RealmInfo> = state.read().realms.realms_by_size().into_iter().cloned().collect();
     let count = realms.len();
-    let is_empty = realms.is_empty();
-    let pov_name = pov.as_ref().map(|m| member_name(m));
 
     rsx! {
-        div { class: "realms-view",
-            div { class: "view-header",
-                h2 {
-                    if let Some(ref name) = pov_name {
-                        "{name}'s Realms"
-                    } else {
-                        "Realms Overview"
-                    }
-                }
-                span { class: "count", "{count} realms" }
+        div { class: "panel-section",
+            div { class: "panel-title",
+                "Realms"
+                span { class: "panel-count", "{count}" }
             }
-            div { class: "realm-grid",
-                for realm in realms {
-                    RealmCard { realm: realm.clone(), pov: pov.clone() }
+            div { class: "realm-list",
+                for realm in realms.iter().take(10) {
+                    RealmCard { realm: realm.clone() }
                 }
-            }
-            if is_empty {
-                div { class: "empty-state",
-                    if pov_name.is_some() {
-                        p { "This member is not in any realms yet." }
-                    } else {
-                        p { "No realms yet. Waiting for realm_created events..." }
-                    }
+                if realms.is_empty() {
+                    div { class: "empty-state", "No realms yet" }
                 }
             }
         }
@@ -201,25 +99,18 @@ fn RealmsView(state: Signal<AppState>) -> Element {
 }
 
 #[component]
-fn RealmCard(realm: RealmInfo, pov: Option<String>) -> Element {
-    // In POV mode, show the POV member first
-    let mut sorted_members: Vec<&String> = realm.members.iter().collect();
-    if let Some(ref pov_member) = pov {
-        sorted_members.sort_by(|a, b| {
-            if *a == pov_member { std::cmp::Ordering::Less }
-            else if *b == pov_member { std::cmp::Ordering::Greater }
-            else { a.cmp(b) }
-        });
-    }
-
-    let member_names: Vec<String> = sorted_members
-        .iter()
-        .take(4)
+fn RealmCard(realm: RealmInfo) -> Element {
+    let member_names: Vec<String> = realm.members.iter()
+        .take(3)
         .map(|m| member_name(m))
         .collect();
-    let display_name = member_names.join(" + ");
-    let extra = if realm.members.len() > 4 {
-        format!(" +{}", realm.members.len() - 4)
+    let display_name = if member_names.is_empty() {
+        short_id(&realm.realm_id)
+    } else {
+        member_names.join(" + ")
+    };
+    let extra = if realm.members.len() > 3 {
+        format!(" +{}", realm.members.len() - 3)
     } else {
         String::new()
     };
@@ -227,92 +118,222 @@ fn RealmCard(realm: RealmInfo, pov: Option<String>) -> Element {
     rsx! {
         div { class: "realm-card",
             div { class: "realm-name", "{display_name}{extra}" }
-            div { class: "realm-id", "{short_id(&realm.realm_id)}" }
-            div { class: "realm-stats",
-                span { class: "member-count",
-                    span { class: "dots",
+            div { class: "realm-meta",
+                div { class: "realm-members-count",
+                    div { class: "member-dots",
                         for _ in 0..realm.members.len().min(5) {
-                            span { class: "dot", "●" }
+                            span { class: "member-dot" }
                         }
                     }
-                    " {realm.members.len()} members"
+                    "{realm.members.len()} members"
                 }
-                span { class: "quest-count", "{realm.quest_count} quests" }
+                span { "{realm.quest_count} quests" }
             }
         }
     }
 }
 
-// ============================================================================
-// QUESTS VIEW
-// ============================================================================
+#[component]
+fn MembersSection(state: Signal<AppState>) -> Element {
+    let state_read = state.read();
+    let members = state_read.all_members();
+    let count = members.len();
+
+    // Get current focus for each member
+    let members_with_focus: Vec<(String, Option<String>)> = members
+        .into_iter()
+        .map(|m| {
+            let focus = state_read.attention.focus_for_member(&m).cloned();
+            (m, focus)
+        })
+        .collect();
+
+    rsx! {
+        div { class: "panel-section",
+            div { class: "panel-title",
+                "Members"
+                span { class: "panel-count", "{count}" }
+            }
+            div { class: "member-list",
+                for (member, focus) in members_with_focus.iter() {
+                    MemberCard {
+                        state,
+                        member_id: member.clone(),
+                        focus: focus.clone()
+                    }
+                }
+                if count == 0 {
+                    div { class: "empty-state", "No members yet" }
+                }
+            }
+        }
+    }
+}
 
 #[component]
-fn QuestsView(state: Signal<AppState>) -> Element {
+fn MemberCard(state: Signal<AppState>, member_id: String, focus: Option<String>) -> Element {
     let mut state_write = state;
     let state_read = state.read();
-    let realms: Vec<String> = state_read.quests.realms_with_quests().into_iter().cloned().collect();
-    let selected = state_read.quests.selected_realm.clone();
-    let pov = state_read.selected_pov.clone();
-    let pov_name = pov.as_ref().map(|m| member_name(m));
+    let name = member_name(&member_id);
+    let initial = name.chars().next().unwrap_or('?');
+    let color_class = member_color_class(&member_id);
+    let member_id_clone = member_id.clone();
+
+    // Look up quest title if focusing
+    let focus_title = focus.as_ref().and_then(|qid| {
+        state_read.quests.quests.get(qid).map(|q| q.title.clone())
+    });
 
     rsx! {
-        div { class: "quests-view",
-            div { class: "view-header",
-                h2 {
-                    if let Some(ref name) = pov_name {
-                        "{name}'s Quests"
-                    } else {
-                        "Quest Board"
+        div {
+            class: "member-card clickable",
+            onclick: move |_| {
+                state_write.write().selected_pov = Some(member_id_clone.clone());
+            },
+            div { class: "member-avatar {color_class}", "{initial}" }
+            div { class: "member-info",
+                div { class: "member-name", "{name}" }
+                if let Some(ref title) = focus_title {
+                    div { class: "member-focus",
+                        span { class: "focus-arrow", "→" }
+                        span { class: "focus-quest", "{title}" }
                     }
                 }
-                select {
-                    class: "realm-filter",
-                    value: selected.as_deref().unwrap_or(""),
-                    onchange: move |evt| {
-                        let value = evt.value();
-                        state_write.write().quests.selected_realm = if value.is_empty() {
-                            None
-                        } else {
-                            Some(value)
-                        };
-                    },
-                    option { value: "", "All Realms" }
-                    for realm_id in &realms {
-                        option { value: "{realm_id}", "{short_id(realm_id)}" }
-                    }
-                }
-            }
-            div { class: "kanban-board",
-                QuestColumn { state, status: QuestStatus::Open }
-                QuestColumn { state, status: QuestStatus::Claimed }
-                QuestColumn { state, status: QuestStatus::Verified }
-                QuestColumn { state, status: QuestStatus::Completed }
             }
         }
     }
 }
 
+// ============================================================================
+// CENTER PANEL - Network Topology & Quest List
+// ============================================================================
+
 #[component]
-fn QuestColumn(state: Signal<AppState>, status: QuestStatus) -> Element {
+fn CenterPanel(state: Signal<AppState>) -> Element {
+    rsx! {
+        div { class: "center-panel",
+            NetworkTopology { state }
+            QuestListPanel { state }
+        }
+    }
+}
+
+#[component]
+fn NetworkTopology(state: Signal<AppState>) -> Element {
+    let mut state_write = state;
     let state_read = state.read();
-    let pov = state_read.selected_pov.clone();
-    let quests: Vec<QuestInfo> = if let Some(ref pov_member) = pov {
-        state_read.quests.quests_for_member_by_status(pov_member, status).into_iter().cloned().collect()
-    } else {
-        state_read.quests.quests_by_status(status).into_iter().cloned().collect()
+    let members = state_read.all_members();
+
+    let width = 600.0_f64;
+    let height = 200.0_f64;
+    let center_x = width / 2.0;
+    let center_y = height / 2.0;
+
+    // Calculate positions for members in a circle
+    let member_count = members.len().max(1) as f64;
+    let radius = (height / 2.0 - 30.0).min(width / 4.0);
+    let angle_step = std::f64::consts::PI * 2.0 / member_count;
+    let angle_offset = -std::f64::consts::PI / 2.0; // Start from top
+
+    // Calculate positions
+    let positions: Vec<(String, f64, f64)> = members
+        .iter()
+        .enumerate()
+        .map(|(i, m)| {
+            let angle = angle_offset + (i as f64) * angle_step;
+            let x = center_x + radius * angle.cos();
+            let y = center_y + radius * angle.sin();
+            (m.clone(), x, y)
+        })
+        .collect();
+
+    // Build edges from contacts
+    let edges: Vec<(usize, usize, bool)> = {
+        let mut result = Vec::new();
+        for (i, member) in members.iter().enumerate() {
+            let contacts = state_read.contacts.get_contacts(member);
+            for contact in contacts {
+                if let Some(j) = members.iter().position(|m| m == contact) {
+                    if i < j {
+                        // Check if bidirectional
+                        let reverse_contacts = state_read.contacts.get_contacts(contact);
+                        let bidirectional = reverse_contacts.contains(&member);
+                        result.push((i, j, bidirectional));
+                    }
+                }
+            }
+        }
+        result
     };
-    let count = quests.len();
 
     rsx! {
-        div { class: "kanban-column {status.css_class()}",
-            div { class: "column-header",
-                h3 { "{status.display_name()}" }
-                span { class: "count", "({count})" }
+        div { class: "network-container",
+            div { class: "network-header",
+                span { class: "network-title", "Network Topology" }
+                span { class: "panel-count", "{members.len()} members, {edges.len()} connections" }
             }
-            div { class: "column-content",
-                for quest in quests {
-                    QuestCard { quest: quest.clone(), pov: pov.clone() }
+            div { class: "network-view",
+                svg {
+                    class: "network-svg",
+                    view_box: "0 0 {width} {height}",
+                    preserve_aspect_ratio: "xMidYMid meet",
+
+                    // Draw edges
+                    for (i, j, bidirectional) in edges.iter() {
+                        {
+                            let (_, x1, y1) = &positions[*i];
+                            let (_, x2, y2) = &positions[*j];
+                            let edge_class = if *bidirectional {
+                                "network-edge bidirectional"
+                            } else {
+                                "network-edge unidirectional"
+                            };
+
+                            rsx! {
+                                line {
+                                    class: "{edge_class}",
+                                    x1: "{x1}",
+                                    y1: "{y1}",
+                                    x2: "{x2}",
+                                    y2: "{y2}",
+                                }
+                            }
+                        }
+                    }
+
+                    // Draw nodes
+                    for (member, x, y) in positions.iter() {
+                        {
+                            let name = member_name(member);
+                            let fill = member_color_var(member);
+                            let member_clone = member.clone();
+
+                            rsx! {
+                                g {
+                                    class: "peer-node",
+                                    onclick: move |_| {
+                                        state_write.write().selected_pov = Some(member_clone.clone());
+                                    },
+                                    circle {
+                                        class: "peer-node-circle",
+                                        cx: "{x}",
+                                        cy: "{y}",
+                                        r: "24",
+                                        fill: "{fill}",
+                                    }
+                                    text {
+                                        class: "peer-node-label",
+                                        x: "{x}",
+                                        y: "{y}",
+                                        "{name}"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if members.is_empty() {
+                    div { class: "empty-state", "No members to display" }
                 }
             }
         }
@@ -320,36 +341,130 @@ fn QuestColumn(state: Signal<AppState>, status: QuestStatus) -> Element {
 }
 
 #[component]
-fn QuestCard(quest: QuestInfo, pov: Option<String>) -> Element {
-    let creator_name = member_name(&quest.creator);
+fn QuestListPanel(state: Signal<AppState>) -> Element {
+    let state_read = state.read();
 
-    // Determine the POV member's role in this quest
-    let role = pov.as_ref().map(|pov_member| {
-        if quest.creator == *pov_member {
-            "creator"
-        } else if quest.claims.iter().any(|c| c.claimant == *pov_member) {
-            "claimant"
-        } else {
-            ""
+    // Get quests sorted by attention (most attention first)
+    let quests_with_attention: Vec<(QuestInfo, QuestAttention)> = {
+        let attention_rankings = state_read.attention.quests_by_attention();
+        let mut result = Vec::new();
+
+        for qa in attention_rankings {
+            if let Some(quest) = state_read.quests.quests.get(&qa.quest_id) {
+                result.push((quest.clone(), qa.clone()));
+            }
         }
-    }).unwrap_or("");
+
+        // Add quests without attention data
+        for quest in state_read.quests.quests.values() {
+            if !result.iter().any(|(q, _)| q.quest_id == quest.quest_id) {
+                result.push((
+                    quest.clone(),
+                    QuestAttention {
+                        quest_id: quest.quest_id.clone(),
+                        total_attention_ms: 0,
+                        by_member: std::collections::HashMap::new(),
+                        currently_focusing: Vec::new(),
+                    },
+                ));
+            }
+        }
+
+        result
+    };
+
+    let count = quests_with_attention.len();
+    let max_attention = quests_with_attention
+        .iter()
+        .map(|(_, qa)| qa.total_attention_ms)
+        .max()
+        .unwrap_or(1)
+        .max(1);
+
+    rsx! {
+        div { class: "quest-list-container",
+            div { class: "quest-list-header",
+                span { class: "quest-list-title", "Quests" }
+                span { class: "quest-list-sort", "Sorted by attention • {count} total" }
+            }
+            div { class: "quest-list",
+                for (quest, attention) in quests_with_attention.iter() {
+                    QuestCardWithAttention {
+                        quest: quest.clone(),
+                        attention: attention.clone(),
+                        max_attention
+                    }
+                }
+                if count == 0 {
+                    div { class: "empty-state", "No quests yet" }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn QuestCardWithAttention(quest: QuestInfo, attention: QuestAttention, max_attention: u64) -> Element {
+    let secs = attention.total_attention_ms as f64 / 1000.0;
+    let bar_width_pct = if max_attention > 0 {
+        (attention.total_attention_ms as f64 / max_attention as f64 * 100.0).min(100.0)
+    } else {
+        0.0
+    };
+
+    let status_class = match quest.status {
+        QuestStatus::Open => "open",
+        QuestStatus::Claimed => "claimed",
+        QuestStatus::Verified => "verified",
+        QuestStatus::Completed => "completed",
+    };
+
+    let status_text = match quest.status {
+        QuestStatus::Open => "Open",
+        QuestStatus::Claimed => "Claimed",
+        QuestStatus::Verified => "Verified",
+        QuestStatus::Completed => "Done",
+    };
 
     rsx! {
         div { class: "quest-card",
-            div { class: "quest-header",
-                div { class: "quest-title", "{quest.title}" }
-                if !role.is_empty() {
-                    span { class: "role-badge {role}", "{role}" }
+            div { class: "quest-card-header",
+                span { class: "quest-title", "{quest.title}" }
+                span { class: "quest-status-badge {status_class}", "{status_text}" }
+            }
+            div { class: "quest-attention",
+                div { class: "attention-bar",
+                    div {
+                        class: "attention-bar-fill",
+                        style: "width: {bar_width_pct}%"
+                    }
+                }
+                span { class: "attention-value", "{secs:.1}s" }
+            }
+            if !attention.currently_focusing.is_empty() {
+                div { class: "quest-focusers",
+                    for member in &attention.currently_focusing {
+                        {
+                            let name = member_name(member);
+                            let initial = name.chars().next().unwrap_or('?');
+                            let color_class = member_color_class(member);
+
+                            rsx! {
+                                span {
+                                    class: "focuser-dot {color_class}",
+                                    title: "{name}",
+                                    "{initial}"
+                                }
+                            }
+                        }
+                    }
+                    span { class: "focusing-label", "focusing" }
                 }
             }
-            div { class: "quest-creator", "by: {creator_name}" }
             if !quest.claims.is_empty() {
                 div { class: "quest-claims",
-                    span { "Claims: {quest.claims.len()}" }
-                    div { class: "claim-badges",
-                        for claim in &quest.claims {
-                            ClaimBadge { claim: claim.clone() }
-                        }
+                    for claim in &quest.claims {
+                        ClaimBadge { claim: claim.clone() }
                     }
                 }
             }
@@ -366,450 +481,348 @@ fn ClaimBadge(claim: ClaimInfo) -> Element {
         span {
             class: if claim.verified { "claim-badge verified" } else { "claim-badge" },
             title: "{name}",
-            if claim.verified {
-                "✓"
-            }
+            if claim.verified { "✓" }
             "{initial}"
         }
     }
 }
 
 // ============================================================================
-// ATTENTION VIEW
+// RIGHT PANEL - Activity Timeline & Stats
 // ============================================================================
 
 #[component]
-fn AttentionView(state: Signal<AppState>) -> Element {
-    let state_read = state.read();
-    let pov = state_read.selected_pov.clone();
-    let pov_name = pov.as_ref().map(|m| member_name(m));
-
-    // In POV mode, filter rankings to member's quests
-    let rankings = if let Some(ref pov_member) = pov {
-        state_read.attention.attention_for_member(pov_member)
-    } else {
-        state_read.attention.quests_by_attention()
-    };
-
-    // In POV mode, only show the POV member's focus prominently
-    let members: Vec<(String, Option<String>)> = if let Some(ref pov_member) = pov {
-        // Show POV member first, then others
-        let mut all: Vec<(String, Option<String>)> = state_read
-            .attention
-            .members_by_focus()
-            .into_iter()
-            .map(|(m, f)| (m.clone(), f.cloned()))
-            .collect();
-        all.sort_by(|a, b| {
-            if a.0 == *pov_member { std::cmp::Ordering::Less }
-            else if b.0 == *pov_member { std::cmp::Ordering::Greater }
-            else { a.0.cmp(&b.0) }
-        });
-        all
-    } else {
-        state_read
-            .attention
-            .members_by_focus()
-            .into_iter()
-            .map(|(m, f)| (m.clone(), f.cloned()))
-            .collect()
-    };
-
-    let event_count = state_read.attention.event_count();
-    let members_empty = members.is_empty();
-    let rankings_empty = rankings.is_empty();
-
-    // Get POV member's current focus for highlight
-    let pov_focus = pov.as_ref().and_then(|m| {
-        state_read.attention.focus_for_member(m).cloned()
-    });
-
+fn RightPanel(state: Signal<AppState>) -> Element {
     rsx! {
-        div { class: "attention-view",
-            div { class: "view-header",
-                h2 {
-                    if let Some(ref name) = pov_name {
-                        "{name}'s Attention"
-                    } else {
-                        "Attention Tracking"
-                    }
-                }
-                span { class: "count", "{event_count} events" }
-            }
-
-            // In POV mode, show "Your Focus" prominently at top
-            if let Some(ref _pov_member) = pov {
-                div { class: "pov-focus-highlight",
-                    span { class: "pov-focus-label", "Your Focus:" }
-                    span { class: "pov-focus-value",
-                        if let Some(ref quest_id) = pov_focus {
-                            "\"{short_id(quest_id)}\""
-                        } else {
-                            "(none)"
-                        }
-                    }
-                }
-            }
-
-            div { class: "attention-panels",
-                div { class: "focus-panel",
-                    h3 {
-                        if pov.is_some() { "All Focus" } else { "Current Focus" }
-                    }
-                    div { class: "focus-list",
-                        for (member, focus) in &members {
-                            div {
-                                class: if pov.as_ref() == Some(member) { "focus-item highlighted" } else { "focus-item" },
-                                span { class: "member-name", "●{member_name(member)}" }
-                                span { class: "focus-arrow", "→" }
-                                span { class: "focus-target",
-                                    if let Some(quest_id) = focus {
-                                        "\"{short_id(quest_id)}\""
-                                    } else {
-                                        "(none)"
-                                    }
-                                }
-                            }
-                        }
-                        if members_empty {
-                            div { class: "empty", "No focus events yet" }
-                        }
-                    }
-                }
-
-                div { class: "ranking-panel",
-                    h3 {
-                        if pov.is_some() { "Your Quest Rankings" } else { "Quest Ranking by Attention" }
-                    }
-                    div { class: "ranking-list",
-                        for (i, qa) in rankings.iter().enumerate().take(10) {
-                            AttentionRankingItem { rank: i + 1, attention: qa.clone(), pov: pov.clone() }
-                        }
-                        if rankings_empty {
-                            div { class: "empty",
-                                if pov.is_some() {
-                                    "No attention data for your quests yet"
-                                } else {
-                                    "No attention data yet"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+        div { class: "right-panel",
+            ActivityTimeline { state }
+            GlobalStats { state }
         }
     }
 }
 
 #[component]
-fn AttentionRankingItem(rank: usize, attention: QuestAttention, pov: Option<String>) -> Element {
-    let secs = attention.total_attention_ms as f64 / 1000.0;
-    let max_width = 200.0;
-    // Simple scaling - assume 60s is full width
-    let bar_width = (secs / 60.0 * max_width).min(max_width);
-
-    // Check if POV member is currently focusing on this quest
-    let pov_is_focusing = pov.as_ref()
-        .map(|m| attention.currently_focusing.contains(m))
-        .unwrap_or(false);
-
-    let focusing_str = if attention.currently_focusing.is_empty() {
-        String::from("(no one focusing)")
-    } else {
-        attention
-            .currently_focusing
-            .iter()
-            .map(|m| {
-                let name = member_name(m);
-                if pov.as_ref() == Some(m) {
-                    format!("●{} (you)", name)
-                } else {
-                    format!("●{}", name)
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(" ")
-    };
-
-    rsx! {
-        div { class: if pov_is_focusing { "ranking-item highlighted" } else { "ranking-item" },
-            span { class: "rank", "{rank}." }
-            div { class: "ranking-details",
-                div { class: "quest-name", "{short_id(&attention.quest_id)}" }
-                div { class: "attention-bar",
-                    div {
-                        class: "bar-fill",
-                        style: "width: {bar_width}px",
-                    }
-                    span { class: "attention-value", "{secs:.1}s" }
-                }
-                div { class: "focusing", "{focusing_str}" }
-            }
-        }
-    }
-}
-
-// ============================================================================
-// CONTACTS VIEW
-// ============================================================================
-
-#[component]
-fn ContactsView(state: Signal<AppState>) -> Element {
-    let mut state_write = state;
-    let state_read = state.read();
-    let pov = state_read.selected_pov.clone();
-    let pov_name = pov.as_ref().map(|m| member_name(m));
-
-    // In POV mode, filter to relevant members (POV member + their contacts)
-    let members: Vec<String> = if let Some(ref pov_member) = pov {
-        let mut related = state_read.contacts.contacts_for_member(pov_member);
-        // Always include the POV member themselves
-        if !related.contains(pov_member) {
-            related.insert(0, pov_member.clone());
-        } else {
-            // Move POV member to front
-            related.retain(|m| m != pov_member);
-            related.insert(0, pov_member.clone());
-        }
-        related
-    } else {
-        let mut all: Vec<String> = state_read.contacts.all_members().into_iter().collect();
-        all.sort();
-        all
-    };
-
-    // In POV mode, auto-select the POV member if nothing selected
-    let selected = if let Some(ref pov_member) = pov {
-        if state_read.contacts.selected_member.is_none() {
-            // Auto-select POV member (need to trigger update)
-            Some(pov_member.clone())
-        } else {
-            state_read.contacts.selected_member.clone()
-        }
-    } else {
-        state_read.contacts.selected_member.clone()
-    };
-
-    // Auto-select POV member when entering POV mode
-    let pov_for_effect = pov.clone();
-    use_effect(move || {
-        if let Some(ref pov_member) = pov_for_effect {
-            state_write.write().contacts.selected_member = Some(pov_member.clone());
-        }
-    });
-
-    rsx! {
-        div { class: "contacts-view",
-            div { class: "view-header",
-                h2 {
-                    if let Some(ref name) = pov_name {
-                        "{name}'s Network"
-                    } else {
-                        "Contacts Network"
-                    }
-                }
-                span { class: "count",
-                    if pov.is_some() {
-                        "{members.len()} connections"
-                    } else {
-                        "{state_read.contacts.member_count()} members, {state_read.contacts.contact_count()} contacts"
-                    }
-                }
-            }
-
-            div { class: "contacts-panels",
-                div { class: "contacts-list-panel",
-                    h3 {
-                        if pov.is_some() { "Your Network" } else { "Members" }
-                    }
-                    div { class: "member-list",
-                        for member in &members {
-                            MemberListItem {
-                                state,
-                                member_id: member.clone(),
-                                selected: selected.as_ref() == Some(member),
-                                is_pov: pov.as_ref() == Some(member)
-                            }
-                        }
-                        if members.is_empty() {
-                            div { class: "empty", "No contacts yet" }
-                        }
-                    }
-                }
-
-                div { class: "contacts-detail-panel",
-                    if let Some(ref selected_id) = selected {
-                        MemberDetails { state, member_id: selected_id.clone(), pov: pov.clone() }
-                    } else {
-                        div { class: "empty", "Select a member to view details" }
-                    }
-                }
-
-                div { class: "contacts-matrix-panel",
-                    h3 { "Contacts Matrix" }
-                    ContactsMatrix { state }
-                }
-            }
-        }
-    }
-}
-
-#[component]
-fn MemberListItem(state: Signal<AppState>, member_id: String, selected: bool, is_pov: bool) -> Element {
-    let mut state_write = state;
-    let member_id_clone = member_id.clone();
-
-    let class = if selected && is_pov {
-        "member-item selected pov-member"
-    } else if selected {
-        "member-item selected"
-    } else if is_pov {
-        "member-item pov-member"
-    } else {
-        "member-item"
-    };
-
-    rsx! {
-        div {
-            class: class,
-            onclick: move |_| {
-                state_write.write().contacts.selected_member = Some(member_id_clone.clone());
-            },
-            span { class: "member-name", "●{member_name(&member_id)}" }
-            if is_pov {
-                span { class: "pov-badge", "(you)" }
-            }
-        }
-    }
-}
-
-#[component]
-fn MemberDetails(state: Signal<AppState>, member_id: String, pov: Option<String>) -> Element {
-    let state_read = state.read();
-    let contacts = state_read.contacts.get_contacts(&member_id);
-    let contacted_by = state_read.contacts.get_contacted_by(&member_id);
-    let is_pov_member = pov.as_ref() == Some(&member_id);
-
-    // Determine relationship labels based on POV
-    let (contacts_label, contacted_by_label) = if is_pov_member {
-        ("Your Contacts", "Who Added You")
-    } else if pov.is_some() {
-        ("Their Contacts", "Who Added Them")
-    } else {
-        ("Contacts", "Contacted by")
-    };
-
-    rsx! {
-        div { class: "member-details",
-            h3 {
-                if is_pov_member {
-                    "Your Profile"
-                } else {
-                    "{member_name(&member_id)}"
-                }
-            }
-
-            div { class: "detail-section",
-                h4 { "{contacts_label}: {contacts.len()}" }
-                ul {
-                    for contact in contacts {
-                        li {
-                            class: if pov.as_ref() == Some(contact) { "pov-highlight" } else { "" },
-                            "- {member_name(contact)}"
-                            if pov.as_ref() == Some(contact) {
-                                " (you)"
-                            }
-                        }
-                    }
-                }
-            }
-
-            div { class: "detail-section",
-                h4 { "{contacted_by_label}: {contacted_by.len()}" }
-                ul {
-                    for by in contacted_by {
-                        li {
-                            class: if pov.as_ref() == Some(by) { "pov-highlight" } else { "" },
-                            "- {member_name(by)}"
-                            if pov.as_ref() == Some(by) {
-                                " (you)"
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-#[component]
-fn ContactsMatrix(state: Signal<AppState>) -> Element {
-    let state_read = state.read();
-    let mut members: Vec<String> = state_read.contacts.all_members().into_iter().collect();
-    members.sort();
-
-    if members.len() > 10 {
-        // Limit matrix size for readability
-        return rsx! {
-            div { class: "matrix-overflow",
-                "Matrix too large ({members.len()} members). Select a member for details."
-            }
-        };
-    }
-
-    rsx! {
-        div { class: "contacts-matrix",
-            table {
-                thead {
-                    tr {
-                        th { "" }
-                        for m in &members {
-                            th { "{member_name(m).chars().next().unwrap_or('?')}" }
-                        }
-                    }
-                }
-                tbody {
-                    for row in &members {
-                        tr {
-                            th { "{member_name(row).chars().next().unwrap_or('?')}" }
-                            for col in &members {
-                                td {
-                                    if row == col {
-                                        "-"
-                                    } else if state_read.contacts.contacts.get(row).map(|c| c.contains(col)).unwrap_or(false) {
-                                        "✓"
-                                    } else {
-                                        ""
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-// ============================================================================
-// EVENT LOG PANEL
-// ============================================================================
-
-#[component]
-fn EventLogPanel(state: Signal<AppState>) -> Element {
+fn ActivityTimeline(state: Signal<AppState>) -> Element {
     let events = &state.read().event_log;
 
     rsx! {
-        div { class: "event-log-panel",
-            div { class: "panel-header",
-                h3 { "Event Log" }
+        div { class: "activity-timeline",
+            div { class: "timeline-header",
+                span { class: "timeline-title", "Activity Timeline" }
             }
-            div { class: "event-list",
-                for event in events.iter().take(20) {
-                    div { class: "event-item {event.category.css_class()}",
+            div { class: "timeline-list",
+                for event in events.iter().take(30) {
+                    div { class: "timeline-event {event.category.css_class()}",
+                        span { class: "event-icon",
+                            match event.category.css_class() {
+                                "event-realm" => "R",
+                                "event-quest" => "Q",
+                                "event-attention" => "A",
+                                "event-contacts" => "C",
+                                _ => "•"
+                            }
+                        }
                         span { class: "event-tick", "[{event.tick}]" }
-                        span { class: "event-type", "{event.type_name}" }
-                        span { class: "event-summary", "{event.summary}" }
+                        span { class: "event-message", "{event.summary}" }
+                    }
+                }
+                if events.is_empty() {
+                    div { class: "empty-state", "No events yet" }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn GlobalStats(state: Signal<AppState>) -> Element {
+    let state_read = state.read();
+    let realm_count = state_read.realms.realms.len();
+    let quest_count = state_read.quests.quests.len();
+    let member_count = state_read.all_members().len();
+    let contact_count = state_read.contacts.contact_count();
+
+    rsx! {
+        div { class: "global-stats",
+            span { class: "stats-title", "Statistics" }
+            div { class: "stats-grid",
+                div { class: "stat-item",
+                    span { class: "stat-value", "{realm_count}" }
+                    span { class: "stat-label", "Realms" }
+                }
+                div { class: "stat-item",
+                    span { class: "stat-value", "{quest_count}" }
+                    span { class: "stat-label", "Quests" }
+                }
+                div { class: "stat-item",
+                    span { class: "stat-value", "{member_count}" }
+                    span { class: "stat-label", "Members" }
+                }
+                div { class: "stat-item",
+                    span { class: "stat-value", "{contact_count}" }
+                    span { class: "stat-label", "Contacts" }
+                }
+            }
+        }
+    }
+}
+
+// ============================================================================
+// FLOATING CONTROL BAR
+// ============================================================================
+
+#[component]
+fn FloatingControlBar(state: Signal<AppState>) -> Element {
+    let mut state_write = state;
+    let is_paused = state.read().playback.paused;
+    let speed = state.read().playback.speed;
+    let tick = state.read().tick;
+
+    rsx! {
+        div { class: "floating-controls",
+            // Main control pill
+            div { class: "control-pill",
+                // Reset button
+                button {
+                    class: "control-icon-btn",
+                    title: "Reset",
+                    onclick: move |_| {
+                        state_write.write().reset();
+                        playback::reset();
+                        playback::request_reset();
+                    },
+                    "↻"
+                }
+
+                // Play/Pause button (hero)
+                button {
+                    class: "play-pause-btn",
+                    title: if is_paused { "Play" } else { "Pause" },
+                    onclick: move |_| {
+                        let new_paused = !is_paused;
+                        state_write.write().playback.paused = new_paused;
+                        playback::set_paused(new_paused);
+                    },
+                    if is_paused { "▶" } else { "⏸" }
+                }
+
+                // Step button
+                button {
+                    class: "control-icon-btn",
+                    title: "Step",
+                    disabled: !is_paused,
+                    onclick: move |_| {
+                        playback::request_step();
+                    },
+                    "⏭"
+                }
+
+                div { class: "control-divider" }
+
+                // Tick counter
+                div { class: "tick-counter",
+                    span { class: "tick-label", "T:" }
+                    span { class: "tick-current", "{tick}" }
+                }
+            }
+
+            // Speed pill
+            div { class: "speed-pill",
+                span { class: "speed-value", "{speed:.1}x" }
+                input {
+                    class: "speed-slider",
+                    r#type: "range",
+                    min: "0.5",
+                    max: "10",
+                    step: "0.5",
+                    value: "{speed}",
+                    onchange: move |evt| {
+                        if let Ok(v) = evt.value().parse::<f32>() {
+                            state_write.write().playback.speed = v;
+                            playback::set_speed(v);
+                        }
+                    },
+                }
+            }
+
+            // Status pill
+            div { class: "status-pill",
+                div { class: "status-dot" }
+                span { class: "status-text",
+                    if is_paused { "Paused" } else { "Playing" }
+                }
+            }
+        }
+    }
+}
+
+// ============================================================================
+// POV DASHBOARD - First Person View
+// ============================================================================
+
+#[component]
+pub fn POVDashboard(state: Signal<AppState>) -> Element {
+    let mut state_write = state;
+    let state_read = state.read();
+    let member = state_read.selected_pov.clone().unwrap_or_default();
+    let name = member_name(&member);
+    let stats = state_read.stats_for_member(&member);
+    let color_class = member_color_class(&member);
+
+    rsx! {
+        ThemedRoot {
+            ThemeSwitcher {}
+            div { class: "pov-dashboard {color_class}",
+                POVHeader {
+                    name: name.clone(),
+                    on_back: move |_| {
+                        state_write.write().selected_pov = None;
+                    },
+                }
+                main { class: "pov-content",
+                    div { class: "pov-left-column",
+                        ProfileHero {
+                            member: member.clone(),
+                            name: name.clone(),
+                            stats: stats.clone(),
+                        }
+                        MyNetworkView { state, member: member.clone() }
+                    }
+                    div { class: "pov-center-column",
+                        MyAttentionPanel { state, member: member.clone() }
+                        MyQuestsList { state }
+                    }
+                    div { class: "pov-right-column",
+                        MyRealms { state, member: member.clone() }
+                        MyActivity { state, member: member.clone() }
+                    }
+                }
+            }
+            FloatingControlBar { state }
+        }
+    }
+}
+
+#[component]
+fn POVHeader(name: String, on_back: EventHandler<()>) -> Element {
+    rsx! {
+        header { class: "pov-header",
+            div {
+                class: "back-button",
+                onclick: move |_| on_back.call(()),
+                span { class: "back-arrow", "←" }
+                span { "Back to Overview" }
+            }
+            h1 { class: "pov-title", "{name}'s Dashboard" }
+            div { class: "pov-header-spacer" }
+        }
+    }
+}
+
+#[component]
+fn ProfileHero(member: String, name: String, stats: MemberStats) -> Element {
+    let initial = name.chars().next().unwrap_or('?');
+    let color_class = member_color_class(&member);
+
+    rsx! {
+        div { class: "profile-hero",
+            div { class: "profile-avatar-large {color_class}",
+                "{initial}"
+            }
+            h2 { class: "profile-name", "{name}" }
+            div { class: "profile-stats",
+                div { class: "profile-stat",
+                    span { class: "profile-stat-value", "{stats.quests_created}" }
+                    span { class: "profile-stat-label", "Created" }
+                }
+                div { class: "profile-stat",
+                    span { class: "profile-stat-value", "{stats.quests_assigned}" }
+                    span { class: "profile-stat-label", "Claimed" }
+                }
+                div { class: "profile-stat",
+                    span { class: "profile-stat-value", "{stats.quests_completed}" }
+                    span { class: "profile-stat-label", "Done" }
+                }
+                div { class: "profile-stat",
+                    span { class: "profile-stat-value", "{stats.realms_count}" }
+                    span { class: "profile-stat-label", "Realms" }
+                }
+                div { class: "profile-stat",
+                    span { class: "profile-stat-value", "{stats.contacts_count}" }
+                    span { class: "profile-stat-label", "Contacts" }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn MyAttentionPanel(state: Signal<AppState>, member: String) -> Element {
+    let state_read = state.read();
+    let current_focus = state_read.attention.focus_for_member(&member).cloned();
+    let attention_data = state_read.attention.attention_for_member(&member);
+
+    // Get current focus quest title
+    let current_focus_title = current_focus.as_ref().and_then(|qid| {
+        state_read.quests.quests.get(qid).map(|q| q.title.clone())
+    });
+
+    // Build attention items with quest titles
+    let attention_items: Vec<(String, String, u64)> = attention_data
+        .iter()
+        .take(8)
+        .map(|qa| {
+            let title = state_read.quests.quests.get(&qa.quest_id)
+                .map(|q| q.title.clone())
+                .unwrap_or_else(|| short_id(&qa.quest_id));
+            (qa.quest_id.clone(), title, qa.total_attention_ms)
+        })
+        .collect();
+
+    let max_attention = attention_items.first().map(|(_, _, ms)| *ms).unwrap_or(1).max(1);
+
+    rsx! {
+        div { class: "my-attention-panel",
+            div { class: "panel-header",
+                span { class: "panel-title", "My Attention" }
+            }
+
+            // Current Focus Section
+            div { class: "focus-section",
+                div { class: "focus-header", "Currently Focused" }
+                if let Some(ref title) = current_focus_title {
+                    div { class: "focus-quest-title", "{title}" }
+                } else {
+                    div { class: "focus-quest-none", "Not focusing on any quest" }
+                }
+            }
+
+            // Attention History
+            if !attention_items.is_empty() {
+                div { class: "attention-history",
+                    div { class: "attention-history-header", "Time Spent" }
+                    div { class: "attention-history-list",
+                        for (_, title, ms) in attention_items.iter() {
+                            {
+                                let secs = *ms as f64 / 1000.0;
+                                let bar_width = (*ms as f64 / max_attention as f64 * 100.0).min(100.0);
+
+                                rsx! {
+                                    div { class: "attention-history-item",
+                                        div { class: "attention-quest-title", "{title}" }
+                                        div { class: "attention-quest-bar",
+                                            div { class: "attention-bar-track",
+                                                div {
+                                                    class: "attention-bar-fill",
+                                                    style: "width: {bar_width}%"
+                                                }
+                                            }
+                                            span { class: "attention-time", "{secs:.1}s" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -817,3 +830,373 @@ fn EventLogPanel(state: Signal<AppState>) -> Element {
     }
 }
 
+#[component]
+fn MyNetworkView(state: Signal<AppState>, member: String) -> Element {
+    let state_read = state.read();
+    let mut state_write = state;
+    let contacts = state_read.contacts.contacts_for_member(&member);
+
+    let width = 400.0;
+    let height = 180.0;
+    let center_x = width / 2.0;
+    let center_y = height / 2.0;
+
+    let contact_count = contacts.len().max(1) as f64;
+    let angle_step = std::f64::consts::PI * 2.0 / contact_count;
+    let angle_offset = -std::f64::consts::PI / 2.0;
+    let radius = 65.0;
+
+    rsx! {
+        div { class: "my-network-view",
+            div { class: "network-header",
+                span { class: "network-title", "My Network" }
+                span { class: "panel-count", "{contacts.len()} contacts" }
+            }
+            svg {
+                class: "network-svg ego-centric",
+                view_box: "0 0 {width} {height}",
+                preserve_aspect_ratio: "xMidYMid meet",
+
+                // Draw edges from center to contacts
+                for (i, _contact) in contacts.iter().enumerate() {
+                    {
+                        let angle = angle_offset + (i as f64) * angle_step;
+                        let other_x = center_x + radius * angle.cos();
+                        let other_y = center_y + radius * angle.sin();
+
+                        rsx! {
+                            line {
+                                class: "network-edge bidirectional",
+                                x1: "{center_x}",
+                                y1: "{center_y}",
+                                x2: "{other_x}",
+                                y2: "{other_y}",
+                            }
+                        }
+                    }
+                }
+
+                // Draw center (ego) node
+                {
+                    let name = member_name(&member);
+                    let fill = member_color_var(&member);
+
+                    rsx! {
+                        g { class: "ego-node",
+                            circle {
+                                class: "peer-node-circle ego",
+                                cx: "{center_x}",
+                                cy: "{center_y}",
+                                r: "30",
+                                fill: "{fill}",
+                            }
+                            text {
+                                class: "peer-node-label ego",
+                                x: "{center_x}",
+                                y: "{center_y}",
+                                "{name}"
+                            }
+                        }
+                    }
+                }
+
+                // Draw contact nodes
+                for (i, contact) in contacts.iter().enumerate() {
+                    {
+                        let angle = angle_offset + (i as f64) * angle_step;
+                        let other_x = center_x + radius * angle.cos();
+                        let other_y = center_y + radius * angle.sin();
+                        let name = member_name(contact);
+                        let fill = member_color_var(contact);
+                        let contact_clone = contact.clone();
+
+                        rsx! {
+                            g {
+                                class: "other-node clickable",
+                                onclick: move |_| {
+                                    state_write.write().selected_pov = Some(contact_clone.clone());
+                                },
+                                circle {
+                                    class: "peer-node-circle",
+                                    cx: "{other_x}",
+                                    cy: "{other_y}",
+                                    r: "20",
+                                    fill: "{fill}",
+                                }
+                                text {
+                                    class: "peer-node-label",
+                                    x: "{other_x}",
+                                    y: "{other_y}",
+                                    "{name}"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if contacts.is_empty() {
+                div { class: "empty-state", "No contacts yet" }
+            }
+        }
+    }
+}
+
+/// All quests sorted by cumulative attention with status and realm tags
+#[component]
+fn MyQuestsList(state: Signal<AppState>) -> Element {
+    let state_read = state.read();
+
+    // Get all quests with their attention data, sorted by attention
+    let quests_with_attention: Vec<(QuestInfo, QuestAttention, Option<String>)> = {
+        let attention_rankings = state_read.attention.quests_by_attention();
+        let mut result = Vec::new();
+
+        // First add quests that have attention data
+        for qa in attention_rankings {
+            if let Some(quest) = state_read.quests.quests.get(&qa.quest_id) {
+                // Find realm name for this quest
+                let realm_name = state_read.realms.realms.values()
+                    .find(|r| r.realm_id == quest.realm_id)
+                    .map(|r| {
+                        let names: Vec<String> = r.members.iter().take(2).map(|m| member_name(m)).collect();
+                        if names.is_empty() { short_id(&r.realm_id) } else { names.join("+") }
+                    });
+                result.push((quest.clone(), qa.clone(), realm_name));
+            }
+        }
+
+        // Add quests without attention data
+        for quest in state_read.quests.quests.values() {
+            if !result.iter().any(|(q, _, _)| q.quest_id == quest.quest_id) {
+                let realm_name = state_read.realms.realms.values()
+                    .find(|r| r.realm_id == quest.realm_id)
+                    .map(|r| {
+                        let names: Vec<String> = r.members.iter().take(2).map(|m| member_name(m)).collect();
+                        if names.is_empty() { short_id(&r.realm_id) } else { names.join("+") }
+                    });
+                result.push((
+                    quest.clone(),
+                    QuestAttention {
+                        quest_id: quest.quest_id.clone(),
+                        total_attention_ms: 0,
+                        by_member: std::collections::HashMap::new(),
+                        currently_focusing: Vec::new(),
+                    },
+                    realm_name,
+                ));
+            }
+        }
+
+        result
+    };
+
+    let count = quests_with_attention.len();
+    let max_attention = quests_with_attention
+        .iter()
+        .map(|(_, qa, _)| qa.total_attention_ms)
+        .max()
+        .unwrap_or(1)
+        .max(1);
+
+    rsx! {
+        div { class: "my-quests-list",
+            div { class: "quest-list-header",
+                span { class: "quest-list-title", "All Quests" }
+                span { class: "quest-list-sort", "Sorted by attention • {count} total" }
+            }
+            div { class: "quest-list",
+                for (quest, attention, realm_name) in quests_with_attention.iter() {
+                    QuestCardWithRealm {
+                        quest: quest.clone(),
+                        attention: attention.clone(),
+                        realm_name: realm_name.clone(),
+                        max_attention
+                    }
+                }
+                if count == 0 {
+                    div { class: "empty-state", "No quests yet" }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn QuestCardWithRealm(quest: QuestInfo, attention: QuestAttention, realm_name: Option<String>, max_attention: u64) -> Element {
+    let secs = attention.total_attention_ms as f64 / 1000.0;
+    let bar_width_pct = if max_attention > 0 {
+        (attention.total_attention_ms as f64 / max_attention as f64 * 100.0).min(100.0)
+    } else {
+        0.0
+    };
+
+    let status_class = match quest.status {
+        QuestStatus::Open => "open",
+        QuestStatus::Claimed => "claimed",
+        QuestStatus::Verified => "verified",
+        QuestStatus::Completed => "completed",
+    };
+
+    let status_text = match quest.status {
+        QuestStatus::Open => "Open",
+        QuestStatus::Claimed => "Claimed",
+        QuestStatus::Verified => "Verified",
+        QuestStatus::Completed => "Done",
+    };
+
+    let realm_display = realm_name.unwrap_or_else(|| "Unknown".to_string());
+
+    rsx! {
+        div { class: "quest-card",
+            div { class: "quest-card-header",
+                span { class: "quest-title", "{quest.title}" }
+                div { class: "quest-tags",
+                    span { class: "quest-status-badge {status_class}", "{status_text}" }
+                    span { class: "quest-realm-badge", "{realm_display}" }
+                }
+            }
+            div { class: "quest-attention",
+                div { class: "attention-bar",
+                    div {
+                        class: "attention-bar-fill",
+                        style: "width: {bar_width_pct}%"
+                    }
+                }
+                span { class: "attention-value", "{secs:.1}s" }
+            }
+            if !attention.currently_focusing.is_empty() {
+                div { class: "quest-focusers",
+                    for member in &attention.currently_focusing {
+                        {
+                            let name = member_name(member);
+                            let initial = name.chars().next().unwrap_or('?');
+                            let color_class = member_color_class(member);
+
+                            rsx! {
+                                span {
+                                    class: "focuser-dot {color_class}",
+                                    title: "{name}",
+                                    "{initial}"
+                                }
+                            }
+                        }
+                    }
+                    span { class: "focusing-label", "focusing" }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn MyRealms(state: Signal<AppState>, member: String) -> Element {
+    let state_read = state.read();
+    let realms: Vec<_> = state_read.realms.realms_for_member(&member).into_iter().cloned().collect();
+    let count = realms.len();
+
+    rsx! {
+        div { class: "my-realms-panel",
+            div { class: "panel-header",
+                span { class: "panel-title", "My Realms" }
+                span { class: "panel-count", "({count})" }
+            }
+            div { class: "realms-list",
+                for realm in realms.iter() {
+                    {
+                        // Show member names instead of realm ID
+                        let member_names: Vec<String> = realm.members.iter()
+                            .map(|m| member_name(m))
+                            .collect();
+                        let realm_title = member_names.join(" + ");
+                        let quest_count = realm.quest_count;
+
+                        rsx! {
+                            div { class: "realm-card-item",
+                                div { class: "realm-card-title", "{realm_title}" }
+                                div { class: "realm-card-stats",
+                                    span { class: "realm-stat",
+                                        span { class: "realm-stat-value", "{realm.members.len()}" }
+                                        " members"
+                                    }
+                                    span { class: "realm-stat-divider", "•" }
+                                    span { class: "realm-stat",
+                                        span { class: "realm-stat-value", "{quest_count}" }
+                                        " quests"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if realms.is_empty() {
+                    div { class: "empty-state", "No realms yet" }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn MyActivity(state: Signal<AppState>, member: String) -> Element {
+    let state_read = state.read();
+    let events: Vec<_> = state_read.events_for_member(&member).into_iter().take(15).collect();
+
+    rsx! {
+        div { class: "my-activity",
+            div { class: "panel-header",
+                div { class: "panel-title", "My Activity" }
+            }
+            div { class: "activity-list",
+                for event in events.iter() {
+                    div { class: "timeline-event {event.category.css_class()}",
+                        span { class: "event-tick", "[{event.tick}]" }
+                        span { class: "event-message", "{event.summary}" }
+                    }
+                }
+                if events.is_empty() {
+                    div { class: "empty-state", "No activity yet" }
+                }
+            }
+        }
+    }
+}
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+fn member_color_class(member: &str) -> &'static str {
+    let name = member_name(member).to_lowercase();
+    match name.as_str() {
+        "love" => "member-love",
+        "joy" => "member-joy",
+        "peace" => "member-peace",
+        "grace" => "member-grace",
+        "hope" => "member-hope",
+        "faith" => "member-faith",
+        "light" => "member-light",
+        "truth" => "member-truth",
+        "wisdom" => "member-wisdom",
+        "mercy" => "member-mercy",
+        "valor" => "member-valor",
+        "honor" => "member-honor",
+        "glory" => "member-glory",
+        "spirit" => "member-spirit",
+        "unity" => "member-unity",
+        "bliss" => "member-bliss",
+        _ => "member-default",
+    }
+}
+
+fn member_color_var(member: &str) -> &'static str {
+    let name = member_name(member).to_lowercase();
+    match name.as_str() {
+        "love" => "var(--color-love)",
+        "joy" => "var(--color-joy)",
+        "peace" => "var(--color-peace)",
+        "grace" => "var(--color-grace)",
+        "hope" => "var(--color-hope)",
+        "faith" => "var(--color-faith)",
+        _ => "var(--accent-primary)",
+    }
+}

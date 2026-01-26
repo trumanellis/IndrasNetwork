@@ -63,7 +63,8 @@ fn main() {
                     dioxus::desktop::WindowBuilder::new()
                         .with_title("Realm Viewer - Indras Network")
                         .with_inner_size(dioxus::desktop::LogicalSize::new(1400, 900))
-                        .with_resizable(true),
+                        .with_resizable(true)
+                        .with_maximized(true),
                 )
                 .with_custom_head(format!(r#"<style>{}</style>"#, STYLES_CSS)),
         )
@@ -74,6 +75,11 @@ fn main() {
 fn RootApp() -> Element {
     // Create app state signal
     let state = use_signal(AppState::new);
+
+    // Request shutdown when component unmounts (window closing)
+    use_drop(|| {
+        playback::request_shutdown();
+    });
 
     // Start the stream reader once
     let _stream_handle = use_resource(move || {
@@ -92,10 +98,19 @@ fn RootApp() -> Element {
 
             // Phase 1: Read all events from stream into buffer
             while let Some(event) = rx.recv().await {
+                // Check for shutdown
+                if playback::is_shutdown_requested() {
+                    return;
+                }
+
                 buffer.lock().unwrap().push(event.clone());
 
                 // Wait while paused, allow step
                 loop {
+                    // Check for shutdown
+                    if playback::is_shutdown_requested() {
+                        return;
+                    }
                     if !playback::is_paused() {
                         break; // Not paused, proceed
                     }
@@ -123,8 +138,18 @@ fn RootApp() -> Element {
             let mut replay_pos: usize = buffer.lock().unwrap().len(); // Start at end (all events shown)
 
             loop {
+                // Check for shutdown
+                if playback::is_shutdown_requested() {
+                    return;
+                }
+
                 // Wait for user input (reset, step, or play)
                 loop {
+                    // Check for shutdown
+                    if playback::is_shutdown_requested() {
+                        return;
+                    }
+
                     if playback::take_reset_request() {
                         // Reset to beginning
                         state_writer.write().reset();
@@ -150,6 +175,11 @@ fn RootApp() -> Element {
                 // Process events from current position
                 let events: Vec<StreamEvent> = buffer.lock().unwrap().clone();
                 while replay_pos < events.len() {
+                    // Check for shutdown
+                    if playback::is_shutdown_requested() {
+                        return;
+                    }
+
                     // Check for reset
                     if playback::take_reset_request() {
                         state_writer.write().reset();
