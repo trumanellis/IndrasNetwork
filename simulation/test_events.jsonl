@@ -1,0 +1,110 @@
+{"event_type":"contact_added","tick":1,"member":"love","contact":"joy"}
+{"event_type":"contact_added","tick":2,"member":"love","contact":"peace"}
+{"event_type":"contact_added","tick":3,"member":"love","contact":"faith"}
+{"event_type":"contact_added","tick":4,"member":"love","contact":"hope"}
+{"event_type":"contact_added","tick":5,"member":"joy","contact":"love"}
+{"event_type":"contact_added","tick":6,"member":"joy","contact":"peace"}
+{"event_type":"contact_added","tick":7,"member":"joy","contact":"faith"}
+{"event_type":"contact_added","tick":8,"member":"joy","contact":"hope"}
+{"event_type":"contact_added","tick":9,"member":"peace","contact":"love"}
+{"event_type":"contact_added","tick":10,"member":"peace","contact":"joy"}
+{"event_type":"contact_added","tick":11,"member":"peace","contact":"faith"}
+{"event_type":"contact_added","tick":12,"member":"peace","contact":"hope"}
+{"event_type":"contact_added","tick":13,"member":"faith","contact":"love"}
+{"event_type":"contact_added","tick":14,"member":"faith","contact":"joy"}
+{"event_type":"contact_added","tick":15,"member":"faith","contact":"peace"}
+{"event_type":"contact_added","tick":16,"member":"faith","contact":"hope"}
+{"event_type":"contact_added","tick":17,"member":"hope","contact":"love"}
+{"event_type":"contact_added","tick":18,"member":"hope","contact":"joy"}
+{"event_type":"contact_added","tick":19,"member":"hope","contact":"peace"}
+{"event_type":"contact_added","tick":20,"member":"hope","contact":"faith"}
+{"event_type":"realm_created","tick":25,"realm_id":"realm_homestead_main","members":"love,joy,peace,faith,hope","member_count":5}
+{"event_type":"quest_created","tick":30,"realm_id":"realm_homestead_main","quest_id":"quest_rainwater","creator":"love","title":"Build rainwater catchment system for greenhouse"}
+{"event_type":"quest_created","tick":31,"realm_id":"realm_homestead_main","quest_id":"quest_foodforest","creator":"joy","title":"Plant perennial food forest guild - Zone 2"}
+{"event_type":"quest_created","tick":32,"realm_id":"realm_homestead_main","quest_id":"quest_solar","creator":"peace","title":"Install solar panels on tool shed roof"}
+{"event_type":"quest_created","tick":33,"realm_id":"realm_homestead_main","quest_id":"quest_chickentractor","creator":"faith","title":"Build mobile chicken tractor for orchard rotation"}
+{"event_type":"quest_created","tick":34,"realm_id":"realm_homestead_main","quest_id":"quest_compost","creator":"hope","title":"Set up compost tea brewing station"}
+{"event_type":"attention_switched","tick":40,"member":"love","quest_id":"quest_rainwater"}
+{"event_type":"attention_switched","tick":41,"member":"joy","quest_id":"quest_foodforest"}
+{"event_type":"attention_switched","tick":42,"member":"peace","quest_id":"quest_solar"}
+{"event_type":"attention_switched","tick":43,"member":"faith","quest_id":"quest_chickentractor"}
+{"event_type":"attention_switched","tick":44,"member":"hope","quest_id":"quest_compost"}
+{"event_type":"attention_switched","tick":60,"member":"joy","quest_id":"quest_rainwater"}
+{"event_type":"attention_switched","tick":61,"member":"peace","quest_id":"quest_rainwater"}
+{"event_type":"quest_claim_submitted","tick":80,"realm_id":"realm_homestead_main","quest_id":"quest_compost","claimant":"hope","claim_index":0,"proof_artifact":"photo_compost_station_setup"}
+{"event_type":"quest_claim_verified","tick":85,"realm_id":"realm_homestead_main","quest_id":"quest_compost","claim_index":0}
+{"event_type":"quest_completed","tick":86,"realm_id":"realm_homestead_main","quest_id":"quest_compost","verified_claims":1,"pending_claims":0}
+{"event_type":"attention_switched","tick":88,"member":"hope","quest_id":"quest_foodforest"}
+{"event_type":"quest_created","tick":100,"realm_id":"realm_homestead_main","quest_id":"quest_hugelkultur","creator":"hope","title":"Build hugelkultur raised bed with fallen oak logs"}
+{"event_type":"quest_created","tick":101,"realm_id":"realm_homestead_main","quest_id":"quest_greywater","creator":"love","title":"Design and install greywater system for garden irrigation"}
+{"event_type":"quest_created","tick":102,"realm_id":"realm_homestead_main","quest_id":"quest_seedsave","creator":"joy","title":"Document seed saving process for heirloom tomatoes"}
+{"event_type":"attention_switched","tick":110,"member":"faith","quest_id":"quest_hugelkultur"}
+{"event_type":"attention_switched","tick":111,"member":"love","quest_id":"quest_greywater"}
+{"event_type":"quest_claim_submitted","tick":120,"realm_id":"realm_homestead_main","quest_id":"quest_rainwater","claimant":"love","claim_index":0,"proof_artifact":"photo_gutters_installed"}
+{"event_type":"quest_claim_submitted","tick":121,"realm_id":"realm_homestead_main","quest_id":"quest_rainwater","claimant":"joy","claim_index":1,"proof_artifact":"photo_tank_connected"}
+{"event_type":"quest_claim_submitted","tick":122,"realm_id":"realm_homestead_main","quest_id":"quest_rainwater","claimant":"peace","claim_index":2,"proof_artifact":"photo_first_flush_diverter"}
+{"event_type":"quest_claim_verified","tick":130,"realm_id":"realm_homestead_main","quest_id":"quest_rainwater","claim_index":0}
+{"event_type":"quest_claim_verified","tick":131,"realm_id":"realm_homestead_main","quest_id":"quest_rainwater","claim_index":1}
+{"event_type":"quest_claim_verified","tick":132,"realm_id":"realm_homestead_main","quest_id":"quest_rainwater","claim_index":2}
+{"event_type":"quest_completed","tick":135,"realm_id":"realm_homestead_main","quest_id":"quest_rainwater","verified_claims":3,"pending_claims":0}
+{"event_type":"attention_switched","tick":140,"member":"love","quest_id":"quest_greywater"}
+{"event_type":"attention_switched","tick":141,"member":"joy","quest_id":"quest_seedsave"}
+{"event_type":"attention_switched","tick":142,"member":"peace","quest_id":"quest_solar"}
+{"event_type":"realm_created","tick":150,"realm_id":"realm_water_team","members":"love,peace,hope","member_count":3}
+{"event_type":"quest_created","tick":155,"realm_id":"realm_water_team","quest_id":"quest_swale","creator":"love","title":"Dig swale on contour above food forest"}
+{"event_type":"quest_created","tick":156,"realm_id":"realm_water_team","quest_id":"quest_pond","creator":"peace","title":"Plan keyline pond placement for property"}
+{"event_type":"attention_switched","tick":160,"member":"love","quest_id":"quest_swale"}
+{"event_type":"attention_switched","tick":161,"member":"peace","quest_id":"quest_pond"}
+{"event_type":"attention_switched","tick":162,"member":"hope","quest_id":"quest_swale"}
+{"event_type":"quest_claim_submitted","tick":180,"realm_id":"realm_homestead_main","quest_id":"quest_chickentractor","claimant":"faith","claim_index":0,"proof_artifact":"photo_tractor_frame_complete"}
+{"event_type":"quest_claim_submitted","tick":181,"realm_id":"realm_homestead_main","quest_id":"quest_chickentractor","claimant":"joy","claim_index":1,"proof_artifact":"photo_wheels_attached"}
+{"event_type":"quest_claim_verified","tick":185,"realm_id":"realm_homestead_main","quest_id":"quest_chickentractor","claim_index":0}
+{"event_type":"quest_claim_verified","tick":186,"realm_id":"realm_homestead_main","quest_id":"quest_chickentractor","claim_index":1}
+{"event_type":"quest_completed","tick":190,"realm_id":"realm_homestead_main","quest_id":"quest_chickentractor","verified_claims":2,"pending_claims":0}
+{"event_type":"attention_switched","tick":195,"member":"faith","quest_id":"quest_foodforest"}
+{"event_type":"attention_switched","tick":196,"member":"joy","quest_id":"quest_seedsave"}
+{"event_type":"quest_created","tick":200,"realm_id":"realm_homestead_main","quest_id":"quest_firewood","creator":"faith","title":"Process and stack firewood for winter heating"}
+{"event_type":"quest_created","tick":201,"realm_id":"realm_homestead_main","quest_id":"quest_greenhouse","creator":"peace","title":"Extend greenhouse season with thermal mass"}
+{"event_type":"quest_created","tick":202,"realm_id":"realm_homestead_main","quest_id":"quest_mushroom","creator":"joy","title":"Inoculate oak logs with shiitake spawn"}
+{"event_type":"attention_switched","tick":210,"member":"peace","quest_id":"quest_greenhouse"}
+{"event_type":"attention_switched","tick":211,"member":"joy","quest_id":"quest_mushroom"}
+{"event_type":"quest_claim_submitted","tick":220,"realm_id":"realm_homestead_main","quest_id":"quest_solar","claimant":"peace","claim_index":0,"proof_artifact":"photo_panels_mounted"}
+{"event_type":"quest_claim_submitted","tick":221,"realm_id":"realm_homestead_main","quest_id":"quest_solar","claimant":"love","claim_index":1,"proof_artifact":"photo_wiring_complete"}
+{"event_type":"quest_claim_verified","tick":225,"realm_id":"realm_homestead_main","quest_id":"quest_solar","claim_index":0}
+{"event_type":"quest_claim_verified","tick":226,"realm_id":"realm_homestead_main","quest_id":"quest_solar","claim_index":1}
+{"event_type":"quest_completed","tick":230,"realm_id":"realm_homestead_main","quest_id":"quest_solar","verified_claims":2,"pending_claims":0}
+{"event_type":"quest_claim_submitted","tick":240,"realm_id":"realm_homestead_main","quest_id":"quest_foodforest","claimant":"joy","claim_index":0,"proof_artifact":"photo_guild_planted"}
+{"event_type":"quest_claim_submitted","tick":241,"realm_id":"realm_homestead_main","quest_id":"quest_foodforest","claimant":"faith","claim_index":1,"proof_artifact":"photo_mulch_applied"}
+{"event_type":"quest_claim_submitted","tick":242,"realm_id":"realm_homestead_main","quest_id":"quest_foodforest","claimant":"hope","claim_index":2,"proof_artifact":"photo_drip_irrigation"}
+{"event_type":"quest_claim_verified","tick":250,"realm_id":"realm_homestead_main","quest_id":"quest_foodforest","claim_index":0}
+{"event_type":"quest_claim_verified","tick":251,"realm_id":"realm_homestead_main","quest_id":"quest_foodforest","claim_index":1}
+{"event_type":"quest_claim_verified","tick":252,"realm_id":"realm_homestead_main","quest_id":"quest_foodforest","claim_index":2}
+{"event_type":"quest_completed","tick":255,"realm_id":"realm_homestead_main","quest_id":"quest_foodforest","verified_claims":3,"pending_claims":0}
+{"event_type":"attention_switched","tick":265,"member":"faith","quest_id":"quest_firewood"}
+{"event_type":"attention_switched","tick":266,"member":"hope","quest_id":"quest_hugelkultur"}
+{"event_type":"quest_claim_submitted","tick":280,"realm_id":"realm_water_team","quest_id":"quest_swale","claimant":"love","claim_index":0,"proof_artifact":"photo_swale_dug"}
+{"event_type":"quest_claim_submitted","tick":281,"realm_id":"realm_water_team","quest_id":"quest_swale","claimant":"hope","claim_index":1,"proof_artifact":"photo_swale_planted"}
+{"event_type":"quest_claim_verified","tick":285,"realm_id":"realm_water_team","quest_id":"quest_swale","claim_index":0}
+{"event_type":"quest_claim_verified","tick":286,"realm_id":"realm_water_team","quest_id":"quest_swale","claim_index":1}
+{"event_type":"quest_completed","tick":290,"realm_id":"realm_water_team","quest_id":"quest_swale","verified_claims":2,"pending_claims":0}
+{"event_type":"quest_claim_submitted","tick":300,"realm_id":"realm_homestead_main","quest_id":"quest_hugelkultur","claimant":"hope","claim_index":0,"proof_artifact":"photo_logs_stacked"}
+{"event_type":"quest_claim_submitted","tick":301,"realm_id":"realm_homestead_main","quest_id":"quest_hugelkultur","claimant":"faith","claim_index":1,"proof_artifact":"photo_soil_added"}
+{"event_type":"quest_claim_verified","tick":305,"realm_id":"realm_homestead_main","quest_id":"quest_hugelkultur","claim_index":0}
+{"event_type":"quest_claim_verified","tick":306,"realm_id":"realm_homestead_main","quest_id":"quest_hugelkultur","claim_index":1}
+{"event_type":"quest_completed","tick":310,"realm_id":"realm_homestead_main","quest_id":"quest_hugelkultur","verified_claims":2,"pending_claims":0}
+{"event_type":"quest_claim_submitted","tick":320,"realm_id":"realm_homestead_main","quest_id":"quest_seedsave","claimant":"joy","claim_index":0,"proof_artifact":"doc_seed_saving_guide"}
+{"event_type":"quest_claim_verified","tick":325,"realm_id":"realm_homestead_main","quest_id":"quest_seedsave","claim_index":0}
+{"event_type":"quest_completed","tick":330,"realm_id":"realm_homestead_main","quest_id":"quest_seedsave","verified_claims":1,"pending_claims":0}
+{"event_type":"attention_switched","tick":335,"member":"joy","quest_id":"quest_greywater"}
+{"event_type":"attention_switched","tick":336,"member":"love","quest_id":"quest_greenhouse"}
+{"event_type":"quest_claim_submitted","tick":350,"realm_id":"realm_homestead_main","quest_id":"quest_mushroom","claimant":"joy","claim_index":0,"proof_artifact":"photo_logs_inoculated"}
+{"event_type":"quest_claim_verified","tick":355,"realm_id":"realm_homestead_main","quest_id":"quest_mushroom","claim_index":0}
+{"event_type":"quest_completed","tick":360,"realm_id":"realm_homestead_main","quest_id":"quest_mushroom","verified_claims":1,"pending_claims":0}
+{"event_type":"quest_claim_submitted","tick":370,"realm_id":"realm_homestead_main","quest_id":"quest_greywater","claimant":"love","claim_index":0,"proof_artifact":"diagram_greywater_system"}
+{"event_type":"quest_claim_submitted","tick":371,"realm_id":"realm_homestead_main","quest_id":"quest_greywater","claimant":"joy","claim_index":1,"proof_artifact":"photo_plumbing_installed"}
+{"event_type":"quest_claim_verified","tick":375,"realm_id":"realm_homestead_main","quest_id":"quest_greywater","claim_index":0}
+{"event_type":"quest_claim_verified","tick":376,"realm_id":"realm_homestead_main","quest_id":"quest_greywater","claim_index":1}
+{"event_type":"quest_completed","tick":380,"realm_id":"realm_homestead_main","quest_id":"quest_greywater","verified_claims":2,"pending_claims":0}
+{"event_type":"quest_claim_submitted","tick":390,"realm_id":"realm_homestead_main","quest_id":"quest_firewood","claimant":"faith","claim_index":0,"proof_artifact":"photo_wood_stacked"}
+{"event_type":"quest_claim_verified","tick":395,"realm_id":"realm_homestead_main","quest_id":"quest_firewood","claim_index":0}
+{"event_type":"quest_completed","tick":400,"realm_id":"realm_homestead_main","quest_id":"quest_firewood","verified_claims":1,"pending_claims":0}
