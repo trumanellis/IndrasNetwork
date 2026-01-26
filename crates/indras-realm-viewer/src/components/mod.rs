@@ -89,7 +89,7 @@ fn RealmsSection(state: Signal<AppState>) -> Element {
             }
             div { class: "realm-list",
                 for realm in realms.iter().take(10) {
-                    RealmCard { realm: realm.clone() }
+                    RealmCard { state, realm: realm.clone() }
                 }
                 if realms.is_empty() {
                     div { class: "empty-state", "No realms yet" }
@@ -100,25 +100,53 @@ fn RealmsSection(state: Signal<AppState>) -> Element {
 }
 
 #[component]
-fn RealmCard(realm: RealmInfo) -> Element {
-    let member_names: Vec<String> = realm.members.iter()
-        .take(3)
-        .map(|m| member_name(m))
-        .collect();
-    let display_name = if member_names.is_empty() {
-        short_id(&realm.realm_id)
-    } else {
-        member_names.join(" + ")
-    };
-    let extra = if realm.members.len() > 3 {
-        format!(" +{}", realm.members.len() - 3)
-    } else {
-        String::new()
-    };
+fn RealmCard(state: Signal<AppState>, realm: RealmInfo) -> Element {
+    let mut state_write = state;
+    let state_read = state.read();
+    let display_name = state_read.realms.get_display_name(&realm);
+    let realm_id = realm.realm_id.clone();
+    let realm_id_edit = realm.realm_id.clone();
+
+    let mut editing = use_signal(|| false);
+    let mut draft = use_signal(|| String::new());
 
     rsx! {
         div { class: "realm-card",
-            div { class: "realm-name", "{display_name}{extra}" }
+            if editing() {
+                input {
+                    class: "alias-input",
+                    maxlength: "77",
+                    value: "{draft}",
+                    autofocus: true,
+                    oninput: move |e| draft.set(e.value()),
+                    onblur: move |_| {
+                        let new_alias = draft.read().clone();
+                        state_write.write().realms.set_alias(&realm_id, &new_alias);
+                        editing.set(false);
+                    },
+                    onkeydown: move |e| {
+                        if e.key() == Key::Enter {
+                            let new_alias = draft.read().clone();
+                            state_write.write().realms.set_alias(&realm_id_edit, &new_alias);
+                            editing.set(false);
+                        } else if e.key() == Key::Escape {
+                            editing.set(false);
+                        }
+                    },
+                }
+            } else {
+                div {
+                    class: "realm-name editable",
+                    onclick: move |_| {
+                        let current = state.read().realms.get_alias(&realm.realm_id)
+                            .unwrap_or("")
+                            .to_string();
+                        draft.set(current);
+                        editing.set(true);
+                    },
+                    "{display_name}"
+                }
+            }
             div { class: "realm-meta",
                 div { class: "realm-members-count",
                     div { class: "member-dots",
@@ -1232,18 +1260,76 @@ fn QuestCardWithRealm(quest: QuestInfo, attention: QuestAttention, realm_name: O
 
 #[component]
 fn MyChatPanel(state: Signal<AppState>, member: String) -> Element {
+    let mut state_write = state;
     let state_read = state.read();
     let messages = state_read.chat.recent_messages(15);
-    let blessing_count = state_read.chat.total_blessings;
     let message_count = state_read.chat.total_messages;
     let mut draft = use_signal(|| String::new());
     let mut show_action_menu = use_signal(|| false);
 
+    // Get the first realm for this member (for alias editing)
+    let member_realms: Vec<_> = state_read.realms.realms_for_member(&member).into_iter().cloned().collect();
+    let current_realm = member_realms.first().cloned();
+    let realm_id = current_realm.as_ref().map(|r| r.realm_id.clone());
+    let realm_id_edit = realm_id.clone();
+    let realm_id_blur = realm_id.clone();
+
+    // Get display name for the chat header
+    let display_name = current_realm.as_ref()
+        .map(|r| state_read.realms.get_display_name(r))
+        .unwrap_or_else(|| "Realm Chat".to_string());
+
+    let mut editing_alias = use_signal(|| false);
+    let mut alias_draft = use_signal(|| String::new());
+
     rsx! {
         div { class: "my-chat-panel",
-            div { class: "panel-header",
-                span { class: "panel-title", "Realm Chat" }
-                span { class: "panel-count", "{message_count} msgs" }
+            div { class: "chat-header",
+                if editing_alias() {
+                    input {
+                        class: "alias-input",
+                        maxlength: "77",
+                        value: "{alias_draft}",
+                        autofocus: true,
+                        oninput: move |e| alias_draft.set(e.value()),
+                        onblur: move |_| {
+                            if let Some(ref rid) = realm_id_blur {
+                                let new_alias = alias_draft.read().clone();
+                                state_write.write().realms.set_alias(rid, &new_alias);
+                            }
+                            editing_alias.set(false);
+                        },
+                        onkeydown: move |e| {
+                            if e.key() == Key::Enter {
+                                if let Some(ref rid) = realm_id_edit {
+                                    let new_alias = alias_draft.read().clone();
+                                    state_write.write().realms.set_alias(rid, &new_alias);
+                                }
+                                editing_alias.set(false);
+                            } else if e.key() == Key::Escape {
+                                editing_alias.set(false);
+                            }
+                        },
+                    }
+                } else {
+                    span {
+                        class: "chat-title editable",
+                        onclick: move |_| {
+                            if let Some(ref rid) = realm_id {
+                                let current = state.read().realms.get_alias(rid)
+                                    .unwrap_or("")
+                                    .to_string();
+                                alias_draft.set(current);
+                                editing_alias.set(true);
+                            }
+                        },
+                        "{display_name}"
+                    }
+                    if current_realm.is_some() {
+                        span { class: "edit-hint", "(click to rename)" }
+                    }
+                }
+                span { class: "chat-stats", "{message_count} msgs" }
             }
             div { class: "my-chat-messages",
                 for msg in messages.iter() {
@@ -1314,34 +1400,74 @@ fn MyRealms(state: Signal<AppState>, member: String) -> Element {
             }
             div { class: "realms-list",
                 for realm in realms.iter() {
-                    {
-                        // Show member names instead of realm ID
-                        let member_names: Vec<String> = realm.members.iter()
-                            .map(|m| member_name(m))
-                            .collect();
-                        let realm_title = member_names.join(" + ");
-                        let quest_count = realm.quest_count;
-
-                        rsx! {
-                            div { class: "realm-card-item",
-                                div { class: "realm-card-title", "{realm_title}" }
-                                div { class: "realm-card-stats",
-                                    span { class: "realm-stat",
-                                        span { class: "realm-stat-value", "{realm.members.len()}" }
-                                        " members"
-                                    }
-                                    span { class: "realm-stat-divider", "•" }
-                                    span { class: "realm-stat",
-                                        span { class: "realm-stat-value", "{quest_count}" }
-                                        " quests"
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    MyRealmCard { state, realm: realm.clone() }
                 }
                 if realms.is_empty() {
                     div { class: "empty-state", "No realms yet" }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn MyRealmCard(state: Signal<AppState>, realm: RealmInfo) -> Element {
+    let mut state_write = state;
+    let state_read = state.read();
+    let display_name = state_read.realms.get_display_name(&realm);
+    let realm_id = realm.realm_id.clone();
+    let realm_id_edit = realm.realm_id.clone();
+    let quest_count = realm.quest_count;
+
+    let mut editing = use_signal(|| false);
+    let mut draft = use_signal(|| String::new());
+
+    rsx! {
+        div { class: "realm-card-item",
+            if editing() {
+                input {
+                    class: "alias-input",
+                    maxlength: "77",
+                    value: "{draft}",
+                    autofocus: true,
+                    oninput: move |e| draft.set(e.value()),
+                    onblur: move |_| {
+                        let new_alias = draft.read().clone();
+                        state_write.write().realms.set_alias(&realm_id, &new_alias);
+                        editing.set(false);
+                    },
+                    onkeydown: move |e| {
+                        if e.key() == Key::Enter {
+                            let new_alias = draft.read().clone();
+                            state_write.write().realms.set_alias(&realm_id_edit, &new_alias);
+                            editing.set(false);
+                        } else if e.key() == Key::Escape {
+                            editing.set(false);
+                        }
+                    },
+                }
+            } else {
+                div {
+                    class: "realm-card-title editable",
+                    onclick: move |_| {
+                        let current = state.read().realms.get_alias(&realm.realm_id)
+                            .unwrap_or("")
+                            .to_string();
+                        draft.set(current);
+                        editing.set(true);
+                    },
+                    "{display_name}"
+                }
+            }
+            div { class: "realm-card-stats",
+                span { class: "realm-stat",
+                    span { class: "realm-stat-value", "{realm.members.len()}" }
+                    " members"
+                }
+                span { class: "realm-stat-divider", "•" }
+                span { class: "realm-stat",
+                    span { class: "realm-stat-value", "{quest_count}" }
+                    " quests"
                 }
             }
         }

@@ -1,10 +1,13 @@
 //! Realm tracking state
 //!
-//! Tracks realms and their membership.
+//! Tracks realms and their membership, including editable aliases.
 
 use std::collections::{HashMap, HashSet};
 
 use crate::events::StreamEvent;
+
+/// Maximum length for a realm alias (in characters).
+pub const MAX_ALIAS_LENGTH: usize = 77;
 
 /// Information about a realm
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -22,6 +25,8 @@ pub struct RealmState {
     pub realms: HashMap<String, RealmInfo>,
     /// All known members across all realms
     pub all_members: HashSet<String>,
+    /// Editable aliases for realms (keyed by realm_id)
+    pub aliases: HashMap<String, String>,
 }
 
 impl RealmState {
@@ -112,5 +117,64 @@ impl RealmState {
             .collect();
         realms.sort_by(|a, b| b.members.len().cmp(&a.members.len()));
         realms
+    }
+
+    // ============================================================
+    // Alias Management
+    // ============================================================
+
+    /// Get the alias for a realm, if set.
+    pub fn get_alias(&self, realm_id: &str) -> Option<&str> {
+        self.aliases.get(realm_id).filter(|s| !s.is_empty()).map(|s| s.as_str())
+    }
+
+    /// Set the alias for a realm.
+    pub fn set_alias(&mut self, realm_id: &str, alias: impl Into<String>) {
+        let alias: String = alias.into().chars().take(MAX_ALIAS_LENGTH).collect();
+        if alias.is_empty() {
+            self.aliases.remove(realm_id);
+        } else {
+            self.aliases.insert(realm_id.to_string(), alias);
+        }
+    }
+
+    /// Clear the alias for a realm.
+    pub fn clear_alias(&mut self, realm_id: &str) {
+        self.aliases.remove(realm_id);
+    }
+
+    /// Get the display name for a realm.
+    ///
+    /// Returns the alias if set, otherwise generates a default name
+    /// from member names joined with "+".
+    pub fn get_display_name(&self, realm: &RealmInfo) -> String {
+        // First check for alias
+        if let Some(alias) = self.get_alias(&realm.realm_id) {
+            return alias.to_string();
+        }
+
+        // Fall back to member names joined with "+"
+        self.default_realm_name(realm)
+    }
+
+    /// Generate the default realm name from members.
+    pub fn default_realm_name(&self, realm: &RealmInfo) -> String {
+        use crate::state::member_name;
+
+        let member_names: Vec<String> = realm.members.iter()
+            .take(3)
+            .map(|m| member_name(m))
+            .collect();
+
+        if member_names.is_empty() {
+            crate::state::short_id(&realm.realm_id)
+        } else {
+            let base = member_names.join(" + ");
+            if realm.members.len() > 3 {
+                format!("{} +{}", base, realm.members.len() - 3)
+            } else {
+                base
+            }
+        }
     }
 }

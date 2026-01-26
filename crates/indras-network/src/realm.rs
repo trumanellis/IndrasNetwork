@@ -646,6 +646,86 @@ impl Realm {
     }
 
     // ============================================================
+    // Realm Alias
+    // ============================================================
+
+    /// Get the alias document for this realm.
+    ///
+    /// The alias is a CRDT-synchronized nickname that all realm members
+    /// can edit. It provides a human-readable name for the realm.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let alias = realm.alias().await?;
+    /// let name = alias.read().await.get().to_string();
+    /// println!("Realm alias: {}", name);
+    /// ```
+    pub async fn alias(&self) -> Result<Document<crate::realm_alias::RealmAliasDocument>> {
+        self.document("alias").await
+    }
+
+    /// Get the current alias for this realm.
+    ///
+    /// Returns the alias if set, or None if empty.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// if let Some(alias) = realm.get_alias().await? {
+    ///     println!("Realm: {}", alias);
+    /// }
+    /// ```
+    pub async fn get_alias(&self) -> Result<Option<String>> {
+        let doc = self.alias().await?;
+        Ok(doc.read().await.get_option().map(String::from))
+    }
+
+    /// Set the alias for this realm.
+    ///
+    /// The alias is limited to 77 characters (unicode allowed).
+    /// Setting an empty string clears the alias.
+    ///
+    /// # Arguments
+    ///
+    /// * `alias` - The new alias (max 77 chars)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// realm.set_alias("Project Alpha").await?;
+    /// ```
+    pub async fn set_alias(&self, alias: impl Into<String>) -> Result<()> {
+        let alias = alias.into();
+        let doc = self.alias().await?;
+        doc.update(|d| {
+            if alias.is_empty() {
+                d.clear();
+            } else {
+                d.set(&alias);
+            }
+        })
+        .await?;
+        Ok(())
+    }
+
+    /// Clear the alias for this realm.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// realm.clear_alias().await?;
+    /// ```
+    pub async fn clear_alias(&self) -> Result<()> {
+        let doc = self.alias().await?;
+        doc.update(|d| {
+            d.clear();
+        })
+        .await?;
+        Ok(())
+    }
+
+    // ============================================================
     // Attention Tracking
     // ============================================================
 
