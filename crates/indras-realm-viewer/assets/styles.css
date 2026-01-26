@@ -136,12 +136,15 @@ html, body {
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-primary);
   gap: var(--space-4);
+  flex-wrap: wrap;
+  min-height: 56px;
 }
 
 .header-left {
   display: flex;
   align-items: center;
   gap: var(--space-4);
+  flex-shrink: 0;
 }
 
 .app-title {
@@ -809,4 +812,150 @@ html, body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
+}
+
+/* =============================================================================
+   POV (Point of View) Selector
+   ============================================================================= */
+
+.pov-selector {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border-left: 1px solid var(--border-subtle);
+  border-right: 1px solid var(--border-subtle);
+  margin-left: var(--space-2);
+}
+
+.pov-selector.active {
+  background: color-mix(in srgb, var(--accent-primary) 15%, transparent);
+  border-left-color: var(--accent-primary);
+  border-right-color: var(--accent-primary);
+  border-radius: var(--radius-sm);
+}
+
+.pov-icon {
+  font-size: 1rem;
+  opacity: 0.7;
+}
+
+.pov-selector.active .pov-icon {
+  opacity: 1;
+}
+
+.pov-dropdown {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  min-width: 120px;
+}
+
+.pov-selector.active .pov-dropdown {
+  border-color: var(--accent-primary);
+}
+
+/* POV Mode Header Indicator */
+.header.pov-mode {
+  border-bottom-color: var(--accent-primary);
+}
+
+/* =============================================================================
+   Role Badges (Quest Cards)
+   ============================================================================= */
+
+.quest-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.role-badge {
+  font-size: var(--font-size-xs);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.role-badge.creator {
+  background: color-mix(in srgb, var(--accent-secondary) 25%, transparent);
+  color: var(--accent-secondary);
+}
+
+.role-badge.claimant {
+  background: color-mix(in srgb, var(--accent-primary) 25%, transparent);
+  color: var(--accent-primary);
+}
+
+/* =============================================================================
+   POV Focus Highlight (Attention View)
+   ============================================================================= */
+
+.pov-focus-highlight {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: color-mix(in srgb, var(--accent-primary) 15%, var(--bg-secondary));
+  border: 1px solid var(--accent-primary);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-4);
+}
+
+.pov-focus-label {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--accent-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.pov-focus-value {
+  font-size: var(--font-size-base);
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+/* Highlighted items in POV mode */
+.focus-item.highlighted,
+.ranking-item.highlighted {
+  background: color-mix(in srgb, var(--accent-primary) 15%, var(--bg-card));
+  border: 1px solid var(--accent-primary);
+}
+
+/* =============================================================================
+   POV Contacts View Styles
+   ============================================================================= */
+
+.member-item.pov-member {
+  border-left: 3px solid var(--accent-primary);
+  padding-left: calc(var(--space-2) - 3px);
+}
+
+.member-item.pov-member .member-name {
+  font-weight: 600;
+}
+
+.pov-badge {
+  font-size: var(--font-size-xs);
+  color: var(--accent-primary);
+  margin-left: var(--space-1);
+  font-weight: 500;
+}
+
+.pov-highlight {
+  color: var(--accent-primary);
+  font-weight: 500;
+}
+
+.detail-section li.pov-highlight {
+  color: var(--accent-primary);
 }

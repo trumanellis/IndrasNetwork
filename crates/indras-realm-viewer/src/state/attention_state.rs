@@ -181,4 +181,17 @@ impl AttentionState {
     pub fn event_count(&self) -> usize {
         self.events.len()
     }
+
+    /// Get current focus for a specific member
+    pub fn focus_for_member(&self, member: &str) -> Option<&String> {
+        self.current_focus.get(member).and_then(|f| f.as_ref())
+    }
+
+    /// Get attention data filtered to quests the member has interacted with
+    pub fn attention_for_member(&self, member: &str) -> Vec<QuestAttention> {
+        self.quests_by_attention()
+            .into_iter()
+            .filter(|qa| qa.by_member.contains_key(member) || qa.currently_focusing.contains(&member.to_string()))
+            .collect()
+    }
 }

@@ -162,6 +162,8 @@ pub struct AppState {
     pub max_log_events: usize,
     /// Total events processed
     pub total_events: usize,
+    /// Currently selected point-of-view member (None = overview mode)
+    pub selected_pov: Option<String>,
 }
 
 impl AppState {
@@ -227,6 +229,41 @@ impl AppState {
     /// Reset all state
     pub fn reset(&mut self) {
         *self = Self::new();
+    }
+
+    /// Get all members for POV selector dropdown (sorted by name)
+    pub fn all_members(&self) -> Vec<String> {
+        use std::collections::HashSet;
+        let mut all: HashSet<String> = HashSet::new();
+
+        // From realms
+        for m in &self.realms.all_members {
+            all.insert(m.clone());
+        }
+
+        // From contacts
+        for m in self.contacts.all_members() {
+            all.insert(m);
+        }
+
+        // From attention events
+        for m in self.attention.current_focus.keys() {
+            all.insert(m.clone());
+        }
+
+        let mut members: Vec<String> = all.into_iter().collect();
+        members.sort_by(|a, b| member_name(a).cmp(&member_name(b)));
+        members
+    }
+
+    /// Check if viewing from a specific POV
+    pub fn is_pov_mode(&self) -> bool {
+        self.selected_pov.is_some()
+    }
+
+    /// Set POV (None clears to overview)
+    pub fn set_pov(&mut self, member: Option<String>) {
+        self.selected_pov = member;
     }
 }
 

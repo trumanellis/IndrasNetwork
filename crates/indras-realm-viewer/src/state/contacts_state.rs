@@ -117,4 +117,27 @@ impl ContactsState {
     pub fn contact_count(&self) -> usize {
         self.contacts.values().map(|c| c.len()).sum()
     }
+
+    /// Get all members relevant to a specific member (their contacts + who has them as contact)
+    pub fn contacts_for_member(&self, member: &str) -> Vec<String> {
+        let mut related: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        // Add their contacts
+        if let Some(contacts) = self.contacts.get(member) {
+            for c in contacts {
+                related.insert(c.clone());
+            }
+        }
+
+        // Add who has them as contact
+        if let Some(contacted_by) = self.contacted_by.get(member) {
+            for c in contacted_by {
+                related.insert(c.clone());
+            }
+        }
+
+        let mut result: Vec<String> = related.into_iter().collect();
+        result.sort();
+        result
+    }
 }
