@@ -136,6 +136,9 @@ impl LoggedEvent {
                 let duration = format_duration_millis(*attention_millis);
                 format!("{} blessed {} ({})", member_name(blesser), member_name(claimant), duration)
             }
+            StreamEvent::ProofFolderSubmitted { claimant, artifact_count, .. } => {
+                format!("{} submitted proof folder ({} files)", member_name(claimant), artifact_count)
+            }
             StreamEvent::Info { message, .. } => {
                 message.chars().take(50).collect()
             }
@@ -247,7 +250,8 @@ impl AppState {
 
             StreamEvent::ChatMessage { .. }
             | StreamEvent::ProofSubmitted { .. }
-            | StreamEvent::BlessingGiven { .. } => {
+            | StreamEvent::BlessingGiven { .. }
+            | StreamEvent::ProofFolderSubmitted { .. } => {
                 self.chat.process_event(&event);
             }
 

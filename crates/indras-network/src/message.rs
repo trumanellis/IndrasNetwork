@@ -4,6 +4,7 @@
 //! messaging infrastructure.
 
 use crate::member::{Member, MemberId};
+use crate::proof_folder::ProofFolderId;
 use crate::quest::QuestId;
 use chrono::{DateTime, Utc};
 use indras_core::{EventId, InterfaceId};
@@ -165,6 +166,24 @@ pub enum Content {
         /// Indices into AttentionDocument.events being released.
         event_indices: Vec<usize>,
     },
+
+    /// Proof folder submitted for review.
+    ///
+    /// Posted automatically when a member submits a proof folder for a quest.
+    /// This notification is only sent when the claimant explicitly submits
+    /// the folder (not during draft editing).
+    ProofFolderSubmitted {
+        /// The quest this proof is for.
+        quest_id: QuestId,
+        /// The member submitting the proof.
+        claimant: MemberId,
+        /// The proof folder ID.
+        folder_id: ProofFolderId,
+        /// Preview of the narrative (first ~100 chars).
+        narrative_preview: String,
+        /// Number of artifacts in the folder.
+        artifact_count: usize,
+    },
 }
 
 impl Content {
@@ -206,11 +225,17 @@ impl Content {
         matches!(self, Content::BlessingGiven { .. })
     }
 
+    /// Check if this is a proof folder submitted message.
+    pub fn is_proof_folder_submitted(&self) -> bool {
+        matches!(self, Content::ProofFolderSubmitted { .. })
+    }
+
     /// Get the quest ID if this is a proof or blessing message.
     pub fn quest_id(&self) -> Option<&QuestId> {
         match self {
             Content::ProofSubmitted { quest_id, .. } => Some(quest_id),
             Content::BlessingGiven { quest_id, .. } => Some(quest_id),
+            Content::ProofFolderSubmitted { quest_id, .. } => Some(quest_id),
             _ => None,
         }
     }
