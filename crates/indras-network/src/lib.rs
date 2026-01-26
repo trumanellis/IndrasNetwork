@@ -115,6 +115,7 @@ pub mod network;
 pub mod note;
 pub mod quest;
 pub mod realm;
+pub mod realm_alias;
 pub mod stream;
 
 // Re-export main types at crate root
@@ -135,6 +136,7 @@ pub use network::{IndrasNetwork, RealmId};
 pub use note::{Note, NoteDocument, NoteId};
 pub use quest::{Quest, QuestClaim, QuestDocument, QuestError, QuestId};
 pub use realm::Realm;
+pub use realm_alias::{RealmAlias, RealmAliasDocument, MAX_ALIAS_LENGTH};
 
 /// Prelude module for convenient imports.
 ///
@@ -148,7 +150,7 @@ pub mod prelude {
         Artifact, ArtifactDownload, Blessing, BlessingDocument, ClaimId, ContactsRealm, Content,
         Document, DocumentSchema, HomeRealm, IndraError, IndrasNetwork, InviteCode, Member,
         MemberEvent, MemberInfo, Message, Note, NoteDocument, Preset, Quest, QuestDocument,
-        Realm, RealmId, Result,
+        Realm, RealmAlias, RealmAliasDocument, RealmId, Result,
     };
 
     // Re-export futures StreamExt for convenient stream iteration
