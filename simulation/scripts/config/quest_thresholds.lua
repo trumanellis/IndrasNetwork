@@ -146,6 +146,43 @@ thresholds.contacts_stress = {
 }
 
 -- ============================================================================
+-- PROOF FOLDER THRESHOLDS
+-- ============================================================================
+
+thresholds.proof_folder = {
+    quick = {
+        -- Folder creation latency: p99 < 500 microseconds
+        folder_create_p99_us = { max = 500 },
+        -- Narrative update latency: p99 < 300 microseconds
+        narrative_update_p99_us = { max = 300 },
+        -- Artifact add latency: p99 < 400 microseconds
+        artifact_add_p99_us = { max = 400 },
+        -- Folder submit latency: p99 < 1000 microseconds (1ms)
+        folder_submit_p99_us = { max = 1000 },
+        -- CRDT consistency rate: All members see same folder state
+        crdt_consistency_rate = { min = 0.99 },
+        -- Chat notification rate: 100% of submissions trigger notifications
+        chat_notification_rate = { min = 1.0 },
+    },
+    medium = {
+        folder_create_p99_us = { max = 500 },
+        narrative_update_p99_us = { max = 300 },
+        artifact_add_p99_us = { max = 400 },
+        folder_submit_p99_us = { max = 1000 },
+        crdt_consistency_rate = { min = 0.995 },
+        chat_notification_rate = { min = 1.0 },
+    },
+    full = {
+        folder_create_p99_us = { max = 500 },
+        narrative_update_p99_us = { max = 300 },
+        artifact_add_p99_us = { max = 400 },
+        folder_submit_p99_us = { max = 1000 },
+        crdt_consistency_rate = { min = 0.999 },
+        chat_notification_rate = { min = 1.0 },
+    }
+}
+
+-- ============================================================================
 -- UTILITY FUNCTIONS
 -- ============================================================================
 

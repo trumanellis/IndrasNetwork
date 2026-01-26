@@ -13,6 +13,7 @@
 
 use crate::artifact::ArtifactId;
 use crate::member::MemberId;
+use crate::proof_folder::ProofFolderId;
 
 use serde::{Deserialize, Serialize};
 
@@ -45,13 +46,23 @@ pub fn generate_quest_id() -> QuestId {
 ///
 /// Members submit claims to demonstrate they've completed work for a quest.
 /// Each claim can include an optional proof artifact (document, image, etc.)
-/// that the quest creator can review before verifying.
+/// or a proof folder with multiple artifacts and a narrative.
+///
+/// # Proof Types
+///
+/// - **Single artifact** (`proof` field): Legacy single-file proof
+/// - **Proof folder** (`proof_folder` field): Multi-artifact folder with narrative
+///
+/// A claim can have either, both (unusual), or neither (no proof yet).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct QuestClaim {
     /// Who is claiming completion
     pub claimant: MemberId,
-    /// Documentation/proof artifact (optional)
+    /// Documentation/proof artifact (optional, legacy single-artifact proof)
     pub proof: Option<ArtifactId>,
+    /// Proof folder reference (optional, new multi-artifact proof with narrative)
+    #[serde(default)]
+    pub proof_folder: Option<ProofFolderId>,
     /// When the claim was submitted (Unix timestamp in milliseconds)
     pub submitted_at_millis: i64,
     /// Whether the creator has verified this claim
@@ -66,6 +77,19 @@ impl QuestClaim {
         Self {
             claimant,
             proof,
+            proof_folder: None,
+            submitted_at_millis: chrono::Utc::now().timestamp_millis(),
+            verified: false,
+            verified_at_millis: None,
+        }
+    }
+
+    /// Create a new unverified claim with a proof folder.
+    pub fn with_proof_folder(claimant: MemberId, proof_folder: ProofFolderId) -> Self {
+        Self {
+            claimant,
+            proof: None,
+            proof_folder: Some(proof_folder),
             submitted_at_millis: chrono::Utc::now().timestamp_millis(),
             verified: false,
             verified_at_millis: None,
@@ -77,12 +101,27 @@ impl QuestClaim {
         self.verified
     }
 
+    /// Check if this claim has a proof folder.
+    pub fn has_proof_folder(&self) -> bool {
+        self.proof_folder.is_some()
+    }
+
+    /// Check if this claim has any proof (artifact or folder).
+    pub fn has_proof(&self) -> bool {
+        self.proof.is_some() || self.proof_folder.is_some()
+    }
+
     /// Mark this claim as verified.
     pub fn verify(&mut self) {
         if !self.verified {
             self.verified = true;
             self.verified_at_millis = Some(chrono::Utc::now().timestamp_millis());
         }
+    }
+
+    /// Set the proof folder for this claim.
+    pub fn set_proof_folder(&mut self, folder_id: ProofFolderId) {
+        self.proof_folder = Some(folder_id);
     }
 }
 

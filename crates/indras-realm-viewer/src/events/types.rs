@@ -188,6 +188,20 @@ pub enum StreamEvent {
         attention_millis: u64,
     },
 
+    #[serde(rename = "proof_folder_submitted")]
+    ProofFolderSubmitted {
+        #[serde(default)]
+        tick: u32,
+        realm_id: String,
+        quest_id: String,
+        claimant: String,
+        folder_id: String,
+        #[serde(default)]
+        artifact_count: usize,
+        #[serde(default)]
+        narrative_preview: String,
+    },
+
     // ========== Info/Log Events ==========
     #[serde(rename = "info")]
     Info {
@@ -224,6 +238,7 @@ impl StreamEvent {
             StreamEvent::ChatMessage { tick, .. } => *tick,
             StreamEvent::ProofSubmitted { tick, .. } => *tick,
             StreamEvent::BlessingGiven { tick, .. } => *tick,
+            StreamEvent::ProofFolderSubmitted { tick, .. } => *tick,
             StreamEvent::Info { tick, .. } => *tick,
             StreamEvent::Unknown => 0,
         }
@@ -248,6 +263,7 @@ impl StreamEvent {
             StreamEvent::ChatMessage { .. } => "chat_message",
             StreamEvent::ProofSubmitted { .. } => "proof_submitted",
             StreamEvent::BlessingGiven { .. } => "blessing_given",
+            StreamEvent::ProofFolderSubmitted { .. } => "proof_folder_submitted",
             StreamEvent::Info { .. } => "info",
             StreamEvent::Unknown => "unknown",
         }
@@ -276,9 +292,9 @@ impl StreamEvent {
 
             StreamEvent::ChatMessage { .. } => EventCategory::Chat,
 
-            StreamEvent::ProofSubmitted { .. } | StreamEvent::BlessingGiven { .. } => {
-                EventCategory::Blessing
-            }
+            StreamEvent::ProofSubmitted { .. }
+            | StreamEvent::BlessingGiven { .. }
+            | StreamEvent::ProofFolderSubmitted { .. } => EventCategory::Blessing,
 
             StreamEvent::Info { .. } | StreamEvent::Unknown => EventCategory::Info,
         }

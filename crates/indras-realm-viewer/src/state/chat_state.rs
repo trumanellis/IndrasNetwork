@@ -29,6 +29,13 @@ pub enum ChatMessageType {
         artifact_id: String,
         artifact_name: String,
     },
+    /// Proof folder submitted for a quest.
+    ProofFolderSubmitted {
+        quest_id: String,
+        folder_id: String,
+        artifact_count: usize,
+        narrative_preview: String,
+    },
     /// Blessing given to a proof.
     BlessingGiven {
         quest_id: String,
@@ -178,6 +185,54 @@ impl ChatState {
                         quest_id: quest_id.clone(),
                         claimant: claimant.clone(),
                         attention_millis: *attention_millis,
+                    },
+                };
+                self.add_realm_message(realm_id, msg.clone());
+                self.add_global_message(msg);
+            }
+
+            StreamEvent::ProofFolderSubmitted {
+                tick,
+                realm_id,
+                quest_id,
+                claimant,
+                folder_id,
+                artifact_count,
+                narrative_preview,
+            } => {
+                // Create proof blessing entry (similar to ProofSubmitted)
+                let key = (quest_id.clone(), claimant.clone());
+                self.proof_blessings.insert(
+                    key,
+                    ProofBlessingInfo {
+                        quest_id: quest_id.clone(),
+                        quest_title: String::new(), // Not available in folder event
+                        claimant: claimant.clone(),
+                        artifact_id: folder_id.clone(),
+                        artifact_name: format!("Proof folder ({} files)", artifact_count),
+                        tick: *tick,
+                        total_blessed_millis: 0,
+                        blesser_count: 0,
+                        blessings: Vec::new(),
+                    },
+                );
+
+                // Add chat message
+                let content = if narrative_preview.is_empty() {
+                    format!("Submitted proof folder ({} files)", artifact_count)
+                } else {
+                    format!("Submitted proof: {}", narrative_preview)
+                };
+
+                let msg = ChatMessage {
+                    tick: *tick,
+                    member: claimant.clone(),
+                    content,
+                    message_type: ChatMessageType::ProofFolderSubmitted {
+                        quest_id: quest_id.clone(),
+                        folder_id: folder_id.clone(),
+                        artifact_count: *artifact_count,
+                        narrative_preview: narrative_preview.clone(),
                     },
                 };
                 self.add_realm_message(realm_id, msg.clone());
