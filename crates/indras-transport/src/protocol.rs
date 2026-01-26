@@ -73,6 +73,16 @@ pub enum WireMessage {
 
     /// Confirm receipt of events (for store-and-forward)
     InterfaceEventAck(InterfaceEventAckMessage),
+
+    // ========== Peer Discovery Messages ==========
+    /// Proactive introduction of a new peer to existing members
+    PeerIntroduction(PeerIntroductionMessage),
+
+    /// Request to learn about existing realm members
+    IntroductionRequest(IntroductionRequestMessage),
+
+    /// Response with known realm members
+    IntroductionResponse(IntroductionResponseMessage),
 }
 
 /// Serialized packet for wire transmission
@@ -299,6 +309,7 @@ impl InterfaceSyncResponseMessage {
 /// Announce joining an interface
 ///
 /// Sent when a peer joins an interface to announce their presence.
+/// Includes post-quantum key material for secure peer-to-peer communication.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InterfaceJoinMessage {
     /// The interface being joined
@@ -309,6 +320,10 @@ pub struct InterfaceJoinMessage {
     pub timestamp_millis: i64,
     /// Display name (optional)
     pub display_name: Option<String>,
+    /// ML-KEM-768 encapsulation key (1,184 bytes) for receiving encrypted keys
+    pub pq_encapsulation_key: Option<Vec<u8>>,
+    /// ML-DSA-65 verifying key (1,952 bytes) for signature verification
+    pub pq_verifying_key: Option<Vec<u8>>,
 }
 
 impl InterfaceJoinMessage {
@@ -319,6 +334,8 @@ impl InterfaceJoinMessage {
             presence_status: PresenceStatus::Online,
             timestamp_millis: chrono::Utc::now().timestamp_millis(),
             display_name: None,
+            pq_encapsulation_key: None,
+            pq_verifying_key: None,
         }
     }
 
@@ -331,6 +348,18 @@ impl InterfaceJoinMessage {
     /// Set the presence status
     pub fn with_status(mut self, status: PresenceStatus) -> Self {
         self.presence_status = status;
+        self
+    }
+
+    /// Set the ML-KEM-768 encapsulation key
+    pub fn with_pq_encapsulation_key(mut self, key: Vec<u8>) -> Self {
+        self.pq_encapsulation_key = Some(key);
+        self
+    }
+
+    /// Set the ML-DSA-65 verifying key
+    pub fn with_pq_verifying_key(mut self, key: Vec<u8>) -> Self {
+        self.pq_verifying_key = Some(key);
         self
     }
 }
@@ -372,6 +401,137 @@ impl InterfaceEventAckMessage {
         Self {
             interface_id,
             up_to_event_id,
+        }
+    }
+}
+
+// ============================================================================
+// Peer Discovery Message Types
+// ============================================================================
+
+/// Information about a realm peer for discovery
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RealmPeerInfo {
+    /// The peer's iroh identity
+    pub peer_id: IrohIdentity,
+    /// Display name (optional)
+    pub display_name: Option<String>,
+    /// ML-KEM-768 encapsulation key (for receiving encrypted keys)
+    pub pq_encapsulation_key: Option<Vec<u8>>,
+    /// ML-DSA-65 verifying key (for signature verification)
+    pub pq_verifying_key: Option<Vec<u8>>,
+    /// Timestamp when this peer info was created (Unix millis)
+    pub timestamp_millis: i64,
+}
+
+impl RealmPeerInfo {
+    /// Create new peer info
+    pub fn new(peer_id: IrohIdentity) -> Self {
+        Self {
+            peer_id,
+            display_name: None,
+            pq_encapsulation_key: None,
+            pq_verifying_key: None,
+            timestamp_millis: chrono::Utc::now().timestamp_millis(),
+        }
+    }
+
+    /// Set the display name
+    pub fn with_name(mut self, name: impl Into<String>) -> Self {
+        self.display_name = Some(name.into());
+        self
+    }
+
+    /// Set the ML-KEM-768 encapsulation key
+    pub fn with_pq_encapsulation_key(mut self, key: Vec<u8>) -> Self {
+        self.pq_encapsulation_key = Some(key);
+        self
+    }
+
+    /// Set the ML-DSA-65 verifying key
+    pub fn with_pq_verifying_key(mut self, key: Vec<u8>) -> Self {
+        self.pq_verifying_key = Some(key);
+        self
+    }
+}
+
+/// Proactive introduction of a peer to realm members
+///
+/// Sent by existing members when a new peer joins to ensure
+/// all members learn about the new peer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerIntroductionMessage {
+    /// The interface/realm this introduction is for
+    pub interface_id: InterfaceId,
+    /// Information about the peer being introduced
+    pub peer_info: RealmPeerInfo,
+    /// Timestamp (Unix millis)
+    pub timestamp_millis: i64,
+}
+
+impl PeerIntroductionMessage {
+    /// Create a new peer introduction message
+    pub fn new(interface_id: InterfaceId, peer_info: RealmPeerInfo) -> Self {
+        Self {
+            interface_id,
+            peer_info,
+            timestamp_millis: chrono::Utc::now().timestamp_millis(),
+        }
+    }
+}
+
+/// Request to discover existing realm members
+///
+/// Sent by a peer joining a realm to catch up on members
+/// that may have been missed due to gossip unreliability.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IntroductionRequestMessage {
+    /// The interface/realm to request members for
+    pub interface_id: InterfaceId,
+    /// Peers we already know about (to avoid redundant responses)
+    pub known_peers: Vec<IrohIdentity>,
+    /// Timestamp (Unix millis)
+    pub timestamp_millis: i64,
+}
+
+impl IntroductionRequestMessage {
+    /// Create a new introduction request
+    pub fn new(interface_id: InterfaceId) -> Self {
+        Self {
+            interface_id,
+            known_peers: Vec::new(),
+            timestamp_millis: chrono::Utc::now().timestamp_millis(),
+        }
+    }
+
+    /// Set the list of already-known peers
+    pub fn with_known_peers(mut self, peers: Vec<IrohIdentity>) -> Self {
+        self.known_peers = peers;
+        self
+    }
+}
+
+/// Response with known realm members
+///
+/// Sent in response to IntroductionRequest with information
+/// about realm members the requester doesn't know about.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IntroductionResponseMessage {
+    /// The interface/realm this response is for
+    pub interface_id: InterfaceId,
+    /// Information about known members
+    pub members: Vec<RealmPeerInfo>,
+    /// Timestamp (Unix millis)
+    pub timestamp_millis: i64,
+}
+
+impl IntroductionResponseMessage {
+    /// Create a new introduction response
+    pub fn new(interface_id: InterfaceId, members: Vec<RealmPeerInfo>) -> Self {
+        Self {
+            interface_id,
+            members,
+            timestamp_millis: chrono::Utc::now().timestamp_millis(),
         }
     }
 }
@@ -806,5 +966,144 @@ mod tests {
             }
             _ => panic!("Expected PresenceResponse"),
         }
+    }
+
+    #[test]
+    fn test_interface_join_with_pq_keys() {
+        use indras_core::InterfaceId;
+
+        let interface_id = InterfaceId::new([0xAB; 32]);
+        let pq_encap_key = vec![0x42; 1184]; // ML-KEM-768 size
+        let pq_verify_key = vec![0x43; 1952]; // ML-DSA-65 size
+
+        let join = InterfaceJoinMessage::new(interface_id)
+            .with_name("TestPeer")
+            .with_pq_encapsulation_key(pq_encap_key.clone())
+            .with_pq_verifying_key(pq_verify_key.clone());
+
+        let msg = WireMessage::InterfaceJoin(join);
+        let framed = frame_message(&msg).unwrap();
+        let parsed = parse_framed_message(&framed).unwrap();
+
+        match parsed {
+            WireMessage::InterfaceJoin(j) => {
+                assert_eq!(j.interface_id, interface_id);
+                assert_eq!(j.display_name, Some("TestPeer".to_string()));
+                assert_eq!(j.pq_encapsulation_key, Some(pq_encap_key));
+                assert_eq!(j.pq_verifying_key, Some(pq_verify_key));
+            }
+            _ => panic!("Expected InterfaceJoin"),
+        }
+    }
+
+    #[test]
+    fn test_peer_introduction_roundtrip() {
+        use indras_core::InterfaceId;
+        use iroh::SecretKey;
+
+        let secret = SecretKey::generate(&mut rand::rng());
+        let peer = IrohIdentity::new(secret.public());
+        let interface_id = InterfaceId::new([0xCD; 32]);
+
+        let peer_info = RealmPeerInfo::new(peer)
+            .with_name("NewPeer")
+            .with_pq_encapsulation_key(vec![0x11; 1184])
+            .with_pq_verifying_key(vec![0x22; 1952]);
+
+        let intro = PeerIntroductionMessage::new(interface_id, peer_info);
+        let msg = WireMessage::PeerIntroduction(intro);
+        let framed = frame_message(&msg).unwrap();
+        let parsed = parse_framed_message(&framed).unwrap();
+
+        match parsed {
+            WireMessage::PeerIntroduction(p) => {
+                assert_eq!(p.interface_id, interface_id);
+                assert_eq!(p.peer_info.peer_id, peer);
+                assert_eq!(p.peer_info.display_name, Some("NewPeer".to_string()));
+                assert!(p.peer_info.pq_encapsulation_key.is_some());
+                assert!(p.peer_info.pq_verifying_key.is_some());
+            }
+            _ => panic!("Expected PeerIntroduction"),
+        }
+    }
+
+    #[test]
+    fn test_introduction_request_roundtrip() {
+        use indras_core::InterfaceId;
+        use iroh::SecretKey;
+
+        let secret1 = SecretKey::generate(&mut rand::rng());
+        let secret2 = SecretKey::generate(&mut rand::rng());
+        let known_peer1 = IrohIdentity::new(secret1.public());
+        let known_peer2 = IrohIdentity::new(secret2.public());
+        let interface_id = InterfaceId::new([0xEF; 32]);
+
+        let request =
+            IntroductionRequestMessage::new(interface_id).with_known_peers(vec![known_peer1, known_peer2]);
+
+        let msg = WireMessage::IntroductionRequest(request);
+        let framed = frame_message(&msg).unwrap();
+        let parsed = parse_framed_message(&framed).unwrap();
+
+        match parsed {
+            WireMessage::IntroductionRequest(r) => {
+                assert_eq!(r.interface_id, interface_id);
+                assert_eq!(r.known_peers.len(), 2);
+                assert!(r.known_peers.contains(&known_peer1));
+                assert!(r.known_peers.contains(&known_peer2));
+            }
+            _ => panic!("Expected IntroductionRequest"),
+        }
+    }
+
+    #[test]
+    fn test_introduction_response_roundtrip() {
+        use indras_core::InterfaceId;
+        use iroh::SecretKey;
+
+        let secret1 = SecretKey::generate(&mut rand::rng());
+        let secret2 = SecretKey::generate(&mut rand::rng());
+        let peer1 = IrohIdentity::new(secret1.public());
+        let peer2 = IrohIdentity::new(secret2.public());
+        let interface_id = InterfaceId::new([0x12; 32]);
+
+        let members = vec![
+            RealmPeerInfo::new(peer1).with_name("Alice"),
+            RealmPeerInfo::new(peer2).with_name("Bob"),
+        ];
+
+        let response = IntroductionResponseMessage::new(interface_id, members);
+        let msg = WireMessage::IntroductionResponse(response);
+        let framed = frame_message(&msg).unwrap();
+        let parsed = parse_framed_message(&framed).unwrap();
+
+        match parsed {
+            WireMessage::IntroductionResponse(r) => {
+                assert_eq!(r.interface_id, interface_id);
+                assert_eq!(r.members.len(), 2);
+                assert_eq!(r.members[0].display_name, Some("Alice".to_string()));
+                assert_eq!(r.members[1].display_name, Some("Bob".to_string()));
+            }
+            _ => panic!("Expected IntroductionResponse"),
+        }
+    }
+
+    #[test]
+    fn test_realm_peer_info_creation() {
+        use iroh::SecretKey;
+
+        let secret = SecretKey::generate(&mut rand::rng());
+        let peer = IrohIdentity::new(secret.public());
+
+        let info = RealmPeerInfo::new(peer)
+            .with_name("TestPeer")
+            .with_pq_encapsulation_key(vec![1, 2, 3])
+            .with_pq_verifying_key(vec![4, 5, 6]);
+
+        assert_eq!(info.peer_id, peer);
+        assert_eq!(info.display_name, Some("TestPeer".to_string()));
+        assert_eq!(info.pq_encapsulation_key, Some(vec![1, 2, 3]));
+        assert_eq!(info.pq_verifying_key, Some(vec![4, 5, 6]));
+        assert!(info.timestamp_millis > 0);
     }
 }

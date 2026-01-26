@@ -48,8 +48,10 @@ pub use discovery::{
 pub use error::TransportError;
 pub use identity::IrohIdentity;
 pub use protocol::{
-    ALPN_INDRAS, PresenceInfo, SerializedConfirmation, SerializedPacket, SyncRequest, SyncResponse,
-    WireMessage, frame_message, parse_framed_message,
+    ALPN_INDRAS, InterfaceJoinMessage, InterfaceLeaveMessage, IntroductionRequestMessage,
+    IntroductionResponseMessage, PeerIntroductionMessage, PresenceInfo, RealmPeerInfo,
+    SerializedConfirmation, SerializedPacket, SyncRequest, SyncResponse, WireMessage,
+    frame_message, parse_framed_message,
 };
 
 // Re-export iroh types that users will need
