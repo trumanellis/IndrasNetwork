@@ -41,6 +41,8 @@ pub enum ActivityEventType {
     Artifact,
     Session,
     Sync,
+    Chat,
+    Blessing,
     Info,
 }
 
@@ -70,6 +72,14 @@ impl ActivityEvent {
             | HomeRealmEvent::DataRecovered { .. }
             | HomeRealmEvent::MultiDeviceSync { .. } => {
                 (ActivityEventType::Sync, event.description())
+            }
+
+            HomeRealmEvent::ChatMessage { .. } => (ActivityEventType::Chat, event.description()),
+
+            HomeRealmEvent::ProofSubmitted { .. }
+            | HomeRealmEvent::BlessingGiven { .. }
+            | HomeRealmEvent::BlessingReceived { .. } => {
+                (ActivityEventType::Blessing, event.description())
             }
 
             HomeRealmEvent::Info { .. } | HomeRealmEvent::Unknown => {

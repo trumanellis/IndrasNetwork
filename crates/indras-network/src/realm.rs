@@ -5,12 +5,14 @@
 
 use crate::artifact::{Artifact, ArtifactDownload, ArtifactId, DownloadProgress};
 use crate::attention::{AttentionDocument, AttentionEventId, QuestAttention};
+use crate::blessing::{Blessing, BlessingDocument, BlessingId, ClaimId};
 use crate::document::Document;
 use crate::error::{IndraError, Result};
 use crate::invite::InviteCode;
 use crate::member::{Member, MemberEvent, MemberId, MemberInfo};
-use crate::message::{Content, Message, MessageId, MessagePayload};
+use crate::message::{ArtifactRef, Content, Message, MessageId, MessagePayload};
 use crate::network::RealmId;
+use crate::note::{Note, NoteDocument, NoteId};
 use crate::quest::{Quest, QuestDocument, QuestId};
 use crate::stream::broadcast_to_stream;
 
@@ -23,6 +25,7 @@ use indras_transport::IrohIdentity;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::watch;
 use tracing::debug;
 
@@ -430,6 +433,59 @@ impl Realm {
         Ok(claim_index)
     }
 
+    /// Submit a quest claim with proof artifact and post to realm chat.
+    ///
+    /// This is the preferred method for submitting proofs as it automatically
+    /// posts a ProofSubmitted message to the realm chat, notifying other
+    /// members that proof is available for blessing.
+    ///
+    /// # Arguments
+    ///
+    /// * `quest_id` - The quest to claim
+    /// * `claimant` - The member submitting the claim
+    /// * `proof_artifact` - The artifact serving as proof (includes metadata)
+    ///
+    /// # Returns
+    ///
+    /// The index of the newly created claim.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Share proof artifact
+    /// let artifact = realm.share_artifact("./completion_screenshot.png").await?;
+    ///
+    /// // Submit proof to quest and notify chat
+    /// let artifact_ref = ArtifactRef {
+    ///     name: artifact.name,
+    ///     size: artifact.size,
+    ///     hash: artifact.id,
+    ///     mime_type: artifact.mime_type,
+    /// };
+    /// let claim_idx = realm.submit_quest_proof(quest_id, my_id, artifact_ref).await?;
+    /// ```
+    pub async fn submit_quest_proof(
+        &self,
+        quest_id: QuestId,
+        claimant: MemberId,
+        proof_artifact: ArtifactRef,
+    ) -> Result<usize> {
+        // Submit the claim with the artifact ID (hash)
+        let claim_index = self
+            .submit_quest_claim(quest_id, claimant, Some(proof_artifact.hash))
+            .await?;
+
+        // Post ProofSubmitted message to chat
+        self.send(Content::ProofSubmitted {
+            quest_id,
+            claimant,
+            artifact: proof_artifact,
+        })
+        .await?;
+
+        Ok(claim_index)
+    }
+
     /// Verify a claim on a quest.
     ///
     /// The quest creator should call this to verify that a claim is valid.
@@ -495,6 +551,98 @@ impl Realm {
         .await?;
 
         Ok(())
+    }
+
+    // ============================================================
+    // Notes
+    // ============================================================
+
+    /// Get the notes document for this realm.
+    ///
+    /// Returns a CRDT-synchronized note list that all realm members share.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let notes = realm.notes().await?;
+    /// let all_notes = notes.read().await.notes_by_recent();
+    /// println!("Total notes: {}", all_notes.len());
+    /// ```
+    pub async fn notes(&self) -> Result<Document<NoteDocument>> {
+        self.document::<NoteDocument>("notes").await
+    }
+
+    /// Create a new note in this realm.
+    ///
+    /// # Arguments
+    ///
+    /// * `title` - Title of the note
+    /// * `content` - Markdown content
+    /// * `author` - The member ID of the note author
+    /// * `tags` - Tags for organization
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let note_id = realm.create_note(
+    ///     "Meeting Notes",
+    ///     "# Project Update\n\n- Item 1\n- Item 2",
+    ///     my_id,
+    ///     vec!["work".into(), "meeting".into()],
+    /// ).await?;
+    /// ```
+    pub async fn create_note(
+        &self,
+        title: impl Into<String>,
+        content: impl Into<String>,
+        author: MemberId,
+        tags: Vec<String>,
+    ) -> Result<NoteId> {
+        let note = Note::with_tags(title, content, author, tags);
+        let note_id = note.id;
+
+        let doc = self.notes().await?;
+        doc.update(|d| {
+            d.add(note);
+        })
+        .await?;
+
+        Ok(note_id)
+    }
+
+    /// Update a note's content.
+    ///
+    /// # Arguments
+    ///
+    /// * `note_id` - The note to update
+    /// * `content` - New markdown content
+    pub async fn update_note(&self, note_id: NoteId, content: impl Into<String>) -> Result<()> {
+        let content = content.into();
+        let doc = self.notes().await?;
+        doc.update(|d| {
+            if let Some(note) = d.find_mut(&note_id) {
+                note.update_content(content);
+            }
+        })
+        .await?;
+
+        Ok(())
+    }
+
+    /// Delete a note.
+    ///
+    /// # Arguments
+    ///
+    /// * `note_id` - The note to delete
+    pub async fn delete_note(&self, note_id: NoteId) -> Result<Option<Note>> {
+        let mut removed = None;
+        let doc = self.notes().await?;
+        doc.update(|d| {
+            removed = d.remove(&note_id);
+        })
+        .await?;
+
+        Ok(removed)
     }
 
     // ============================================================
@@ -588,6 +736,225 @@ impl Realm {
     pub async fn quest_attention(&self, quest_id: &QuestId) -> Result<QuestAttention> {
         let doc = self.attention().await?;
         Ok(doc.read().await.quest_attention(quest_id, None))
+    }
+
+    // ============================================================
+    // Blessings
+    // ============================================================
+
+    /// Get the blessings document for this realm.
+    ///
+    /// The blessing document tracks which attention events have been
+    /// released as validation for quest proofs.
+    pub async fn blessings(&self) -> Result<Document<BlessingDocument>> {
+        self.document("blessings").await
+    }
+
+    /// Bless a quest claim by releasing accumulated attention.
+    ///
+    /// Members who contributed attention to a quest can validate a proof
+    /// by releasing their accumulated attention as a "blessing". This
+    /// automatically posts a BlessingGiven message to the realm chat.
+    ///
+    /// # Arguments
+    ///
+    /// * `quest_id` - The quest being blessed
+    /// * `claimant` - The member who submitted the proof
+    /// * `blesser` - The member giving the blessing (typically your own ID)
+    /// * `event_indices` - Indices into AttentionDocument.events to release
+    ///
+    /// # Returns
+    ///
+    /// The blessing ID if successful.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The event indices have already been blessed for this quest
+    /// - The blesser doesn't own the specified attention events
+    pub async fn bless_claim(
+        &self,
+        quest_id: QuestId,
+        claimant: MemberId,
+        blesser: MemberId,
+        event_indices: Vec<usize>,
+    ) -> Result<BlessingId> {
+        // Validate that blesser owns the attention events
+        let attention_doc = self.attention().await?;
+        let attention = attention_doc.read().await;
+        let events = attention.events();
+
+        for &idx in &event_indices {
+            if idx >= events.len() {
+                return Err(IndraError::InvalidOperation(format!(
+                    "Invalid event index: {} (only {} events exist)",
+                    idx,
+                    events.len()
+                )));
+            }
+            let event = &events[idx];
+            if event.member != blesser {
+                return Err(IndraError::InvalidOperation(format!(
+                    "Event {} belongs to different member, not blesser",
+                    idx
+                )));
+            }
+            // Validate that the event is for the correct quest
+            if event.quest_id != Some(quest_id) {
+                return Err(IndraError::InvalidOperation(format!(
+                    "Event {} is for different quest",
+                    idx
+                )));
+            }
+        }
+        drop(attention);
+
+        // Record the blessing
+        let claim_id = ClaimId::new(quest_id, claimant);
+        let mut blessing_id = [0u8; 16];
+        let blessing_doc = self.blessings().await?;
+
+        let event_indices_clone = event_indices.clone();
+        blessing_doc
+            .update(|d| {
+                match d.bless_claim(claim_id, blesser, event_indices_clone) {
+                    Ok(id) => blessing_id = id,
+                    Err(e) => {
+                        // Log the error - we can't return it from the closure
+                        tracing::warn!("Blessing failed: {}", e);
+                    }
+                }
+            })
+            .await?;
+
+        // Post BlessingGiven message to chat
+        self.send(Content::BlessingGiven {
+            quest_id,
+            claimant,
+            blesser,
+            event_indices,
+        })
+        .await?;
+
+        Ok(blessing_id)
+    }
+
+    /// Get all blessings for a specific quest claim.
+    pub async fn blessings_for_claim(
+        &self,
+        quest_id: QuestId,
+        claimant: MemberId,
+    ) -> Result<Vec<Blessing>> {
+        let claim_id = ClaimId::new(quest_id, claimant);
+        let doc = self.blessings().await?;
+        Ok(doc
+            .read()
+            .await
+            .blessings_for_claim(&claim_id)
+            .into_iter()
+            .cloned()
+            .collect())
+    }
+
+    /// Get the total blessed attention duration for a quest claim.
+    ///
+    /// This calculates the duration by looking up the blessed event indices
+    /// in the AttentionDocument and computing the time spans.
+    pub async fn blessed_attention_duration(
+        &self,
+        quest_id: QuestId,
+        claimant: MemberId,
+    ) -> Result<Duration> {
+        let claim_id = ClaimId::new(quest_id, claimant);
+        let blessing_doc = self.blessings().await?;
+        let attention_doc = self.attention().await?;
+
+        let blessings_data = blessing_doc.read().await;
+        let attention_data = attention_doc.read().await;
+        let events = attention_data.events();
+
+        let mut total_millis: u64 = 0;
+
+        for blessing in blessings_data.blessings_for_claim(&claim_id) {
+            // Calculate duration for each blessed event
+            for &idx in &blessing.event_indices {
+                if idx < events.len() {
+                    let event = &events[idx];
+                    // Find the next event from this member or use current time
+                    let end_time = events
+                        .iter()
+                        .skip(idx + 1)
+                        .find(|e| e.member == event.member)
+                        .map(|e| e.timestamp_millis)
+                        .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+
+                    let duration = (end_time - event.timestamp_millis).max(0) as u64;
+                    total_millis += duration;
+                }
+            }
+        }
+
+        Ok(Duration::from_millis(total_millis))
+    }
+
+    /// Get attention event indices that haven't been blessed yet.
+    ///
+    /// Returns indices into AttentionDocument.events that belong to the
+    /// specified member for the specified quest and haven't been used
+    /// in any blessing yet.
+    pub async fn unblessed_event_indices(
+        &self,
+        member: MemberId,
+        quest_id: QuestId,
+    ) -> Result<Vec<usize>> {
+        let attention_doc = self.attention().await?;
+        let blessing_doc = self.blessings().await?;
+
+        let attention_data = attention_doc.read().await;
+        let blessing_data = blessing_doc.read().await;
+        let events = attention_data.events();
+
+        // Find all event indices for this member on this quest
+        let candidate_indices: Vec<usize> = events
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| e.member == member && e.quest_id == Some(quest_id))
+            .map(|(idx, _)| idx)
+            .collect();
+
+        // Filter out already blessed indices
+        Ok(blessing_data.unblessed_event_indices(&member, &quest_id, &candidate_indices))
+    }
+
+    /// Get the total unblessed attention duration available for blessing.
+    pub async fn unblessed_attention_duration(
+        &self,
+        member: MemberId,
+        quest_id: QuestId,
+    ) -> Result<Duration> {
+        let unblessed = self.unblessed_event_indices(member, quest_id).await?;
+        let attention_doc = self.attention().await?;
+        let attention_data = attention_doc.read().await;
+        let events = attention_data.events();
+
+        let mut total_millis: u64 = 0;
+
+        for idx in unblessed {
+            if idx < events.len() {
+                let event = &events[idx];
+                let end_time = events
+                    .iter()
+                    .skip(idx + 1)
+                    .find(|e| e.member == event.member)
+                    .map(|e| e.timestamp_millis)
+                    .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+
+                let duration = (end_time - event.timestamp_millis).max(0) as u64;
+                total_millis += duration;
+            }
+        }
+
+        Ok(Duration::from_millis(total_millis))
     }
 
     // ============================================================

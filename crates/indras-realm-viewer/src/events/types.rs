@@ -148,6 +148,46 @@ pub enum StreamEvent {
         contact: String,
     },
 
+    // ========== Chat Events ==========
+    #[serde(rename = "chat_message")]
+    ChatMessage {
+        #[serde(default)]
+        tick: u32,
+        member: String,
+        content: String,
+        #[serde(default)]
+        message_type: String,
+    },
+
+    // ========== Proof/Blessing Events ==========
+    #[serde(rename = "proof_submitted")]
+    ProofSubmitted {
+        #[serde(default)]
+        tick: u32,
+        realm_id: String,
+        quest_id: String,
+        claimant: String,
+        #[serde(default)]
+        quest_title: String,
+        artifact_id: String,
+        #[serde(default)]
+        artifact_name: String,
+    },
+
+    #[serde(rename = "blessing_given")]
+    BlessingGiven {
+        #[serde(default)]
+        tick: u32,
+        realm_id: String,
+        quest_id: String,
+        claimant: String,
+        blesser: String,
+        #[serde(default)]
+        event_count: usize,
+        #[serde(default)]
+        attention_millis: u64,
+    },
+
     // ========== Info/Log Events ==========
     #[serde(rename = "info")]
     Info {
@@ -181,6 +221,9 @@ impl StreamEvent {
             StreamEvent::RankingVerified { tick, .. } => *tick,
             StreamEvent::ContactAdded { tick, .. } => *tick,
             StreamEvent::ContactRemoved { tick, .. } => *tick,
+            StreamEvent::ChatMessage { tick, .. } => *tick,
+            StreamEvent::ProofSubmitted { tick, .. } => *tick,
+            StreamEvent::BlessingGiven { tick, .. } => *tick,
             StreamEvent::Info { tick, .. } => *tick,
             StreamEvent::Unknown => 0,
         }
@@ -202,6 +245,9 @@ impl StreamEvent {
             StreamEvent::RankingVerified { .. } => "ranking_verified",
             StreamEvent::ContactAdded { .. } => "contact_added",
             StreamEvent::ContactRemoved { .. } => "contact_removed",
+            StreamEvent::ChatMessage { .. } => "chat_message",
+            StreamEvent::ProofSubmitted { .. } => "proof_submitted",
+            StreamEvent::BlessingGiven { .. } => "blessing_given",
             StreamEvent::Info { .. } => "info",
             StreamEvent::Unknown => "unknown",
         }
@@ -228,6 +274,12 @@ impl StreamEvent {
                 EventCategory::Contacts
             }
 
+            StreamEvent::ChatMessage { .. } => EventCategory::Chat,
+
+            StreamEvent::ProofSubmitted { .. } | StreamEvent::BlessingGiven { .. } => {
+                EventCategory::Blessing
+            }
+
             StreamEvent::Info { .. } | StreamEvent::Unknown => EventCategory::Info,
         }
     }
@@ -240,6 +292,8 @@ pub enum EventCategory {
     Quest,
     Attention,
     Contacts,
+    Chat,
+    Blessing,
     Info,
 }
 
@@ -250,6 +304,8 @@ impl EventCategory {
             EventCategory::Quest => "Quest",
             EventCategory::Attention => "Attention",
             EventCategory::Contacts => "Contacts",
+            EventCategory::Chat => "Chat",
+            EventCategory::Blessing => "Blessing",
             EventCategory::Info => "Info",
         }
     }
@@ -260,6 +316,8 @@ impl EventCategory {
             EventCategory::Quest => "event-quest",
             EventCategory::Attention => "event-attention",
             EventCategory::Contacts => "event-contacts",
+            EventCategory::Chat => "event-chat",
+            EventCategory::Blessing => "event-blessing",
             EventCategory::Info => "event-info",
         }
     }

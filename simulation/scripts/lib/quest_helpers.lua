@@ -163,6 +163,72 @@ function quest.new_context(scenario_name)
     return ctx
 end
 
+--- Encode a Lua table as JSON string
+-- Simple JSON encoder for event output
+-- @param value any The value to encode
+-- @return string JSON string
+local function json_encode(value)
+    local t = type(value)
+    if t == "nil" then
+        return "null"
+    elseif t == "boolean" then
+        return value and "true" or "false"
+    elseif t == "number" then
+        if value ~= value then -- NaN
+            return "null"
+        elseif value == math.huge or value == -math.huge then
+            return "null"
+        else
+            return tostring(value)
+        end
+    elseif t == "string" then
+        -- Escape special characters
+        local escaped = value:gsub('\\', '\\\\')
+            :gsub('"', '\\"')
+            :gsub('\n', '\\n')
+            :gsub('\r', '\\r')
+            :gsub('\t', '\\t')
+        return '"' .. escaped .. '"'
+    elseif t == "table" then
+        -- Check if it's an array (sequential integer keys starting at 1)
+        local is_array = true
+        local max_idx = 0
+        for k, _ in pairs(value) do
+            if type(k) ~= "number" or k < 1 or math.floor(k) ~= k then
+                is_array = false
+                break
+            end
+            if k > max_idx then max_idx = k end
+        end
+        -- Also check if array has holes
+        if is_array and max_idx > 0 then
+            for i = 1, max_idx do
+                if value[i] == nil then
+                    is_array = false
+                    break
+                end
+            end
+        end
+
+        if is_array and max_idx > 0 then
+            local parts = {}
+            for i = 1, max_idx do
+                parts[i] = json_encode(value[i])
+            end
+            return "[" .. table.concat(parts, ",") .. "]"
+        else
+            local parts = {}
+            for k, v in pairs(value) do
+                local key_str = type(k) == "string" and k or tostring(k)
+                table.insert(parts, '"' .. key_str .. '":' .. json_encode(v))
+            end
+            return "{" .. table.concat(parts, ",") .. "}"
+        end
+    else
+        return '"<' .. t .. '>"'
+    end
+end
+
 --- Create a context logger with automatic trace_id
 -- @param ctx CorrelationContext The correlation context
 -- @return table Logger object
@@ -200,11 +266,18 @@ function quest.create_logger(ctx)
     end
 
     --- Log a quest event with standard fields
+    -- Also outputs JSONL to stdout for viewer consumption
     function logger.event(event_type, fields)
         fields = fields or {}
         fields.trace_id = ctx.trace_id
         fields.event_type = event_type
+
+        -- Log to tracing system (goes to file)
         indras.log.info(event_type, fields)
+
+        -- Also output JSONL to stdout for viewer
+        local json_line = json_encode(fields)
+        indras.log.print(json_line)
     end
 
     return logger
@@ -462,6 +535,47 @@ end
 -- @return number Latency in microseconds
 function quest.claim_verify_latency()
     return 100 + math.random(100)
+end
+
+--- Simulate attention switch latency (50-150 microseconds)
+-- @return number Latency in microseconds
+function quest.attention_switch_latency()
+    return 50 + math.random(100)
+end
+
+-- ============================================================================
+-- ID GENERATION HELPERS
+-- ============================================================================
+
+local id_counter = 0
+
+--- Generate a unique quest ID
+-- @return string Quest ID (hex string)
+function quest.generate_quest_id()
+    id_counter = id_counter + 1
+    local chars = "0123456789abcdef"
+    local result = {}
+    -- Use counter and random for uniqueness
+    local seed = id_counter * 1000 + math.random(999)
+    for i = 1, 16 do
+        local idx = ((seed * (i + 7)) % 16) + 1
+        result[i] = chars:sub(idx, idx)
+    end
+    return "quest_" .. table.concat(result)
+end
+
+--- Generate a unique event ID
+-- @return string Event ID (hex string)
+function quest.generate_event_id()
+    id_counter = id_counter + 1
+    local chars = "0123456789abcdef"
+    local result = {}
+    local seed = id_counter * 1000 + math.random(999)
+    for i = 1, 16 do
+        local idx = ((seed * (i + 3)) % 16) + 1
+        result[i] = chars:sub(idx, idx)
+    end
+    return "evt_" .. table.concat(result)
 end
 
 --- Simulate quest completion latency (150-300 microseconds)

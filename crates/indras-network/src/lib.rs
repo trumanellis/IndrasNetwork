@@ -101,15 +101,18 @@
 // Modules
 pub mod artifact;
 pub mod attention;
+pub mod blessing;
 pub mod config;
 pub mod contacts;
 pub mod document;
 pub mod error;
 pub mod escape;
+pub mod home_realm;
 pub mod invite;
 pub mod member;
 pub mod message;
 pub mod network;
+pub mod note;
 pub mod quest;
 pub mod realm;
 pub mod stream;
@@ -119,14 +122,17 @@ pub use artifact::{Artifact, ArtifactDownload, ArtifactId, DownloadProgress};
 pub use attention::{
     AttentionDocument, AttentionError, AttentionEventId, AttentionSwitchEvent, QuestAttention,
 };
+pub use blessing::{Blessing, BlessingDocument, BlessingError, BlessingId, ClaimId};
 pub use config::{NetworkBuilder, NetworkConfig, Preset};
 pub use contacts::{ContactsDocument, ContactsRealm};
 pub use document::{Document, DocumentChange, DocumentSchema};
 pub use error::{IndraError, Result};
+pub use home_realm::{home_realm_id, HomeArtifactMetadata, HomeRealm};
 pub use invite::InviteCode;
 pub use member::{Member, MemberEvent, MemberId, MemberInfo};
 pub use message::{Content, Message, MessageId};
 pub use network::{IndrasNetwork, RealmId};
+pub use note::{Note, NoteDocument, NoteId};
 pub use quest::{Quest, QuestClaim, QuestDocument, QuestError, QuestId};
 pub use realm::Realm;
 
@@ -139,9 +145,10 @@ pub use realm::Realm;
 /// ```
 pub mod prelude {
     pub use crate::{
-        Artifact, ArtifactDownload, ContactsRealm, Content, Document, DocumentSchema,
-        IndraError, IndrasNetwork, InviteCode, Member, MemberEvent, MemberInfo, Message,
-        Preset, Quest, QuestDocument, Realm, RealmId, Result,
+        Artifact, ArtifactDownload, Blessing, BlessingDocument, ClaimId, ContactsRealm, Content,
+        Document, DocumentSchema, HomeRealm, IndraError, IndrasNetwork, InviteCode, Member,
+        MemberEvent, MemberInfo, Message, Note, NoteDocument, Preset, Quest, QuestDocument,
+        Realm, RealmId, Result,
     };
 
     // Re-export futures StreamExt for convenient stream iteration

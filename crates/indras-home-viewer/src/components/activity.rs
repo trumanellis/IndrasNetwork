@@ -51,6 +51,8 @@ fn ActivityItem(event: ActivityEvent) -> Element {
         ActivityEventType::Artifact => "activity-artifact",
         ActivityEventType::Session => "activity-session",
         ActivityEventType::Sync => "activity-sync",
+        ActivityEventType::Chat => "activity-chat",
+        ActivityEventType::Blessing => "activity-blessing",
         ActivityEventType::Info => "activity-info",
     };
 
@@ -60,6 +62,8 @@ fn ActivityItem(event: ActivityEvent) -> Element {
         ActivityEventType::Artifact => "📁",
         ActivityEventType::Session => "●",
         ActivityEventType::Sync => "↻",
+        ActivityEventType::Chat => "💬",
+        ActivityEventType::Blessing => "✨",
         ActivityEventType::Info => "i",
     };
 
