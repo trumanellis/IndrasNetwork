@@ -125,6 +125,44 @@ pub enum MemberEvent {
     Left(Member),
     /// A member's profile was updated.
     Updated(Member),
+    /// A new member was discovered via gossip (includes PQ keys).
+    Discovered(MemberInfo),
+}
+
+/// Extended member information including post-quantum keys.
+///
+/// This is returned from discovery and includes the member's
+/// PQ keys for secure direct communication.
+#[derive(Debug, Clone)]
+pub struct MemberInfo {
+    /// The member.
+    pub member: Member,
+    /// ML-KEM-768 encapsulation key for sending encrypted keys to this peer.
+    pub pq_encapsulation_key: Option<Vec<u8>>,
+    /// ML-DSA-65 verifying key for verifying signatures from this peer.
+    pub pq_verifying_key: Option<Vec<u8>>,
+}
+
+impl MemberInfo {
+    /// Create member info from transport layer peer info.
+    pub fn from_realm_peer_info(info: indras_transport::RealmPeerInfo) -> Self {
+        let member = if let Some(name) = info.display_name {
+            Member::with_name(info.peer_id, name)
+        } else {
+            Member::new(info.peer_id)
+        };
+
+        Self {
+            member,
+            pq_encapsulation_key: info.pq_encapsulation_key,
+            pq_verifying_key: info.pq_verifying_key,
+        }
+    }
+
+    /// Check if this member has PQ keys for secure communication.
+    pub fn has_pq_keys(&self) -> bool {
+        self.pq_encapsulation_key.is_some() && self.pq_verifying_key.is_some()
+    }
 }
 
 #[cfg(test)]

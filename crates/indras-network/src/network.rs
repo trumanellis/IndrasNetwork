@@ -302,14 +302,29 @@ impl IndrasNetwork {
     /// The peer set IS the realm identity - the same peers always return
     /// the same realm.
     ///
+    /// **Important:** All peers must be in your contacts before you can create
+    /// a realm with them. Join the contacts realm and add contacts first.
+    ///
     /// # Arguments
     ///
     /// * `peers` - The set of member IDs that define this realm (must include yourself)
     ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The peer set doesn't include yourself
+    /// - You haven't joined the contacts realm yet
+    /// - Any peer (other than yourself) is not in your contacts
+    ///
     /// # Example
     ///
     /// ```ignore
-    /// // Tag friends to access a realm
+    /// // First, join contacts and add friends
+    /// let contacts = network.join_contacts_realm().await?;
+    /// contacts.add_contact(friend1).await?;
+    /// contacts.add_contact(friend2).await?;
+    ///
+    /// // Now you can create a realm with them
     /// let peers = vec![my_id, friend1, friend2];
     /// let realm = network.realm(peers).await?;
     ///
@@ -330,9 +345,39 @@ impl IndrasNetwork {
         let normalized = Self::normalize_peers(&peers);
         let realm_id = Self::compute_realm_id_for_peers(&normalized);
 
-        // Check if already loaded
+        // Check if already loaded (skip contact validation for existing realms)
         if let Some(state) = self.realms.get(&realm_id) {
             return Ok(Realm::from_id(realm_id, state.name.clone(), Arc::clone(&self.inner)));
+        }
+
+        // Enforce: all peers must be contacts before creating a new realm
+        let contacts_realm = {
+            let guard = self.contacts_realm.read().await;
+            guard.clone()
+        };
+
+        match contacts_realm {
+            None => {
+                return Err(IndraError::InvalidOperation(
+                    "Must join contacts realm before creating peer-based realms. \
+                     Call join_contacts_realm() first.".to_string(),
+                ));
+            }
+            Some(contacts) => {
+                // Verify all peers (except ourselves) are in our contacts
+                let my_contacts = contacts.contacts_list();
+                for peer in &normalized {
+                    if *peer != my_id && !my_contacts.contains(peer) {
+                        return Err(IndraError::InvalidOperation(
+                            format!(
+                                "Cannot create realm: peer {} is not in your contacts. \
+                                 Add them as a contact first.",
+                                hex::encode(&peer[..8])
+                            ),
+                        ));
+                    }
+                }
+            }
         }
 
         // Ensure network is started
@@ -471,6 +516,13 @@ impl NetworkBuilder {
     /// Build the IndrasNetwork instance.
     pub async fn build(self) -> Result<IndrasNetwork> {
         IndrasNetwork::with_config(self.build_config()).await
+    }
+}
+
+// Simple hex encoding for error messages
+mod hex {
+    pub fn encode(bytes: &[u8]) -> String {
+        bytes.iter().map(|b| format!("{:02x}", b)).collect()
     }
 }
 
