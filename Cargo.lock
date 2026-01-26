@@ -3409,6 +3409,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "indras-realm-viewer"
+version = "1.0.0"
+dependencies = [
+ "clap",
+ "dioxus",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "indras-routing"
 version = "1.0.0"
 dependencies = [

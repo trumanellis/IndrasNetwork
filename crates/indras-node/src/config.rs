@@ -21,6 +21,8 @@ pub struct NodeConfig {
     /// When true (default during transition), accepts unsigned messages with a warning.
     /// Set to false in production to enforce PQ signatures on all messages.
     pub allow_legacy_unsigned: bool,
+    /// Optional display name for peer discovery
+    pub display_name: Option<String>,
 }
 
 impl Default for NodeConfig {
@@ -33,6 +35,7 @@ impl Default for NodeConfig {
             event_channel_capacity: 1024,
             // Default to allowing legacy during transition period
             allow_legacy_unsigned: true,
+            display_name: None,
         }
     }
 }
@@ -48,7 +51,14 @@ impl NodeConfig {
             event_channel_capacity: 1024,
             // Default to allowing legacy during transition period
             allow_legacy_unsigned: true,
+            display_name: None,
         }
+    }
+
+    /// Set the display name for peer discovery
+    pub fn with_display_name(mut self, name: impl Into<String>) -> Self {
+        self.display_name = Some(name.into());
+        self
     }
 
     /// Set the transport configuration
