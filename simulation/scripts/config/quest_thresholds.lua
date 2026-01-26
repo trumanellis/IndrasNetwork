@@ -76,6 +76,47 @@ thresholds.quest_lifecycle = {
 }
 
 -- ============================================================================
+-- HOME REALM THRESHOLDS
+-- ============================================================================
+
+thresholds.home_realm = {
+    quick = {
+        -- Home realm ID consistency: 100% same member = same ID
+        identity_consistency_rate = { min = 1.0 },
+        -- Home realm ID uniqueness: 100% different members = different ID
+        uniqueness_rate = { min = 1.0 },
+        -- Persistence rate: Data survives restarts
+        persistence_rate = { min = 1.0 },
+        -- Multi-device sync: Same member from different devices
+        multi_device_sync_rate = { min = 1.0 },
+        -- Realm ID computation latency: p99 < 100 microseconds (very fast)
+        realm_id_p99_us = { max = 100 },
+        -- Note creation latency: p99 < 500 microseconds
+        note_create_p99_us = { max = 500 },
+        -- Artifact upload latency: p99 < 3000 microseconds (3ms)
+        artifact_upload_p99_us = { max = 3000 },
+    },
+    medium = {
+        identity_consistency_rate = { min = 1.0 },
+        uniqueness_rate = { min = 1.0 },
+        persistence_rate = { min = 1.0 },
+        multi_device_sync_rate = { min = 1.0 },
+        realm_id_p99_us = { max = 100 },
+        note_create_p99_us = { max = 500 },
+        artifact_upload_p99_us = { max = 3000 },
+    },
+    full = {
+        identity_consistency_rate = { min = 1.0 },
+        uniqueness_rate = { min = 1.0 },
+        persistence_rate = { min = 1.0 },
+        multi_device_sync_rate = { min = 1.0 },
+        realm_id_p99_us = { max = 100 },
+        note_create_p99_us = { max = 500 },
+        artifact_upload_p99_us = { max = 3000 },
+    }
+}
+
+-- ============================================================================
 -- CONTACTS STRESS THRESHOLDS
 -- ============================================================================
 

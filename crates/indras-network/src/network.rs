@@ -5,6 +5,7 @@
 use crate::config::{NetworkBuilder, NetworkConfig, Preset};
 use crate::contacts::{contacts_realm_id, ContactsRealm};
 use crate::error::{IndraError, Result};
+use crate::home_realm::{home_realm_id, HomeRealm};
 use crate::invite::InviteCode;
 use crate::member::{Member, MemberId};
 use crate::realm::Realm;
@@ -53,6 +54,8 @@ pub struct IndrasNetwork {
     peer_realms: Arc<DashMap<Vec<MemberId>, RealmId>>,
     /// The contacts realm (lazily initialized).
     contacts_realm: RwLock<Option<ContactsRealm>>,
+    /// The home realm (lazily initialized).
+    home_realm: RwLock<Option<HomeRealm>>,
     /// Configuration.
     config: NetworkConfig,
     /// Our identity.
@@ -123,6 +126,7 @@ impl IndrasNetwork {
             realms: Arc::new(DashMap::new()),
             peer_realms: Arc::new(DashMap::new()),
             contacts_realm: RwLock::new(None),
+            home_realm: RwLock::new(None),
             config,
             identity,
         })
@@ -491,6 +495,92 @@ impl IndrasNetwork {
     /// Returns None if `join_contacts_realm()` hasn't been called yet.
     pub async fn contacts_realm(&self) -> Option<ContactsRealm> {
         let guard = self.contacts_realm.read().await;
+        guard.clone()
+    }
+
+    // ============================================================
+    // Home realm
+    // ============================================================
+
+    /// Get or create the home realm.
+    ///
+    /// The home realm is a personal realm unique to this user, containing:
+    /// - Personal quests and tasks
+    /// - Notes and documents
+    /// - Stored artifacts (images, files, etc.)
+    ///
+    /// The home realm ID is deterministically derived from the user's
+    /// member ID, enabling multi-device sync - all devices belonging
+    /// to the same user will access the same home realm.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let home = network.home_realm().await?;
+    ///
+    /// // Create a personal note
+    /// let note_id = home.create_note(
+    ///     "My Note",
+    ///     "# Hello\n\nContent here",
+    ///     vec!["personal".into()],
+    /// ).await?;
+    ///
+    /// // Create a personal quest
+    /// let quest_id = home.create_quest(
+    ///     "Personal Task",
+    ///     "Do something productive",
+    ///     None,
+    /// ).await?;
+    /// ```
+    pub async fn home_realm(&self) -> Result<HomeRealm> {
+        // Check if already initialized
+        {
+            let guard = self.home_realm.read().await;
+            if let Some(ref home) = *guard {
+                return Ok(home.clone());
+            }
+        }
+
+        // Ensure network is started
+        if !self.is_running() {
+            self.start().await?;
+        }
+
+        // Get the deterministic home realm ID
+        let realm_id = home_realm_id(self.id());
+
+        // Create the home realm interface
+        let (_interface_id, _invite_key) = self
+            .inner
+            .create_interface_with_id(realm_id, Some("Home"))
+            .await?;
+
+        // Cache the realm state
+        self.realms.insert(
+            realm_id,
+            RealmState {
+                name: Some("Home".to_string()),
+            },
+        );
+
+        // Create the home realm wrapper
+        let home = HomeRealm::new(realm_id, Arc::clone(&self.inner), self.id()).await?;
+
+        // Cache it
+        {
+            let mut guard = self.home_realm.write().await;
+            *guard = Some(home.clone());
+        }
+
+        Ok(home)
+    }
+
+    /// Get the home realm if already initialized.
+    ///
+    /// Returns None if `home_realm()` hasn't been called yet.
+    /// Prefer using `home_realm()` which will create it if needed.
+    pub async fn get_home_realm(&self) -> Option<HomeRealm> {
+        let guard = self.home_realm.read().await;
         guard.clone()
     }
 

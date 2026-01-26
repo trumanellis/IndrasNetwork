@@ -113,6 +113,7 @@ pub mod member;
 pub mod message;
 pub mod network;
 pub mod note;
+pub mod proof_folder;
 pub mod quest;
 pub mod realm;
 pub mod realm_alias;
@@ -134,6 +135,10 @@ pub use member::{Member, MemberEvent, MemberId, MemberInfo};
 pub use message::{Content, Message, MessageId};
 pub use network::{IndrasNetwork, RealmId};
 pub use note::{Note, NoteDocument, NoteId};
+pub use proof_folder::{
+    ProofFolder, ProofFolderArtifact, ProofFolderDocument, ProofFolderError, ProofFolderId,
+    ProofFolderStatus,
+};
 pub use quest::{Quest, QuestClaim, QuestDocument, QuestError, QuestId};
 pub use realm::Realm;
 pub use realm_alias::{RealmAlias, RealmAliasDocument, MAX_ALIAS_LENGTH};
@@ -149,8 +154,9 @@ pub mod prelude {
     pub use crate::{
         Artifact, ArtifactDownload, Blessing, BlessingDocument, ClaimId, ContactsRealm, Content,
         Document, DocumentSchema, HomeRealm, IndraError, IndrasNetwork, InviteCode, Member,
-        MemberEvent, MemberInfo, Message, Note, NoteDocument, Preset, Quest, QuestDocument,
-        Realm, RealmAlias, RealmAliasDocument, RealmId, Result,
+        MemberEvent, MemberInfo, Message, Note, NoteDocument, Preset, ProofFolder,
+        ProofFolderArtifact, ProofFolderDocument, Quest, QuestDocument, Realm, RealmAlias,
+        RealmAliasDocument, RealmId, Result,
     };
 
     // Re-export futures StreamExt for convenient stream iteration
