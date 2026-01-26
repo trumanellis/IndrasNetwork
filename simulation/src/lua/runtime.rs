@@ -43,6 +43,22 @@ impl LuaRuntime {
             mlua::Error::external(format!("Failed to read {}: {}", path.display(), e))
         })?;
 
+        // Add script's directory and current working directory to package.path
+        // for require() to find local modules
+        let mut paths = vec!["./?.lua".to_string(), "./?/init.lua".to_string()];
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                let parent_str = parent.to_string_lossy();
+                paths.push(format!("{}/?.lua", parent_str));
+                paths.push(format!("{}/?/init.lua", parent_str));
+            }
+        }
+        let add_path = format!(
+            "package.path = '{}' .. ';' .. package.path",
+            paths.join(";")
+        );
+        self.lua.load(&add_path).exec()?;
+
         // Set script path for better error messages
         self.lua.scope(|_| {
             self.lua
