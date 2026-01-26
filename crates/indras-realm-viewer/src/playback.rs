@@ -16,6 +16,9 @@ static RESET_REQUESTED: AtomicBool = AtomicBool::new(false);
 /// Step requested flag - advance one event while paused
 static STEP_REQUESTED: AtomicBool = AtomicBool::new(false);
 
+/// Shutdown requested flag - signals async tasks to exit gracefully
+static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
+
 /// Check if playback is paused
 pub fn is_paused() -> bool {
     PLAYBACK_PAUSED.load(Ordering::Relaxed)
@@ -68,4 +71,14 @@ pub fn request_step() {
 /// Check if step was requested (and clear the flag)
 pub fn take_step_request() -> bool {
     STEP_REQUESTED.swap(false, Ordering::Relaxed)
+}
+
+/// Request shutdown - signals async tasks to exit gracefully
+pub fn request_shutdown() {
+    SHUTDOWN_REQUESTED.store(true, Ordering::Relaxed);
+}
+
+/// Check if shutdown was requested
+pub fn is_shutdown_requested() -> bool {
+    SHUTDOWN_REQUESTED.load(Ordering::Relaxed)
 }

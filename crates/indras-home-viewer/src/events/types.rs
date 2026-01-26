@@ -116,6 +116,56 @@ pub enum HomeRealmEvent {
         tick: u32,
     },
 
+    // Chat and Messaging
+    #[serde(rename = "chat_message")]
+    ChatMessage {
+        member: String,
+        content: String,
+        #[serde(default)]
+        message_type: String,
+        tick: u32,
+    },
+
+    // Quest Proof and Blessings
+    #[serde(rename = "proof_submitted")]
+    ProofSubmitted {
+        member: String,
+        quest_id: String,
+        quest_title: String,
+        artifact_id: String,
+        #[serde(default)]
+        artifact_name: String,
+        tick: u32,
+    },
+
+    #[serde(rename = "blessing_given")]
+    BlessingGiven {
+        blesser: String,
+        claimant: String,
+        quest_id: String,
+        #[serde(default)]
+        quest_title: String,
+        #[serde(default)]
+        event_count: usize,
+        #[serde(default)]
+        attention_millis: u64,
+        tick: u32,
+    },
+
+    #[serde(rename = "blessing_received")]
+    BlessingReceived {
+        claimant: String,
+        blesser: String,
+        quest_id: String,
+        #[serde(default)]
+        quest_title: String,
+        #[serde(default)]
+        attention_millis: u64,
+        #[serde(default)]
+        total_blessed_millis: u64,
+        tick: u32,
+    },
+
     // Utility
     #[serde(rename = "info")]
     Info { message: String },
@@ -141,6 +191,10 @@ impl HomeRealmEvent {
             HomeRealmEvent::ArtifactUploaded { tick, .. } => *tick,
             HomeRealmEvent::ArtifactRetrieved { tick, .. } => *tick,
             HomeRealmEvent::MultiDeviceSync { tick, .. } => *tick,
+            HomeRealmEvent::ChatMessage { tick, .. } => *tick,
+            HomeRealmEvent::ProofSubmitted { tick, .. } => *tick,
+            HomeRealmEvent::BlessingGiven { tick, .. } => *tick,
+            HomeRealmEvent::BlessingReceived { tick, .. } => *tick,
             HomeRealmEvent::Info { .. } => 0,
             HomeRealmEvent::Unknown => 0,
         }
@@ -161,6 +215,10 @@ impl HomeRealmEvent {
             HomeRealmEvent::ArtifactUploaded { member, .. } => Some(member),
             HomeRealmEvent::ArtifactRetrieved { member, .. } => Some(member),
             HomeRealmEvent::MultiDeviceSync { member, .. } => Some(member),
+            HomeRealmEvent::ChatMessage { member, .. } => Some(member),
+            HomeRealmEvent::ProofSubmitted { member, .. } => Some(member),
+            HomeRealmEvent::BlessingGiven { blesser, .. } => Some(blesser),
+            HomeRealmEvent::BlessingReceived { claimant, .. } => Some(claimant),
             HomeRealmEvent::Info { .. } => None,
             HomeRealmEvent::Unknown => None,
         }
@@ -201,9 +259,60 @@ impl HomeRealmEvent {
                     "Sync conflict detected".to_string()
                 }
             }
+            HomeRealmEvent::ChatMessage { content, .. } => {
+                let truncated = if content.len() > 50 {
+                    format!("{}...", &content[..50])
+                } else {
+                    content.clone()
+                };
+                truncated
+            }
+            HomeRealmEvent::ProofSubmitted {
+                quest_title,
+                artifact_name,
+                ..
+            } => format!("Proof submitted for {}: {}", quest_title, artifact_name),
+            HomeRealmEvent::BlessingGiven {
+                quest_title,
+                attention_millis,
+                ..
+            } => format!(
+                "Blessed {} ({})",
+                quest_title,
+                format_duration_millis(*attention_millis)
+            ),
+            HomeRealmEvent::BlessingReceived {
+                blesser,
+                attention_millis,
+                ..
+            } => format!(
+                "Received blessing from {} ({})",
+                blesser,
+                format_duration_millis(*attention_millis)
+            ),
             HomeRealmEvent::Info { message } => message.clone(),
             HomeRealmEvent::Unknown => "Unknown event".to_string(),
         }
+    }
+}
+
+/// Format milliseconds as human-readable duration (e.g., "2h 30m")
+fn format_duration_millis(millis: u64) -> String {
+    let seconds = millis / 1000;
+    let minutes = seconds / 60;
+    let hours = minutes / 60;
+
+    if hours > 0 {
+        let remaining_mins = minutes % 60;
+        if remaining_mins > 0 {
+            format!("{}h {}m", hours, remaining_mins)
+        } else {
+            format!("{}h", hours)
+        }
+    } else if minutes > 0 {
+        format!("{}m", minutes)
+    } else {
+        format!("{}s", seconds)
     }
 }
 

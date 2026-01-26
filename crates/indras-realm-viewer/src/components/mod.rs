@@ -71,6 +71,7 @@ fn LeftPanel(state: Signal<AppState>) -> Element {
         div { class: "left-panel",
             RealmsSection { state }
             MembersSection { state }
+            NetworkTopology { state }
         }
     }
 }
@@ -205,14 +206,13 @@ fn MemberCard(state: Signal<AppState>, member_id: String, focus: Option<String>)
 }
 
 // ============================================================================
-// CENTER PANEL - Network Topology & Quest List
+// CENTER PANEL - Quest List
 // ============================================================================
 
 #[component]
 fn CenterPanel(state: Signal<AppState>) -> Element {
     rsx! {
         div { class: "center-panel",
-            NetworkTopology { state }
             QuestListPanel { state }
         }
     }
@@ -224,14 +224,15 @@ fn NetworkTopology(state: Signal<AppState>) -> Element {
     let state_read = state.read();
     let members = state_read.all_members();
 
-    let width = 600.0_f64;
-    let height = 200.0_f64;
+    // Sized for left panel (narrower)
+    let width = 240.0_f64;
+    let height = 180.0_f64;
     let center_x = width / 2.0;
     let center_y = height / 2.0;
 
     // Calculate positions for members in a circle
     let member_count = members.len().max(1) as f64;
-    let radius = (height / 2.0 - 30.0).min(width / 4.0);
+    let radius = (height / 2.0 - 25.0).min(width / 2.5);
     let angle_step = std::f64::consts::PI * 2.0 / member_count;
     let angle_offset = -std::f64::consts::PI / 2.0; // Start from top
 
@@ -488,16 +489,120 @@ fn ClaimBadge(claim: ClaimInfo) -> Element {
 }
 
 // ============================================================================
-// RIGHT PANEL - Activity Timeline & Stats
+// RIGHT PANEL - Chat, Activity Timeline & Stats
 // ============================================================================
 
 #[component]
 fn RightPanel(state: Signal<AppState>) -> Element {
     rsx! {
         div { class: "right-panel",
+            ChatPanel { state }
             ActivityTimeline { state }
             GlobalStats { state }
         }
+    }
+}
+
+#[component]
+fn ChatPanel(state: Signal<AppState>) -> Element {
+    let state_read = state.read();
+    let messages = state_read.chat.recent_messages(20);
+    let blessing_count = state_read.chat.total_blessings;
+    let message_count = state_read.chat.total_messages;
+    let mut draft = use_signal(|| String::new());
+
+    rsx! {
+        div { class: "chat-panel",
+            div { class: "chat-header",
+                span { class: "chat-title", "Realm Chat" }
+                span { class: "chat-stats", "{message_count} msgs, {blessing_count} blessings" }
+            }
+            div { class: "chat-messages",
+                for msg in messages.iter() {
+                    ChatMessageItem { message: (*msg).clone() }
+                }
+                if messages.is_empty() {
+                    div { class: "empty-state", "No messages yet" }
+                }
+            }
+            div { class: "chat-input-container",
+                input {
+                    class: "chat-input",
+                    r#type: "text",
+                    placeholder: "Type a message...",
+                    value: "{draft}",
+                    oninput: move |e| draft.set(e.value())
+                }
+                button {
+                    class: "chat-send-btn",
+                    disabled: draft.read().is_empty(),
+                    "Send"
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn ChatMessageItem(message: crate::state::ChatMessage) -> Element {
+    let name = member_name(&message.member);
+    let color_class = member_color_class(&message.member);
+
+    match &message.message_type {
+        crate::state::ChatMessageType::Text => {
+            rsx! {
+                div { class: "chat-message text-message",
+                    span { class: "chat-tick", "[{message.tick}]" }
+                    span { class: "chat-sender {color_class}", "{name}" }
+                    span { class: "chat-content", "{message.content}" }
+                }
+            }
+        }
+        crate::state::ChatMessageType::ProofSubmitted { quest_title, artifact_name, .. } => {
+            rsx! {
+                div { class: "chat-message proof-message",
+                    span { class: "chat-tick", "[{message.tick}]" }
+                    span { class: "chat-icon", "📎" }
+                    span { class: "chat-sender {color_class}", "{name}" }
+                    div { class: "proof-content",
+                        span { class: "proof-label", "Proof: " }
+                        span { class: "proof-quest", "{quest_title}" }
+                        span { class: "proof-artifact", "({artifact_name})" }
+                    }
+                }
+            }
+        }
+        crate::state::ChatMessageType::BlessingGiven { claimant, attention_millis, .. } => {
+            let claimant_name = member_name(claimant);
+            let duration = format_blessing_duration(*attention_millis);
+            rsx! {
+                div { class: "chat-message blessing-message",
+                    span { class: "chat-tick", "[{message.tick}]" }
+                    span { class: "chat-icon", "✨" }
+                    span { class: "chat-sender {color_class}", "{name}" }
+                    span { class: "blessing-text", "blessed {claimant_name} ({duration})" }
+                }
+            }
+        }
+    }
+}
+
+fn format_blessing_duration(millis: u64) -> String {
+    let seconds = millis / 1000;
+    let minutes = seconds / 60;
+    let hours = minutes / 60;
+
+    if hours > 0 {
+        let remaining_mins = minutes % 60;
+        if remaining_mins > 0 {
+            format!("{}h {}m", hours, remaining_mins)
+        } else {
+            format!("{}h", hours)
+        }
+    } else if minutes > 0 {
+        format!("{}m", minutes)
+    } else {
+        format!("{}s", seconds)
     }
 }
 
@@ -519,6 +624,8 @@ fn ActivityTimeline(state: Signal<AppState>) -> Element {
                                 "event-quest" => "Q",
                                 "event-attention" => "A",
                                 "event-contacts" => "C",
+                                "event-chat" => "💬",
+                                "event-blessing" => "✨",
                                 _ => "•"
                             }
                         }
@@ -690,7 +797,10 @@ pub fn POVDashboard(state: Signal<AppState>) -> Element {
                     }
                     div { class: "pov-center-column",
                         MyAttentionPanel { state, member: member.clone() }
-                        MyQuestsList { state }
+                        div { class: "pov-quests-chat-row",
+                            MyQuestsList { state }
+                            MyChatPanel { state, member: member.clone() }
+                        }
                     }
                     div { class: "pov-right-column",
                         MyRealms { state, member: member.clone() }
@@ -1082,6 +1192,46 @@ fn QuestCardWithRealm(quest: QuestInfo, attention: QuestAttention, realm_name: O
                         }
                     }
                     span { class: "focusing-label", "focusing" }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn MyChatPanel(state: Signal<AppState>, member: String) -> Element {
+    let state_read = state.read();
+    let messages = state_read.chat.recent_messages(15);
+    let blessing_count = state_read.chat.total_blessings;
+    let message_count = state_read.chat.total_messages;
+    let mut draft = use_signal(|| String::new());
+
+    rsx! {
+        div { class: "my-chat-panel",
+            div { class: "panel-header",
+                span { class: "panel-title", "Realm Chat" }
+                span { class: "panel-count", "{message_count} msgs" }
+            }
+            div { class: "my-chat-messages",
+                for msg in messages.iter() {
+                    ChatMessageItem { message: (*msg).clone() }
+                }
+                if messages.is_empty() {
+                    div { class: "empty-state", "No messages yet" }
+                }
+            }
+            div { class: "chat-input-container",
+                input {
+                    class: "chat-input",
+                    r#type: "text",
+                    placeholder: "Type a message...",
+                    value: "{draft}",
+                    oninput: move |e| draft.set(e.value())
+                }
+                button {
+                    class: "chat-send-btn",
+                    disabled: draft.read().is_empty(),
+                    "Send"
                 }
             }
         }

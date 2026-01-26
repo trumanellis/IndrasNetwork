@@ -75,6 +75,14 @@ home.EVENTS = {
     -- Sync
     CRDT_CONVERGED = "crdt_converged",
     MULTI_DEVICE_SYNC = "multi_device_sync",
+
+    -- Chat and messaging
+    CHAT_MESSAGE = "chat_message",
+
+    -- Proof and blessings
+    PROOF_SUBMITTED = "proof_submitted",
+    BLESSING_GIVEN = "blessing_given",
+    BLESSING_RECEIVED = "blessing_received",
 }
 
 -- ============================================================================
@@ -532,6 +540,306 @@ function home.average(values)
         sum = sum + v
     end
     return sum / #values
+end
+
+-- ============================================================================
+-- CHAT HELPERS
+-- ============================================================================
+
+--- Random chat message templates
+local CHAT_MESSAGES = {
+    "Hey everyone!",
+    "Great work on this!",
+    "I'll take a look",
+    "Making progress here",
+    "Almost done",
+    "Need some help with this",
+    "Thanks for the feedback",
+    "Let me know when you're ready",
+    "Good point!",
+    "I agree with that approach",
+}
+
+--- Generate a random chat message
+-- @return string Random chat message
+function home.random_chat_message()
+    return CHAT_MESSAGES[math.random(#CHAT_MESSAGES)]
+end
+
+--- Send a chat message (simulation)
+-- @param logger table Logger object
+-- @param member string Member ID
+-- @param content string Message content
+-- @param tick number Current simulation tick
+-- @return table Event data
+function home.send_chat_message(logger, member, content, tick)
+    local event_data = {
+        member = member,
+        content = content,
+        message_type = "text",
+        tick = tick,
+    }
+    logger.event(home.EVENTS.CHAT_MESSAGE, event_data)
+    return event_data
+end
+
+-- ============================================================================
+-- PROOF AND BLESSING HELPERS
+-- ============================================================================
+
+--- Submit proof for a quest claim
+-- Posts a ProofSubmitted event to the realm chat
+-- @param logger table Logger object
+-- @param member string Member ID (claimant)
+-- @param quest_id string Quest ID
+-- @param quest_title string Quest title
+-- @param artifact_id string Artifact ID serving as proof
+-- @param artifact_name string Artifact name
+-- @param tick number Current simulation tick
+-- @return table Event data
+function home.submit_proof(logger, member, quest_id, quest_title, artifact_id, artifact_name, tick)
+    local event_data = {
+        member = member,
+        quest_id = quest_id,
+        quest_title = quest_title,
+        artifact_id = artifact_id,
+        artifact_name = artifact_name or "proof.png",
+        tick = tick,
+    }
+    logger.event(home.EVENTS.PROOF_SUBMITTED, event_data)
+    return event_data
+end
+
+--- Give a blessing to a quest proof
+-- Releases accumulated attention as validation
+-- @param logger table Logger object
+-- @param blesser string Member ID giving the blessing
+-- @param claimant string Member ID who submitted the proof
+-- @param quest_id string Quest ID
+-- @param quest_title string Quest title (optional)
+-- @param event_count number Number of attention events being blessed
+-- @param attention_millis number Total attention time in milliseconds
+-- @param tick number Current simulation tick
+-- @return table Event data
+function home.bless_proof(logger, blesser, claimant, quest_id, quest_title, event_count, attention_millis, tick)
+    local event_data = {
+        blesser = blesser,
+        claimant = claimant,
+        quest_id = quest_id,
+        quest_title = quest_title or "",
+        event_count = event_count or 1,
+        attention_millis = attention_millis or 0,
+        tick = tick,
+    }
+    logger.event(home.EVENTS.BLESSING_GIVEN, event_data)
+    return event_data
+end
+
+--- Record a blessing received event
+-- From the perspective of the proof submitter
+-- @param logger table Logger object
+-- @param claimant string Member ID who received the blessing
+-- @param blesser string Member ID who gave the blessing
+-- @param quest_id string Quest ID
+-- @param quest_title string Quest title (optional)
+-- @param attention_millis number Attention time in this blessing
+-- @param total_blessed_millis number Total blessed attention for this proof
+-- @param tick number Current simulation tick
+-- @return table Event data
+function home.record_blessing_received(logger, claimant, blesser, quest_id, quest_title, attention_millis, total_blessed_millis, tick)
+    local event_data = {
+        claimant = claimant,
+        blesser = blesser,
+        quest_id = quest_id,
+        quest_title = quest_title or "",
+        attention_millis = attention_millis or 0,
+        total_blessed_millis = total_blessed_millis or 0,
+        tick = tick,
+    }
+    logger.event(home.EVENTS.BLESSING_RECEIVED, event_data)
+    return event_data
+end
+
+-- ============================================================================
+-- BLESSING TRACKER
+-- ============================================================================
+
+--- Create a blessing tracker for simulation verification
+-- Tracks attention and blessings for quests
+-- @return table BlessingTracker object
+function home.BlessingTracker_new()
+    local tracker = {
+        -- attention[quest_id][member] = { events = {}, total_millis = 0 }
+        attention = {},
+        -- blessings[quest_id][claimant] = { blessings = {}, total_millis = 0 }
+        blessings = {},
+        -- blessed_events[quest_id][member] = set of event indices already blessed
+        blessed_events = {},
+    }
+
+    --- Record attention focused on a quest
+    -- @param quest_id string Quest ID
+    -- @param member string Member ID
+    -- @param event_index number Event index in attention document
+    -- @param duration_millis number Duration of attention in milliseconds
+    function tracker:record_attention(quest_id, member, event_index, duration_millis)
+        if not self.attention[quest_id] then
+            self.attention[quest_id] = {}
+        end
+        if not self.attention[quest_id][member] then
+            self.attention[quest_id][member] = { events = {}, total_millis = 0 }
+        end
+
+        table.insert(self.attention[quest_id][member].events, {
+            index = event_index,
+            duration_millis = duration_millis,
+        })
+        self.attention[quest_id][member].total_millis =
+            self.attention[quest_id][member].total_millis + duration_millis
+    end
+
+    --- Get unblessed attention event indices for a member on a quest
+    -- @param quest_id string Quest ID
+    -- @param member string Member ID
+    -- @return table Array of { index, duration_millis } for unblessed events
+    function tracker:get_unblessed_attention(quest_id, member)
+        local result = {}
+
+        -- Check if member has attention on this quest
+        if not self.attention[quest_id] or not self.attention[quest_id][member] then
+            return result
+        end
+
+        -- Get the set of already blessed events
+        local blessed = {}
+        if self.blessed_events[quest_id] and self.blessed_events[quest_id][member] then
+            blessed = self.blessed_events[quest_id][member]
+        end
+
+        -- Filter to unblessed events
+        for _, event in ipairs(self.attention[quest_id][member].events) do
+            if not blessed[event.index] then
+                table.insert(result, event)
+            end
+        end
+
+        return result
+    end
+
+    --- Record a blessing
+    -- @param quest_id string Quest ID
+    -- @param claimant string Member who submitted proof
+    -- @param blesser string Member giving blessing
+    -- @param event_indices table Array of attention event indices being blessed
+    -- @param attention_millis number Total attention time being blessed
+    function tracker:record_blessing(quest_id, claimant, blesser, event_indices, attention_millis)
+        -- Track the blessing
+        if not self.blessings[quest_id] then
+            self.blessings[quest_id] = {}
+        end
+        if not self.blessings[quest_id][claimant] then
+            self.blessings[quest_id][claimant] = { blessings = {}, total_millis = 0 }
+        end
+
+        table.insert(self.blessings[quest_id][claimant].blessings, {
+            blesser = blesser,
+            event_indices = event_indices,
+            attention_millis = attention_millis,
+        })
+        self.blessings[quest_id][claimant].total_millis =
+            self.blessings[quest_id][claimant].total_millis + attention_millis
+
+        -- Mark events as blessed
+        if not self.blessed_events[quest_id] then
+            self.blessed_events[quest_id] = {}
+        end
+        if not self.blessed_events[quest_id][blesser] then
+            self.blessed_events[quest_id][blesser] = {}
+        end
+
+        for _, idx in ipairs(event_indices) do
+            self.blessed_events[quest_id][blesser][idx] = true
+        end
+    end
+
+    --- Get total blessed attention for a claim
+    -- @param quest_id string Quest ID
+    -- @param claimant string Member who submitted proof
+    -- @return number Total blessed attention in milliseconds
+    function tracker:get_total_blessed(quest_id, claimant)
+        if self.blessings[quest_id] and self.blessings[quest_id][claimant] then
+            return self.blessings[quest_id][claimant].total_millis
+        end
+        return 0
+    end
+
+    --- Get all blessers for a claim
+    -- @param quest_id string Quest ID
+    -- @param claimant string Member who submitted proof
+    -- @return table Array of blesser member IDs
+    function tracker:get_blessers(quest_id, claimant)
+        local result = {}
+        local seen = {}
+
+        if self.blessings[quest_id] and self.blessings[quest_id][claimant] then
+            for _, blessing in ipairs(self.blessings[quest_id][claimant].blessings) do
+                if not seen[blessing.blesser] then
+                    seen[blessing.blesser] = true
+                    table.insert(result, blessing.blesser)
+                end
+            end
+        end
+
+        return result
+    end
+
+    return tracker
+end
+
+home.BlessingTracker = { new = home.BlessingTracker_new }
+
+-- ============================================================================
+-- BLESSING LATENCY MODELS
+-- ============================================================================
+
+--- Simulate proof submission latency (500-1500 microseconds)
+-- Includes artifact reference and chat message posting
+-- @return number Latency in microseconds
+function home.proof_submit_latency()
+    return 500 + math.random(1000)
+end
+
+--- Simulate blessing latency (200-600 microseconds)
+-- Includes validation and chat message posting
+-- @return number Latency in microseconds
+function home.bless_latency()
+    return 200 + math.random(400)
+end
+
+-- ============================================================================
+-- DURATION FORMATTING
+-- ============================================================================
+
+--- Format milliseconds as human-readable duration
+-- @param millis number Duration in milliseconds
+-- @return string Human-readable duration (e.g., "2h 30m")
+function home.format_duration(millis)
+    local seconds = math.floor(millis / 1000)
+    local minutes = math.floor(seconds / 60)
+    local hours = math.floor(minutes / 60)
+
+    if hours > 0 then
+        local remaining_mins = minutes % 60
+        if remaining_mins > 0 then
+            return string.format("%dh %dm", hours, remaining_mins)
+        else
+            return string.format("%dh", hours)
+        end
+    elseif minutes > 0 then
+        return string.format("%dm", minutes)
+    else
+        return string.format("%ds", seconds)
+    end
 end
 
 -- ============================================================================

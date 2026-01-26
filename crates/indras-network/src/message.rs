@@ -3,7 +3,8 @@
 //! Provides simplified message types that wrap the underlying
 //! messaging infrastructure.
 
-use crate::member::Member;
+use crate::member::{Member, MemberId};
+use crate::quest::QuestId;
 use chrono::{DateTime, Utc};
 use indras_core::{EventId, InterfaceId};
 use serde::{Deserialize, Serialize};
@@ -114,7 +115,7 @@ impl MessagePayload {
 /// Content of a message.
 ///
 /// Supports various content types including text, binary data,
-/// artifacts (files), reactions, and system messages.
+/// artifacts (files), reactions, system messages, and quest-related content.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Content {
     /// Plain text message.
@@ -137,6 +138,33 @@ pub enum Content {
 
     /// System message (join, leave, etc.).
     System(String),
+
+    /// Proof submitted for a quest claim.
+    ///
+    /// Posted automatically when a member submits a quest claim with proof.
+    ProofSubmitted {
+        /// The quest being claimed.
+        quest_id: QuestId,
+        /// The member submitting the proof.
+        claimant: MemberId,
+        /// The artifact serving as proof.
+        artifact: ArtifactRef,
+    },
+
+    /// Blessing given to a quest proof.
+    ///
+    /// Posted automatically when a member blesses a proof submission
+    /// by releasing their accumulated attention.
+    BlessingGiven {
+        /// The quest being blessed.
+        quest_id: QuestId,
+        /// The member who submitted the proof.
+        claimant: MemberId,
+        /// The member giving the blessing.
+        blesser: MemberId,
+        /// Indices into AttentionDocument.events being released.
+        event_indices: Vec<usize>,
+    },
 }
 
 impl Content {
@@ -166,6 +194,25 @@ impl Content {
     /// Check if this is a system message.
     pub fn is_system(&self) -> bool {
         matches!(self, Content::System(_))
+    }
+
+    /// Check if this is a proof submission message.
+    pub fn is_proof_submitted(&self) -> bool {
+        matches!(self, Content::ProofSubmitted { .. })
+    }
+
+    /// Check if this is a blessing message.
+    pub fn is_blessing_given(&self) -> bool {
+        matches!(self, Content::BlessingGiven { .. })
+    }
+
+    /// Get the quest ID if this is a proof or blessing message.
+    pub fn quest_id(&self) -> Option<&QuestId> {
+        match self {
+            Content::ProofSubmitted { quest_id, .. } => Some(quest_id),
+            Content::BlessingGiven { quest_id, .. } => Some(quest_id),
+            _ => None,
+        }
     }
 }
 

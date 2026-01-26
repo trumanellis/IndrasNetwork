@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::events::{StreamEvent, EventCategory};
 
-use super::{RealmState, QuestState, AttentionState, ContactsState};
+use super::{AttentionState, ChatState, ContactsState, QuestState, RealmState};
 
 /// Global event buffer for replay on reset
 static EVENT_BUFFER: std::sync::OnceLock<Arc<Mutex<Vec<StreamEvent>>>> = std::sync::OnceLock::new();
@@ -124,6 +124,18 @@ impl LoggedEvent {
             StreamEvent::ContactRemoved { member, contact, .. } => {
                 format!("{} removed {}", member_name(member), member_name(contact))
             }
+            StreamEvent::ChatMessage { member, content, .. } => {
+                let preview: String = content.chars().take(30).collect();
+                format!("{}: {}", member_name(member), preview)
+            }
+            StreamEvent::ProofSubmitted { claimant, quest_title, .. } => {
+                let title = if quest_title.is_empty() { "quest" } else { quest_title.as_str() };
+                format!("{} submitted proof for {}", member_name(claimant), title)
+            }
+            StreamEvent::BlessingGiven { blesser, claimant, attention_millis, .. } => {
+                let duration = format_duration_millis(*attention_millis);
+                format!("{} blessed {} ({})", member_name(blesser), member_name(claimant), duration)
+            }
             StreamEvent::Info { message, .. } => {
                 message.chars().take(50).collect()
             }
@@ -137,6 +149,17 @@ impl LoggedEvent {
             summary,
         }
     }
+}
+
+/// Statistics for a member (used in POV dashboard)
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct MemberStats {
+    pub quests_created: usize,
+    pub quests_assigned: usize,
+    pub quests_completed: usize,
+    pub realms_count: usize,
+    pub contacts_count: usize,
+    pub events_count: usize,
 }
 
 /// Main application state
@@ -154,6 +177,8 @@ pub struct AppState {
     pub quests: QuestState,
     /// Attention tracking state
     pub attention: AttentionState,
+    /// Chat and blessing tracking state
+    pub chat: ChatState,
     /// Contacts tracking state
     pub contacts: ContactsState,
     /// Recent events for log panel (newest first)
@@ -220,6 +245,12 @@ impl AppState {
                 self.contacts.process_event(&event);
             }
 
+            StreamEvent::ChatMessage { .. }
+            | StreamEvent::ProofSubmitted { .. }
+            | StreamEvent::BlessingGiven { .. } => {
+                self.chat.process_event(&event);
+            }
+
             _ => {}
         }
 
@@ -265,6 +296,46 @@ impl AppState {
     pub fn set_pov(&mut self, member: Option<String>) {
         self.selected_pov = member;
     }
+
+    /// Get statistics for a specific member
+    pub fn stats_for_member(&self, member: &str) -> MemberStats {
+        let quests_created = self.quests.quests.values()
+            .filter(|q| q.creator == member)
+            .count();
+
+        let quests_assigned = self.quests.quests.values()
+            .filter(|q| q.claims.iter().any(|c| c.claimant == member))
+            .count();
+
+        let quests_completed = self.quests.quests.values()
+            .filter(|q| q.status == super::QuestStatus::Completed &&
+                   (q.creator == member || q.claims.iter().any(|c| c.claimant == member)))
+            .count();
+
+        let realms_count = self.realms.realms_for_member(member).len();
+        let contacts_count = self.contacts.contacts_for_member(member).len();
+
+        let events_count = self.event_log.iter()
+            .filter(|e| e.summary.contains(&member_name(member)))
+            .count();
+
+        MemberStats {
+            quests_created,
+            quests_assigned,
+            quests_completed,
+            realms_count,
+            contacts_count,
+            events_count,
+        }
+    }
+
+    /// Get events involving a specific member
+    pub fn events_for_member(&self, member: &str) -> Vec<&LoggedEvent> {
+        let name = member_name(member);
+        self.event_log.iter()
+            .filter(|e| e.summary.contains(&name) || e.summary.contains(member))
+            .collect()
+    }
 }
 
 /// Convert member ID to human-readable name
@@ -297,6 +368,26 @@ pub fn short_id(id: &str) -> String {
         format!("{}...", &id[..8])
     } else {
         id.to_string()
+    }
+}
+
+/// Format milliseconds as human-readable duration (e.g., "2h 30m")
+pub fn format_duration_millis(millis: u64) -> String {
+    let seconds = millis / 1000;
+    let minutes = seconds / 60;
+    let hours = minutes / 60;
+
+    if hours > 0 {
+        let remaining_mins = minutes % 60;
+        if remaining_mins > 0 {
+            format!("{}h {}m", hours, remaining_mins)
+        } else {
+            format!("{}h", hours)
+        }
+    } else if minutes > 0 {
+        format!("{}m", minutes)
+    } else {
+        format!("{}s", seconds)
     }
 }
 
