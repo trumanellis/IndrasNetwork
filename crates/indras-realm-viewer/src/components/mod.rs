@@ -213,7 +213,10 @@ fn MemberCard(state: Signal<AppState>, member_id: String, focus: Option<String>)
 fn CenterPanel(state: Signal<AppState>) -> Element {
     rsx! {
         div { class: "center-panel",
-            QuestListPanel { state }
+            div { class: "quests-chat-row",
+                QuestListPanel { state }
+                ChatPanel { state }
+            }
         }
     }
 }
@@ -496,7 +499,6 @@ fn ClaimBadge(claim: ClaimInfo) -> Element {
 fn RightPanel(state: Signal<AppState>) -> Element {
     rsx! {
         div { class: "right-panel",
-            ChatPanel { state }
             ActivityTimeline { state }
             GlobalStats { state }
         }
@@ -510,6 +512,7 @@ fn ChatPanel(state: Signal<AppState>) -> Element {
     let blessing_count = state_read.chat.total_blessings;
     let message_count = state_read.chat.total_messages;
     let mut draft = use_signal(|| String::new());
+    let mut show_action_menu = use_signal(|| false);
 
     rsx! {
         div { class: "chat-panel",
@@ -526,6 +529,35 @@ fn ChatPanel(state: Signal<AppState>) -> Element {
                 }
             }
             div { class: "chat-input-container",
+                div { class: "chat-input-wrapper",
+                    button {
+                        class: "chat-action-btn",
+                        onclick: move |_| show_action_menu.set(!show_action_menu()),
+                        "+"
+                    }
+                    if show_action_menu() {
+                        div { class: "chat-action-menu",
+                            button {
+                                class: "action-menu-item",
+                                onclick: move |_| show_action_menu.set(false),
+                                span { class: "action-menu-icon", "📎" }
+                                span { "Artifact" }
+                            }
+                            button {
+                                class: "action-menu-item",
+                                onclick: move |_| show_action_menu.set(false),
+                                span { class: "action-menu-icon", "📄" }
+                                span { "Document" }
+                            }
+                            button {
+                                class: "action-menu-item",
+                                onclick: move |_| show_action_menu.set(false),
+                                span { class: "action-menu-icon", "✓" }
+                                span { "Proof of Service" }
+                            }
+                        }
+                    }
+                }
                 input {
                     class: "chat-input",
                     r#type: "text",
@@ -1205,6 +1237,7 @@ fn MyChatPanel(state: Signal<AppState>, member: String) -> Element {
     let blessing_count = state_read.chat.total_blessings;
     let message_count = state_read.chat.total_messages;
     let mut draft = use_signal(|| String::new());
+    let mut show_action_menu = use_signal(|| false);
 
     rsx! {
         div { class: "my-chat-panel",
@@ -1221,6 +1254,35 @@ fn MyChatPanel(state: Signal<AppState>, member: String) -> Element {
                 }
             }
             div { class: "chat-input-container",
+                div { class: "chat-input-wrapper",
+                    button {
+                        class: "chat-action-btn",
+                        onclick: move |_| show_action_menu.set(!show_action_menu()),
+                        "+"
+                    }
+                    if show_action_menu() {
+                        div { class: "chat-action-menu",
+                            button {
+                                class: "action-menu-item",
+                                onclick: move |_| show_action_menu.set(false),
+                                span { class: "action-menu-icon", "📎" }
+                                span { "Artifact" }
+                            }
+                            button {
+                                class: "action-menu-item",
+                                onclick: move |_| show_action_menu.set(false),
+                                span { class: "action-menu-icon", "📄" }
+                                span { "Document" }
+                            }
+                            button {
+                                class: "action-menu-item",
+                                onclick: move |_| show_action_menu.set(false),
+                                span { class: "action-menu-icon", "✓" }
+                                span { "Proof of Service" }
+                            }
+                        }
+                    }
+                }
                 input {
                     class: "chat-input",
                     r#type: "text",

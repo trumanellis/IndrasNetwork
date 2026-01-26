@@ -533,6 +533,27 @@ html, body {
   overflow: hidden;
 }
 
+/* Quests and Chat side by side in Overview mode */
+.quests-chat-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.quests-chat-row .chat-panel {
+  max-height: none;
+  flex: 1;
+  min-height: 0;
+}
+
+.quests-chat-row .chat-messages {
+  max-height: none;
+  flex: 1;
+}
+
 /* Network Topology Container */
 .network-container {
   background: var(--bg-secondary);
@@ -1020,7 +1041,8 @@ html, body {
   border-radius: var(--radius-md);
   padding: var(--space-4);
   max-height: 340px;
-  overflow: hidden;
+  overflow: visible;
+  position: relative;
 }
 
 .chat-header {
@@ -1051,6 +1073,7 @@ html, body {
   overflow-y: auto;
   flex: 1;
   min-height: 0;
+  max-height: 240px;
   padding-right: var(--space-1);
   /* Start scrolled to bottom to show newest messages */
   overflow-anchor: auto;
@@ -1185,6 +1208,79 @@ html, body {
 .chat-send-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Chat Action Button and Menu */
+.chat-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.chat-action-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 18px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all var(--transition-fast);
+}
+
+.chat-action-btn:hover {
+  background: var(--accent-primary);
+  color: var(--bg-primary);
+  border-color: var(--accent-primary);
+}
+
+.chat-action-menu {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  margin-bottom: var(--space-2);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 160px;
+  box-shadow: var(--shadow-lg);
+  z-index: 100;
+}
+
+.action-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--transition-fast);
+}
+
+.action-menu-item:hover {
+  background: var(--bg-tertiary);
+}
+
+.action-menu-icon {
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
 }
 
 /* Global Stats */
