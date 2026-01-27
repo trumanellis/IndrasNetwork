@@ -6,8 +6,8 @@ use dioxus::prelude::*;
 
 use crate::playback;
 use crate::state::{
-    member_name, short_id, AppState, ClaimInfo, MemberStats, QuestAttention, QuestInfo,
-    QuestStatus, RealmInfo,
+    member_name, short_id, AppState, ClaimInfo, DraftArtifact, MemberStats,
+    QuestAttention, QuestInfo, QuestStatus, RealmInfo, UploadStatus,
 };
 use crate::theme::{ThemeSwitcher, ThemedRoot};
 
@@ -1195,6 +1195,7 @@ fn MyQuestsList(state: Signal<AppState>) -> Element {
             div { class: "quest-list",
                 for (quest, attention, realm_name) in quests_with_attention.iter() {
                     QuestCardWithRealm {
+                        state,
                         quest: quest.clone(),
                         attention: attention.clone(),
                         realm_name: realm_name.clone(),
@@ -1210,7 +1211,14 @@ fn MyQuestsList(state: Signal<AppState>) -> Element {
 }
 
 #[component]
-fn QuestCardWithRealm(quest: QuestInfo, attention: QuestAttention, realm_name: Option<String>, max_attention: u64) -> Element {
+fn QuestCardWithRealm(
+    state: Signal<AppState>,
+    quest: QuestInfo,
+    attention: QuestAttention,
+    realm_name: Option<String>,
+    max_attention: u64
+) -> Element {
+    let mut state_write = state;
     let secs = attention.total_attention_ms as f64 / 1000.0;
     let bar_width_pct = if max_attention > 0 {
         (attention.total_attention_ms as f64 / max_attention as f64 * 100.0).min(100.0)
@@ -1233,6 +1241,11 @@ fn QuestCardWithRealm(quest: QuestInfo, attention: QuestAttention, realm_name: O
     };
 
     let realm_display = realm_name.unwrap_or_else(|| "Unknown".to_string());
+
+    // Show submit proof button for non-completed quests
+    let show_submit_btn = quest.status != QuestStatus::Completed;
+    let quest_id = quest.quest_id.clone();
+    let quest_title = quest.title.clone();
 
     rsx! {
         div { class: "quest-card",
@@ -1272,12 +1285,44 @@ fn QuestCardWithRealm(quest: QuestInfo, attention: QuestAttention, realm_name: O
                     span { class: "focusing-label", "focusing" }
                 }
             }
+            // Submit Proof button
+            if show_submit_btn {
+                button {
+                    class: "submit-proof-btn",
+                    onclick: move |e| {
+                        e.stop_propagation();
+                        state_write.write().proof_folder.open_for_quest(
+                            quest_id.clone(),
+                            quest_title.clone()
+                        );
+                    },
+                    span { class: "submit-proof-icon", "✓" }
+                    span { "Submit Proof" }
+                }
+            }
         }
     }
 }
 
+/// Chat panel that can switch to proof folder editor
 #[component]
 fn MyChatPanel(state: Signal<AppState>, member: String) -> Element {
+    let is_editor_open = state.read().proof_folder.is_open();
+
+    if is_editor_open {
+        rsx! {
+            ProofFolderEditor { state, member }
+        }
+    } else {
+        rsx! {
+            MyChatPanelInner { state, member }
+        }
+    }
+}
+
+/// Inner chat panel component (shown when proof editor is closed)
+#[component]
+fn MyChatPanelInner(state: Signal<AppState>, member: String) -> Element {
     let mut state_write = state;
     let state_read = state.read();
     let messages = state_read.chat.recent_messages(15);
@@ -1299,6 +1344,13 @@ fn MyChatPanel(state: Signal<AppState>, member: String) -> Element {
 
     let mut editing_alias = use_signal(|| false);
     let mut alias_draft = use_signal(|| String::new());
+
+    // Get quests for the quest selector
+    let showing_quest_selector = state_read.proof_folder.showing_quest_selector;
+    let available_quests: Vec<_> = state_read.quests.quests.values()
+        .filter(|q| q.status != QuestStatus::Completed)
+        .cloned()
+        .collect();
 
     rsx! {
         div { class: "my-chat-panel",
@@ -1380,9 +1432,50 @@ fn MyChatPanel(state: Signal<AppState>, member: String) -> Element {
                             }
                             button {
                                 class: "action-menu-item",
-                                onclick: move |_| show_action_menu.set(false),
+                                onclick: move |_| {
+                                    show_action_menu.set(false);
+                                    state_write.write().proof_folder.show_quest_selector();
+                                },
                                 span { class: "action-menu-icon", "✓" }
                                 span { "Proof of Service" }
+                            }
+                        }
+                    }
+                    // Quest selector dropdown
+                    if showing_quest_selector {
+                        div { class: "quest-selector-dropdown",
+                            div { class: "quest-selector-header",
+                                span { "Select Quest" }
+                                button {
+                                    class: "quest-selector-close",
+                                    onclick: move |_| {
+                                        state_write.write().proof_folder.hide_quest_selector();
+                                    },
+                                    "×"
+                                }
+                            }
+                            div { class: "quest-selector-list",
+                                for quest in available_quests.iter() {
+                                    {
+                                        let quest_id = quest.quest_id.clone();
+                                        let quest_title = quest.title.clone();
+                                        rsx! {
+                                            button {
+                                                class: "quest-selector-item",
+                                                onclick: move |_| {
+                                                    state_write.write().proof_folder.open_for_quest(
+                                                        quest_id.clone(),
+                                                        quest_title.clone()
+                                                    );
+                                                },
+                                                span { class: "quest-selector-title", "{quest.title}" }
+                                            }
+                                        }
+                                    }
+                                }
+                                if available_quests.is_empty() {
+                                    div { class: "empty-state", "No open quests" }
+                                }
                             }
                         }
                     }
@@ -1399,6 +1492,301 @@ fn MyChatPanel(state: Signal<AppState>, member: String) -> Element {
                     disabled: draft.read().is_empty(),
                     "Send"
                 }
+            }
+        }
+    }
+}
+
+// ============================================================================
+// PROOF FOLDER EDITOR
+// ============================================================================
+
+/// Main proof folder editor component
+#[component]
+fn ProofFolderEditor(state: Signal<AppState>, member: String) -> Element {
+    let mut state_write = state;
+    let state_read = state.read();
+
+    let draft = state_read.proof_folder.current_draft.clone();
+    let quest_title = draft.as_ref().map(|d| d.quest_title.clone()).unwrap_or_default();
+    let narrative = draft.as_ref().map(|d| d.narrative.clone()).unwrap_or_default();
+    let artifacts = draft.as_ref().map(|d| d.artifacts.clone()).unwrap_or_default();
+
+    let mut narrative_signal = use_signal(|| narrative.clone());
+    let mut show_discard_confirm = use_signal(|| false);
+
+    // Check if there are unsaved changes
+    let has_changes = state_read.proof_folder.has_unsaved_changes()
+        || !narrative_signal.read().is_empty()
+        || !artifacts.is_empty();
+
+    rsx! {
+        div { class: "proof-folder-editor",
+            // Header
+            ProofEditorHeader {
+                quest_title: quest_title.clone(),
+                on_close: move |_| {
+                    if has_changes {
+                        show_discard_confirm.set(true);
+                    } else {
+                        state_write.write().proof_folder.close();
+                    }
+                },
+            }
+
+            // Narrative editor
+            NarrativeEditor {
+                value: narrative_signal(),
+                on_change: move |new_value: String| {
+                    narrative_signal.set(new_value.clone());
+                    if let Some(draft) = state_write.write().proof_folder.draft_mut() {
+                        draft.set_narrative(new_value);
+                    }
+                },
+            }
+
+            // Artifact gallery
+            ArtifactGallery {
+                state,
+                artifacts: artifacts.clone(),
+            }
+
+            // Action buttons
+            ProofEditorActions {
+                state,
+                can_submit: !narrative_signal.read().is_empty() || !artifacts.is_empty(),
+            }
+
+            // Discard confirmation dialog
+            if show_discard_confirm() {
+                div { class: "discard-confirm-overlay",
+                    onclick: move |_| show_discard_confirm.set(false),
+                    div {
+                        class: "discard-confirm-dialog",
+                        onclick: move |e| e.stop_propagation(),
+                        h3 { "Discard Changes?" }
+                        p { "You have unsaved changes. Are you sure you want to discard them?" }
+                        div { class: "discard-confirm-actions",
+                            button {
+                                class: "discard-btn-cancel",
+                                onclick: move |_| show_discard_confirm.set(false),
+                                "Keep Editing"
+                            }
+                            button {
+                                class: "discard-btn-confirm",
+                                onclick: move |_| {
+                                    show_discard_confirm.set(false);
+                                    state_write.write().proof_folder.close();
+                                },
+                                "Discard"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Header for the proof editor
+#[component]
+fn ProofEditorHeader(quest_title: String, on_close: EventHandler<()>) -> Element {
+    rsx! {
+        div { class: "proof-editor-header",
+            div { class: "proof-editor-title-section",
+                span { class: "proof-editor-label", "PROOF OF SERVICE" }
+                h3 { class: "proof-editor-quest-title", "{quest_title}" }
+            }
+            button {
+                class: "proof-editor-close-btn",
+                onclick: move |_| on_close.call(()),
+                "×"
+            }
+        }
+    }
+}
+
+/// Rich text narrative editor with WYSIWYG toolbar
+#[component]
+fn NarrativeEditor(value: String, on_change: EventHandler<String>) -> Element {
+    rsx! {
+        div { class: "narrative-editor",
+            div { class: "narrative-label", "Your Story" }
+            // Toolbar
+            div { class: "editor-toolbar",
+                button {
+                    class: "toolbar-btn",
+                    title: "Bold",
+                    onclick: move |_| {
+                        // In a real app, this would use execCommand or similar
+                    },
+                    "B"
+                }
+                button {
+                    class: "toolbar-btn toolbar-btn-italic",
+                    title: "Italic",
+                    onclick: move |_| {},
+                    "I"
+                }
+                button {
+                    class: "toolbar-btn",
+                    title: "Heading",
+                    onclick: move |_| {},
+                    "H"
+                }
+                div { class: "toolbar-divider" }
+                button {
+                    class: "toolbar-btn",
+                    title: "Bullet List",
+                    onclick: move |_| {},
+                    "•"
+                }
+                button {
+                    class: "toolbar-btn",
+                    title: "Numbered List",
+                    onclick: move |_| {},
+                    "1."
+                }
+            }
+            // Editor area
+            textarea {
+                class: "narrative-textarea",
+                placeholder: "Describe your service... What did you do? How did it help? What did you learn?",
+                value: "{value}",
+                oninput: move |e| on_change.call(e.value())
+            }
+        }
+    }
+}
+
+/// Gallery for managing proof artifacts
+#[component]
+fn ArtifactGallery(state: Signal<AppState>, artifacts: Vec<DraftArtifact>) -> Element {
+    let mut state_write = state;
+
+    rsx! {
+        div { class: "artifact-gallery",
+            div { class: "artifact-gallery-header",
+                span { class: "artifact-gallery-label", "Evidence" }
+                span { class: "artifact-count", "{artifacts.len()} files" }
+            }
+            div { class: "artifact-grid",
+                for artifact in artifacts.iter() {
+                    ArtifactThumbnail {
+                        artifact: artifact.clone(),
+                        on_remove: move |id: String| {
+                            if let Some(draft) = state_write.write().proof_folder.draft_mut() {
+                                draft.remove_artifact(&id);
+                            }
+                        },
+                    }
+                }
+                // Add artifact button
+                button {
+                    class: "add-artifact-btn",
+                    onclick: move |_| {
+                        // In a real app, this would open a file picker
+                        // For now, add a mock artifact
+                        let mock_id = format!("artifact-{}", std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis());
+                        let mock = DraftArtifact::new(
+                            mock_id,
+                            "example.pdf".to_string(),
+                            1024 * 50,
+                            Some("application/pdf".to_string())
+                        );
+                        if let Some(draft) = state_write.write().proof_folder.draft_mut() {
+                            draft.add_artifact(mock);
+                        }
+                    },
+                    div { class: "add-artifact-icon", "+" }
+                    span { class: "add-artifact-text", "Add File" }
+                }
+            }
+        }
+    }
+}
+
+/// Single artifact thumbnail in the gallery
+#[component]
+fn ArtifactThumbnail(artifact: DraftArtifact, on_remove: EventHandler<String>) -> Element {
+    let artifact_id = artifact.id.clone();
+    let is_uploading = matches!(artifact.upload_status, UploadStatus::Uploading { .. });
+    let upload_progress = match artifact.upload_status {
+        UploadStatus::Uploading { progress } => progress,
+        _ => 0.0,
+    };
+
+    rsx! {
+        div { class: "artifact-thumbnail",
+            // Thumbnail content
+            div { class: "artifact-thumbnail-content",
+                if artifact.is_image() {
+                    if let Some(ref url) = artifact.thumbnail_url {
+                        img {
+                            class: "artifact-image",
+                            src: "{url}",
+                            alt: "{artifact.name}"
+                        }
+                    } else {
+                        div { class: "artifact-placeholder", "🖼" }
+                    }
+                } else {
+                    div { class: "artifact-file-icon", "{artifact.file_icon()}" }
+                }
+
+                // Upload progress overlay
+                if is_uploading {
+                    div { class: "artifact-upload-overlay",
+                        div {
+                            class: "artifact-upload-progress",
+                            style: "width: {upload_progress}%"
+                        }
+                    }
+                }
+            }
+
+            // Remove button
+            button {
+                class: "artifact-remove-btn",
+                onclick: move |_| on_remove.call(artifact_id.clone()),
+                "×"
+            }
+
+            // File info
+            div { class: "artifact-info",
+                span { class: "artifact-name", "{artifact.name}" }
+                span { class: "artifact-size", "{artifact.formatted_size()}" }
+            }
+        }
+    }
+}
+
+/// Action buttons for the proof editor
+#[component]
+fn ProofEditorActions(state: Signal<AppState>, can_submit: bool) -> Element {
+    let mut state_write = state;
+
+    rsx! {
+        div { class: "proof-editor-actions",
+            button {
+                class: "proof-cancel-btn",
+                onclick: move |_| {
+                    state_write.write().proof_folder.close();
+                },
+                "Cancel"
+            }
+            button {
+                class: "proof-submit-btn",
+                disabled: !can_submit,
+                onclick: move |_| {
+                    // TODO: Call realm.submit_proof_folder() when backend is connected
+                    // For now, just close the editor
+                    state_write.write().proof_folder.close();
+                },
+                "Submit Proof"
             }
         }
     }

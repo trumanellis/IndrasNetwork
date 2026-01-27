@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::events::{StreamEvent, EventCategory};
 
-use super::{AttentionState, ChatState, ContactsState, QuestState, RealmState};
+use super::{AttentionState, ChatState, ContactsState, ProofFolderState, QuestState, RealmState};
 
 /// Global event buffer for replay on reset
 static EVENT_BUFFER: std::sync::OnceLock<Arc<Mutex<Vec<StreamEvent>>>> = std::sync::OnceLock::new();
@@ -184,6 +184,8 @@ pub struct AppState {
     pub chat: ChatState,
     /// Contacts tracking state
     pub contacts: ContactsState,
+    /// Proof folder editor state
+    pub proof_folder: ProofFolderState,
     /// Recent events for log panel (newest first)
     pub event_log: VecDeque<LoggedEvent>,
     /// Maximum events to keep in log
