@@ -6,7 +6,7 @@ use dioxus::prelude::*;
 
 use crate::playback;
 use crate::state::{
-    member_name, short_id, AppState, ClaimInfo, DraftArtifact, MemberStats,
+    member_name, short_id, AppState, ArtifactInfo, ArtifactStatus, ClaimInfo, DraftArtifact, MemberStats,
     QuestAttention, QuestInfo, QuestStatus, RealmInfo, UploadStatus,
 };
 use crate::theme::{ThemeSwitcher, ThemedRoot};
@@ -242,7 +242,10 @@ fn CenterPanel(state: Signal<AppState>) -> Element {
     rsx! {
         div { class: "center-panel",
             div { class: "quests-chat-row",
-                QuestListPanel { state }
+                div { class: "quests-artifacts-column",
+                    QuestListPanel { state }
+                    SharedArtifactGalleryPanel { state }
+                }
                 ChatPanel { state }
             }
         }
@@ -515,6 +518,206 @@ fn ClaimBadge(claim: ClaimInfo) -> Element {
             title: "{name}",
             if claim.verified { "✓" }
             "{initial}"
+        }
+    }
+}
+
+// ============================================================================
+// SHARED ARTIFACT GALLERY PANEL
+// ============================================================================
+
+/// Gallery panel showing all shared artifacts in the overview dashboard
+#[component]
+fn SharedArtifactGalleryPanel(state: Signal<AppState>) -> Element {
+    let state_read = state.read();
+    let artifacts = state_read.artifacts.all_artifacts();
+    let shared_count = state_read.artifacts.total_shared;
+    let recalled_count = state_read.artifacts.total_recalled;
+
+    rsx! {
+        div { class: "shared-artifact-gallery-panel",
+            div { class: "artifact-gallery-header",
+                span { class: "artifact-gallery-title", "Shared Artifacts" }
+                div { class: "artifact-gallery-stats",
+                    span { class: "artifact-stat shared", "{shared_count} shared" }
+                    if recalled_count > 0 {
+                        span { class: "artifact-stat recalled", "{recalled_count} recalled" }
+                    }
+                }
+            }
+            div { class: "shared-artifact-grid",
+                for artifact in artifacts.iter().take(12) {
+                    SharedArtifactCard { artifact: (*artifact).clone() }
+                }
+                if artifacts.is_empty() {
+                    div { class: "empty-state", "No shared artifacts yet" }
+                }
+            }
+        }
+    }
+}
+
+/// Convert a local file path to a data URL for display in webview
+fn load_image_as_data_url(path: &str) -> Option<String> {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+
+    // Build absolute path
+    let full_path = if path.starts_with('/') {
+        std::path::PathBuf::from(path)
+    } else {
+        std::env::current_dir().ok()?.join(path)
+    };
+
+    // Read file
+    let data = std::fs::read(&full_path).ok()?;
+
+    // Determine mime type from extension
+    let mime = match full_path.extension().and_then(|e| e.to_str()) {
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        Some("svg") => "image/svg+xml",
+        _ => "application/octet-stream",
+    };
+
+    // Encode as data URL
+    let encoded = STANDARD.encode(&data);
+    Some(format!("data:{};base64,{}", mime, encoded))
+}
+
+/// Card displaying a shared artifact with its status
+#[component]
+fn SharedArtifactCard(artifact: ArtifactInfo) -> Element {
+    let status_class = artifact.status.css_class();
+    let status_text = artifact.status.display_name();
+    let sharer_name = member_name(&artifact.sharer);
+    let color_class = member_color_class(&artifact.sharer);
+    let icon = artifact.icon();
+    let size = artifact.formatted_size();
+    let has_image = artifact.has_displayable_image();
+
+    // Load image as data URL for webview display
+    let image_url = if has_image {
+        artifact.asset_path.as_ref().and_then(|path| load_image_as_data_url(path))
+    } else {
+        None
+    };
+
+    rsx! {
+        div { class: "shared-artifact-card {status_class}",
+            if let Some(ref url) = image_url {
+                div { class: "artifact-card-thumbnail",
+                    img {
+                        src: "{url}",
+                        alt: "{artifact.name}",
+                    }
+                }
+            } else {
+                div { class: "artifact-card-icon", "{icon}" }
+            }
+            div { class: "artifact-card-info",
+                div { class: "artifact-card-name", "{artifact.name}" }
+                div { class: "artifact-card-meta",
+                    span { class: "artifact-card-size", "{size}" }
+                    span { class: "artifact-card-sharer {color_class}", "by {sharer_name}" }
+                }
+            }
+            div { class: "artifact-card-status {status_class}", "{status_text}" }
+            if artifact.status == ArtifactStatus::Recalled {
+                div { class: "artifact-card-recall-overlay" }
+            }
+        }
+    }
+}
+
+/// Gallery panel showing artifacts for a specific member in POV dashboard
+#[component]
+fn MyArtifactGalleryPanel(state: Signal<AppState>, member: String) -> Element {
+    let state_read = state.read();
+
+    // Get artifacts shared by this member
+    let my_artifacts = state_read.artifacts.artifacts_by_member(&member);
+    let my_shared_count = my_artifacts.iter().filter(|a| a.status == ArtifactStatus::Shared).count();
+    let my_recalled_count = my_artifacts.iter().filter(|a| a.status == ArtifactStatus::Recalled).count();
+
+    // Get all realm artifacts (for artifacts shared with me)
+    let member_realms: Vec<_> = state_read.realms.realms_for_member(&member)
+        .into_iter()
+        .map(|r| r.realm_id.clone())
+        .collect();
+
+    let realm_artifacts: Vec<_> = state_read.artifacts.all_artifacts()
+        .into_iter()
+        .filter(|a| member_realms.contains(&a.realm_id) && a.sharer != member)
+        .take(6)
+        .collect();
+
+    rsx! {
+        div { class: "my-artifact-gallery-panel",
+            // My shared artifacts section
+            div { class: "artifact-section",
+                div { class: "artifact-section-header",
+                    span { class: "artifact-section-title", "My Shared Files" }
+                    div { class: "artifact-section-stats",
+                        span { class: "artifact-stat shared", "{my_shared_count} active" }
+                        if my_recalled_count > 0 {
+                            span { class: "artifact-stat recalled", "{my_recalled_count} recalled" }
+                        }
+                    }
+                }
+                div { class: "my-artifact-grid",
+                    for artifact in my_artifacts.iter().take(6) {
+                        MyArtifactCard { artifact: (*artifact).clone() }
+                    }
+                    if my_artifacts.is_empty() {
+                        div { class: "empty-state-small", "No files shared" }
+                    }
+                }
+            }
+
+            // Files shared with me section
+            if !realm_artifacts.is_empty() {
+                div { class: "artifact-section",
+                    div { class: "artifact-section-header",
+                        span { class: "artifact-section-title", "Shared With Me" }
+                        span { class: "artifact-section-count", "{realm_artifacts.len()} files" }
+                    }
+                    div { class: "my-artifact-grid",
+                        for artifact in realm_artifacts.iter() {
+                            SharedArtifactCard { artifact: (*artifact).clone() }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Card for artifacts in the POV view with recall action
+#[component]
+fn MyArtifactCard(artifact: ArtifactInfo) -> Element {
+    let status_class = artifact.status.css_class();
+    let icon = artifact.icon();
+    let size = artifact.formatted_size();
+    let can_recall = artifact.status == ArtifactStatus::Shared;
+
+    rsx! {
+        div { class: "my-artifact-card {status_class}",
+            div { class: "artifact-card-icon", "{icon}" }
+            div { class: "artifact-card-info",
+                div { class: "artifact-card-name", "{artifact.name}" }
+                div { class: "artifact-card-size", "{size}" }
+            }
+            if can_recall {
+                button {
+                    class: "artifact-recall-btn",
+                    title: "Recall this artifact",
+                    "↩"
+                }
+            } else {
+                div { class: "artifact-recalled-badge", "Recalled" }
+            }
         }
     }
 }
@@ -1060,7 +1263,10 @@ pub fn POVDashboard(state: Signal<AppState>) -> Element {
                     div { class: "pov-center-column",
                         MyAttentionPanel { state, member: member.clone() }
                         div { class: "pov-quests-chat-row",
-                            MyQuestsList { state }
+                            div { class: "pov-quests-artifacts-column",
+                                MyQuestsList { state }
+                                MyArtifactGalleryPanel { state, member: member.clone() }
+                            }
                             MyChatPanel { state, member: member.clone() }
                         }
                     }

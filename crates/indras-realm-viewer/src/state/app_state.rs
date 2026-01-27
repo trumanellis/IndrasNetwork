@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::events::{StreamEvent, EventCategory};
 
-use super::{AttentionState, ChatState, ContactsState, ProofFolderState, QuestState, RealmState};
+use super::{ArtifactState, AttentionState, ChatState, ContactsState, ProofFolderState, QuestState, RealmState};
 
 /// Global event buffer for replay on reset
 static EVENT_BUFFER: std::sync::OnceLock<Arc<Mutex<Vec<StreamEvent>>>> = std::sync::OnceLock::new();
@@ -148,6 +148,15 @@ impl LoggedEvent {
             StreamEvent::Info { message, .. } => {
                 message.chars().take(50).collect()
             }
+            StreamEvent::ArtifactSharedRevocable { sharer, name, size, .. } => {
+                format!("{} shared \"{}\" ({}B, revocable)", member_name(sharer), name, size)
+            }
+            StreamEvent::ArtifactRecalled { revoked_by, artifact_hash, .. } => {
+                format!("{} recalled artifact {}", member_name(revoked_by), short_id(artifact_hash))
+            }
+            StreamEvent::RecallAcknowledged { acknowledged_by, artifact_hash, .. } => {
+                format!("{} acknowledged recall of {}", member_name(acknowledged_by), short_id(artifact_hash))
+            }
             StreamEvent::Unknown => "Unknown event".to_string(),
         };
 
@@ -190,6 +199,8 @@ pub struct AppState {
     pub chat: ChatState,
     /// Contacts tracking state
     pub contacts: ContactsState,
+    /// Artifact tracking state
+    pub artifacts: ArtifactState,
     /// Proof folder editor state
     pub proof_folder: ProofFolderState,
     /// Recent events for log panel (newest first)
@@ -263,6 +274,12 @@ impl AppState {
             | StreamEvent::BlessingGiven { .. }
             | StreamEvent::ProofFolderSubmitted { .. } => {
                 self.chat.process_event(&event);
+            }
+
+            StreamEvent::ArtifactSharedRevocable { .. }
+            | StreamEvent::ArtifactRecalled { .. }
+            | StreamEvent::RecallAcknowledged { .. } => {
+                self.artifacts.process_event(&event);
             }
 
             _ => {}
