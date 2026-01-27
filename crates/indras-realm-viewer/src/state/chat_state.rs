@@ -1,6 +1,7 @@
 //! Chat and Blessing State
 //!
 //! Tracks realm chat messages, proof submissions, and blessings.
+//! Supports editable messages with version history.
 
 use crate::events::StreamEvent;
 use std::collections::{HashMap, VecDeque};
@@ -8,13 +9,58 @@ use std::collections::{HashMap, VecDeque};
 /// Maximum chat messages to keep per realm.
 const MAX_CHAT_MESSAGES: usize = 100;
 
+/// A previous version of a chat message.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MessageVersion {
+    /// The content at this version.
+    pub content: String,
+    /// Tick when this edit was made.
+    pub edited_at: u32,
+}
+
 /// A chat message in the realm.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChatMessage {
+    /// Unique message ID.
+    pub id: String,
     pub tick: u32,
     pub member: String,
     pub content: String,
     pub message_type: ChatMessageType,
+    /// Edit history (oldest to newest).
+    pub versions: Vec<MessageVersion>,
+    /// Whether this message has been deleted.
+    pub is_deleted: bool,
+}
+
+impl ChatMessage {
+    /// Create a new chat message.
+    pub fn new(id: String, tick: u32, member: String, content: String, message_type: ChatMessageType) -> Self {
+        Self {
+            id,
+            tick,
+            member,
+            content,
+            message_type,
+            versions: Vec::new(),
+            is_deleted: false,
+        }
+    }
+
+    /// Check if this message has been edited.
+    pub fn is_edited(&self) -> bool {
+        !self.versions.is_empty()
+    }
+
+    /// Get total version count (current + history).
+    pub fn version_count(&self) -> usize {
+        self.versions.len() + 1
+    }
+
+    /// Check if the given member can edit this message.
+    pub fn can_edit(&self, member_id: &str) -> bool {
+        self.member == member_id && !self.is_deleted
+    }
 }
 
 /// Types of chat messages.
@@ -96,15 +142,37 @@ impl ChatState {
                 tick,
                 member,
                 content,
+                message_id,
                 ..
             } => {
-                let msg = ChatMessage {
-                    tick: *tick,
-                    member: member.clone(),
-                    content: content.clone(),
-                    message_type: ChatMessageType::Text,
-                };
+                // Generate ID if not provided
+                let id = message_id.clone()
+                    .unwrap_or_else(|| format!("msg-{}-{}", tick, member));
+                let msg = ChatMessage::new(
+                    id,
+                    *tick,
+                    member.clone(),
+                    content.clone(),
+                    ChatMessageType::Text,
+                );
                 self.add_global_message(msg);
+            }
+
+            StreamEvent::ChatMessageEdited {
+                tick,
+                message_id,
+                new_content,
+                ..
+            } => {
+                self.edit_message(message_id, new_content.clone(), *tick);
+            }
+
+            StreamEvent::ChatMessageDeleted {
+                tick,
+                message_id,
+                ..
+            } => {
+                self.delete_message(message_id, *tick);
             }
 
             StreamEvent::ProofSubmitted {
@@ -134,17 +202,19 @@ impl ChatState {
                 );
 
                 // Add chat message
-                let msg = ChatMessage {
-                    tick: *tick,
-                    member: claimant.clone(),
-                    content: format!("Submitted proof for {}", quest_title),
-                    message_type: ChatMessageType::ProofSubmitted {
+                let id = format!("proof-{}-{}", quest_id, tick);
+                let msg = ChatMessage::new(
+                    id,
+                    *tick,
+                    claimant.clone(),
+                    format!("Submitted proof for {}", quest_title),
+                    ChatMessageType::ProofSubmitted {
                         quest_id: quest_id.clone(),
                         quest_title: quest_title.clone(),
                         artifact_id: artifact_id.clone(),
                         artifact_name: artifact_name.clone(),
                     },
-                };
+                );
                 self.add_realm_message(realm_id, msg.clone());
                 self.add_global_message(msg);
             }
@@ -173,20 +243,22 @@ impl ChatState {
                 self.total_blessings += 1;
 
                 // Add chat message
-                let msg = ChatMessage {
-                    tick: *tick,
-                    member: blesser.clone(),
-                    content: format!(
+                let id = format!("blessing-{}-{}-{}", quest_id, blesser, tick);
+                let msg = ChatMessage::new(
+                    id,
+                    *tick,
+                    blesser.clone(),
+                    format!(
                         "Blessed {} with {}",
                         claimant,
                         format_duration(*attention_millis)
                     ),
-                    message_type: ChatMessageType::BlessingGiven {
+                    ChatMessageType::BlessingGiven {
                         quest_id: quest_id.clone(),
                         claimant: claimant.clone(),
                         attention_millis: *attention_millis,
                     },
-                };
+                );
                 self.add_realm_message(realm_id, msg.clone());
                 self.add_global_message(msg);
             }
@@ -224,17 +296,19 @@ impl ChatState {
                     format!("Submitted proof: {}", narrative_preview)
                 };
 
-                let msg = ChatMessage {
-                    tick: *tick,
-                    member: claimant.clone(),
+                let id = format!("folder-{}-{}", folder_id, tick);
+                let msg = ChatMessage::new(
+                    id,
+                    *tick,
+                    claimant.clone(),
                     content,
-                    message_type: ChatMessageType::ProofFolderSubmitted {
+                    ChatMessageType::ProofFolderSubmitted {
                         quest_id: quest_id.clone(),
                         folder_id: folder_id.clone(),
                         artifact_count: *artifact_count,
                         narrative_preview: narrative_preview.clone(),
                     },
-                };
+                );
                 self.add_realm_message(realm_id, msg.clone());
                 self.add_global_message(msg);
             }
@@ -276,6 +350,69 @@ impl ChatState {
             .get(realm_id)
             .map(|m| m.iter().collect())
             .unwrap_or_default()
+    }
+
+    /// Get a message by ID from global messages.
+    pub fn get_message(&self, message_id: &str) -> Option<&ChatMessage> {
+        self.global_messages.iter().find(|m| m.id == message_id)
+    }
+
+    /// Edit a message by ID.
+    ///
+    /// Saves the current version to history and updates content.
+    pub fn edit_message(&mut self, message_id: &str, new_content: String, tick: u32) {
+        // Edit in global messages
+        if let Some(msg) = self.global_messages.iter_mut().find(|m| m.id == message_id) {
+            if !msg.is_deleted && msg.content != new_content {
+                msg.versions.push(MessageVersion {
+                    content: msg.content.clone(),
+                    edited_at: tick,
+                });
+                msg.content = new_content.clone();
+            }
+        }
+
+        // Also edit in realm messages
+        for messages in self.messages_by_realm.values_mut() {
+            if let Some(msg) = messages.iter_mut().find(|m| m.id == message_id) {
+                if !msg.is_deleted && msg.content != new_content {
+                    msg.versions.push(MessageVersion {
+                        content: msg.content.clone(),
+                        edited_at: tick,
+                    });
+                    msg.content = new_content.clone();
+                }
+            }
+        }
+    }
+
+    /// Delete a message by ID (soft delete with history preserved).
+    pub fn delete_message(&mut self, message_id: &str, tick: u32) {
+        // Delete in global messages
+        if let Some(msg) = self.global_messages.iter_mut().find(|m| m.id == message_id) {
+            if !msg.is_deleted {
+                msg.versions.push(MessageVersion {
+                    content: msg.content.clone(),
+                    edited_at: tick,
+                });
+                msg.content.clear();
+                msg.is_deleted = true;
+            }
+        }
+
+        // Also delete in realm messages
+        for messages in self.messages_by_realm.values_mut() {
+            if let Some(msg) = messages.iter_mut().find(|m| m.id == message_id) {
+                if !msg.is_deleted {
+                    msg.versions.push(MessageVersion {
+                        content: msg.content.clone(),
+                        edited_at: tick,
+                    });
+                    msg.content.clear();
+                    msg.is_deleted = true;
+                }
+            }
+        }
     }
 
     /// Get blessing info for a proof.

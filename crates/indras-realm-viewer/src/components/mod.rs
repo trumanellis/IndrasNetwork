@@ -603,18 +603,36 @@ fn ChatPanel(state: Signal<AppState>) -> Element {
     }
 }
 
+/// Chat message item component with edit/delete support
 #[component]
 fn ChatMessageItem(message: crate::state::ChatMessage) -> Element {
     let name = member_name(&message.member);
     let color_class = member_color_class(&message.member);
 
+    // Handle deleted messages
+    if message.is_deleted {
+        return rsx! {
+            div { class: "chat-message deleted-message",
+                span { class: "chat-tick", "[{message.tick}]" }
+                span { class: "deleted-text", "[message deleted]" }
+            }
+        };
+    }
+
     match &message.message_type {
         crate::state::ChatMessageType::Text => {
+            let is_edited = message.is_edited();
+
             rsx! {
                 div { class: "chat-message text-message",
-                    span { class: "chat-tick", "[{message.tick}]" }
-                    span { class: "chat-sender {color_class}", "{name}" }
-                    span { class: "chat-content", "{message.content}" }
+                    div { class: "chat-message-row",
+                        span { class: "chat-tick", "[{message.tick}]" }
+                        span { class: "chat-sender {color_class}", "{name}" }
+                        span { class: "chat-content", "{message.content}" }
+                        if is_edited {
+                            span { class: "edited-badge", "(edited)" }
+                        }
+                    }
                 }
             }
         }
@@ -659,6 +677,172 @@ fn ChatMessageItem(message: crate::state::ChatMessage) -> Element {
                         span { class: "proof-label", "Proof folder: " }
                         span { class: "proof-preview", "{preview}" }
                     }
+                }
+            }
+        }
+    }
+}
+
+/// Editable chat message item with edit/delete buttons and version history
+#[component]
+fn EditableChatMessageItem(
+    state: Signal<AppState>,
+    message: crate::state::ChatMessage,
+    current_member: String,
+) -> Element {
+    let _state = state;
+    let name = member_name(&message.member);
+    let color_class = member_color_class(&message.member);
+    let message_id = message.id.clone();
+
+    let mut editing = use_signal(|| false);
+    let mut edit_draft = use_signal(|| message.content.clone());
+    let mut show_history = use_signal(|| false);
+
+    let can_edit = message.can_edit(&current_member);
+    let is_edited = message.is_edited();
+    let version_count = message.version_count();
+
+    // Handle deleted messages
+    if message.is_deleted {
+        return rsx! {
+            div { class: "chat-message deleted-message",
+                span { class: "chat-tick", "[{message.tick}]" }
+                span { class: "deleted-text", "[message deleted]" }
+                if is_edited {
+                    button {
+                        class: "show-history-btn",
+                        onclick: move |_| show_history.set(!show_history()),
+                        if show_history() { "Hide history" } else { "Show history" }
+                    }
+                }
+                if show_history() && is_edited {
+                    MessageVersionHistory { versions: message.versions.clone() }
+                }
+            }
+        };
+    }
+
+    match &message.message_type {
+        crate::state::ChatMessageType::Text => {
+            if editing() {
+                // Edit mode
+                rsx! {
+                    ChatMessageEditor {
+                        message_id: message_id.clone(),
+                        draft: edit_draft,
+                        on_save: move |_new_content: String| {
+                            // In a real app, this would emit an event to update the backend
+                            // For now, we just close the editor
+                            editing.set(false);
+                        },
+                        on_cancel: move |_| {
+                            edit_draft.set(message.content.clone());
+                            editing.set(false);
+                        },
+                    }
+                }
+            } else {
+                // Normal display
+                rsx! {
+                    div { class: "chat-message text-message editable-message",
+                        div { class: "chat-message-row",
+                            span { class: "chat-tick", "[{message.tick}]" }
+                            span { class: "chat-sender {color_class}", "{name}" }
+                            span { class: "chat-content", "{message.content}" }
+                        }
+                        div { class: "message-actions",
+                            if is_edited {
+                                button {
+                                    class: "edited-badge-btn",
+                                    onclick: move |_| show_history.set(!show_history()),
+                                    "edited"
+                                    span { class: "version-count", " ({version_count})" }
+                                }
+                            }
+                            if can_edit {
+                                button {
+                                    class: "edit-btn",
+                                    onclick: move |_| {
+                                        edit_draft.set(message.content.clone());
+                                        editing.set(true);
+                                    },
+                                    "Edit"
+                                }
+                                button {
+                                    class: "delete-btn",
+                                    onclick: move |_| {
+                                        // In a real app, this would emit a delete event
+                                        // The UI would update when the event is processed
+                                    },
+                                    "Delete"
+                                }
+                            }
+                        }
+                        if show_history() && is_edited {
+                            MessageVersionHistory { versions: message.versions.clone() }
+                        }
+                    }
+                }
+            }
+        }
+        // Non-text messages don't support editing
+        _ => {
+            rsx! {
+                ChatMessageItem { message }
+            }
+        }
+    }
+}
+
+/// Inline message editor component
+#[component]
+fn ChatMessageEditor(
+    message_id: String,
+    draft: Signal<String>,
+    on_save: EventHandler<String>,
+    on_cancel: EventHandler<()>,
+) -> Element {
+    rsx! {
+        div { class: "message-editor",
+            textarea {
+                class: "message-edit-input",
+                value: "{draft}",
+                autofocus: true,
+                oninput: move |e| draft.set(e.value()),
+                onkeydown: move |e| {
+                    if e.key() == Key::Escape {
+                        on_cancel.call(());
+                    }
+                },
+            }
+            div { class: "message-edit-actions",
+                button {
+                    class: "edit-cancel-btn",
+                    onclick: move |_| on_cancel.call(()),
+                    "Cancel"
+                }
+                button {
+                    class: "edit-save-btn",
+                    onclick: move |_| on_save.call(draft.read().clone()),
+                    "Save"
+                }
+            }
+        }
+    }
+}
+
+/// Expandable version history component
+#[component]
+fn MessageVersionHistory(versions: Vec<crate::state::MessageVersion>) -> Element {
+    rsx! {
+        div { class: "version-history",
+            div { class: "version-history-header", "Edit History" }
+            for (i, version) in versions.iter().enumerate().rev() {
+                div { class: "version-item",
+                    span { class: "version-number", "v{i + 1}" }
+                    span { class: "version-content", "{version.content}" }
+                    span { class: "version-time", "[tick {version.edited_at}]" }
                 }
             }
         }
@@ -1403,7 +1587,11 @@ fn MyChatPanelInner(state: Signal<AppState>, member: String) -> Element {
             }
             div { class: "my-chat-messages",
                 for msg in messages.iter() {
-                    ChatMessageItem { message: (*msg).clone() }
+                    EditableChatMessageItem {
+                        state,
+                        message: (*msg).clone(),
+                        current_member: member.clone(),
+                    }
                 }
                 if messages.is_empty() {
                     div { class: "empty-state", "No messages yet" }
