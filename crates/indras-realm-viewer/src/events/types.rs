@@ -157,6 +157,28 @@ pub enum StreamEvent {
         content: String,
         #[serde(default)]
         message_type: String,
+        #[serde(default)]
+        message_id: Option<String>,
+    },
+
+    #[serde(rename = "chat_message_edited")]
+    ChatMessageEdited {
+        #[serde(default)]
+        tick: u32,
+        realm_id: String,
+        message_id: String,
+        member: String,
+        old_content: String,
+        new_content: String,
+    },
+
+    #[serde(rename = "chat_message_deleted")]
+    ChatMessageDeleted {
+        #[serde(default)]
+        tick: u32,
+        realm_id: String,
+        message_id: String,
+        member: String,
     },
 
     // ========== Proof/Blessing Events ==========
@@ -236,6 +258,8 @@ impl StreamEvent {
             StreamEvent::ContactAdded { tick, .. } => *tick,
             StreamEvent::ContactRemoved { tick, .. } => *tick,
             StreamEvent::ChatMessage { tick, .. } => *tick,
+            StreamEvent::ChatMessageEdited { tick, .. } => *tick,
+            StreamEvent::ChatMessageDeleted { tick, .. } => *tick,
             StreamEvent::ProofSubmitted { tick, .. } => *tick,
             StreamEvent::BlessingGiven { tick, .. } => *tick,
             StreamEvent::ProofFolderSubmitted { tick, .. } => *tick,
@@ -261,6 +285,8 @@ impl StreamEvent {
             StreamEvent::ContactAdded { .. } => "contact_added",
             StreamEvent::ContactRemoved { .. } => "contact_removed",
             StreamEvent::ChatMessage { .. } => "chat_message",
+            StreamEvent::ChatMessageEdited { .. } => "chat_message_edited",
+            StreamEvent::ChatMessageDeleted { .. } => "chat_message_deleted",
             StreamEvent::ProofSubmitted { .. } => "proof_submitted",
             StreamEvent::BlessingGiven { .. } => "blessing_given",
             StreamEvent::ProofFolderSubmitted { .. } => "proof_folder_submitted",
@@ -290,7 +316,9 @@ impl StreamEvent {
                 EventCategory::Contacts
             }
 
-            StreamEvent::ChatMessage { .. } => EventCategory::Chat,
+            StreamEvent::ChatMessage { .. }
+            | StreamEvent::ChatMessageEdited { .. }
+            | StreamEvent::ChatMessageDeleted { .. } => EventCategory::Chat,
 
             StreamEvent::ProofSubmitted { .. }
             | StreamEvent::BlessingGiven { .. }

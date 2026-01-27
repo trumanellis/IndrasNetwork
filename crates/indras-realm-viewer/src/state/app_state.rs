@@ -128,6 +128,12 @@ impl LoggedEvent {
                 let preview: String = content.chars().take(30).collect();
                 format!("{}: {}", member_name(member), preview)
             }
+            StreamEvent::ChatMessageEdited { member, .. } => {
+                format!("{} edited a message", member_name(member))
+            }
+            StreamEvent::ChatMessageDeleted { member, .. } => {
+                format!("{} deleted a message", member_name(member))
+            }
             StreamEvent::ProofSubmitted { claimant, quest_title, .. } => {
                 let title = if quest_title.is_empty() { "quest" } else { quest_title.as_str() };
                 format!("{} submitted proof for {}", member_name(claimant), title)
@@ -251,6 +257,8 @@ impl AppState {
             }
 
             StreamEvent::ChatMessage { .. }
+            | StreamEvent::ChatMessageEdited { .. }
+            | StreamEvent::ChatMessageDeleted { .. }
             | StreamEvent::ProofSubmitted { .. }
             | StreamEvent::BlessingGiven { .. }
             | StreamEvent::ProofFolderSubmitted { .. } => {

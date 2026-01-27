@@ -102,6 +102,7 @@
 pub mod artifact;
 pub mod attention;
 pub mod blessing;
+pub mod chat_message;
 pub mod config;
 pub mod contacts;
 pub mod document;
@@ -125,6 +126,9 @@ pub use attention::{
     AttentionDocument, AttentionError, AttentionEventId, AttentionSwitchEvent, QuestAttention,
 };
 pub use blessing::{Blessing, BlessingDocument, BlessingError, BlessingId, ClaimId};
+pub use chat_message::{
+    ChatMessageId, ChatMessageVersion, EditableChatMessage, EditableMessageType, RealmChatDocument,
+};
 pub use config::{NetworkBuilder, NetworkConfig, Preset};
 pub use contacts::{ContactsDocument, ContactsRealm};
 pub use document::{Document, DocumentChange, DocumentSchema};
@@ -153,10 +157,10 @@ pub use realm_alias::{RealmAlias, RealmAliasDocument, MAX_ALIAS_LENGTH};
 pub mod prelude {
     pub use crate::{
         Artifact, ArtifactDownload, Blessing, BlessingDocument, ClaimId, ContactsRealm, Content,
-        Document, DocumentSchema, HomeRealm, IndraError, IndrasNetwork, InviteCode, Member,
-        MemberEvent, MemberInfo, Message, Note, NoteDocument, Preset, ProofFolder,
-        ProofFolderArtifact, ProofFolderDocument, Quest, QuestDocument, Realm, RealmAlias,
-        RealmAliasDocument, RealmId, Result,
+        Document, DocumentSchema, EditableChatMessage, HomeRealm, IndraError, IndrasNetwork,
+        InviteCode, Member, MemberEvent, MemberInfo, Message, Note, NoteDocument, Preset,
+        ProofFolder, ProofFolderArtifact, ProofFolderDocument, Quest, QuestDocument, Realm,
+        RealmAlias, RealmAliasDocument, RealmChatDocument, RealmId, Result,
     };
 
     // Re-export futures StreamExt for convenient stream iteration

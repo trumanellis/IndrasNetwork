@@ -3093,3 +3093,252 @@ html, body {
   color: var(--text-secondary);
   font-style: italic;
 }
+
+/* ============================================================================
+   EDITABLE CHAT MESSAGES
+   ============================================================================ */
+
+/* Message row layout */
+.chat-message-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1);
+}
+
+/* Editable message hover state */
+.editable-message {
+  position: relative;
+  transition: background var(--transition-fast);
+}
+
+.editable-message:hover {
+  background: var(--bg-hover);
+}
+
+.editable-message:hover .message-actions {
+  opacity: 1;
+}
+
+/* Message actions container */
+.message-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+/* Always show actions on touch devices */
+@media (hover: none) {
+  .message-actions {
+    opacity: 1;
+  }
+}
+
+/* Edited badge (clickable) */
+.edited-badge {
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  font-style: italic;
+  margin-left: var(--space-1);
+}
+
+.edited-badge-btn {
+  background: none;
+  border: none;
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.edited-badge-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.version-count {
+  color: var(--text-tertiary);
+}
+
+/* Edit and Delete buttons */
+.edit-btn,
+.delete-btn {
+  background: none;
+  border: none;
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-size-xs);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.edit-btn {
+  color: var(--accent-primary);
+}
+
+.edit-btn:hover {
+  background: color-mix(in srgb, var(--accent-primary) 15%, transparent);
+}
+
+.delete-btn {
+  color: var(--accent-error);
+}
+
+.delete-btn:hover {
+  background: color-mix(in srgb, var(--accent-error) 15%, transparent);
+}
+
+/* Show history button for deleted messages */
+.show-history-btn {
+  background: none;
+  border: none;
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  margin-left: var(--space-2);
+  transition: all var(--transition-fast);
+}
+
+.show-history-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+/* Inline Message Editor */
+.message-editor {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  margin: var(--space-2) 0;
+}
+
+.message-edit-input {
+  width: 100%;
+  min-height: 80px;
+  padding: var(--space-2);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  resize: vertical;
+  transition: border-color var(--transition-fast);
+}
+
+.message-edit-input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.message-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.edit-cancel-btn {
+  padding: var(--space-1) var(--space-3);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.edit-cancel-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.edit-save-btn {
+  padding: var(--space-1) var(--space-3);
+  background: var(--accent-primary);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: white;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.edit-save-btn:hover {
+  filter: brightness(1.1);
+}
+
+.edit-save-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Version History */
+.version-history {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  margin-top: var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+.version-history-header {
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+  padding-bottom: var(--space-1);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.version-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 50%, transparent);
+}
+
+.version-item:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.version-number {
+  font-weight: 600;
+  color: var(--accent-primary);
+  min-width: 2rem;
+  flex-shrink: 0;
+}
+
+.version-content {
+  flex: 1;
+  color: var(--text-secondary);
+  word-break: break-word;
+}
+
+.version-time {
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+/* Deleted Message */
+.deleted-message {
+  opacity: 0.6;
+}
+
+.deleted-text {
+  color: var(--text-tertiary);
+  font-style: italic;
+}
