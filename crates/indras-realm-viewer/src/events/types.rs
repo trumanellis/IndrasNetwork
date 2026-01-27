@@ -224,6 +224,56 @@ pub enum StreamEvent {
         narrative_preview: String,
     },
 
+    // ========== Artifact Sharing Events ==========
+    /// Artifact shared with revocation support
+    #[serde(rename = "artifact_shared_revocable")]
+    ArtifactSharedRevocable {
+        #[serde(default)]
+        tick: u32,
+        realm_id: String,
+        /// BLAKE3 hash of encrypted content (hex)
+        artifact_hash: String,
+        name: String,
+        #[serde(default)]
+        size: u64,
+        #[serde(default)]
+        mime_type: Option<String>,
+        sharer: String,
+        /// Local file path for real assets (optional)
+        #[serde(default)]
+        asset_path: Option<String>,
+    },
+
+    /// Artifact recalled - delete immediately
+    #[serde(rename = "artifact_recalled")]
+    ArtifactRecalled {
+        #[serde(default)]
+        tick: u32,
+        realm_id: String,
+        /// BLAKE3 hash of artifact being revoked (hex)
+        artifact_hash: String,
+        /// Who is revoking (must be original sharer)
+        revoked_by: String,
+    },
+
+    /// Acknowledgment that recall was processed
+    #[serde(rename = "recall_acknowledged")]
+    RecallAcknowledged {
+        #[serde(default)]
+        tick: u32,
+        realm_id: String,
+        /// Hash of the recalled artifact (hex)
+        artifact_hash: String,
+        /// Member who acknowledged
+        acknowledged_by: String,
+        /// Whether the local blob was deleted
+        #[serde(default)]
+        blob_deleted: bool,
+        /// Whether the key was removed
+        #[serde(default)]
+        key_removed: bool,
+    },
+
     // ========== Info/Log Events ==========
     #[serde(rename = "info")]
     Info {
@@ -263,6 +313,9 @@ impl StreamEvent {
             StreamEvent::ProofSubmitted { tick, .. } => *tick,
             StreamEvent::BlessingGiven { tick, .. } => *tick,
             StreamEvent::ProofFolderSubmitted { tick, .. } => *tick,
+            StreamEvent::ArtifactSharedRevocable { tick, .. } => *tick,
+            StreamEvent::ArtifactRecalled { tick, .. } => *tick,
+            StreamEvent::RecallAcknowledged { tick, .. } => *tick,
             StreamEvent::Info { tick, .. } => *tick,
             StreamEvent::Unknown => 0,
         }
@@ -290,6 +343,9 @@ impl StreamEvent {
             StreamEvent::ProofSubmitted { .. } => "proof_submitted",
             StreamEvent::BlessingGiven { .. } => "blessing_given",
             StreamEvent::ProofFolderSubmitted { .. } => "proof_folder_submitted",
+            StreamEvent::ArtifactSharedRevocable { .. } => "artifact_shared_revocable",
+            StreamEvent::ArtifactRecalled { .. } => "artifact_recalled",
+            StreamEvent::RecallAcknowledged { .. } => "recall_acknowledged",
             StreamEvent::Info { .. } => "info",
             StreamEvent::Unknown => "unknown",
         }
@@ -324,6 +380,10 @@ impl StreamEvent {
             | StreamEvent::BlessingGiven { .. }
             | StreamEvent::ProofFolderSubmitted { .. } => EventCategory::Blessing,
 
+            StreamEvent::ArtifactSharedRevocable { .. }
+            | StreamEvent::ArtifactRecalled { .. }
+            | StreamEvent::RecallAcknowledged { .. } => EventCategory::Artifact,
+
             StreamEvent::Info { .. } | StreamEvent::Unknown => EventCategory::Info,
         }
     }
@@ -338,6 +398,7 @@ pub enum EventCategory {
     Contacts,
     Chat,
     Blessing,
+    Artifact,
     Info,
 }
 
@@ -350,6 +411,7 @@ impl EventCategory {
             EventCategory::Contacts => "Contacts",
             EventCategory::Chat => "Chat",
             EventCategory::Blessing => "Blessing",
+            EventCategory::Artifact => "Artifact",
             EventCategory::Info => "Info",
         }
     }
@@ -362,6 +424,7 @@ impl EventCategory {
             EventCategory::Contacts => "event-contacts",
             EventCategory::Chat => "event-chat",
             EventCategory::Blessing => "event-blessing",
+            EventCategory::Artifact => "event-artifact",
             EventCategory::Info => "event-info",
         }
     }

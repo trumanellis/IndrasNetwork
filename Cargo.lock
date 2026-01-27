@@ -3191,6 +3191,7 @@ dependencies = [
 name = "indras-crypto"
 version = "1.0.0"
 dependencies = [
+ "blake3",
  "bytes",
  "chacha20poly1305",
  "chrono",
@@ -3425,6 +3426,7 @@ dependencies = [
 name = "indras-realm-viewer"
 version = "1.0.0"
 dependencies = [
+ "base64",
  "clap",
  "dioxus",
  "serde",

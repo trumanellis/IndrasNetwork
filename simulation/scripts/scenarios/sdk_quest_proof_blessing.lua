@@ -12,6 +12,7 @@
 
 local quest_helpers = require("lib.quest_helpers")
 local home = require("lib.home_realm_helpers")
+local artifact = require("lib.artifact_helpers")
 local thresholds = require("config.quest_thresholds")
 
 -- ============================================================================
@@ -49,6 +50,11 @@ local realms = {}  -- realm_id -> { members = {}, quests = {} }
 local total_chat_messages = 0
 local total_proofs_submitted = 0
 local total_blessings = 0
+
+-- Artifact tracking
+local key_registry = artifact.KeyRegistry_new()
+local total_artifacts_shared = 0
+local total_artifacts_recalled = 0
 
 -- ============================================================================
 -- PHASE 1: SETUP - Create realms and quests
@@ -150,6 +156,104 @@ logger.info("Phase 1 complete", {
     tick = sim.tick,
     realms = config.realms,
     total_quests = total_quests,
+})
+
+-- ============================================================================
+-- PHASE 1.5: ARTIFACT SHARING
+-- Members share files with their realms
+-- ============================================================================
+
+logger.info("Phase 1.5: Artifact sharing", {
+    phase = 1.5,
+    description = "Members share artifacts with revocation support",
+})
+
+-- Sample artifact types for sharing
+local sample_artifacts = {
+    { name = "project_notes.md", size = 2048, mime = "text/markdown" },
+    { name = "screenshot.png", size = 156000, mime = "image/png" },
+    { name = "meeting_recording.mp4", size = 5200000, mime = "video/mp4" },
+    { name = "design_spec.pdf", size = 89000, mime = "application/pdf" },
+    { name = "data_export.csv", size = 12000, mime = "text/csv" },
+    { name = "presentation.key", size = 340000, mime = "application/x-iwork-keynote-sffkey" },
+}
+
+-- Real asset for testing with actual images
+local LOGO_ASSET = {
+    name = "Logo_black.png",
+    size = 830269,  -- Actual file size
+    mime = "image/png",
+    path = "assets/Logo_black.png",
+}
+
+local logo_shared = false
+for realm_id, realm_data in pairs(realms) do
+    -- Each member shares 1-2 artifacts
+    for idx, member in ipairs(realm_data.members) do
+        local num_artifacts = math.random(1, 2)
+        for i = 1, num_artifacts do
+            local template
+            local artifact_size
+            local is_logo = false
+
+            -- First member in first realm shares the logo
+            if not logo_shared and idx == 1 and i == 1 then
+                template = LOGO_ASSET
+                artifact_size = LOGO_ASSET.size
+                logo_shared = true
+                is_logo = true
+            else
+                template = sample_artifacts[math.random(#sample_artifacts)]
+                local size_variation = math.random(800, 1200) / 1000  -- 0.8x to 1.2x
+                artifact_size = math.floor(template.size * size_variation)
+            end
+
+            local artifact_hash = artifact.generate_hash()
+            local artifact_meta = {
+                name = template.name,
+                size = artifact_size,
+                mime_type = template.mime,
+            }
+
+            -- Store in registry (with sharer and tick)
+            key_registry:store(artifact_hash, artifact_meta, "encrypted_key_" .. artifact_hash:sub(1, 8), member, sim.tick)
+
+            -- Also store realm_id separately in the artifact record
+            local stored_artifact = key_registry:get_artifact(artifact_hash)
+            if stored_artifact then
+                stored_artifact.realm_id = realm_id
+            end
+
+            -- Log the share event
+            local event_data = {
+                tick = sim.tick,
+                realm_id = realm_id,
+                artifact_hash = artifact_hash,
+                name = template.name,
+                size = artifact_size,
+                mime_type = template.mime,
+                sharer = member,
+                latency_us = artifact.share_latency(),
+            }
+
+            -- Add asset path for the real logo
+            if is_logo then
+                event_data.asset_path = LOGO_ASSET.path
+                event_data.is_featured = true
+            end
+
+            logger.event(artifact.EVENTS.ARTIFACT_SHARED_REVOCABLE, event_data)
+
+            total_artifacts_shared = total_artifacts_shared + 1
+        end
+    end
+    sim:step()
+end
+
+logger.info("Phase 1.5 complete", {
+    phase = 1.5,
+    tick = sim.tick,
+    artifacts_shared = total_artifacts_shared,
 })
 
 -- ============================================================================
@@ -355,6 +459,71 @@ logger.info("Phase 4 complete", {
 })
 
 -- ============================================================================
+-- PHASE 4.5: ARTIFACT RECALLS
+-- Some members recall their shared artifacts
+-- ============================================================================
+
+logger.info("Phase 4.5: Artifact recalls", {
+    phase = 4.5,
+    description = "Some members recall their shared artifacts",
+})
+
+-- Recall about 30% of shared artifacts
+local artifacts_to_recall = {}
+for hash, art in pairs(key_registry.artifacts) do
+    if art.status == "shared" and math.random() < 0.3 then
+        table.insert(artifacts_to_recall, { hash = hash, artifact = art })
+    end
+end
+
+for _, item in ipairs(artifacts_to_recall) do
+    local hash = item.hash
+    local art = item.artifact
+
+    -- Only sharer can recall
+    local success = key_registry:revoke(hash, art.sharer, sim.tick)
+
+    if success then
+        logger.event(artifact.EVENTS.ARTIFACT_RECALLED, {
+            tick = sim.tick,
+            realm_id = art.realm_id,
+            artifact_hash = hash,
+            revoked_by = art.sharer,
+            latency_us = artifact.recall_latency(),
+        })
+
+        -- Other members acknowledge the recall
+        for realm_id, realm_data in pairs(realms) do
+            if realm_id == art.realm_id then
+                for _, member in ipairs(realm_data.members) do
+                    if member ~= art.sharer then
+                        logger.event(artifact.EVENTS.RECALL_ACKNOWLEDGED, {
+                            tick = sim.tick,
+                            realm_id = realm_id,
+                            artifact_hash = hash,
+                            acknowledged_by = member,
+                            blob_deleted = true,
+                            key_removed = true,
+                        })
+                    end
+                end
+            end
+        end
+
+        total_artifacts_recalled = total_artifacts_recalled + 1
+    end
+
+    sim:step()
+end
+
+logger.info("Phase 4.5 complete", {
+    phase = 4.5,
+    tick = sim.tick,
+    artifacts_recalled = total_artifacts_recalled,
+    artifacts_remaining = total_artifacts_shared - total_artifacts_recalled,
+})
+
+-- ============================================================================
 -- PHASE 5: VERIFICATION AND COMPLETION
 -- Creators verify claims and complete quests
 -- ============================================================================
@@ -424,6 +593,8 @@ result:add_metrics({
     total_verified = total_verified,
     total_completed = total_completed,
     attention_events = attention_events,
+    total_artifacts_shared = total_artifacts_shared,
+    total_artifacts_recalled = total_artifacts_recalled,
 })
 
 result:record_assertion("proofs_submitted",
@@ -432,6 +603,8 @@ result:record_assertion("blessings_given",
     total_blessings > 0, true, total_blessings > 0)
 result:record_assertion("quests_completed",
     total_completed > 0, true, total_completed > 0)
+result:record_assertion("artifacts_shared",
+    total_artifacts_shared > 0, true, total_artifacts_shared > 0)
 
 local final_result = result:build()
 
@@ -443,12 +616,15 @@ logger.info("Quest proof & blessing scenario completed", {
     total_chat_messages = total_chat_messages,
     total_proofs_submitted = total_proofs_submitted,
     total_blessings = total_blessings,
+    total_artifacts_shared = total_artifacts_shared,
+    total_artifacts_recalled = total_artifacts_recalled,
 })
 
 -- Assertions
 indras.assert.gt(total_proofs_submitted, 0, "Should have submitted proofs")
 indras.assert.gt(total_blessings, 0, "Should have given blessings")
 indras.assert.gt(total_chat_messages, 0, "Should have chat messages")
+indras.assert.gt(total_artifacts_shared, 0, "Should have shared artifacts")
 
 logger.info("Quest proof & blessing scenario passed")
 

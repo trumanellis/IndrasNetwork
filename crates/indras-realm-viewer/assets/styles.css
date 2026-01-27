@@ -566,6 +566,194 @@ html, body {
   flex: 1;
 }
 
+/* Quests and Artifacts column (vertical split) */
+.quests-artifacts-column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.quests-artifacts-column .quest-list-container {
+  flex: 1;
+  min-height: 0;
+}
+
+.quests-artifacts-column .shared-artifact-gallery-panel {
+  flex: 0 0 auto;
+  max-height: 35%;
+  min-height: 140px;
+}
+
+/* =============================================================================
+   SHARED ARTIFACT GALLERY
+   ============================================================================= */
+
+.shared-artifact-gallery-panel {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  overflow: hidden;
+}
+
+.artifact-gallery-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.artifact-gallery-title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.artifact-gallery-stats {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.artifact-stat {
+  font-size: var(--font-size-xs);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.artifact-stat.shared {
+  background: color-mix(in srgb, var(--accent-success) 20%, transparent);
+  color: var(--accent-success);
+}
+
+.artifact-stat.recalled {
+  background: color-mix(in srgb, var(--accent-error) 20%, transparent);
+  color: var(--accent-error);
+}
+
+.shared-artifact-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--space-2);
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.shared-artifact-card {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  position: relative;
+  transition: all var(--transition-fast);
+}
+
+.shared-artifact-card:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-primary);
+}
+
+.shared-artifact-card.artifact-recalled {
+  opacity: 0.6;
+}
+
+.artifact-card-icon {
+  font-size: var(--font-size-xl);
+  flex-shrink: 0;
+  width: 32px;
+  text-align: center;
+}
+
+.artifact-card-thumbnail {
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--bg-tertiary);
+}
+
+.artifact-card-thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.artifact-card-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.artifact-card-name {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.artifact-card-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.artifact-card-size {
+  color: var(--text-muted);
+}
+
+.artifact-card-sharer {
+  font-weight: 500;
+}
+
+.artifact-card-status {
+  font-size: var(--font-size-xs);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.artifact-card-status.artifact-shared {
+  background: color-mix(in srgb, var(--accent-success) 15%, transparent);
+  color: var(--accent-success);
+}
+
+.artifact-card-status.artifact-recalled {
+  background: color-mix(in srgb, var(--accent-error) 15%, transparent);
+  color: var(--accent-error);
+}
+
+.artifact-card-recall-overlay {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 10px,
+    rgba(255, 107, 107, 0.05) 10px,
+    rgba(255, 107, 107, 0.05) 20px
+  );
+  pointer-events: none;
+  border-radius: var(--radius-sm);
+}
+
 /* Network Topology Container */
 .network-container {
   background: var(--bg-secondary);
@@ -1809,6 +1997,138 @@ html, body {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+}
+
+/* Quests and Artifacts column in POV (vertical split) */
+.pov-quests-artifacts-column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.pov-quests-artifacts-column .my-quests-list {
+  flex: 1;
+  min-height: 0;
+}
+
+.pov-quests-artifacts-column .my-artifact-gallery-panel {
+  flex: 0 0 auto;
+  max-height: 35%;
+  min-height: 120px;
+}
+
+/* =============================================================================
+   MY ARTIFACT GALLERY (POV Dashboard)
+   ============================================================================= */
+
+.my-artifact-gallery-panel {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  overflow: hidden;
+}
+
+.artifact-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.artifact-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.artifact-section-title {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.artifact-section-stats {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.artifact-section-count {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.my-artifact-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: var(--space-2);
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.my-artifact-card {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  position: relative;
+  transition: all var(--transition-fast);
+}
+
+.my-artifact-card:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-primary);
+}
+
+.my-artifact-card.artifact-recalled {
+  opacity: 0.5;
+}
+
+.artifact-recall-btn {
+  background: color-mix(in srgb, var(--accent-error) 15%, transparent);
+  border: 1px solid var(--accent-error);
+  color: var(--accent-error);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.my-artifact-card:hover .artifact-recall-btn {
+  opacity: 1;
+}
+
+.artifact-recall-btn:hover {
+  background: var(--accent-error);
+  color: white;
+}
+
+.artifact-recalled-badge {
+  font-size: var(--font-size-xs);
+  color: var(--accent-error);
+  padding: 2px 6px;
+  background: color-mix(in srgb, var(--accent-error) 15%, transparent);
+  border-radius: var(--radius-sm);
+}
+
+.empty-state-small {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  padding: var(--space-2);
+  font-style: italic;
 }
 
 /* POV Chat Panel */
