@@ -117,6 +117,63 @@ function home.new_context(scenario_name)
     return ctx
 end
 
+--- Encode a Lua table as JSON string
+-- Simple JSON encoder for event output
+-- @param value any The value to encode
+-- @return string JSON string
+local function json_encode(value)
+    local t = type(value)
+    if t == "nil" then
+        return "null"
+    elseif t == "boolean" then
+        return value and "true" or "false"
+    elseif t == "number" then
+        if value ~= value then -- NaN
+            return "null"
+        elseif value == math.huge or value == -math.huge then
+            return "null"
+        else
+            return tostring(value)
+        end
+    elseif t == "string" then
+        -- Escape special characters
+        local escaped = value:gsub('\\', '\\\\')
+            :gsub('"', '\\"')
+            :gsub('\n', '\\n')
+            :gsub('\r', '\\r')
+            :gsub('\t', '\\t')
+        return '"' .. escaped .. '"'
+    elseif t == "table" then
+        -- Check if it's an array
+        local is_array = true
+        local max_idx = 0
+        for k, _ in pairs(value) do
+            if type(k) ~= "number" or k < 1 or math.floor(k) ~= k then
+                is_array = false
+                break
+            end
+            if k > max_idx then max_idx = k end
+        end
+
+        if is_array and max_idx > 0 then
+            local parts = {}
+            for i = 1, max_idx do
+                parts[i] = json_encode(value[i])
+            end
+            return "[" .. table.concat(parts, ",") .. "]"
+        else
+            local parts = {}
+            for k, v in pairs(value) do
+                local key_str = type(k) == "string" and k or tostring(k)
+                table.insert(parts, '"' .. key_str .. '":' .. json_encode(v))
+            end
+            return "{" .. table.concat(parts, ",") .. "}"
+        end
+    else
+        return '"<' .. t .. '>"'
+    end
+end
+
 --- Create a context logger with automatic trace_id
 -- @param ctx CorrelationContext The correlation context
 -- @return table Logger object
@@ -154,11 +211,18 @@ function home.create_logger(ctx)
     end
 
     --- Log a home realm event with standard fields
+    -- Also outputs JSONL to stdout for viewer consumption
     function logger.event(event_type, fields)
         fields = fields or {}
         fields.trace_id = ctx.trace_id
         fields.event_type = event_type
+
+        -- Log to tracing system (goes to file)
         indras.log.info(event_type, fields)
+
+        -- Also output JSONL to stdout for viewer
+        local json_line = json_encode(fields)
+        indras.log.print(json_line)
     end
 
     return logger

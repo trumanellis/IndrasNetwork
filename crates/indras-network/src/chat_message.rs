@@ -38,6 +38,62 @@ pub enum EditableMessageType {
         quest_id: String,
         claimant: String,
     },
+    /// Artifact was recalled/unshared (tombstone).
+    ///
+    /// This type is used to mark where a shared artifact used to be
+    /// in the chat history. The content shows minimal metadata.
+    ArtifactRecalled {
+        /// Hash of the recalled artifact (hex string).
+        artifact_hash: String,
+        /// When the artifact was originally shared (tick).
+        shared_at: u64,
+    },
+    /// Image shared inline in chat.
+    ///
+    /// For small images (< 2MB), data is embedded as base64.
+    /// For large images, artifact_hash references stored content.
+    Image {
+        /// MIME type (image/png, image/jpeg, etc.)
+        mime_type: String,
+        /// For small images: base64-encoded image data.
+        /// For large images: None (fetch from artifact).
+        inline_data: Option<String>,
+        /// For large images: hash reference to artifact storage (hex string).
+        /// For small images: None.
+        artifact_hash: Option<String>,
+        /// Original filename.
+        filename: Option<String>,
+        /// Image dimensions (width, height) if known.
+        dimensions: Option<(u32, u32)>,
+        /// Alt text / caption.
+        alt_text: Option<String>,
+    },
+    /// Gallery of images/videos/files shared from a folder.
+    Gallery {
+        /// Unique folder identifier.
+        folder_id: String,
+        /// Gallery title/name.
+        title: Option<String>,
+        /// Items in the gallery.
+        items: Vec<GalleryItem>,
+    },
+}
+
+/// An item in a gallery (image, video, or file).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct GalleryItem {
+    /// Filename.
+    pub name: String,
+    /// MIME type (image/png, video/mp4, etc.)
+    pub mime_type: String,
+    /// Size in bytes.
+    pub size: u64,
+    /// Base64-encoded thumbnail (for images/videos).
+    pub thumbnail_data: Option<String>,
+    /// Hash reference to artifact storage (hex string).
+    pub artifact_hash: String,
+    /// Item dimensions (width, height) if applicable.
+    pub dimensions: Option<(u32, u32)>,
 }
 
 impl Default for EditableMessageType {
@@ -105,6 +161,116 @@ impl EditableChatMessage {
             created_at,
             EditableMessageType::Text,
         )
+    }
+
+    /// Create an artifact recalled tombstone message.
+    ///
+    /// This is used to mark where a shared artifact used to be in chat.
+    /// The content is a human-readable tombstone message.
+    pub fn new_artifact_recalled(
+        id: ChatMessageId,
+        realm_id: String,
+        sharer: String,
+        artifact_hash: String,
+        shared_at: u64,
+        recalled_at: u64,
+    ) -> Self {
+        let content = format!("[Recalled artifact shared at tick {}]", shared_at);
+        Self::new(
+            id,
+            realm_id,
+            sharer,
+            content,
+            recalled_at,
+            EditableMessageType::ArtifactRecalled {
+                artifact_hash,
+                shared_at,
+            },
+        )
+    }
+
+    /// Check if this is an artifact recalled tombstone.
+    pub fn is_artifact_recalled(&self) -> bool {
+        matches!(self.message_type, EditableMessageType::ArtifactRecalled { .. })
+    }
+
+    /// Create a new inline image message.
+    ///
+    /// For small images, pass the base64-encoded data in `inline_data`.
+    /// For large images stored as artifacts, pass the artifact hash.
+    pub fn new_image(
+        id: ChatMessageId,
+        realm_id: String,
+        author: String,
+        created_at: u64,
+        mime_type: String,
+        inline_data: Option<String>,
+        artifact_hash: Option<String>,
+        filename: Option<String>,
+        dimensions: Option<(u32, u32)>,
+        alt_text: Option<String>,
+    ) -> Self {
+        let content = alt_text.clone().unwrap_or_else(|| "[Image]".to_string());
+        Self::new(
+            id,
+            realm_id,
+            author,
+            content,
+            created_at,
+            EditableMessageType::Image {
+                mime_type,
+                inline_data,
+                artifact_hash,
+                filename,
+                dimensions,
+                alt_text,
+            },
+        )
+    }
+
+    /// Create a new gallery message.
+    pub fn new_gallery(
+        id: ChatMessageId,
+        realm_id: String,
+        author: String,
+        created_at: u64,
+        folder_id: String,
+        title: Option<String>,
+        items: Vec<GalleryItem>,
+    ) -> Self {
+        let content = title.clone().unwrap_or_else(|| format!("[Gallery: {} items]", items.len()));
+        Self::new(
+            id,
+            realm_id,
+            author,
+            content,
+            created_at,
+            EditableMessageType::Gallery {
+                folder_id,
+                title,
+                items,
+            },
+        )
+    }
+
+    /// Check if this is an inline image message.
+    pub fn is_image(&self) -> bool {
+        matches!(self.message_type, EditableMessageType::Image { .. })
+    }
+
+    /// Check if this is a gallery message.
+    pub fn is_gallery(&self) -> bool {
+        matches!(self.message_type, EditableMessageType::Gallery { .. })
+    }
+
+    /// Get image data URL if this is an embedded image.
+    pub fn image_data_url(&self) -> Option<String> {
+        match &self.message_type {
+            EditableMessageType::Image { mime_type, inline_data: Some(data), .. } => {
+                Some(format!("data:{};base64,{}", mime_type, data))
+            }
+            _ => None,
+        }
     }
 
     /// Edit the message content.
@@ -380,5 +546,125 @@ mod tests {
         let deleted = doc.delete_message("msg-1", "alice", 500);
         assert!(deleted);
         assert_eq!(doc.visible_count(), 1);
+    }
+
+    #[test]
+    fn test_new_image_message_embedded() {
+        let msg = EditableChatMessage::new_image(
+            "img-1".to_string(),
+            "realm-1".to_string(),
+            "alice".to_string(),
+            100,
+            "image/png".to_string(),
+            Some("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==".to_string()),
+            None,
+            Some("test.png".to_string()),
+            Some((1, 1)),
+            Some("A test image".to_string()),
+        );
+
+        assert_eq!(msg.id, "img-1");
+        assert!(msg.is_image());
+        assert!(!msg.is_gallery());
+        assert_eq!(msg.current_content, "A test image");
+
+        // Check data URL generation
+        let data_url = msg.image_data_url();
+        assert!(data_url.is_some());
+        assert!(data_url.unwrap().starts_with("data:image/png;base64,"));
+    }
+
+    #[test]
+    fn test_new_image_message_artifact_backed() {
+        let msg = EditableChatMessage::new_image(
+            "img-2".to_string(),
+            "realm-1".to_string(),
+            "bob".to_string(),
+            200,
+            "image/jpeg".to_string(),
+            None, // No embedded data
+            Some("abc123def456".to_string()), // Artifact hash
+            Some("large_photo.jpg".to_string()),
+            Some((1920, 1080)),
+            None,
+        );
+
+        assert!(msg.is_image());
+        assert_eq!(msg.current_content, "[Image]"); // Default content when no alt_text
+
+        // No data URL for artifact-backed images
+        assert!(msg.image_data_url().is_none());
+    }
+
+    #[test]
+    fn test_new_gallery_message() {
+        let items = vec![
+            GalleryItem {
+                name: "photo1.jpg".to_string(),
+                mime_type: "image/jpeg".to_string(),
+                size: 102400,
+                thumbnail_data: Some("thumb1data".to_string()),
+                artifact_hash: "hash1".to_string(),
+                dimensions: Some((800, 600)),
+            },
+            GalleryItem {
+                name: "photo2.png".to_string(),
+                mime_type: "image/png".to_string(),
+                size: 204800,
+                thumbnail_data: Some("thumb2data".to_string()),
+                artifact_hash: "hash2".to_string(),
+                dimensions: Some((1024, 768)),
+            },
+        ];
+
+        let msg = EditableChatMessage::new_gallery(
+            "gallery-1".to_string(),
+            "realm-1".to_string(),
+            "alice".to_string(),
+            300,
+            "folder-abc".to_string(),
+            Some("Vacation Photos".to_string()),
+            items,
+        );
+
+        assert!(msg.is_gallery());
+        assert!(!msg.is_image());
+        assert_eq!(msg.current_content, "Vacation Photos");
+
+        if let EditableMessageType::Gallery { folder_id, title, items } = &msg.message_type {
+            assert_eq!(folder_id, "folder-abc");
+            assert_eq!(title.as_deref(), Some("Vacation Photos"));
+            assert_eq!(items.len(), 2);
+            assert_eq!(items[0].name, "photo1.jpg");
+            assert_eq!(items[1].dimensions, Some((1024, 768)));
+        } else {
+            panic!("Expected Gallery message type");
+        }
+    }
+
+    #[test]
+    fn test_gallery_default_title() {
+        let items = vec![
+            GalleryItem {
+                name: "file.txt".to_string(),
+                mime_type: "text/plain".to_string(),
+                size: 100,
+                thumbnail_data: None,
+                artifact_hash: "hash".to_string(),
+                dimensions: None,
+            },
+        ];
+
+        let msg = EditableChatMessage::new_gallery(
+            "gallery-2".to_string(),
+            "realm-1".to_string(),
+            "bob".to_string(),
+            400,
+            "folder-xyz".to_string(),
+            None, // No title
+            items,
+        );
+
+        assert_eq!(msg.current_content, "[Gallery: 1 items]");
     }
 }

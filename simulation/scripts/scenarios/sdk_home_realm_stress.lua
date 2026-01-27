@@ -449,6 +449,169 @@ logger.info("Phase 6 complete: Artifact operations", {
 })
 
 -- ============================================================================
+-- PHASE 6.5: INLINE IMAGES IN CHAT
+-- Share images inline in the chat
+-- ============================================================================
+
+logger.info("Phase 6.5: Inline images in chat", {
+    phase = 6.5,
+    description = "Share images and galleries inline in chat",
+})
+
+-- Featured test asset
+local FEATURED_ASSET = {
+    path = "assets/Logo_black.png",
+    name = "Logo_black.png",
+    size = 830269,
+    mime_type = "image/png",
+    dimensions = {1024, 1024},
+}
+
+-- Create a realm for chat (using first 3 members)
+local chat_peer_ids = {}
+for i = 1, math.min(3, #peers) do
+    table.insert(chat_peer_ids, tostring(peers[i]))
+end
+
+-- Emit realm created for chat context
+local chat_realm_id = "chat-realm-" .. sim.tick
+logger.event("realm_created", {
+    tick = sim.tick,
+    realm_id = chat_realm_id,
+    member_count = #chat_peer_ids,
+    members = table.concat(chat_peer_ids, ","),
+})
+
+for _, member_id in ipairs(chat_peer_ids) do
+    logger.event("member_joined", {
+        tick = sim.tick,
+        realm_id = chat_realm_id,
+        member = member_id,
+    })
+end
+
+sim:step()
+
+-- First member sends a text message
+logger.event("chat_message", {
+    tick = sim.tick,
+    member = chat_peer_ids[1],
+    content = "Hey everyone! Check out our logo:",
+    message_type = "text",
+    message_id = "msg-" .. sim.tick .. "-" .. chat_peer_ids[1],
+})
+
+sim:step()
+
+-- First member shares the logo as an inline image
+logger.event("chat_image", {
+    tick = sim.tick,
+    member = chat_peer_ids[1],
+    mime_type = FEATURED_ASSET.mime_type,
+    filename = FEATURED_ASSET.name,
+    dimensions = FEATURED_ASSET.dimensions,
+    alt_text = "IndrasNetwork Logo",
+    asset_path = FEATURED_ASSET.path,
+    message_id = "img-" .. sim.tick .. "-" .. chat_peer_ids[1],
+})
+
+sim:step()
+
+-- Second member responds
+if #chat_peer_ids >= 2 then
+    logger.event("chat_message", {
+        tick = sim.tick,
+        member = chat_peer_ids[2],
+        content = "That looks great! Here's a gallery of screenshots:",
+        message_type = "text",
+        message_id = "msg-" .. sim.tick .. "-" .. chat_peer_ids[2],
+    })
+
+    sim:step()
+
+    -- Second member shares a gallery
+    logger.event("chat_gallery", {
+        tick = sim.tick,
+        member = chat_peer_ids[2],
+        folder_id = "gallery-screenshots-001",
+        title = "Project Screenshots",
+        items = {
+            {
+                name = "dashboard.png",
+                mime_type = "image/png",
+                size = 256000,
+                artifact_hash = home.generate_artifact_id(),
+                dimensions = {1920, 1080},
+                asset_path = FEATURED_ASSET.path,
+            },
+            {
+                name = "chat_view.png",
+                mime_type = "image/png",
+                size = 312000,
+                artifact_hash = home.generate_artifact_id(),
+                dimensions = {1920, 1080},
+                asset_path = FEATURED_ASSET.path,
+            },
+            {
+                name = "settings.png",
+                mime_type = "image/png",
+                size = 198000,
+                artifact_hash = home.generate_artifact_id(),
+                dimensions = {1920, 1080},
+                asset_path = FEATURED_ASSET.path,
+            },
+        },
+        message_id = "gallery-" .. sim.tick .. "-" .. chat_peer_ids[2],
+    })
+end
+
+sim:step()
+
+-- Third member shares another image
+if #chat_peer_ids >= 3 then
+    logger.event("chat_message", {
+        tick = sim.tick,
+        member = chat_peer_ids[3],
+        content = "Here's my contribution!",
+        message_type = "text",
+        message_id = "msg-" .. sim.tick .. "-" .. chat_peer_ids[3],
+    })
+
+    sim:step()
+
+    logger.event("chat_image", {
+        tick = sim.tick,
+        member = chat_peer_ids[3],
+        mime_type = "image/png",
+        filename = "my_design.png",
+        dimensions = {800, 600},
+        alt_text = "My design contribution",
+        asset_path = FEATURED_ASSET.path,
+        message_id = "img-" .. sim.tick .. "-" .. chat_peer_ids[3],
+    })
+end
+
+sim:step()
+
+-- Final message
+logger.event("chat_message", {
+    tick = sim.tick,
+    member = chat_peer_ids[1],
+    content = "Great work everyone! The images look fantastic.",
+    message_type = "text",
+    message_id = "msg-" .. sim.tick .. "-" .. chat_peer_ids[1],
+})
+
+logger.info("Phase 6.5 complete: Inline images shared", {
+    phase = 6.5,
+    tick = sim.tick,
+    images_shared = #chat_peer_ids >= 3 and 2 or 1,
+    galleries_shared = #chat_peer_ids >= 2 and 1 or 0,
+})
+
+sim:step()
+
+-- ============================================================================
 -- PHASE 7: PERSISTENCE TEST
 -- Simulate session restart and data recovery
 -- ============================================================================
