@@ -181,6 +181,56 @@ pub enum StreamEvent {
         member: String,
     },
 
+    /// Image shared inline in chat
+    #[serde(rename = "chat_image")]
+    ChatImage {
+        #[serde(default)]
+        tick: u32,
+        member: String,
+        /// MIME type (image/png, image/jpeg, etc.)
+        mime_type: String,
+        /// Base64-encoded image data (for embedded images)
+        #[serde(default)]
+        data: Option<String>,
+        /// Artifact hash (for large images stored as artifacts)
+        #[serde(default)]
+        artifact_hash: Option<String>,
+        /// Original filename
+        #[serde(default)]
+        filename: Option<String>,
+        /// Image dimensions (width, height)
+        #[serde(default)]
+        dimensions: Option<(u32, u32)>,
+        /// Alt text / caption
+        #[serde(default)]
+        alt_text: Option<String>,
+        /// Local asset path for viewer testing
+        #[serde(default)]
+        asset_path: Option<String>,
+        /// Optional message ID
+        #[serde(default)]
+        message_id: Option<String>,
+    },
+
+    /// Gallery of images/videos/files shared in chat
+    #[serde(rename = "chat_gallery")]
+    ChatGallery {
+        #[serde(default)]
+        tick: u32,
+        member: String,
+        /// Unique folder identifier
+        folder_id: String,
+        /// Gallery title
+        #[serde(default)]
+        title: Option<String>,
+        /// Items in the gallery
+        #[serde(default)]
+        items: Vec<GalleryEventItem>,
+        /// Optional message ID
+        #[serde(default)]
+        message_id: Option<String>,
+    },
+
     // ========== Proof/Blessing Events ==========
     #[serde(rename = "proof_submitted")]
     ProofSubmitted {
@@ -310,6 +360,8 @@ impl StreamEvent {
             StreamEvent::ChatMessage { tick, .. } => *tick,
             StreamEvent::ChatMessageEdited { tick, .. } => *tick,
             StreamEvent::ChatMessageDeleted { tick, .. } => *tick,
+            StreamEvent::ChatImage { tick, .. } => *tick,
+            StreamEvent::ChatGallery { tick, .. } => *tick,
             StreamEvent::ProofSubmitted { tick, .. } => *tick,
             StreamEvent::BlessingGiven { tick, .. } => *tick,
             StreamEvent::ProofFolderSubmitted { tick, .. } => *tick,
@@ -340,6 +392,8 @@ impl StreamEvent {
             StreamEvent::ChatMessage { .. } => "chat_message",
             StreamEvent::ChatMessageEdited { .. } => "chat_message_edited",
             StreamEvent::ChatMessageDeleted { .. } => "chat_message_deleted",
+            StreamEvent::ChatImage { .. } => "chat_image",
+            StreamEvent::ChatGallery { .. } => "chat_gallery",
             StreamEvent::ProofSubmitted { .. } => "proof_submitted",
             StreamEvent::BlessingGiven { .. } => "blessing_given",
             StreamEvent::ProofFolderSubmitted { .. } => "proof_folder_submitted",
@@ -374,7 +428,9 @@ impl StreamEvent {
 
             StreamEvent::ChatMessage { .. }
             | StreamEvent::ChatMessageEdited { .. }
-            | StreamEvent::ChatMessageDeleted { .. } => EventCategory::Chat,
+            | StreamEvent::ChatMessageDeleted { .. }
+            | StreamEvent::ChatImage { .. }
+            | StreamEvent::ChatGallery { .. } => EventCategory::Chat,
 
             StreamEvent::ProofSubmitted { .. }
             | StreamEvent::BlessingGiven { .. }
@@ -428,4 +484,27 @@ impl EventCategory {
             EventCategory::Info => "event-info",
         }
     }
+}
+
+/// Item in a gallery event
+#[derive(Debug, Clone, Deserialize)]
+pub struct GalleryEventItem {
+    /// Filename
+    pub name: String,
+    /// MIME type
+    pub mime_type: String,
+    /// Size in bytes
+    #[serde(default)]
+    pub size: u64,
+    /// Base64-encoded thumbnail
+    #[serde(default)]
+    pub thumbnail_data: Option<String>,
+    /// Artifact hash reference (hex)
+    pub artifact_hash: String,
+    /// Item dimensions (width, height) if applicable
+    #[serde(default)]
+    pub dimensions: Option<(u32, u32)>,
+    /// Local asset path for viewer testing
+    #[serde(default)]
+    pub asset_path: Option<String>,
 }

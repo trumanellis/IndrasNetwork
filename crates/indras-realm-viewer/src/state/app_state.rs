@@ -134,6 +134,19 @@ impl LoggedEvent {
             StreamEvent::ChatMessageDeleted { member, .. } => {
                 format!("{} deleted a message", member_name(member))
             }
+            StreamEvent::ChatImage { member, filename, alt_text, .. } => {
+                let desc = alt_text.as_ref()
+                    .or(filename.as_ref())
+                    .map(|s| s.as_str())
+                    .unwrap_or("image");
+                format!("{} shared {}", member_name(member), desc)
+            }
+            StreamEvent::ChatGallery { member, title, items, .. } => {
+                let desc = title.as_ref()
+                    .map(|s| s.as_str())
+                    .unwrap_or_else(|| "gallery");
+                format!("{} shared {} ({} items)", member_name(member), desc, items.len())
+            }
             StreamEvent::ProofSubmitted { claimant, quest_title, .. } => {
                 let title = if quest_title.is_empty() { "quest" } else { quest_title.as_str() };
                 format!("{} submitted proof for {}", member_name(claimant), title)
@@ -272,7 +285,9 @@ impl AppState {
             | StreamEvent::ChatMessageDeleted { .. }
             | StreamEvent::ProofSubmitted { .. }
             | StreamEvent::BlessingGiven { .. }
-            | StreamEvent::ProofFolderSubmitted { .. } => {
+            | StreamEvent::ProofFolderSubmitted { .. }
+            | StreamEvent::ChatImage { .. }
+            | StreamEvent::ChatGallery { .. } => {
                 self.chat.process_event(&event);
             }
 

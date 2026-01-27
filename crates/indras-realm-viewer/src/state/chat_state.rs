@@ -88,6 +88,51 @@ pub enum ChatMessageType {
         claimant: String,
         attention_millis: u64,
     },
+    /// Image shared inline in chat.
+    Image {
+        /// MIME type (image/png, image/jpeg, etc.)
+        mime_type: String,
+        /// Base64-encoded image data (for embedded images).
+        inline_data: Option<String>,
+        /// Artifact hash for large images (hex string).
+        artifact_hash: Option<String>,
+        /// Original filename.
+        filename: Option<String>,
+        /// Image dimensions (width, height).
+        dimensions: Option<(u32, u32)>,
+        /// Alt text / caption.
+        alt_text: Option<String>,
+        /// Local asset path for viewer testing.
+        asset_path: Option<String>,
+    },
+    /// Gallery of images/videos/files.
+    Gallery {
+        /// Unique folder identifier.
+        folder_id: String,
+        /// Gallery title.
+        title: Option<String>,
+        /// Items in the gallery.
+        items: Vec<GalleryStateItem>,
+    },
+}
+
+/// Item in a gallery.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GalleryStateItem {
+    /// Filename.
+    pub name: String,
+    /// MIME type.
+    pub mime_type: String,
+    /// Size in bytes.
+    pub size: u64,
+    /// Base64-encoded thumbnail.
+    pub thumbnail_data: Option<String>,
+    /// Artifact hash reference (hex string).
+    pub artifact_hash: String,
+    /// Item dimensions (width, height).
+    pub dimensions: Option<(u32, u32)>,
+    /// Local asset path for viewer testing.
+    pub asset_path: Option<String>,
 }
 
 /// Blessing information for a proof.
@@ -310,6 +355,84 @@ impl ChatState {
                     },
                 );
                 self.add_realm_message(realm_id, msg.clone());
+                self.add_global_message(msg);
+            }
+
+            StreamEvent::ChatImage {
+                tick,
+                member,
+                mime_type,
+                data,
+                artifact_hash,
+                filename,
+                dimensions,
+                alt_text,
+                asset_path,
+                message_id,
+            } => {
+                let id = message_id.clone()
+                    .unwrap_or_else(|| format!("img-{}-{}", tick, member));
+
+                let content = alt_text.clone()
+                    .or_else(|| filename.clone())
+                    .unwrap_or_else(|| "[Image]".to_string());
+
+                let msg = ChatMessage::new(
+                    id,
+                    *tick,
+                    member.clone(),
+                    content,
+                    ChatMessageType::Image {
+                        mime_type: mime_type.clone(),
+                        inline_data: data.clone(),
+                        artifact_hash: artifact_hash.clone(),
+                        filename: filename.clone(),
+                        dimensions: *dimensions,
+                        alt_text: alt_text.clone(),
+                        asset_path: asset_path.clone(),
+                    },
+                );
+                self.add_global_message(msg);
+            }
+
+            StreamEvent::ChatGallery {
+                tick,
+                member,
+                folder_id,
+                title,
+                items,
+                message_id,
+            } => {
+                let id = message_id.clone()
+                    .unwrap_or_else(|| format!("gallery-{}-{}", folder_id, tick));
+
+                let content = title.clone()
+                    .unwrap_or_else(|| format!("[Gallery: {} items]", items.len()));
+
+                // Convert event items to state items
+                let state_items: Vec<GalleryStateItem> = items.iter().map(|item| {
+                    GalleryStateItem {
+                        name: item.name.clone(),
+                        mime_type: item.mime_type.clone(),
+                        size: item.size,
+                        thumbnail_data: item.thumbnail_data.clone(),
+                        artifact_hash: item.artifact_hash.clone(),
+                        dimensions: item.dimensions,
+                        asset_path: item.asset_path.clone(),
+                    }
+                }).collect();
+
+                let msg = ChatMessage::new(
+                    id,
+                    *tick,
+                    member.clone(),
+                    content,
+                    ChatMessageType::Gallery {
+                        folder_id: folder_id.clone(),
+                        title: title.clone(),
+                        items: state_items,
+                    },
+                );
                 self.add_global_message(msg);
             }
 

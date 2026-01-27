@@ -883,6 +883,106 @@ fn ChatMessageItem(message: crate::state::ChatMessage) -> Element {
                 }
             }
         }
+        crate::state::ChatMessageType::Image {
+            mime_type,
+            inline_data,
+            filename,
+            alt_text,
+            asset_path,
+            ..
+        } => {
+            // Determine image source: prefer asset_path for local testing,
+            // then inline_data, then placeholder
+            let image_url = asset_path.as_ref()
+                .and_then(|path| load_image_as_data_url(path))
+                .or_else(|| inline_data.as_ref().map(|data| {
+                    format!("data:{};base64,{}", mime_type, data)
+                }));
+
+            let display_name = filename.as_deref()
+                .or(alt_text.as_deref())
+                .unwrap_or("Image");
+
+            rsx! {
+                div { class: "chat-message image-message",
+                    div { class: "chat-message-header",
+                        span { class: "chat-tick", "[{message.tick}]" }
+                        span { class: "chat-sender {color_class}", "{name}" }
+                    }
+                    div { class: "chat-image-container",
+                        if let Some(ref url) = image_url {
+                            img {
+                                class: "chat-inline-image",
+                                src: "{url}",
+                                alt: "{display_name}",
+                                loading: "lazy",
+                            }
+                        } else {
+                            div { class: "chat-image-placeholder",
+                                span { class: "placeholder-icon", "🖼️" }
+                                span { class: "placeholder-text", "{display_name}" }
+                            }
+                        }
+                    }
+                    if let Some(ref caption) = alt_text {
+                        div { class: "chat-image-caption", "{caption}" }
+                    }
+                }
+            }
+        }
+        crate::state::ChatMessageType::Gallery {
+            title,
+            items,
+            ..
+        } => {
+            let gallery_title = title.as_deref().unwrap_or("Gallery");
+            let item_count = items.len();
+
+            rsx! {
+                div { class: "chat-message gallery-message",
+                    div { class: "chat-message-header",
+                        span { class: "chat-tick", "[{message.tick}]" }
+                        span { class: "chat-icon", "🖼️" }
+                        span { class: "chat-sender {color_class}", "{name}" }
+                        span { class: "gallery-title", "{gallery_title}" }
+                        span { class: "gallery-count", "({item_count} items)" }
+                    }
+                    div { class: "chat-gallery-grid",
+                        for item in items.iter().take(6) {
+                            {
+                                let item_url = item.asset_path.as_ref()
+                                    .and_then(|path| load_image_as_data_url(path))
+                                    .or_else(|| item.thumbnail_data.as_ref().map(|data| {
+                                        format!("data:{};base64,{}", item.mime_type, data)
+                                    }));
+
+                                rsx! {
+                                    div { class: "gallery-item",
+                                        if let Some(ref url) = item_url {
+                                            img {
+                                                class: "gallery-thumbnail",
+                                                src: "{url}",
+                                                alt: "{item.name}",
+                                                loading: "lazy",
+                                            }
+                                        } else {
+                                            div { class: "gallery-placeholder",
+                                                span { "📎" }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if item_count > 6 {
+                            div { class: "gallery-more",
+                                "+{item_count - 6} more"
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
