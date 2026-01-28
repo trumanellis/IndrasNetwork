@@ -6,14 +6,50 @@ use dioxus::prelude::*;
 
 use crate::playback;
 use crate::state::{
-    member_name, short_id, AppState, ArtifactInfo, ArtifactStatus, ClaimInfo, DraftArtifact, MemberStats,
-    QuestAttention, QuestInfo, QuestStatus, RealmInfo, UploadStatus,
+    member_name, short_id, format_duration_millis, AppState, ArtifactInfo, ArtifactStatus, ClaimInfo,
+    DraftArtifact, MemberStats, QuestAttention, QuestInfo, QuestStatus, RealmInfo, TokenOfGratitude, UploadStatus,
 };
 use crate::theme::{ThemeSwitcher, ThemedRoot};
+
+/// File being previewed in overlay
+#[derive(Clone, Debug, Default, PartialEq)]
+struct PreviewFile {
+    name: String,
+    content: String,
+    mime_type: String,
+}
+
+/// View mode for markdown preview
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+enum PreviewViewMode {
+    #[default]
+    Rendered,
+    Raw,
+}
+
+/// Context for markdown preview overlay
+#[derive(Clone, Copy)]
+struct PreviewContext {
+    is_open: Signal<bool>,
+    file: Signal<Option<PreviewFile>>,
+    view_mode: Signal<PreviewViewMode>,
+}
 
 /// Main application component
 #[component]
 pub fn App(state: Signal<AppState>) -> Element {
+    // Preview overlay state
+    let preview_open = use_signal(|| false);
+    let preview_file = use_signal(|| None::<PreviewFile>);
+    let preview_mode = use_signal(|| PreviewViewMode::Rendered);
+
+    // Provide preview context to children
+    use_context_provider(|| PreviewContext {
+        is_open: preview_open,
+        file: preview_file,
+        view_mode: preview_mode,
+    });
+
     let is_pov_mode = state.read().selected_pov.is_some();
 
     if is_pov_mode {
@@ -33,6 +69,11 @@ pub fn App(state: Signal<AppState>) -> Element {
                     }
                 }
                 FloatingControlBar { state }
+                MarkdownPreviewOverlay {
+                    is_open: preview_open,
+                    file: preview_file,
+                    view_mode: preview_mode,
+                }
             }
         }
     }
@@ -526,30 +567,244 @@ fn ClaimBadge(claim: ClaimInfo) -> Element {
 // SHARED ARTIFACT GALLERY PANEL
 // ============================================================================
 
+/// Breadcrumb navigation for artifact folders
+#[component]
+fn ArtifactBreadcrumb(state: Signal<AppState>) -> Element {
+    let mut state_write = state;
+    let nav = &state.read().artifacts.navigation;
+    let path = nav.path.clone();
+    let is_root = nav.current_folder.is_none();
+
+    rsx! {
+        div { class: "artifact-breadcrumb",
+            span {
+                class: if is_root { "breadcrumb-segment active" } else { "breadcrumb-segment clickable" },
+                onclick: move |_| { state_write.write().artifacts.navigate_to(0); },
+                "Realm Artifacts"
+            }
+            for (i, crumb) in path.iter().enumerate() {
+                span { class: "breadcrumb-separator", " > " }
+                span {
+                    class: if i == path.len() - 1 { "breadcrumb-segment active" } else { "breadcrumb-segment clickable" },
+                    onclick: move |_| { state_write.write().artifacts.navigate_to(i + 1); },
+                    "{crumb.title}"
+                }
+            }
+        }
+    }
+}
+
+/// Card for a shared folder (gallery)
+#[component]
+fn SharedFolderCard(
+    folder_id: String,
+    title: String,
+    item_count: usize,
+    sharer: String,
+    on_open: EventHandler<(String, String)>,
+) -> Element {
+    let sharer_name = member_name(&sharer);
+    let color_class = member_color_class(&sharer);
+    let fid = folder_id.clone();
+    let ftitle = title.clone();
+
+    rsx! {
+        div {
+            class: "shared-artifact-card folder-card",
+            onclick: move |_| on_open.call((fid.clone(), ftitle.clone())),
+            div { class: "artifact-card-icon folder-icon", "📁" }
+            div { class: "artifact-card-info",
+                div { class: "artifact-card-name", "{title}" }
+                div { class: "artifact-card-meta",
+                    span { class: "artifact-card-size", "{item_count} items" }
+                    span { class: "artifact-card-sharer {color_class}", "by {sharer_name}" }
+                }
+            }
+        }
+    }
+}
+
+/// Card for items inside a folder
+#[component]
+fn GalleryItemCard(item: crate::state::GalleryStateItem) -> Element {
+    let mut preview_ctx = use_context::<PreviewContext>();
+    let icon = item.icon();
+    let is_image = item.is_image();
+    let is_text = item.is_text();
+    let image_url = if is_image {
+        item.asset_path
+            .as_ref()
+            .and_then(|p| load_image_as_data_url(p))
+            .or_else(|| {
+                item.thumbnail_data
+                    .as_ref()
+                    .map(|d| format!("data:{};base64,{}", item.mime_type, d))
+            })
+    } else {
+        None
+    };
+
+    let size = if item.size < 1024 {
+        format!("{} B", item.size)
+    } else if item.size < 1024 * 1024 {
+        format!("{:.1} KB", item.size as f64 / 1024.0)
+    } else {
+        format!("{:.1} MB", item.size as f64 / (1024.0 * 1024.0))
+    };
+
+    // Click handler for text files
+    let card_class = if is_text {
+        "shared-artifact-card gallery-item-card clickable-text-item"
+    } else {
+        "shared-artifact-card gallery-item-card"
+    };
+
+    rsx! {
+        div {
+            class: card_class,
+            onclick: {
+                let item = item.clone();
+                move |_| {
+                    if item.is_text() {
+                        if let Some(content) = item.asset_path.as_ref()
+                            .and_then(|p| load_text_file_content(p))
+                            .or_else(|| item.text_preview.clone())
+                        {
+                            preview_ctx.file.set(Some(PreviewFile {
+                                name: item.name.clone(),
+                                content,
+                                mime_type: item.mime_type.clone(),
+                            }));
+                            preview_ctx.view_mode.set(PreviewViewMode::Rendered);
+                            preview_ctx.is_open.set(true);
+                        }
+                    }
+                }
+            },
+            if let Some(ref url) = image_url {
+                div { class: "artifact-card-thumbnail",
+                    img { src: "{url}", alt: "{item.name}" }
+                }
+            } else {
+                div { class: "artifact-card-icon", "{icon}" }
+            }
+            div { class: "artifact-card-info",
+                div { class: "artifact-card-name", "{item.name}" }
+                div { class: "artifact-card-meta",
+                    span { class: "artifact-card-size", "{size}" }
+                }
+            }
+        }
+    }
+}
+
 /// Gallery panel showing all shared artifacts in the overview dashboard
 #[component]
 fn SharedArtifactGalleryPanel(state: Signal<AppState>) -> Element {
+    let mut state_write = state;
     let state_read = state.read();
-    let artifacts = state_read.artifacts.all_artifacts();
+    let is_root = state_read.artifacts.is_at_root();
+    let current_folder = state_read.artifacts.navigation.current_folder.clone();
+
+    // Get folders from chat galleries (at root)
+    let folders: Vec<_> = if is_root {
+        state_read
+            .chat
+            .global_messages
+            .iter()
+            .filter_map(|msg| {
+                if let crate::state::ChatMessageType::Gallery {
+                    folder_id,
+                    title,
+                    items,
+                } = &msg.message_type
+                {
+                    Some((
+                        folder_id.clone(),
+                        title.clone().unwrap_or_else(|| "Gallery".into()),
+                        items.len(),
+                        msg.member.clone(),
+                    ))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    } else {
+        vec![]
+    };
+
+    // Get folder contents if inside a folder
+    let folder_items: Vec<_> = if let Some(ref fid) = current_folder {
+        state_read
+            .chat
+            .global_messages
+            .iter()
+            .find_map(|msg| {
+                if let crate::state::ChatMessageType::Gallery { folder_id, items, .. } =
+                    &msg.message_type
+                {
+                    if folder_id == fid {
+                        Some(items.clone())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_default()
+    } else {
+        vec![]
+    };
+
+    let artifacts = if is_root {
+        state_read.artifacts.all_artifacts()
+    } else {
+        vec![]
+    };
     let shared_count = state_read.artifacts.total_shared;
     let recalled_count = state_read.artifacts.total_recalled;
+    let folder_count = folders.len();
 
     rsx! {
         div { class: "shared-artifact-gallery-panel",
             div { class: "artifact-gallery-header",
-                span { class: "artifact-gallery-title", "Shared Artifacts" }
+                ArtifactBreadcrumb { state }
                 div { class: "artifact-gallery-stats",
-                    span { class: "artifact-stat shared", "{shared_count} shared" }
-                    if recalled_count > 0 {
-                        span { class: "artifact-stat recalled", "{recalled_count} recalled" }
+                    if is_root {
+                        span { class: "artifact-stat shared", "{shared_count} files" }
+                        if folder_count > 0 {
+                            span { class: "artifact-stat folders", "{folder_count} folders" }
+                        }
+                        if recalled_count > 0 {
+                            span { class: "artifact-stat recalled", "{recalled_count} recalled" }
+                        }
                     }
                 }
             }
             div { class: "shared-artifact-grid",
-                for artifact in artifacts.iter().take(12) {
-                    SharedArtifactCard { artifact: (*artifact).clone() }
+                if is_root {
+                    for (fid, title, count, sharer) in folders.iter() {
+                        SharedFolderCard {
+                            folder_id: fid.clone(),
+                            title: title.clone(),
+                            item_count: *count,
+                            sharer: sharer.clone(),
+                            on_open: move |(id, t): (String, String)| {
+                                state_write.write().artifacts.open_folder(id, t);
+                            }
+                        }
+                    }
+                    for artifact in artifacts.iter().take(12 - folders.len().min(6)) {
+                        SharedArtifactCard { artifact: (*artifact).clone() }
+                    }
+                } else {
+                    for item in folder_items.iter() {
+                        GalleryItemCard { item: item.clone() }
+                    }
                 }
-                if artifacts.is_empty() {
+                if is_root && artifacts.is_empty() && folders.is_empty() {
                     div { class: "empty-state", "No shared artifacts yet" }
                 }
             }
@@ -584,6 +839,103 @@ fn load_image_as_data_url(path: &str) -> Option<String> {
     // Encode as data URL
     let encoded = STANDARD.encode(&data);
     Some(format!("data:{};base64,{}", mime, encoded))
+}
+
+/// Load a text file's full content from an asset path
+fn load_text_file_content(path: &str) -> Option<String> {
+    let full_path = if path.starts_with('/') {
+        std::path::PathBuf::from(path)
+    } else {
+        std::env::current_dir().ok()?.join(path)
+    };
+    std::fs::read_to_string(&full_path).ok()
+}
+
+/// Render markdown to HTML
+fn render_markdown_to_html(markdown: &str) -> String {
+    use pulldown_cmark::{html, Options, Parser};
+    let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
+    let parser = Parser::new_ext(markdown, options);
+    let mut html_output = String::new();
+    html::push_html(&mut html_output, parser);
+    html_output
+}
+
+/// Check if file is markdown
+fn is_markdown_file(name: &str, mime_type: &str) -> bool {
+    name.ends_with(".md")
+        || name.ends_with(".markdown")
+        || mime_type == "text/markdown"
+        || mime_type == "application/markdown"
+}
+
+/// Markdown preview overlay with rendered/raw toggle
+#[component]
+fn MarkdownPreviewOverlay(
+    is_open: Signal<bool>,
+    file: Signal<Option<PreviewFile>>,
+    view_mode: Signal<PreviewViewMode>,
+) -> Element {
+    if !is_open() {
+        return rsx! {};
+    }
+    let Some(file_data) = file() else {
+        return rsx! {};
+    };
+
+    let is_md = is_markdown_file(&file_data.name, &file_data.mime_type);
+    let mode = view_mode();
+
+    let rendered_html = if is_md && mode == PreviewViewMode::Rendered {
+        Some(render_markdown_to_html(&file_data.content))
+    } else {
+        None
+    };
+
+    rsx! {
+        div {
+            class: "markdown-preview-overlay",
+            onclick: move |_| is_open.set(false),
+            div {
+                class: "markdown-preview-dialog",
+                onclick: move |e| e.stop_propagation(),
+
+                // Header
+                div { class: "markdown-preview-header",
+                    span { class: "markdown-preview-filename", "{file_data.name}" }
+                    div { class: "markdown-preview-controls",
+                        if is_md {
+                            button {
+                                class: "markdown-preview-toggle",
+                                onclick: move |_| {
+                                    view_mode.set(if mode == PreviewViewMode::Rendered {
+                                        PreviewViewMode::Raw
+                                    } else {
+                                        PreviewViewMode::Rendered
+                                    });
+                                },
+                                if mode == PreviewViewMode::Rendered { "View Raw" } else { "View Rendered" }
+                            }
+                        }
+                        button {
+                            class: "markdown-preview-close",
+                            onclick: move |_| is_open.set(false),
+                            "×"
+                        }
+                    }
+                }
+
+                // Content
+                div { class: "markdown-preview-content",
+                    if let Some(ref html) = rendered_html {
+                        div { class: "markdown-rendered", dangerous_inner_html: "{html}" }
+                    } else {
+                        pre { class: "markdown-raw", "{file_data.content}" }
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Card displaying a shared artifact with its status
@@ -950,24 +1302,69 @@ fn ChatMessageItem(message: crate::state::ChatMessage) -> Element {
                     div { class: "chat-gallery-grid",
                         for item in items.iter().take(6) {
                             {
+                                let mut preview_ctx = use_context::<PreviewContext>();
                                 let item_url = item.asset_path.as_ref()
                                     .and_then(|path| load_image_as_data_url(path))
                                     .or_else(|| item.thumbnail_data.as_ref().map(|data| {
                                         format!("data:{};base64,{}", item.mime_type, data)
                                     }));
 
+                                let is_text = item.is_text();
+                                let icon = item.icon();
+                                let name = item.name.clone();
+                                let text_preview = item.text_preview.clone();
+
+                                let item_class = if is_text {
+                                    "gallery-item clickable-text-item"
+                                } else {
+                                    "gallery-item"
+                                };
+
                                 rsx! {
-                                    div { class: "gallery-item",
-                                        if let Some(ref url) = item_url {
+                                    div {
+                                        class: item_class,
+                                        title: "{name}",
+                                        onclick: {
+                                            let item = item.clone();
+                                            move |_| {
+                                                if item.is_text() {
+                                                    if let Some(content) = item.asset_path.as_ref()
+                                                        .and_then(|p| load_text_file_content(p))
+                                                        .or_else(|| item.text_preview.clone())
+                                                    {
+                                                        preview_ctx.file.set(Some(PreviewFile {
+                                                            name: item.name.clone(),
+                                                            content,
+                                                            mime_type: item.mime_type.clone(),
+                                                        }));
+                                                        preview_ctx.view_mode.set(PreviewViewMode::Rendered);
+                                                        preview_ctx.is_open.set(true);
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        if is_text {
+                                            // Text/Markdown preview
+                                            div { class: "gallery-text-preview",
+                                                div { class: "gallery-text-header",
+                                                    span { class: "gallery-text-icon", "{icon}" }
+                                                    span { class: "gallery-text-name", "{name}" }
+                                                }
+                                                if let Some(ref preview) = text_preview {
+                                                    div { class: "gallery-text-content", "{preview}" }
+                                                }
+                                            }
+                                        } else if let Some(ref url) = item_url {
                                             img {
                                                 class: "gallery-thumbnail",
                                                 src: "{url}",
-                                                alt: "{item.name}",
+                                                alt: "{name}",
                                                 loading: "lazy",
                                             }
                                         } else {
                                             div { class: "gallery-placeholder",
-                                                span { "📎" }
+                                                span { class: "gallery-placeholder-icon", "{icon}" }
+                                                span { class: "gallery-placeholder-name", "{name}" }
                                             }
                                         }
                                     }
@@ -1358,6 +1755,7 @@ pub fn POVDashboard(state: Signal<AppState>) -> Element {
                             name: name.clone(),
                             stats: stats.clone(),
                         }
+                        TokensOfGratitudePanel { state, member: member.clone() }
                         MyNetworkView { state, member: member.clone() }
                     }
                     div { class: "pov-center-column",
@@ -1420,6 +1818,10 @@ fn ProfileHero(member: String, name: String, stats: MemberStats) -> Element {
                 div { class: "profile-stat",
                     span { class: "profile-stat-value", "{stats.quests_completed}" }
                     span { class: "profile-stat-label", "Done" }
+                }
+                div { class: "profile-stat token-stat",
+                    span { class: "profile-stat-value", "{stats.tokens_count}" }
+                    span { class: "profile-stat-label", "Tokens" }
                 }
                 div { class: "profile-stat",
                     span { class: "profile-stat-value", "{stats.realms_count}" }
@@ -2394,6 +2796,139 @@ fn MyActivity(state: Signal<AppState>, member: String) -> Element {
                 if events.is_empty() {
                     div { class: "empty-state", "No activity yet" }
                 }
+            }
+        }
+    }
+}
+
+// ============================================================================
+// TOKENS OF GRATITUDE
+// ============================================================================
+
+/// Panel displaying a member's Tokens of Gratitude
+#[component]
+fn TokensOfGratitudePanel(state: Signal<AppState>, member: String) -> Element {
+    let state_read = state.read();
+    let tokens = state_read.tokens.tokens_for_member(&member);
+    let token_count = tokens.len();
+    let total_value = state_read.tokens.total_value_for_member(&member);
+    let total_formatted = format_duration_millis(total_value);
+
+    // Get max value for relative bar sizing
+    let max_value = tokens.first().map(|t| t.value_millis).unwrap_or(1).max(1);
+
+    rsx! {
+        div { class: "tokens-panel",
+            div { class: "tokens-header",
+                div { class: "tokens-title",
+                    span { class: "tokens-icon", "🏆" }
+                    span { "Tokens of Gratitude" }
+                    span { class: "panel-count", "{token_count}" }
+                }
+            }
+
+            // Summary with total value
+            if token_count > 0 {
+                div { class: "tokens-summary",
+                    span { class: "tokens-total-label", "Total blessed time:" }
+                    span { class: "tokens-total-value", "{total_formatted}" }
+                }
+            }
+
+            // Token list
+            div { class: "tokens-list",
+                for token in tokens.iter() {
+                    TokenCard {
+                        token: (*token).clone(),
+                        max_value
+                    }
+                }
+                if token_count == 0 {
+                    div { class: "empty-state tokens-empty",
+                        div { class: "empty-icon", "🏆" }
+                        div { class: "empty-text", "No tokens yet" }
+                        div { class: "empty-hint", "Submit proofs of service to earn tokens" }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Individual Token of Gratitude card
+#[component]
+fn TokenCard(token: TokenOfGratitude, max_value: u64) -> Element {
+    let value_formatted = token.formatted_value();
+    let bar_width = if max_value > 0 {
+        (token.value_millis as f64 / max_value as f64 * 100.0).min(100.0)
+    } else {
+        0.0
+    };
+
+    // Determine display title - use quest_title if available, otherwise use folder_id
+    let display_title = if token.quest_title.is_empty() {
+        short_id(&token.folder_id)
+    } else {
+        token.quest_title.clone()
+    };
+
+    // Narrative preview (truncated)
+    let preview = if token.narrative_preview.len() > 60 {
+        format!("{}...", &token.narrative_preview[..60])
+    } else if token.narrative_preview.is_empty() {
+        format!("{} artifacts", token.artifact_count)
+    } else {
+        token.narrative_preview.clone()
+    };
+
+    // Format blesser/file counts with plurals
+    let blesser_text = if token.blesser_count == 1 {
+        format!("{} blesser", token.blesser_count)
+    } else {
+        format!("{} blessers", token.blesser_count)
+    };
+
+    let file_text = if token.artifact_count == 1 {
+        format!("{} file", token.artifact_count)
+    } else {
+        format!("{} files", token.artifact_count)
+    };
+
+    rsx! {
+        div { class: "token-card",
+            div { class: "token-header",
+                span { class: "token-icon", "🏆" }
+                span { class: "token-title", "{display_title}" }
+            }
+
+            // Value bar
+            div { class: "token-value-section",
+                div { class: "token-bar-container",
+                    div {
+                        class: "token-bar-fill",
+                        style: "width: {bar_width}%"
+                    }
+                }
+                span { class: "token-value-text", "{value_formatted}" }
+            }
+
+            // Meta info
+            div { class: "token-meta",
+                span { class: "token-meta-item",
+                    span { class: "meta-icon", "✨" }
+                    "{blesser_text}"
+                }
+                if token.artifact_count > 0 {
+                    span { class: "token-meta-item",
+                        span { class: "meta-icon", "📎" }
+                        "{file_text}"
+                    }
+                }
+            }
+
+            // Narrative preview
+            if !preview.is_empty() {
+                div { class: "token-narrative", "{preview}" }
             }
         }
     }
