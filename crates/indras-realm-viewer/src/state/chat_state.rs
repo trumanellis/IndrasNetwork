@@ -125,14 +125,45 @@ pub struct GalleryStateItem {
     pub mime_type: String,
     /// Size in bytes.
     pub size: u64,
-    /// Base64-encoded thumbnail.
+    /// Base64-encoded thumbnail (for images/videos).
     pub thumbnail_data: Option<String>,
+    /// Text preview (first ~200 chars for text/markdown files).
+    pub text_preview: Option<String>,
     /// Artifact hash reference (hex string).
     pub artifact_hash: String,
-    /// Item dimensions (width, height).
+    /// Item dimensions (width, height) for images.
     pub dimensions: Option<(u32, u32)>,
     /// Local asset path for viewer testing.
     pub asset_path: Option<String>,
+}
+
+impl GalleryStateItem {
+    /// Check if this is an image item.
+    pub fn is_image(&self) -> bool {
+        self.mime_type.starts_with("image/")
+    }
+
+    /// Check if this is a text/markdown item.
+    pub fn is_text(&self) -> bool {
+        self.mime_type.starts_with("text/") || self.mime_type == "application/markdown"
+    }
+
+    /// Get the file extension icon.
+    pub fn icon(&self) -> &'static str {
+        if self.is_image() {
+            "🖼️"
+        } else if self.mime_type.contains("markdown") || self.name.ends_with(".md") {
+            "📝"
+        } else if self.mime_type.starts_with("text/") {
+            "📄"
+        } else if self.mime_type.contains("pdf") {
+            "📕"
+        } else if self.mime_type.contains("zip") || self.mime_type.contains("archive") {
+            "📦"
+        } else {
+            "📎"
+        }
+    }
 }
 
 /// Blessing information for a proof.
@@ -416,6 +447,7 @@ impl ChatState {
                         mime_type: item.mime_type.clone(),
                         size: item.size,
                         thumbnail_data: item.thumbnail_data.clone(),
+                        text_preview: item.text_preview.clone(),
                         artifact_hash: item.artifact_hash.clone(),
                         dimensions: item.dimensions,
                         asset_path: item.asset_path.clone(),

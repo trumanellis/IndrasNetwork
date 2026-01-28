@@ -1,0 +1,172 @@
+/* ============================================
+   THEME SYSTEM
+
+   Usage:
+   1. Set data-theme attribute on <html> or root element
+   2. Use CSS variables throughout your app
+   3. Toggle data-theme value to switch themes
+
+   Example: <html data-theme="quiet-protocol">
+   ============================================ */
+
+/* ============================================
+   BASE VARIABLES (fallback/shared)
+   ============================================ */
+:root {
+  /* Semantic tokens - use these in your components */
+  --bg-primary: #0a0a0a;
+  --bg-secondary: #161616;
+  --bg-card: #1a1a1a;
+  --text-primary: #F7F3E9;
+  --text-secondary: #7cb87c;
+  --text-muted: #666;
+  --accent-1: #d4af37;
+  --accent-2: #00d4aa;
+  --border-color: rgba(255, 255, 255, 0.1);
+  --border-radius: 4px;
+  --glow-effect: none;
+
+  /* Typography */
+  --font-heading: 'Cormorant Garamond', Georgia, serif;
+  --font-body: 'JetBrains Mono', 'Fira Code', monospace;
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-base: 1rem;
+  --font-size-lg: 1.25rem;
+  --font-size-xl: 1.5rem;
+  --font-size-2xl: 2rem;
+  --font-size-3xl: 3rem;
+
+  /* Spacing */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+
+  /* Transitions */
+  --transition-fast: 150ms ease;
+  --transition-base: 200ms ease;
+  --transition-slow: 300ms ease;
+}
+
+/* ============================================
+   THEME: QUIET PROTOCOL
+   Clean, minimal, no glow effects
+   ============================================ */
+[data-theme="quiet-protocol"] {
+  --bg-primary: #0a0a0a;
+  --bg-secondary: #161616;
+  --bg-card: #1a1a1a;
+  --text-primary: #F7F3E9;
+  --text-secondary: #7cb87c;
+  --text-muted: #555;
+  --accent-1: #d4af37;
+  --accent-2: #00d4aa;
+  --border-color: rgba(255, 255, 255, 0.1);
+  --border-radius: 4px;
+  --glow-effect: none;
+}
+
+/* ============================================
+   THEME: MYSTIC TERMINAL
+   Subtle glow, purple tones
+   ============================================ */
+[data-theme="mystic"] {
+  --bg-primary: #0a0a0a;
+  --bg-secondary: #161616;
+  --bg-card: rgba(26, 26, 26, 0.8);
+  --text-primary: #F7F3E9;
+  --text-secondary: #c4a7d7;
+  --text-muted: #8b7a9e;
+  --accent-1: #d4af37;
+  --accent-2: #39ff14;
+  --border-color: rgba(196, 167, 215, 0.2);
+  --border-radius: 4px;
+  --glow-effect: 0 0 20px currentColor;
+}
+
+/* ============================================
+   THEME: NEON
+   High contrast, strong glow
+   ============================================ */
+[data-theme="neon"] {
+  --bg-primary: #0a0e0f;
+  --bg-secondary: #0f1415;
+  --bg-card: rgba(15, 20, 21, 0.9);
+  --text-primary: #00FFD1;
+  --text-secondary: #00d4aa;
+  --text-muted: #00806a;
+  --accent-1: #ff00ff;
+  --accent-2: #00FFD1;
+  --border-color: rgba(0, 255, 209, 0.3);
+  --border-radius: 2px;
+  --glow-effect: 0 0 30px currentColor, 0 0 60px currentColor;
+}
+
+/* ============================================
+   OPTIONAL: Light theme example
+   ============================================ */
+[data-theme="light"] {
+  --bg-primary: #fafafa;
+  --bg-secondary: #f0f0f0;
+  --bg-card: #ffffff;
+  --text-primary: #1a1a1a;
+  --text-secondary: #4a5568;
+  --text-muted: #a0a0a0;
+  --accent-1: #b8960c;
+  --accent-2: #0a8a6f;
+  --border-color: rgba(0, 0, 0, 0.1);
+  --border-radius: 4px;
+  --glow-effect: none;
+}
+
+/* ============================================
+   THEME SWITCHER COMPONENT (optional)
+   ============================================ */
+.theme-switcher {
+  position: fixed;
+  top: var(--space-8);
+  right: var(--space-8);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  background: var(--bg-secondary);
+  padding: var(--space-2);
+  border-radius: var(--border-radius);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--border-color);
+}
+
+.theme-switcher button {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--border-radius);
+  cursor: pointer;
+  transition: all var(--transition-base);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.theme-switcher button:hover,
+.theme-switcher button:focus {
+  background: var(--bg-card);
+  color: var(--accent-2);
+  border-color: var(--accent-2);
+  outline: none;
+  box-shadow: var(--glow-effect);
+}
+
+.theme-switcher button.active {
+  background: var(--accent-1);
+  color: var(--bg-primary);
+  border-color: var(--accent-1);
+}

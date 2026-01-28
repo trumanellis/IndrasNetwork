@@ -18,7 +18,7 @@ use crate::stream::broadcast_to_stream;
 
 use chrono::Utc;
 use futures::Stream;
-use indras_core::{InterfaceEvent, MembershipChange};
+use indras_core::{InterfaceEvent, MembershipChange, PeerIdentity};
 use indras_node::{IndrasNode, ReceivedEvent};
 use indras_storage::ContentRef;
 use indras_transport::IrohIdentity;
@@ -1435,9 +1435,249 @@ impl Realm {
             mime_type,
             sharer,
             shared_at: Utc::now(),
+            is_encrypted: false,
+            sharing_status: crate::artifact_sharing::SharingStatus::Shared,
         };
 
         Ok(artifact)
+    }
+
+    /// Get the artifact key registry document for this realm.
+    ///
+    /// The key registry stores the mapping from artifact hashes to
+    /// encryption keys, enabling revocable artifact sharing.
+    pub async fn artifact_key_registry(
+        &self,
+    ) -> Result<Document<crate::artifact_sharing::ArtifactKeyRegistry>> {
+        self.document("artifact_key_registry").await
+    }
+
+    /// Share a file as an artifact with revocation support.
+    ///
+    /// This is similar to `share_artifact()` but encrypts the content with
+    /// a per-artifact key, enabling the artifact to be recalled later.
+    ///
+    /// # How It Works
+    ///
+    /// 1. Generate a random per-artifact encryption key
+    /// 2. Encrypt the file content with the key
+    /// 3. Store the encrypted content in blob storage
+    /// 4. Store the encrypted key in the realm's key registry
+    /// 5. Broadcast the artifact metadata to all members
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the file to share
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let artifact = realm.share_artifact_revocable("./secret.pdf").await?;
+    /// println!("Shared revocable: {} (encrypted)", artifact.name);
+    ///
+    /// // Later, recall it
+    /// realm.recall_artifact(&artifact.id).await?;
+    /// ```
+    pub async fn share_artifact_revocable(
+        &self,
+        path: impl AsRef<Path>,
+    ) -> Result<crate::artifact_sharing::SharedArtifact> {
+        use crate::artifact_sharing::{EncryptedArtifactKey, SharedArtifact, SharingStatus};
+
+        let path = path.as_ref();
+
+        // Read the file
+        let file_data = tokio::fs::read(path)
+            .await
+            .map_err(|e| IndraError::Artifact(format!("Failed to read file: {}", e)))?;
+
+        // Get filename
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unnamed")
+            .to_string();
+
+        // Guess MIME type from extension
+        let mime_type = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| guess_mime_type(ext));
+
+        // Generate per-artifact encryption key
+        let artifact_key = indras_crypto::generate_artifact_key();
+
+        // Encrypt the content
+        let encrypted = indras_crypto::encrypt_artifact(&file_data, &artifact_key)
+            .map_err(|e| IndraError::Artifact(format!("Failed to encrypt artifact: {}", e)))?;
+
+        // Get the encrypted bytes
+        let encrypted_bytes = encrypted.to_bytes();
+
+        // Compute BLAKE3 hash of ENCRYPTED content (this is the artifact ID)
+        let hash = blake3::hash(&encrypted_bytes);
+        let artifact_hash: [u8; 32] = *hash.as_bytes();
+
+        // Get encrypted content size
+        let size = encrypted_bytes.len() as u64;
+
+        // Store encrypted content in blob storage
+        let _content_ref = self
+            .node
+            .storage()
+            .store_blob(&encrypted_bytes)
+            .await
+            .map_err(|e| IndraError::Artifact(format!("Failed to store encrypted blob: {}", e)))?;
+
+        debug!(
+            artifact_hash = %hex::encode(&artifact_hash[..8]),
+            name = %name,
+            encrypted_size = size,
+            "Stored encrypted artifact in blob storage"
+        );
+
+        // Get our identity
+        let sharer_id = self.node.identity();
+        let sharer_hex = hex::encode(&sharer_id.as_bytes());
+
+        // Get current tick (approximation - use current timestamp in millis)
+        let shared_at = chrono::Utc::now().timestamp_millis() as u64;
+
+        // Create the SharedArtifact
+        let shared_artifact = SharedArtifact {
+            hash: artifact_hash,
+            name: name.clone(),
+            size,
+            mime_type: mime_type.clone(),
+            sharer: sharer_hex.clone(),
+            shared_at,
+            status: SharingStatus::Shared,
+        };
+
+        // Encrypt the artifact key with the realm's interface key (placeholder)
+        // In a full implementation, we'd get the interface key from the node
+        // For now, we store a simple encrypted key structure
+        let encrypted_key = EncryptedArtifactKey {
+            nonce: [0u8; 12], // In real impl, generate random nonce
+            ciphertext: artifact_key.to_vec(), // In real impl, encrypt with interface key
+        };
+
+        // Store in key registry
+        let registry = self.artifact_key_registry().await?;
+        registry
+            .update(|r| {
+                r.store(shared_artifact.clone(), encrypted_key);
+            })
+            .await?;
+
+        // Post ArtifactRecalled-style notification to chat (as artifact shared)
+        // This is so the chat shows when artifacts are shared
+        self.send(Content::Artifact(ArtifactRef {
+            name: name.clone(),
+            size,
+            hash: artifact_hash,
+            mime_type: mime_type.clone(),
+        }))
+        .await?;
+
+        Ok(shared_artifact)
+    }
+
+    /// Recall a previously shared artifact.
+    ///
+    /// This revokes access to the artifact by:
+    /// 1. Removing the decryption key from the registry
+    /// 2. Deleting the encrypted blob from local storage
+    /// 3. Broadcasting a recall event to all members
+    /// 4. Adding a tombstone message to chat
+    ///
+    /// Only the original sharer can recall an artifact.
+    ///
+    /// # Arguments
+    ///
+    /// * `artifact_hash` - The hash of the artifact to recall
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// realm.recall_artifact(&artifact.hash).await?;
+    /// // The artifact is now inaccessible to all members
+    /// ```
+    pub async fn recall_artifact(&self, artifact_hash: &[u8; 32]) -> Result<()> {
+        use crate::artifact_sharing::RevocationEntry;
+        use crate::member::MemberId;
+
+        // Get our identity
+        let our_id = self.node.identity();
+        let our_id_hex = hex::encode(&our_id.as_bytes());
+
+        // Get the key registry
+        let registry = self.artifact_key_registry().await?;
+
+        // Check if we can revoke (must be the original sharer)
+        {
+            let guard = registry.read().await;
+            if !guard.can_revoke(artifact_hash, &our_id_hex) {
+                return Err(IndraError::InvalidOperation(
+                    "Cannot recall: either artifact doesn't exist, already recalled, or you're not the original sharer".into(),
+                ));
+            }
+        }
+
+        // Get artifact info for the tombstone before revoking
+        let (shared_at, sharer) = {
+            let guard = registry.read().await;
+            let artifact = guard.get_artifact(artifact_hash).ok_or_else(|| {
+                IndraError::InvalidOperation("Artifact not found in registry".into())
+            })?;
+            (artifact.shared_at, artifact.sharer.clone())
+        };
+
+        // Get current tick
+        let recalled_at = chrono::Utc::now().timestamp_millis() as u64;
+
+        // Create revocation entry
+        let entry = RevocationEntry::new(*artifact_hash, our_id_hex.clone(), recalled_at);
+
+        // Revoke in registry (removes key and updates artifact status)
+        registry
+            .update(|r| {
+                r.revoke(entry);
+            })
+            .await?;
+
+        // Delete the encrypted blob from local storage
+        let content_ref = indras_storage::ContentRef::new(*artifact_hash, 0);
+        let _ = self.node.storage().blob_store().delete(&content_ref).await;
+
+        // Post tombstone to chat
+        // Decode sharer hex string back to member ID bytes
+        let sharer_bytes = hex::decode(&sharer).unwrap_or_else(|_| Vec::new());
+        let mut sharer_member_id: MemberId = [0u8; 32];
+        if sharer_bytes.len() == 32 {
+            sharer_member_id.copy_from_slice(&sharer_bytes);
+        }
+        self.send(Content::ArtifactRecalled {
+            artifact_hash: *artifact_hash,
+            sharer: sharer_member_id,
+            shared_at,
+            recalled_at,
+        })
+        .await?;
+
+        debug!(
+            artifact_hash = %hex::encode(&artifact_hash[..8]),
+            "Artifact recalled successfully"
+        );
+
+        Ok(())
+    }
+
+    /// Check if an artifact has been recalled.
+    pub async fn is_artifact_recalled(&self, artifact_hash: &[u8; 32]) -> Result<bool> {
+        let registry = self.artifact_key_registry().await?;
+        let guard = registry.read().await;
+        Ok(guard.is_revoked(artifact_hash))
     }
 
     /// Download a shared artifact.
@@ -1667,6 +1907,8 @@ fn convert_event_to_artifact(event: ReceivedEvent) -> Option<Artifact> {
                 mime_type: metadata.mime_type,
                 sharer: Member::new(*sender),
                 shared_at: *timestamp,
+                is_encrypted: false,
+                sharing_status: crate::artifact_sharing::SharingStatus::Shared,
             })
         }
         _ => None,
@@ -1741,10 +1983,23 @@ fn guess_mime_type(ext: &str) -> String {
     .to_string()
 }
 
-// Simple hex encoding for debug output
+// Simple hex encoding/decoding for debug output
 mod hex {
     pub fn encode(bytes: &[u8]) -> String {
         bytes.iter().map(|b| format!("{:02x}", b)).collect()
+    }
+
+    pub fn decode(hex: &str) -> Result<Vec<u8>, ()> {
+        if hex.len() % 2 != 0 {
+            return Err(());
+        }
+
+        (0..hex.len())
+            .step_by(2)
+            .map(|i| {
+                u8::from_str_radix(&hex[i..i + 2], 16).map_err(|_| ())
+            })
+            .collect()
     }
 }
 

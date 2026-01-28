@@ -3,7 +3,17 @@
 //! Artifacts are files or binary content shared within a realm.
 //! Unlike documents, artifacts are immutable once shared and are
 //! content-addressed by their hash.
+//!
+//! ## Revocable Sharing
+//!
+//! Artifacts can be shared with revocation support. When shared revocably:
+//! - Content is encrypted with a per-artifact key
+//! - The key can be deleted to revoke access
+//! - Recalling an artifact creates a tombstone in chat
+//!
+//! See [`crate::artifact_sharing`] for the revocation system.
 
+use crate::artifact_sharing::SharingStatus;
 use crate::error::{IndraError, Result};
 use crate::member::Member;
 
@@ -19,6 +29,12 @@ pub type ArtifactId = [u8; 32];
 ///
 /// Artifacts are immutable - once shared, their content never changes.
 /// They are identified by their content hash (BLAKE3).
+///
+/// ## Revocable Sharing
+///
+/// When `is_encrypted` is true, the artifact content is encrypted with
+/// a per-artifact key. The `sharing_status` indicates whether the artifact
+/// is still accessible or has been recalled.
 ///
 /// # Example
 ///
@@ -45,6 +61,10 @@ pub struct Artifact {
     pub sharer: Member,
     /// When it was shared.
     pub shared_at: DateTime<Utc>,
+    /// Whether content is per-artifact encrypted (for revocable sharing).
+    pub is_encrypted: bool,
+    /// Current sharing status (Shared or Recalled).
+    pub sharing_status: SharingStatus,
 }
 
 impl Artifact {
@@ -59,6 +79,21 @@ impl Artifact {
     /// Get the content hash as a hex string.
     pub fn hash_hex(&self) -> String {
         self.id.iter().map(|b| format!("{:02x}", b)).collect()
+    }
+
+    /// Check if this artifact is accessible (not recalled).
+    pub fn is_accessible(&self) -> bool {
+        self.sharing_status.is_shared()
+    }
+
+    /// Check if this artifact has been recalled.
+    pub fn is_recalled(&self) -> bool {
+        self.sharing_status.is_recalled()
+    }
+
+    /// Check if this artifact requires decryption.
+    pub fn requires_decryption(&self) -> bool {
+        self.is_encrypted
     }
 }
 
@@ -254,9 +289,37 @@ mod tests {
             mime_type: Some("text/plain".to_string()),
             sharer: Member::new(identity),
             shared_at: Utc::now(),
+            is_encrypted: false,
+            sharing_status: SharingStatus::Shared,
         };
 
         assert!(!artifact.ticket().is_empty());
         assert_eq!(artifact.hash_hex().len(), 64); // 32 bytes * 2 hex chars
+        assert!(artifact.is_accessible());
+        assert!(!artifact.is_recalled());
+    }
+
+    #[test]
+    fn test_artifact_recalled_status() {
+        let identity = indras_transport::IrohIdentity::from_array([1u8; 32])
+            .expect("valid test identity");
+
+        let artifact = Artifact {
+            id: [0u8; 32],
+            name: "test.txt".to_string(),
+            size: 100,
+            mime_type: Some("text/plain".to_string()),
+            sharer: Member::new(identity),
+            shared_at: Utc::now(),
+            is_encrypted: true,
+            sharing_status: SharingStatus::Recalled {
+                recalled_at: 12345,
+                recalled_by: "abc123".to_string(),
+            },
+        };
+
+        assert!(!artifact.is_accessible());
+        assert!(artifact.is_recalled());
+        assert!(artifact.requires_decryption());
     }
 }

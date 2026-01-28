@@ -1,0 +1,1202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SyncEngine Design System v2 — Minimal Terminal</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      /* === BACKGROUNDS === */
+      --void-black: #0a0a0a;
+      --void-lighter: #0a0e0f;
+      --void-border: #1a1a1a;
+
+      /* === MOSS (Status, Success) === */
+      --moss: #5a7a5a;
+      --moss-glow: #7cb87c;
+
+      /* === CYAN (Interactive) === */
+      --cyan: #00d4aa;
+
+      /* === GOLD (Important) === */
+      --gold: #d4af37;
+
+      /* === TEXT === */
+      --text-primary: #f5f5f5;
+      --text-secondary: rgba(245, 245, 245, 0.7);
+      --text-muted: rgba(245, 245, 245, 0.5);
+
+      /* === SEMANTIC === */
+      --danger: #ff3366;
+
+      /* === TYPOGRAPHY === */
+      --font-serif: 'Cormorant Garamond', Georgia, serif;
+      --font-mono: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace;
+
+      /* === TYPE SCALE === */
+      --text-sm: 0.875rem;
+      --text-base: 1rem;
+      --text-lg: 1.5rem;
+
+      /* === SPACING === */
+      --space-1: 4px;
+      --space-2: 8px;
+      --space-3: 12px;
+      --space-4: 16px;
+      --space-6: 24px;
+      --space-8: 32px;
+
+      /* === MOTION === */
+      --transition-fast: 150ms ease;
+      --transition-normal: 200ms ease;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    *:focus-visible {
+      outline: 2px solid var(--cyan);
+      outline-offset: 2px;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+
+    body {
+      min-height: 100vh;
+      background: var(--void-black);
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      font-size: var(--text-base);
+      line-height: 1.6;
+    }
+
+    /* === PAGE LAYOUT === */
+    .page {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: var(--space-8);
+    }
+
+    .page-header {
+      margin-bottom: var(--space-8);
+      padding-bottom: var(--space-6);
+      border-bottom: 1px solid var(--void-border);
+    }
+
+    .page-title {
+      font-family: var(--font-serif);
+      font-size: 2rem;
+      font-weight: 400;
+      color: var(--gold);
+      letter-spacing: 0.05em;
+      margin-bottom: var(--space-2);
+    }
+
+    .page-subtitle {
+      font-size: var(--text-sm);
+      color: var(--text-muted);
+    }
+
+    /* === NAVIGATION === */
+    .nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2);
+      margin-bottom: var(--space-8);
+      padding: var(--space-4);
+      background: var(--void-lighter);
+      border: 1px solid var(--void-border);
+      border-radius: 4px;
+    }
+
+    .nav-link {
+      padding: var(--space-2) var(--space-3);
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: var(--text-sm);
+      border-radius: 4px;
+      transition: color var(--transition-fast), background var(--transition-fast);
+    }
+
+    .nav-link:hover {
+      color: var(--cyan);
+      background: rgba(0, 212, 170, 0.1);
+    }
+
+    /* === SECTIONS === */
+    .section {
+      margin-bottom: var(--space-8);
+      padding-bottom: var(--space-8);
+      border-bottom: 1px solid var(--void-border);
+    }
+
+    .section:last-child {
+      border-bottom: none;
+    }
+
+    .section-header {
+      font-family: var(--font-serif);
+      font-size: var(--text-lg);
+      font-weight: 400;
+      font-style: italic;
+      color: var(--gold);
+      margin-bottom: var(--space-6);
+    }
+
+    .subsection {
+      margin-bottom: var(--space-6);
+    }
+
+    .subsection-title {
+      font-size: var(--text-sm);
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: var(--space-4);
+    }
+
+    /* === COLOR SWATCHES === */
+    .color-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: var(--space-4);
+    }
+
+    .color-swatch {
+      border: 1px solid var(--void-border);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .color-preview {
+      height: 80px;
+    }
+
+    .color-info {
+      padding: var(--space-3);
+      background: var(--void-lighter);
+    }
+
+    .color-name {
+      font-size: var(--text-sm);
+      color: var(--text-primary);
+      margin-bottom: var(--space-1);
+    }
+
+    .color-value {
+      font-size: var(--text-sm);
+      color: var(--text-muted);
+    }
+
+    .color-usage {
+      font-size: var(--text-sm);
+      color: var(--text-secondary);
+      margin-top: var(--space-2);
+    }
+
+    /* === TYPOGRAPHY SAMPLES === */
+    .type-sample {
+      margin-bottom: var(--space-4);
+      padding: var(--space-4);
+      background: var(--void-lighter);
+      border: 1px solid var(--void-border);
+      border-radius: 4px;
+    }
+
+    .type-label {
+      font-size: var(--text-sm);
+      color: var(--text-muted);
+      margin-bottom: var(--space-2);
+    }
+
+    .type-serif {
+      font-family: var(--font-serif);
+    }
+
+    .type-mono {
+      font-family: var(--font-mono);
+    }
+
+    /* === SPACING DEMO === */
+    .spacing-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-4);
+    }
+
+    .spacing-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: var(--space-2);
+    }
+
+    .spacing-box {
+      background: var(--cyan);
+      opacity: 0.6;
+    }
+
+    .spacing-label {
+      font-size: var(--text-sm);
+      color: var(--text-secondary);
+    }
+
+    /* === BUTTONS === */
+    .btn {
+      padding: var(--space-3) var(--space-4);
+      background: transparent;
+      border: 1px solid;
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: var(--text-base);
+      cursor: pointer;
+      transition: border-color var(--transition-fast),
+                  background var(--transition-fast);
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-primary {
+      border-color: var(--moss);
+      color: var(--text-primary);
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      border-color: var(--moss-glow);
+      background: rgba(124, 184, 124, 0.1);
+    }
+
+    .btn-secondary {
+      border-color: var(--void-border);
+      color: var(--text-secondary);
+    }
+
+    .btn-secondary:hover:not(:disabled) {
+      border-color: var(--text-muted);
+      color: var(--text-primary);
+    }
+
+    .btn-destructive {
+      border-color: rgba(255, 51, 102, 0.5);
+      color: var(--danger);
+    }
+
+    .btn-destructive:hover:not(:disabled) {
+      border-color: var(--danger);
+      background: rgba(255, 51, 102, 0.1);
+    }
+
+    .button-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-3);
+      margin-bottom: var(--space-4);
+    }
+
+    /* === INPUTS === */
+    .input {
+      width: 100%;
+      max-width: 400px;
+      padding: var(--space-3) var(--space-4);
+      background: transparent;
+      border: 1px solid var(--void-border);
+      border-radius: 4px;
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      font-size: var(--text-base);
+      transition: border-color var(--transition-fast);
+    }
+
+    .input::placeholder {
+      color: var(--text-muted);
+    }
+
+    .input:focus {
+      outline: none;
+      border-color: var(--cyan);
+      box-shadow: 0 0 0 1px var(--cyan);
+    }
+
+    .input:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .input-label {
+      display: block;
+      margin-bottom: var(--space-2);
+      font-family: var(--font-mono);
+      font-size: var(--text-sm);
+      color: var(--text-secondary);
+    }
+
+    .input-group {
+      margin-bottom: var(--space-4);
+    }
+
+    /* === STATUS INDICATORS === */
+    .status-indicator {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      font-family: var(--font-mono);
+      font-size: var(--text-sm);
+      color: var(--text-secondary);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--moss);
+    }
+
+    .status-dot.online {
+      background: var(--moss-glow);
+    }
+
+    .status-dot.connecting {
+      background: var(--gold);
+    }
+
+    .status-dot.error {
+      background: var(--danger);
+    }
+
+    .status-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-6);
+    }
+
+    /* === CARDS === */
+    .card {
+      padding: var(--space-4);
+      background: var(--void-lighter);
+      border: 1px solid var(--void-border);
+      border-radius: 4px;
+    }
+
+    .card-title {
+      font-family: var(--font-serif);
+      font-size: var(--text-lg);
+      font-style: italic;
+      color: var(--gold);
+      margin-bottom: var(--space-3);
+    }
+
+    .card-content {
+      color: var(--text-secondary);
+    }
+
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: var(--space-4);
+    }
+
+    /* === STATES === */
+    .loading {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: var(--space-3);
+      padding: var(--space-8);
+    }
+
+    .loading-spinner {
+      width: 24px;
+      height: 24px;
+      border: 2px solid var(--void-border);
+      border-top-color: var(--moss-glow);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    .loading-text {
+      font-family: var(--font-mono);
+      font-size: var(--text-sm);
+      color: var(--text-secondary);
+    }
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: var(--space-8);
+      background: var(--void-lighter);
+      border: 1px solid var(--void-border);
+      border-radius: 4px;
+    }
+
+    .empty-state-icon {
+      font-size: var(--text-lg);
+      color: var(--text-muted);
+      margin-bottom: var(--space-3);
+    }
+
+    .empty-state-message {
+      font-family: var(--font-mono);
+      font-size: var(--text-base);
+      color: var(--text-secondary);
+      margin-bottom: var(--space-2);
+    }
+
+    .empty-state-hint {
+      font-family: var(--font-mono);
+      font-size: var(--text-sm);
+      color: var(--text-muted);
+    }
+
+    .error-message {
+      padding: var(--space-3) var(--space-4);
+      background: rgba(255, 51, 102, 0.1);
+      border: 1px solid var(--danger);
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: var(--text-sm);
+      color: var(--danger);
+    }
+
+    .success-message {
+      padding: var(--space-3) var(--space-4);
+      background: rgba(124, 184, 124, 0.1);
+      border: 1px solid var(--moss-glow);
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: var(--text-sm);
+      color: var(--moss-glow);
+    }
+
+    .state-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: var(--space-4);
+    }
+
+    /* === MODAL DEMO === */
+    .modal-demo-container {
+      position: relative;
+      min-height: 400px;
+      background: rgba(0, 0, 0, 0.4);
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal {
+      max-width: 480px;
+      width: 90%;
+      padding: var(--space-6);
+      background: var(--void-black);
+      border: 1px solid var(--gold);
+      border-radius: 4px;
+    }
+
+    .modal-title {
+      font-family: var(--font-serif);
+      font-size: var(--text-lg);
+      font-style: italic;
+      color: var(--gold);
+      margin-bottom: var(--space-4);
+    }
+
+    .modal-content {
+      color: var(--text-secondary);
+      margin-bottom: var(--space-6);
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: var(--space-3);
+      justify-content: flex-end;
+    }
+
+    /* === CODE BLOCKS === */
+    .code-block {
+      padding: var(--space-4);
+      background: var(--void-lighter);
+      border: 1px solid var(--void-border);
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: var(--text-sm);
+      color: var(--text-secondary);
+      overflow-x: auto;
+      white-space: pre;
+    }
+
+    .code-inline {
+      padding: 2px 6px;
+      background: var(--void-lighter);
+      border-radius: 2px;
+      font-family: var(--font-mono);
+      font-size: var(--text-sm);
+      color: var(--cyan);
+    }
+
+    /* === REFERENCE TABLE === */
+    .ref-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: var(--text-sm);
+    }
+
+    .ref-table th,
+    .ref-table td {
+      padding: var(--space-3);
+      text-align: left;
+      border-bottom: 1px solid var(--void-border);
+    }
+
+    .ref-table th {
+      color: var(--text-muted);
+      font-weight: 400;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .ref-table td {
+      color: var(--text-secondary);
+    }
+
+    .ref-table code {
+      color: var(--cyan);
+    }
+
+    /* === LINKS === */
+    a {
+      color: var(--cyan);
+      text-decoration: none;
+      transition: opacity var(--transition-fast);
+    }
+
+    a:hover {
+      opacity: 0.8;
+    }
+
+    /* === PEER ID DEMO === */
+    .peer-id {
+      font-family: var(--font-mono);
+      font-size: var(--text-sm);
+      color: var(--cyan);
+      word-break: break-all;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="page-header">
+      <h1 class="page-title">SyncEngine Design System</h1>
+      <p class="page-subtitle">v2 — Minimal Terminal Aesthetic</p>
+    </header>
+
+    <nav class="nav">
+      <a href="#philosophy" class="nav-link">Philosophy</a>
+      <a href="#colors" class="nav-link">Colors</a>
+      <a href="#typography" class="nav-link">Typography</a>
+      <a href="#spacing" class="nav-link">Spacing</a>
+      <a href="#motion" class="nav-link">Motion</a>
+      <a href="#buttons" class="nav-link">Buttons</a>
+      <a href="#inputs" class="nav-link">Inputs</a>
+      <a href="#status" class="nav-link">Status</a>
+      <a href="#cards" class="nav-link">Cards</a>
+      <a href="#states" class="nav-link">States</a>
+      <a href="#modal" class="nav-link">Modal</a>
+      <a href="#reference" class="nav-link">Quick Reference</a>
+    </nav>
+
+    <!-- PHILOSOPHY -->
+    <section id="philosophy" class="section">
+      <h2 class="section-header">Philosophy</h2>
+      <div class="card">
+        <p class="card-content" style="margin-bottom: var(--space-4);">
+          The interface should feel like a well-designed command-line tool: focused, efficient, and unobtrusive. Every element earns its place. Decoration without purpose is removed.
+        </p>
+        <table class="ref-table">
+          <thead>
+            <tr>
+              <th>Principle</th>
+              <th>Expression</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>One action per screen</td>
+              <td>Clear primary action, minimal competing elements</td>
+            </tr>
+            <tr>
+              <td>Generous whitespace</td>
+              <td>Space creates hierarchy better than visual weight</td>
+            </tr>
+            <tr>
+              <td>Three type sizes</td>
+              <td>Small, base, large — nothing more</td>
+            </tr>
+            <tr>
+              <td>4pt/8pt spacing</td>
+              <td>Consistent rhythm throughout</td>
+            </tr>
+            <tr>
+              <td>Subtle motion</td>
+              <td>150-200ms transitions only</td>
+            </tr>
+            <tr>
+              <td>No decorative animation</td>
+              <td>If it doesn't convey information, remove it</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- COLORS -->
+    <section id="colors" class="section">
+      <h2 class="section-header">Colors</h2>
+      
+      <div class="subsection">
+        <h3 class="subsection-title">Backgrounds</h3>
+        <div class="color-grid">
+          <div class="color-swatch">
+            <div class="color-preview" style="background: #0a0a0a;"></div>
+            <div class="color-info">
+              <div class="color-name">void-black</div>
+              <div class="color-value">#0a0a0a</div>
+              <div class="color-usage">Primary background</div>
+            </div>
+          </div>
+          <div class="color-swatch">
+            <div class="color-preview" style="background: #0a0e0f;"></div>
+            <div class="color-info">
+              <div class="color-name">void-lighter</div>
+              <div class="color-value">#0a0e0f</div>
+              <div class="color-usage">Elevated surfaces</div>
+            </div>
+          </div>
+          <div class="color-swatch">
+            <div class="color-preview" style="background: #1a1a1a;"></div>
+            <div class="color-info">
+              <div class="color-name">void-border</div>
+              <div class="color-value">#1a1a1a</div>
+              <div class="color-usage">Subtle borders</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="subsection">
+        <h3 class="subsection-title">Semantic Colors</h3>
+        <div class="color-grid">
+          <div class="color-swatch">
+            <div class="color-preview" style="background: #d4af37;"></div>
+            <div class="color-info">
+              <div class="color-name">gold</div>
+              <div class="color-value">#d4af37</div>
+              <div class="color-usage">Important — headings, labels</div>
+            </div>
+          </div>
+          <div class="color-swatch">
+            <div class="color-preview" style="background: #00d4aa;"></div>
+            <div class="color-info">
+              <div class="color-name">cyan</div>
+              <div class="color-value">#00d4aa</div>
+              <div class="color-usage">Interactive — links, focus, peer IDs</div>
+            </div>
+          </div>
+          <div class="color-swatch">
+            <div class="color-preview" style="background: #5a7a5a;"></div>
+            <div class="color-info">
+              <div class="color-name">moss</div>
+              <div class="color-value">#5a7a5a</div>
+              <div class="color-usage">Status — borders, inactive</div>
+            </div>
+          </div>
+          <div class="color-swatch">
+            <div class="color-preview" style="background: #7cb87c;"></div>
+            <div class="color-info">
+              <div class="color-name">moss-glow</div>
+              <div class="color-value">#7cb87c</div>
+              <div class="color-usage">Status — active, success</div>
+            </div>
+          </div>
+          <div class="color-swatch">
+            <div class="color-preview" style="background: #ff3366;"></div>
+            <div class="color-info">
+              <div class="color-name">danger</div>
+              <div class="color-value">#ff3366</div>
+              <div class="color-usage">Destructive — errors, delete</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="subsection">
+        <h3 class="subsection-title">Text Colors</h3>
+        <div class="color-grid">
+          <div class="color-swatch">
+            <div class="color-preview" style="background: #f5f5f5;"></div>
+            <div class="color-info">
+              <div class="color-name">text-primary</div>
+              <div class="color-value">#f5f5f5</div>
+              <div class="color-usage">Primary text</div>
+            </div>
+          </div>
+          <div class="color-swatch">
+            <div class="color-preview" style="background: rgba(245, 245, 245, 0.7);"></div>
+            <div class="color-info">
+              <div class="color-name">text-secondary</div>
+              <div class="color-value">rgba(245, 245, 245, 0.7)</div>
+              <div class="color-usage">Secondary text</div>
+            </div>
+          </div>
+          <div class="color-swatch">
+            <div class="color-preview" style="background: rgba(245, 245, 245, 0.5);"></div>
+            <div class="color-info">
+              <div class="color-name">text-muted</div>
+              <div class="color-value">rgba(245, 245, 245, 0.5)</div>
+              <div class="color-usage">Placeholder, hints</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TYPOGRAPHY -->
+    <section id="typography" class="section">
+      <h2 class="section-header">Typography</h2>
+      
+      <div class="subsection">
+        <h3 class="subsection-title">Font Stack</h3>
+        <div class="type-sample">
+          <div class="type-label">Headlines — Cormorant Garamond (serif)</div>
+          <div class="type-serif" style="font-size: var(--text-lg); color: var(--gold);">
+            The quick brown fox jumps over the lazy dog
+          </div>
+        </div>
+        <div class="type-sample">
+          <div class="type-label">Body / UI — JetBrains Mono (monospace)</div>
+          <div class="type-mono" style="font-size: var(--text-base);">
+            The quick brown fox jumps over the lazy dog
+          </div>
+        </div>
+      </div>
+
+      <div class="subsection">
+        <h3 class="subsection-title">Type Scale (3 sizes only)</h3>
+        <div class="type-sample">
+          <div class="type-label">--text-sm: 0.875rem (14px) — labels, metadata</div>
+          <div class="type-mono" style="font-size: var(--text-sm); color: var(--text-secondary);">
+            Labels, metadata, hints, secondary text
+          </div>
+        </div>
+        <div class="type-sample">
+          <div class="type-label">--text-base: 1rem (16px) — body, inputs, buttons</div>
+          <div class="type-mono" style="font-size: var(--text-base);">
+            Body text, inputs, buttons, primary content
+          </div>
+        </div>
+        <div class="type-sample">
+          <div class="type-label">--text-lg: 1.5rem (24px) — titles, headers</div>
+          <div class="type-serif" style="font-size: var(--text-lg); color: var(--gold); font-style: italic;">
+            Page titles, section headers
+          </div>
+        </div>
+      </div>
+
+      <div class="subsection">
+        <h3 class="subsection-title">Typography Patterns</h3>
+        <div class="type-sample">
+          <div class="type-label">Page Title — serif, gold, letter-spacing: 0.05em</div>
+          <div class="type-serif" style="font-size: var(--text-lg); color: var(--gold); letter-spacing: 0.05em;">
+            Synchronicity Engine
+          </div>
+        </div>
+        <div class="type-sample">
+          <div class="type-label">Section Header — serif, gold, italic</div>
+          <div class="type-serif" style="font-size: var(--text-lg); color: var(--gold); font-style: italic;">
+            Connected Nodes
+          </div>
+        </div>
+        <div class="type-sample">
+          <div class="type-label">Peer ID — mono, cyan</div>
+          <div class="peer-id">
+            z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SPACING -->
+    <section id="spacing" class="section">
+      <h2 class="section-header">Spacing</h2>
+      <p style="color: var(--text-secondary); margin-bottom: var(--space-6);">
+        Strict 4pt grid. All spacing values are multiples of 4px.
+      </p>
+      
+      <div class="spacing-grid">
+        <div class="spacing-item">
+          <div class="spacing-box" style="width: 4px; height: 32px;"></div>
+          <span class="spacing-label">--space-1<br>4px</span>
+        </div>
+        <div class="spacing-item">
+          <div class="spacing-box" style="width: 8px; height: 32px;"></div>
+          <span class="spacing-label">--space-2<br>8px</span>
+        </div>
+        <div class="spacing-item">
+          <div class="spacing-box" style="width: 12px; height: 32px;"></div>
+          <span class="spacing-label">--space-3<br>12px</span>
+        </div>
+        <div class="spacing-item">
+          <div class="spacing-box" style="width: 16px; height: 32px;"></div>
+          <span class="spacing-label">--space-4<br>16px</span>
+        </div>
+        <div class="spacing-item">
+          <div class="spacing-box" style="width: 24px; height: 32px;"></div>
+          <span class="spacing-label">--space-6<br>24px</span>
+        </div>
+        <div class="spacing-item">
+          <div class="spacing-box" style="width: 32px; height: 32px;"></div>
+          <span class="spacing-label">--space-8<br>32px</span>
+        </div>
+      </div>
+
+      <table class="ref-table" style="margin-top: var(--space-6);">
+        <thead>
+          <tr>
+            <th>Token</th>
+            <th>Usage</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>--space-1</code></td>
+            <td>Tight gaps (icon + label)</td>
+          </tr>
+          <tr>
+            <td><code>--space-2</code></td>
+            <td>Default gap between related elements</td>
+          </tr>
+          <tr>
+            <td><code>--space-3</code></td>
+            <td>Padding inside small components</td>
+          </tr>
+          <tr>
+            <td><code>--space-4</code></td>
+            <td>Padding inside cards, section gaps</td>
+          </tr>
+          <tr>
+            <td><code>--space-6</code></td>
+            <td>Major section spacing</td>
+          </tr>
+          <tr>
+            <td><code>--space-8</code></td>
+            <td>Page-level margins</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- MOTION -->
+    <section id="motion" class="section">
+      <h2 class="section-header">Motion</h2>
+      <p style="color: var(--text-secondary); margin-bottom: var(--space-6);">
+        Two transition speeds only. All animations serve a purpose.
+      </p>
+      
+      <table class="ref-table">
+        <thead>
+          <tr>
+            <th>Token</th>
+            <th>Duration</th>
+            <th>Usage</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>--transition-fast</code></td>
+            <td>150ms ease</td>
+            <td>Micro-interactions (hover, focus)</td>
+          </tr>
+          <tr>
+            <td><code>--transition-normal</code></td>
+            <td>200ms ease</td>
+            <td>State changes (expand, modal)</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="subsection" style="margin-top: var(--space-6);">
+        <h3 class="subsection-title">Allowed Animations</h3>
+        <table class="ref-table">
+          <thead>
+            <tr>
+              <th>Animation</th>
+              <th>Use</th>
+              <th>Duration</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>fadeIn</code></td>
+              <td>Content appearing</td>
+              <td>200ms</td>
+            </tr>
+            <tr>
+              <td><code>spin</code></td>
+              <td>Loading spinner</td>
+              <td>1s linear</td>
+            </tr>
+            <tr>
+              <td><code>modal-appear</code></td>
+              <td>Modal entrance</td>
+              <td>200ms</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- BUTTONS -->
+    <section id="buttons" class="section">
+      <h2 class="section-header">Buttons</h2>
+      
+      <div class="subsection">
+        <h3 class="subsection-title">Primary — moss border</h3>
+        <div class="button-row">
+          <button class="btn btn-primary">Create</button>
+          <button class="btn btn-primary">Submit</button>
+          <button class="btn btn-primary" disabled>Disabled</button>
+        </div>
+      </div>
+
+      <div class="subsection">
+        <h3 class="subsection-title">Secondary — void border</h3>
+        <div class="button-row">
+          <button class="btn btn-secondary">Cancel</button>
+          <button class="btn btn-secondary">Back</button>
+          <button class="btn btn-secondary" disabled>Disabled</button>
+        </div>
+      </div>
+
+      <div class="subsection">
+        <h3 class="subsection-title">Destructive — danger</h3>
+        <div class="button-row">
+          <button class="btn btn-destructive">Delete</button>
+          <button class="btn btn-destructive">Remove</button>
+          <button class="btn btn-destructive" disabled>Disabled</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- INPUTS -->
+    <section id="inputs" class="section">
+      <h2 class="section-header">Input Fields</h2>
+      
+      <div class="input-group">
+        <label class="input-label">Default Input</label>
+        <input type="text" class="input" placeholder="Enter value...">
+      </div>
+
+      <div class="input-group">
+        <label class="input-label">With Value</label>
+        <input type="text" class="input" value="z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK">
+      </div>
+
+      <div class="input-group">
+        <label class="input-label">Disabled</label>
+        <input type="text" class="input" value="Read only" disabled>
+      </div>
+
+      <p style="color: var(--text-muted); font-size: var(--text-sm); margin-top: var(--space-4);">
+        Click inputs to see cyan focus state
+      </p>
+    </section>
+
+    <!-- STATUS INDICATORS -->
+    <section id="status" class="section">
+      <h2 class="section-header">Status Indicators</h2>
+      
+      <div class="status-row">
+        <div class="status-indicator">
+          <span class="status-dot online"></span>
+          <span>online</span>
+        </div>
+        <div class="status-indicator">
+          <span class="status-dot connecting"></span>
+          <span>connecting</span>
+        </div>
+        <div class="status-indicator">
+          <span class="status-dot"></span>
+          <span>offline</span>
+        </div>
+        <div class="status-indicator">
+          <span class="status-dot error"></span>
+          <span>error</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- CARDS -->
+    <section id="cards" class="section">
+      <h2 class="section-header">Cards</h2>
+      
+      <div class="card-grid">
+        <div class="card">
+          <h3 class="card-title">Node Status</h3>
+          <p class="card-content">
+            Connected to 3 peers via iroh mesh network. Last sync: 2 minutes ago.
+          </p>
+        </div>
+        <div class="card">
+          <h3 class="card-title">Temple Server</h3>
+          <p class="card-content">
+            Relay node providing encrypted backup and compute for mobile peers.
+          </p>
+        </div>
+        <div class="card">
+          <h3 class="card-title">Tasks</h3>
+          <p class="card-content">
+            12 items synced across devices. 3 pending local changes.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- STATES -->
+    <section id="states" class="section">
+      <h2 class="section-header">States</h2>
+      
+      <div class="state-grid">
+        <div>
+          <h3 class="subsection-title">Loading</h3>
+          <div class="card">
+            <div class="loading">
+              <div class="loading-spinner"></div>
+              <span class="loading-text">Loading...</span>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h3 class="subsection-title">Empty State</h3>
+          <div class="empty-state">
+            <div class="empty-state-icon">○</div>
+            <p class="empty-state-message">No tasks yet</p>
+            <p class="empty-state-hint">Create your first task to get started</p>
+          </div>
+        </div>
+
+        <div>
+          <h3 class="subsection-title">Error Message</h3>
+          <div class="error-message">
+            Connection failed. Please check your network settings.
+          </div>
+        </div>
+
+        <div>
+          <h3 class="subsection-title">Success Message</h3>
+          <div class="success-message">
+            Successfully connected to peer network.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- MODAL -->
+    <section id="modal" class="section">
+      <h2 class="section-header">Modal</h2>
+      
+      <div class="modal-demo-container">
+        <div class="modal">
+          <h3 class="modal-title">Confirm Action</h3>
+          <p class="modal-content">
+            Are you sure you want to disconnect from the peer network? This will pause all synchronization.
+          </p>
+          <div class="modal-actions">
+            <button class="btn btn-secondary">Cancel</button>
+            <button class="btn btn-destructive">Disconnect</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- QUICK REFERENCE -->
+    <section id="reference" class="section">
+      <h2 class="section-header">Quick Reference</h2>
+      
+      <div class="card-grid">
+        <div class="card">
+          <h3 class="card-title">Colors</h3>
+          <div class="code-block">Background: #0a0a0a
+Gold:       #d4af37
+Cyan:       #00d4aa
+Moss:       #7cb87c
+Danger:     #ff3366
+Text:       #f5f5f5</div>
+        </div>
+
+        <div class="card">
+          <h3 class="card-title">Fonts</h3>
+          <div class="code-block">Titles: Cormorant Garamond
+Body:   JetBrains Mono</div>
+        </div>
+
+        <div class="card">
+          <h3 class="card-title">Sizes (3 only)</h3>
+          <div class="code-block">Small: 14px (0.875rem)
+Base:  16px (1rem)
+Large: 24px (1.5rem)</div>
+        </div>
+
+        <div class="card">
+          <h3 class="card-title">Spacing (4pt grid)</h3>
+          <div class="code-block">--space-1: 4px
+--space-2: 8px
+--space-3: 12px
+--space-4: 16px
+--space-6: 24px
+--space-8: 32px</div>
+        </div>
+
+        <div class="card">
+          <h3 class="card-title">Transitions (2 only)</h3>
+          <div class="code-block">Fast:   150ms ease
+Normal: 200ms ease</div>
+        </div>
+
+        <div class="card">
+          <h3 class="card-title">UI Terminology</h3>
+          <div class="code-block">Online / Offline
+Connecting
+Create / Submit
+Task / Profile
+Cancel / Delete
+Share / Copy</div>
+        </div>
+      </div>
+    </section>
+
+    <footer style="text-align: center; padding: var(--space-8) 0; color: var(--text-muted); font-size: var(--text-sm);">
+      Design System v2 — Minimal Terminal Aesthetic<br>
+      SyncEngine / Synchronicity Engine
+    </footer>
+  </div>
+</body>
+</html>

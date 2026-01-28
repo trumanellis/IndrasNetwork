@@ -364,6 +364,8 @@ impl HomeRealm {
             mime_type,
             sharer: Member::new(*self.node.identity()),
             shared_at: chrono::Utc::now(),
+            is_encrypted: false,
+            sharing_status: crate::artifact_sharing::SharingStatus::Shared,
         })
     }
 

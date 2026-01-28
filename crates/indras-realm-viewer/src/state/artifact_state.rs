@@ -118,6 +118,22 @@ impl ArtifactInfo {
     }
 }
 
+/// Breadcrumb entry for folder navigation
+#[derive(Clone, Debug, PartialEq)]
+pub struct FolderBreadcrumb {
+    pub folder_id: String,
+    pub title: String,
+}
+
+/// Navigation state for folder browsing
+#[derive(Clone, Debug, Default)]
+pub struct FolderNavigation {
+    /// Breadcrumb path (empty = root)
+    pub path: Vec<FolderBreadcrumb>,
+    /// Current folder ID (None = root view)
+    pub current_folder: Option<String>,
+}
+
 /// State for tracking artifacts
 #[derive(Clone, Debug, Default)]
 pub struct ArtifactState {
@@ -127,6 +143,8 @@ pub struct ArtifactState {
     pub total_shared: usize,
     /// Total artifacts recalled
     pub total_recalled: usize,
+    /// Navigation state for folder browsing
+    pub navigation: FolderNavigation,
 }
 
 impl ArtifactState {
@@ -235,5 +253,30 @@ impl ArtifactState {
             None => self.all_artifacts(),
         };
         artifacts.into_iter().take(limit).collect()
+    }
+
+    /// Navigate into a folder
+    pub fn open_folder(&mut self, folder_id: String, title: String) {
+        self.navigation.path.push(FolderBreadcrumb {
+            folder_id: folder_id.clone(),
+            title,
+        });
+        self.navigation.current_folder = Some(folder_id);
+    }
+
+    /// Navigate to a breadcrumb level (0 = root)
+    pub fn navigate_to(&mut self, index: usize) {
+        if index == 0 {
+            self.navigation.path.clear();
+            self.navigation.current_folder = None;
+        } else if index <= self.navigation.path.len() {
+            self.navigation.path.truncate(index);
+            self.navigation.current_folder = self.navigation.path.last().map(|b| b.folder_id.clone());
+        }
+    }
+
+    /// Check if at root level
+    pub fn is_at_root(&self) -> bool {
+        self.navigation.current_folder.is_none()
     }
 }

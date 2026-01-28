@@ -100,6 +100,7 @@
 
 // Modules
 pub mod artifact;
+pub mod artifact_sharing;
 pub mod attention;
 pub mod blessing;
 pub mod chat_message;
@@ -122,6 +123,10 @@ pub mod stream;
 
 // Re-export main types at crate root
 pub use artifact::{Artifact, ArtifactDownload, ArtifactId, DownloadProgress};
+pub use artifact_sharing::{
+    ArtifactHash, ArtifactKey, ArtifactKeyRegistry, ArtifactTombstone, EncryptedArtifactKey,
+    RecallAcknowledgment, RevocationEntry, SharedArtifact, SharingStatus, ARTIFACT_KEY_SIZE,
+};
 pub use attention::{
     AttentionDocument, AttentionError, AttentionEventId, AttentionSwitchEvent, QuestAttention,
 };
