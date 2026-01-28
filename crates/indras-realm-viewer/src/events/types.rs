@@ -496,9 +496,12 @@ pub struct GalleryEventItem {
     /// Size in bytes
     #[serde(default)]
     pub size: u64,
-    /// Base64-encoded thumbnail
+    /// Base64-encoded thumbnail (for images)
     #[serde(default)]
     pub thumbnail_data: Option<String>,
+    /// Text preview (first ~200 chars for text/markdown files)
+    #[serde(default)]
+    pub text_preview: Option<String>,
     /// Artifact hash reference (hex)
     pub artifact_hash: String,
     /// Item dimensions (width, height) if applicable

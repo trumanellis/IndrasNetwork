@@ -255,6 +255,77 @@ logger.event("chat_image", {
 })
 
 -- ============================================================================
+-- PHASE 6: MIXED FOLDER GALLERY (Markdown + Image)
+-- ============================================================================
+
+logger.info("Phase 6: Share mixed folder with markdown and image", { phase = 6 })
+
+sim:step()
+
+-- First member announces they're sharing project docs
+logger.event("chat_message", {
+    tick = sim.tick,
+    member = tostring(peers[1]),
+    content = "Here's our project documentation folder with the README and logo:",
+    message_type = "text",
+    message_id = "msg-" .. sim.tick .. "-" .. tostring(peers[1]),
+})
+
+sim:step()
+
+-- First member shares a gallery with markdown file and logo
+logger.event("chat_gallery", {
+    tick = sim.tick,
+    member = tostring(peers[1]),
+    folder_id = "gallery-docs-001",
+    title = "Project Documentation",
+    items = {
+        {
+            name = "README.md",
+            mime_type = "text/markdown",
+            size = 1524,
+            artifact_hash = artifact.generate_hash(),
+            text_preview = "# IndrasNetwork\n\nA decentralized network for coordinating human attention and effort.\n\n## Features\n\n- **Realms**: Shared spaces for collaboration\n- **Quests**: Tasks with proof requirements\n- **Blessings**: Attention-based verification\n\n## Getting Started\n\n```bash\ncargo build\n```",
+        },
+        {
+            name = "Logo_black.png",
+            mime_type = "image/png",
+            size = FEATURED_ASSET.size,
+            artifact_hash = artifact.generate_hash(),
+            dimensions = FEATURED_ASSET.dimensions,
+            asset_path = FEATURED_ASSET.path,
+        },
+        {
+            name = "ARCHITECTURE.md",
+            mime_type = "text/markdown",
+            size = 2048,
+            artifact_hash = artifact.generate_hash(),
+            text_preview = "# Architecture\n\n## Core Components\n\n### Network Layer\nHandles peer-to-peer communication using QUIC.\n\n### CRDT Layer\nManages synchronized documents across peers.\n\n### Application Layer\nRealms, Quests, and Blessings.",
+        },
+    },
+    message_id = "gallery-" .. sim.tick .. "-docs-" .. tostring(peers[1]),
+})
+
+logger.info("Mixed folder gallery shared", {
+    tick = sim.tick,
+    sharer = tostring(peers[1]),
+    item_count = 3,
+    has_markdown = true,
+    has_image = true,
+})
+
+sim:step()
+
+-- Second member comments on the docs
+logger.event("chat_message", {
+    tick = sim.tick,
+    member = tostring(peers[2]),
+    content = "Nice! The README preview is really helpful.",
+    message_type = "text",
+    message_id = "msg-" .. sim.tick .. "-" .. tostring(peers[2]),
+})
+
+-- ============================================================================
 -- COMPLETION
 -- ============================================================================
 
@@ -263,13 +334,13 @@ sim:step()
 logger.info("Inline image chat scenario complete", {
     tick = sim.tick,
     images_shared = 2,
-    galleries_shared = 1,
-    messages_total = 4,
+    galleries_shared = 2,
+    messages_total = 6,
 })
 
 -- Final info event for viewer
 logger.event("info", {
     tick = sim.tick,
-    message = "Scenario complete: Inline images and gallery demonstrated",
+    message = "Scenario complete: Inline images, galleries, and text previews demonstrated",
     phase = 99,
 })

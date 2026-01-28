@@ -48,6 +48,7 @@
 //! let bob_key = KeyDistribution::accept_invite(&invite, &bob_kem).unwrap();
 //! ```
 
+pub mod artifact_encryption;
 pub mod error;
 pub mod interface_key;
 pub mod key_distribution;
@@ -55,6 +56,10 @@ pub mod pq_identity;
 pub mod pq_kem;
 
 // Re-exports
+pub use artifact_encryption::{
+    decrypt_artifact, decrypt_artifact_bytes, encrypt_artifact, generate_artifact_key,
+    hash_content, ArtifactKey, EncryptedArtifact, EncryptedArtifactKey, ARTIFACT_KEY_SIZE,
+};
 pub use error::{CryptoError, CryptoResult};
 #[allow(deprecated)]
 pub use interface_key::ExportedKey;
