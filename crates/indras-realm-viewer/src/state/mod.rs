@@ -10,6 +10,7 @@ pub mod contacts_state;
 pub mod proof_folder_state;
 pub mod quest_state;
 pub mod realm_state;
+pub mod token_state;
 
 pub use app_state::*;
 pub use artifact_state::*;
@@ -19,3 +20,4 @@ pub use contacts_state::*;
 pub use proof_folder_state::*;
 pub use quest_state::*;
 pub use realm_state::*;
+pub use token_state::*;

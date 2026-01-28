@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::events::{StreamEvent, EventCategory};
 
-use super::{ArtifactState, AttentionState, ChatState, ContactsState, ProofFolderState, QuestState, RealmState};
+use super::{ArtifactState, AttentionState, ChatState, ContactsState, ProofFolderState, QuestState, RealmState, TokenState};
 
 /// Global event buffer for replay on reset
 static EVENT_BUFFER: std::sync::OnceLock<Arc<Mutex<Vec<StreamEvent>>>> = std::sync::OnceLock::new();
@@ -191,6 +191,8 @@ pub struct MemberStats {
     pub realms_count: usize,
     pub contacts_count: usize,
     pub events_count: usize,
+    pub tokens_count: usize,
+    pub tokens_total_value: u64,
 }
 
 /// Main application state
@@ -216,6 +218,8 @@ pub struct AppState {
     pub artifacts: ArtifactState,
     /// Proof folder editor state
     pub proof_folder: ProofFolderState,
+    /// Token of Gratitude tracking state
+    pub tokens: TokenState,
     /// Recent events for log panel (newest first)
     pub event_log: VecDeque<LoggedEvent>,
     /// Maximum events to keep in log
@@ -283,12 +287,16 @@ impl AppState {
             StreamEvent::ChatMessage { .. }
             | StreamEvent::ChatMessageEdited { .. }
             | StreamEvent::ChatMessageDeleted { .. }
-            | StreamEvent::ProofSubmitted { .. }
-            | StreamEvent::BlessingGiven { .. }
-            | StreamEvent::ProofFolderSubmitted { .. }
             | StreamEvent::ChatImage { .. }
             | StreamEvent::ChatGallery { .. } => {
                 self.chat.process_event(&event);
+            }
+
+            StreamEvent::ProofSubmitted { .. }
+            | StreamEvent::ProofFolderSubmitted { .. }
+            | StreamEvent::BlessingGiven { .. } => {
+                self.chat.process_event(&event);
+                self.tokens.process_event(&event);
             }
 
             StreamEvent::ArtifactSharedRevocable { .. }
@@ -365,6 +373,9 @@ impl AppState {
             .filter(|e| e.summary.contains(&member_name(member)))
             .count();
 
+        let tokens_count = self.tokens.token_count_for_member(member);
+        let tokens_total_value = self.tokens.total_value_for_member(member);
+
         MemberStats {
             quests_created,
             quests_assigned,
@@ -372,6 +383,8 @@ impl AppState {
             realms_count,
             contacts_count,
             events_count,
+            tokens_count,
+            tokens_total_value,
         }
     }
 

@@ -5,10 +5,10 @@
 -- 2. Members focus attention on quests
 -- 3. One member submits proof (appears in chat)
 -- 4. Other members bless the proof with their accumulated attention
--- 5. Chat messages flow throughout
+-- 5. Chat messages and inline images flow throughout
 --
--- This scenario exercises the realm chat with proof submission and
--- attention-based blessing verification.
+-- This scenario exercises the realm chat with proof submission,
+-- attention-based blessing verification, and inline image sharing.
 
 local quest_helpers = require("lib.quest_helpers")
 local home = require("lib.home_realm_helpers")
@@ -55,6 +55,16 @@ local total_blessings = 0
 local key_registry = artifact.KeyRegistry_new()
 local total_artifacts_shared = 0
 local total_artifacts_recalled = 0
+local total_images_shared = 0
+
+-- Featured asset for inline images
+local FEATURED_ASSET = {
+    path = "assets/Logo_black.png",
+    name = "Logo_black.png",
+    size = 830269,
+    mime_type = "image/png",
+    dimensions = {1024, 1024},
+}
 
 -- ============================================================================
 -- PHASE 1: SETUP - Create realms and quests
@@ -257,6 +267,102 @@ logger.info("Phase 1.5 complete", {
 })
 
 -- ============================================================================
+-- PHASE 1.6: INLINE IMAGE SHARING IN CHAT
+-- Members share images and galleries in chat
+-- ============================================================================
+
+logger.info("Phase 1.6: Inline image sharing", {
+    phase = 1.6,
+    description = "Members share inline images in chat",
+})
+
+-- First member shares the logo inline
+local first_realm_id, first_realm_data = next(realms)
+if first_realm_data and #first_realm_data.members > 0 then
+    local sharer = first_realm_data.members[1]
+
+    logger.event("chat_message", {
+        tick = sim.tick,
+        member = sharer,
+        content = "Check out our project logo!",
+        message_type = "text",
+        message_id = "msg-img-intro-" .. sim.tick,
+    })
+
+    sim:step()
+
+    -- Share inline image
+    logger.event("chat_image", {
+        tick = sim.tick,
+        member = sharer,
+        mime_type = FEATURED_ASSET.mime_type,
+        filename = FEATURED_ASSET.name,
+        dimensions = FEATURED_ASSET.dimensions,
+        alt_text = "IndrasNetwork Logo",
+        asset_path = FEATURED_ASSET.path,
+        message_id = "img-" .. sim.tick .. "-" .. sharer,
+    })
+
+    total_images_shared = total_images_shared + 1
+
+    sim:step()
+
+    -- Another member responds
+    if #first_realm_data.members > 1 then
+        local responder = first_realm_data.members[2]
+        logger.event("chat_message", {
+            tick = sim.tick,
+            member = responder,
+            content = "That logo looks great!",
+            message_type = "text",
+            message_id = "msg-img-response-" .. sim.tick,
+        })
+    end
+
+    sim:step()
+
+    -- Share a gallery with documentation
+    if #first_realm_data.members > 1 then
+        local gallery_sharer = first_realm_data.members[2]
+
+        logger.event("chat_gallery", {
+            tick = sim.tick,
+            member = gallery_sharer,
+            folder_id = "gallery-docs-" .. sim.tick,
+            title = "Project Documentation",
+            items = {
+                {
+                    name = "README.md",
+                    mime_type = "text/markdown",
+                    size = 1524,
+                    artifact_hash = artifact.generate_hash(),
+                    text_preview = "# IndrasNetwork\n\nA decentralized network for coordinating human attention and effort.\n\n## Features\n\n- **Realms**: Shared spaces for collaboration\n- **Quests**: Tasks with proof requirements\n- **Blessings**: Attention-based verification",
+                },
+                {
+                    name = "Logo_black.png",
+                    mime_type = "image/png",
+                    size = FEATURED_ASSET.size,
+                    artifact_hash = artifact.generate_hash(),
+                    dimensions = FEATURED_ASSET.dimensions,
+                    asset_path = FEATURED_ASSET.path,
+                },
+            },
+            message_id = "gallery-" .. sim.tick .. "-" .. gallery_sharer,
+        })
+
+        total_images_shared = total_images_shared + 1
+    end
+
+    sim:step()
+end
+
+logger.info("Phase 1.6 complete", {
+    phase = 1.6,
+    tick = sim.tick,
+    images_shared = total_images_shared,
+})
+
+-- ============================================================================
 -- PHASE 2: ATTENTION ACCUMULATION
 -- Members focus on quests and accumulate attention
 -- ============================================================================
@@ -421,15 +527,30 @@ for realm_id, realm_data in pairs(realms) do
 
                         total_blessings = total_blessings + 1
 
-                        -- Celebratory chat message
+                        -- Celebratory chat message or image
                         if math.random() < 0.5 then
                             total_chat_messages = total_chat_messages + 1
-                            logger.event("chat_message", {
-                                tick = sim.tick,
-                                member = member,
-                                content = "Great work!",
-                                message_type = "text",
-                            })
+                            -- Occasionally share a celebratory image instead of text
+                            if math.random() < 0.3 then
+                                logger.event("chat_image", {
+                                    tick = sim.tick,
+                                    member = member,
+                                    mime_type = "image/png",
+                                    filename = "celebration.png",
+                                    dimensions = FEATURED_ASSET.dimensions,
+                                    alt_text = "Celebrating great work!",
+                                    asset_path = FEATURED_ASSET.path,
+                                    message_id = "img-celebrate-" .. sim.tick .. "-" .. member,
+                                })
+                                total_images_shared = total_images_shared + 1
+                            else
+                                logger.event("chat_message", {
+                                    tick = sim.tick,
+                                    member = member,
+                                    content = "Great work!",
+                                    message_type = "text",
+                                })
+                            end
                         end
 
                         sim:step()
@@ -595,6 +716,7 @@ result:add_metrics({
     attention_events = attention_events,
     total_artifacts_shared = total_artifacts_shared,
     total_artifacts_recalled = total_artifacts_recalled,
+    total_images_shared = total_images_shared,
 })
 
 result:record_assertion("proofs_submitted",
@@ -618,6 +740,7 @@ logger.info("Quest proof & blessing scenario completed", {
     total_blessings = total_blessings,
     total_artifacts_shared = total_artifacts_shared,
     total_artifacts_recalled = total_artifacts_recalled,
+    total_images_shared = total_images_shared,
 })
 
 -- Assertions
