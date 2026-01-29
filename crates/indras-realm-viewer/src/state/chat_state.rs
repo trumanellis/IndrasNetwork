@@ -81,6 +81,12 @@ pub enum ChatMessageType {
         folder_id: String,
         artifact_count: usize,
         narrative_preview: String,
+        /// Quest title for display.
+        quest_title: String,
+        /// Full markdown narrative.
+        narrative: String,
+        /// Artifacts in the proof folder.
+        artifacts: Vec<ProofArtifactStateItem>,
     },
     /// Blessing given to a proof.
     BlessingGiven {
@@ -163,6 +169,32 @@ impl GalleryStateItem {
         } else {
             "📎"
         }
+    }
+}
+
+/// Artifact item in a proof folder (state representation).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProofArtifactStateItem {
+    /// BLAKE3 hash of artifact (hex).
+    pub artifact_hash: String,
+    /// Filename.
+    pub name: String,
+    /// MIME type.
+    pub mime_type: String,
+    /// Size in bytes.
+    pub size: u64,
+    /// Data URL for display (built from inline_data or asset_path).
+    pub data_url: Option<String>,
+    /// Image dimensions (width, height).
+    pub dimensions: Option<(u32, u32)>,
+    /// Caption / alt text.
+    pub caption: Option<String>,
+}
+
+impl ProofArtifactStateItem {
+    /// Check if this is an image item.
+    pub fn is_image(&self) -> bool {
+        self.mime_type.starts_with("image/")
     }
 }
 
@@ -347,14 +379,24 @@ impl ChatState {
                 folder_id,
                 artifact_count,
                 narrative_preview,
+                quest_title,
+                narrative,
+                artifacts,
             } => {
+                // Use quest_title if provided, otherwise fall back to empty
+                let title = if quest_title.is_empty() {
+                    String::new()
+                } else {
+                    quest_title.clone()
+                };
+
                 // Create proof blessing entry (similar to ProofSubmitted)
                 let key = (quest_id.clone(), claimant.clone());
                 self.proof_blessings.insert(
                     key,
                     ProofBlessingInfo {
                         quest_id: quest_id.clone(),
-                        quest_title: String::new(), // Not available in folder event
+                        quest_title: title.clone(),
                         claimant: claimant.clone(),
                         artifact_id: folder_id.clone(),
                         artifact_name: format!("Proof folder ({} files)", artifact_count),
@@ -364,6 +406,26 @@ impl ChatState {
                         blessings: Vec::new(),
                     },
                 );
+
+                // Convert artifacts to state items with data URLs
+                let state_artifacts: Vec<ProofArtifactStateItem> = artifacts.iter().map(|item| {
+                    // Build data URL: prefer asset_path, then inline_data
+                    let data_url = item.asset_path.as_ref()
+                        .and_then(|path| load_image_as_data_url(path))
+                        .or_else(|| item.inline_data.as_ref().map(|data| {
+                            format!("data:{};base64,{}", item.mime_type, data)
+                        }));
+
+                    ProofArtifactStateItem {
+                        artifact_hash: item.artifact_hash.clone(),
+                        name: item.name.clone(),
+                        mime_type: item.mime_type.clone(),
+                        size: item.size,
+                        data_url,
+                        dimensions: item.dimensions,
+                        caption: item.caption.clone(),
+                    }
+                }).collect();
 
                 // Add chat message
                 let content = if narrative_preview.is_empty() {
@@ -383,6 +445,9 @@ impl ChatState {
                         folder_id: folder_id.clone(),
                         artifact_count: *artifact_count,
                         narrative_preview: narrative_preview.clone(),
+                        quest_title: title,
+                        narrative: narrative.clone(),
+                        artifacts: state_artifacts,
                     },
                 );
                 self.add_realm_message(realm_id, msg.clone());
@@ -601,4 +666,33 @@ fn format_duration(millis: u64) -> String {
     } else {
         format!("{}s", seconds)
     }
+}
+
+/// Convert a local file path to a data URL for display.
+fn load_image_as_data_url(path: &str) -> Option<String> {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+
+    // Build absolute path
+    let full_path = if path.starts_with('/') {
+        std::path::PathBuf::from(path)
+    } else {
+        std::env::current_dir().ok()?.join(path)
+    };
+
+    // Read the file
+    let data = std::fs::read(&full_path).ok()?;
+
+    // Determine MIME type from extension
+    let mime = match full_path.extension().and_then(|e| e.to_str()) {
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        Some("svg") => "image/svg+xml",
+        _ => "application/octet-stream",
+    };
+
+    // Encode as data URL
+    let encoded = STANDARD.encode(&data);
+    Some(format!("data:{};base64,{}", mime, encoded))
 }
