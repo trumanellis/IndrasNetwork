@@ -12,6 +12,7 @@ use crate::state::{
 use crate::theme::{ThemeSwitcher, ThemedRoot};
 
 pub mod omni;
+pub mod omni_v2;
 
 /// File being previewed in overlay
 #[derive(Clone, Debug, Default, PartialEq)]
