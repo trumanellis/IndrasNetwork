@@ -99,6 +99,31 @@ for i, member in ipairs(all_members) do
 end
 sim:step()
 
+-- Members update their profiles
+logger.event("profile_updated", {
+    tick = sim.tick,
+    member = peer_love,
+    headline = "Visual designer & community weaver",
+    bio = "Creating symbols that bring people together. I believe every network deserves a visual identity that reflects its values.\n\n**Interests:** Graphic design, mythology, decentralized communities",
+})
+sim:step()
+
+logger.event("profile_updated", {
+    tick = sim.tick,
+    member = peer_joy,
+    headline = "Documentation & knowledge craft",
+    bio = "I turn ideas into readable artifacts. If it's not written down, it doesn't exist.\n\n**Focus:** Technical writing, open-source docs, collaborative editing",
+})
+sim:step()
+
+logger.event("profile_updated", {
+    tick = sim.tick,
+    member = peer_peace,
+    headline = "Realm steward & quest architect",
+    bio = "Keeping the realm running smoothly. I design quests that bring out the best in contributors and make sure good work gets recognized.\n\n**Role:** Coordination, review, gratitude",
+})
+sim:step()
+
 logger.info("Phase 1 complete", {
     phase = 1,
     tick = sim.tick,

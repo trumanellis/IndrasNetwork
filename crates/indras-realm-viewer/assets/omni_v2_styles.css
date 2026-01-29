@@ -806,29 +806,29 @@
 .v2-home {
   display: flex;
   flex-direction: column;
-  align-items: center;
   gap: var(--space-3);
-  padding: var(--space-4) 0;
+  padding: var(--space-3);
 }
 
 .v2-home-profile {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-2);
+  flex-direction: row;
+  align-items: flex-start;
+  gap: var(--space-3);
 }
 
 .v2-home-avatar {
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
+  width: 31.8%;
+  aspect-ratio: 1 / 1.618;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: var(--font-size-xl, 20px);
+  font-size: 2em;
   font-weight: 700;
   color: var(--bg-primary);
   background: var(--accent-primary);
+  flex-shrink: 0;
 }
 
 /* Avatar member color classes for v2 home */
@@ -839,9 +839,52 @@
 .v2-home-avatar.member-hope { background: var(--color-hope); color: #1a1a1a; }
 .v2-home-avatar.member-faith { background: var(--color-faith); color: #1a1a1a; }
 
+.v2-home-profile-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
 .v2-home-name {
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-lg);
   font-weight: 700;
+  color: var(--text-primary);
+}
+
+.v2-home-headline {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+.v2-home-headline:hover {
+  color: var(--text-primary);
+}
+
+.v2-home-headline-placeholder {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.v2-home-headline-input {
+  font-size: var(--font-size-sm);
+  width: 100%;
+}
+
+.v2-home-bio {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.v2-home-bio p {
+  margin: 0.3em 0;
+}
+
+.v2-home-bio strong {
   color: var(--text-primary);
 }
 
@@ -895,7 +938,14 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: 2px 0;
+  padding: 4px var(--space-1);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.v2-home-contact:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.05));
 }
 
 .v2-home-contact-name {
@@ -1908,4 +1958,64 @@
   max-height: 100%;
   object-fit: contain;
   border-radius: var(--radius-md);
+}
+
+/* =============================================================================
+   CONTACT PROFILE OVERLAY
+   ============================================================================= */
+
+.v2-contact-profile-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2);
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.v2-contact-profile-card {
+  width: 100%;
+  aspect-ratio: 1.618 / 1;
+  max-height: 100%;
+  overflow-y: auto;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.v2-contact-profile-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.v2-contact-profile-header .mini-section-label {
+  margin-bottom: 0;
+}
+
+.v2-contact-profile-close {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.v2-contact-headline-readonly {
+  cursor: default;
+}
+
+.v2-contact-headline-readonly:hover {
+  color: var(--text-secondary);
 }

@@ -45,6 +45,17 @@ pub enum StreamEvent {
         alias: String,
     },
 
+    #[serde(rename = "profile_updated")]
+    ProfileUpdated {
+        #[serde(default)]
+        tick: u32,
+        member: String,
+        #[serde(default)]
+        headline: Option<String>,
+        #[serde(default)]
+        bio: Option<String>,
+    },
+
     // ========== Quest Events ==========
     #[serde(rename = "quest_created")]
     QuestCreated {
@@ -459,6 +470,7 @@ impl StreamEvent {
             StreamEvent::MemberJoined { tick, .. } => *tick,
             StreamEvent::MemberLeft { tick, .. } => *tick,
             StreamEvent::RealmAliasSet { tick, .. } => *tick,
+            StreamEvent::ProfileUpdated { tick, .. } => *tick,
             StreamEvent::QuestCreated { tick, .. } => *tick,
             StreamEvent::QuestClaimSubmitted { tick, .. } => *tick,
             StreamEvent::QuestClaimVerified { tick, .. } => *tick,
@@ -498,6 +510,7 @@ impl StreamEvent {
             StreamEvent::MemberJoined { .. } => "member_joined",
             StreamEvent::MemberLeft { .. } => "member_left",
             StreamEvent::RealmAliasSet { .. } => "realm_alias_set",
+            StreamEvent::ProfileUpdated { .. } => "profile_updated",
             StreamEvent::QuestCreated { .. } => "quest_created",
             StreamEvent::QuestClaimSubmitted { .. } => "claim_submitted",
             StreamEvent::QuestClaimVerified { .. } => "claim_verified",
@@ -536,7 +549,8 @@ impl StreamEvent {
             StreamEvent::RealmCreated { .. }
             | StreamEvent::MemberJoined { .. }
             | StreamEvent::MemberLeft { .. }
-            | StreamEvent::RealmAliasSet { .. } => EventCategory::Realm,
+            | StreamEvent::RealmAliasSet { .. }
+            | StreamEvent::ProfileUpdated { .. } => EventCategory::Realm,
 
             StreamEvent::QuestCreated { .. }
             | StreamEvent::QuestClaimSubmitted { .. }

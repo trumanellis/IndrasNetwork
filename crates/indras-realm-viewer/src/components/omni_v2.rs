@@ -17,7 +17,14 @@ use super::{
     FloatingControlBar, MarkdownPreviewOverlay, ProofNarrativeOverlay,
     PreviewFile, PreviewViewMode, PreviewContext,
     ProofNarrativeData, ProofNarrativeContext,
+    render_markdown_to_html,
 };
+
+// Contact profile overlay context (per-column)
+#[derive(Clone, Copy)]
+struct ContactProfileContext {
+    viewing: Signal<Option<String>>,
+}
 
 // ============================================================================
 // OMNI V2 APP - Top-level component
@@ -87,7 +94,13 @@ fn MemberColumn(state: Signal<AppState>, member: String) -> Element {
     let proof_narrative_data = use_signal(|| None::<ProofNarrativeData>);
     let proof_narrative_mode = use_signal(|| PreviewViewMode::Rendered);
 
+    // Per-column contact profile overlay state
+    let contact_profile_viewing = use_signal(|| None::<String>);
+
     // Provide contexts scoped to this column's subtree
+    use_context_provider(|| ContactProfileContext {
+        viewing: contact_profile_viewing,
+    });
     use_context_provider(|| PreviewContext {
         is_open: preview_open,
         file: preview_file,
@@ -117,6 +130,10 @@ fn MemberColumn(state: Signal<AppState>, member: String) -> Element {
                 is_open: proof_narrative_open,
                 data: proof_narrative_data,
                 view_mode: proof_narrative_mode,
+            }
+            ContactProfileOverlay {
+                state,
+                viewing: contact_profile_viewing,
             }
         }
     }
@@ -261,12 +278,17 @@ fn ColumnFooter(state: Signal<AppState>, member: String) -> Element {
 // V2 HOME SCREEN - Profile + focus + contacts + tokens
 // ============================================================================
 
-/// Home screen: large avatar, focus indicator, stats, contacts, tokens
+/// Home screen: profile card with avatar, name, headline, bio, contacts, tokens
 #[component]
 fn V2HomeScreen(state: Signal<AppState>, member: String) -> Element {
     let name = member_name(&member);
     let initial = name.chars().next().unwrap_or('?');
     let color_class = member_color_class(&member);
+
+    // Headline editing state
+    let mut editing_headline = use_signal(|| false);
+    let mut headline_draft = use_signal(String::new);
+    let mut contact_ctx: ContactProfileContext = use_context();
 
     let state_read = state.read();
     let current_focus = state_read.attention.focus_for_member(&member).cloned();
@@ -274,17 +296,68 @@ fn V2HomeScreen(state: Signal<AppState>, member: String) -> Element {
         state_read.quests.quests.get(qid).map(|q| q.title.clone())
     });
 
-    let stats = state_read.stats_for_member(&member);
+    let member_screen = state_read.member_screens.get(&member);
+    let headline = member_screen.map(|s| s.headline.clone()).unwrap_or_default();
+    let bio = member_screen.map(|s| s.bio.clone()).unwrap_or_default();
+    let bio_html = if !bio.is_empty() { Some(render_markdown_to_html(&bio)) } else { None };
+
     let contacts = state_read.contacts.contacts_for_member(&member);
     let tokens = state_read.tokens.tokens_for_member(&member);
     let total_token_value = state_read.tokens.total_value_for_member(&member);
 
     rsx! {
         div { class: "v2-home",
-            // Profile section
+            // Profile section: avatar left, info right
             div { class: "v2-home-profile",
                 div { class: "v2-home-avatar {color_class}", "{initial}" }
-                div { class: "v2-home-name", "{name}" }
+                div { class: "v2-home-profile-info",
+                    div { class: "v2-home-name", "{name}" }
+                    // Editable headline
+                    if editing_headline() {
+                        input {
+                            class: "v2-input v2-home-headline-input",
+                            r#type: "text",
+                            placeholder: "Add a headline...",
+                            value: "{headline_draft}",
+                            oninput: move |e| headline_draft.set(e.value()),
+                            onkeydown: {
+                                let member = member.clone();
+                                move |e: Event<KeyboardData>| {
+                                    if e.key() == Key::Enter {
+                                        let val = headline_draft.read().clone();
+                                        state.write().member_screens
+                                            .entry(member.clone())
+                                            .or_default()
+                                            .headline = val;
+                                        editing_headline.set(false);
+                                    } else if e.key() == Key::Escape {
+                                        editing_headline.set(false);
+                                    }
+                                }
+                            },
+                        }
+                    } else {
+                        div {
+                            class: "v2-home-headline",
+                            onclick: {
+                                let h = headline.clone();
+                                move |_| {
+                                    headline_draft.set(h.clone());
+                                    editing_headline.set(true);
+                                }
+                            },
+                            if headline.is_empty() {
+                                span { class: "v2-home-headline-placeholder", "Add a headline..." }
+                            } else {
+                                span { "{headline}" }
+                            }
+                        }
+                    }
+                    // Bio (rendered markdown)
+                    if let Some(ref html) = bio_html {
+                        div { class: "v2-home-bio", dangerous_inner_html: "{html}" }
+                    }
+                }
             }
             // Focus indicator
             if let Some(ref title) = focus_title {
@@ -294,15 +367,6 @@ fn V2HomeScreen(state: Signal<AppState>, member: String) -> Element {
                 }
             } else {
                 div { class: "v2-home-no-focus", "No current focus" }
-            }
-            // Stats ribbon
-            div { class: "v2-home-stats",
-                span { class: "mini-stat", "{stats.realms_count}R" }
-                span { class: "mini-stat", "{stats.quests_created}Q" }
-                span { class: "mini-stat", "{stats.events_count}E" }
-                if stats.tokens_count > 0 {
-                    span { class: "mini-stat mini-stat-accent", "{stats.tokens_count}T" }
-                }
             }
             // Contacts section
             if !contacts.is_empty() {
@@ -317,7 +381,14 @@ fn V2HomeScreen(state: Signal<AppState>, member: String) -> Element {
                                 let is_mutual = state_read.contacts.is_mutual(&member, contact_id);
                                 let mutual_class = if is_mutual { " v2-contact-mutual" } else { "" };
                                 rsx! {
-                                    div { class: "v2-home-contact{mutual_class}",
+                                    div {
+                                        class: "v2-home-contact{mutual_class}",
+                                        onclick: {
+                                            let cid = contact_id.clone();
+                                            move |_| {
+                                                contact_ctx.viewing.set(Some(cid.clone()));
+                                            }
+                                        },
                                         div { class: "v2-avatar {contact_color}", "{contact_initial}" }
                                         span { class: "v2-home-contact-name", "{contact_name}" }
                                         if is_mutual {
@@ -341,6 +412,60 @@ fn V2HomeScreen(state: Signal<AppState>, member: String) -> Element {
                         div { class: "v2-home-token-row",
                             span { class: "v2-home-token-quest", "{token.quest_title}" }
                             span { class: "v2-home-token-value", "{token.formatted_value()}" }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ============================================================================
+// CONTACT PROFILE OVERLAY
+// ============================================================================
+
+/// Overlay showing a contact's profile card (avatar, name, headline, bio)
+#[component]
+fn ContactProfileOverlay(state: Signal<AppState>, viewing: Signal<Option<String>>) -> Element {
+    let contact_id = viewing.read().clone();
+    let Some(contact_id) = contact_id else {
+        return rsx! {};
+    };
+
+    let contact_name = member_name(&contact_id);
+    let contact_initial = contact_name.chars().next().unwrap_or('?');
+    let contact_color = member_color_class(&contact_id);
+
+    let state_read = state.read();
+    let contact_screen = state_read.member_screens.get(&contact_id);
+    let headline = contact_screen.map(|s| s.headline.clone()).unwrap_or_default();
+    let bio = contact_screen.map(|s| s.bio.clone()).unwrap_or_default();
+    let bio_html = if !bio.is_empty() { Some(render_markdown_to_html(&bio)) } else { None };
+
+    rsx! {
+        div {
+            class: "v2-contact-profile-overlay",
+            onclick: move |_| viewing.set(None),
+            div {
+                class: "v2-contact-profile-card",
+                onclick: move |e: Event<MouseData>| e.stop_propagation(),
+                div { class: "v2-contact-profile-header",
+                    span { class: "mini-section-label", "PROFILE" }
+                    button {
+                        class: "v2-btn v2-contact-profile-close",
+                        onclick: move |_| viewing.set(None),
+                        "X"
+                    }
+                }
+                div { class: "v2-home-profile",
+                    div { class: "v2-home-avatar {contact_color}", "{contact_initial}" }
+                    div { class: "v2-home-profile-info",
+                        div { class: "v2-home-name", "{contact_name}" }
+                        if !headline.is_empty() {
+                            div { class: "v2-home-headline v2-contact-headline-readonly", "{headline}" }
+                        }
+                        if let Some(ref html) = bio_html {
+                            div { class: "v2-home-bio", dangerous_inner_html: "{html}" }
                         }
                     }
                 }
