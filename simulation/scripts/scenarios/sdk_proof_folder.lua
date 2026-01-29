@@ -323,6 +323,7 @@ for folder_id, folder in pairs(proof_folders) do
             folder_id = folder_id,
             claimant = folder.claimant,
             narrative_length = #template.text,
+            narrative = template.text,
             latency_us = latency,
         })
 
@@ -354,6 +355,12 @@ local artifact_types = {
     { name = "video_clip.mp4", mime = "video/mp4", size = 5242880 },
 }
 
+-- Test images for draft artifact previews
+local draft_test_images = {
+    "assets/Logo_transparent.png",
+    "assets/Logo_black.png",
+}
+
 for folder_id, folder in pairs(proof_folders) do
     if folder.status == "draft" then
         -- Add 2-4 artifacts per folder
@@ -379,6 +386,13 @@ for folder_id, folder in pairs(proof_folders) do
 
             total_artifacts_added = total_artifacts_added + 1
 
+            -- Pick a test image for image artifacts
+            local asset_path = nil
+            if artifact_type.mime:find("^image/") then
+                local image_idx = ((i - 1) % #draft_test_images) + 1
+                asset_path = draft_test_images[image_idx]
+            end
+
             logger.event("proof_folder_artifact_added", {
                 tick = sim.tick,
                 realm_id = folder.realm_id,
@@ -387,11 +401,48 @@ for folder_id, folder in pairs(proof_folders) do
                 artifact_name = artifact.name,
                 artifact_size = artifact.size,
                 mime_type = artifact.mime_type,
+                asset_path = asset_path,
+                caption = artifact.caption,
                 latency_us = latency,
             })
 
             sim:step()
         end
+    end
+end
+
+-- After all artifacts are added, re-emit narrative with resolved artifact references
+-- so the viewer can render embedded images in the markdown
+for folder_id, folder in pairs(proof_folders) do
+    if folder.status == "draft" and folder.narrative_template then
+        local resolved_narrative = folder.narrative_text or ""
+        local template = folder.narrative_template
+
+        -- Replace ARTIFACT_N placeholders with actual artifact IDs
+        if template.artifact_refs then
+            for i, ref in ipairs(template.artifact_refs) do
+                if folder.artifacts[i] then
+                    resolved_narrative = resolved_narrative:gsub(
+                        "artifact:" .. ref,
+                        "artifact:" .. folder.artifacts[i].artifact_id
+                    )
+                end
+            end
+        end
+
+        -- Store resolved narrative for submission
+        folder.narrative_text = resolved_narrative
+
+        logger.event("proof_folder_narrative_updated", {
+            tick = sim.tick,
+            realm_id = folder.realm_id,
+            folder_id = folder_id,
+            claimant = folder.claimant,
+            narrative_length = #resolved_narrative,
+            narrative = resolved_narrative,
+        })
+
+        sim:step()
     end
 end
 

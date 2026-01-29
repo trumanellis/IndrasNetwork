@@ -19,8 +19,13 @@ pub mod scenario_picker;
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PreviewFile {
     pub name: String,
+    /// Content with artifact references resolved to data URLs (for rendered mode).
     pub content: String,
+    /// Content with artifact references resolved to friendly filenames (for raw mode).
+    pub raw_content: String,
     pub mime_type: String,
+    /// Data URL for image preview (set when previewing an image file).
+    pub data_url: Option<String>,
 }
 
 /// View mode for markdown preview
@@ -708,8 +713,10 @@ fn GalleryItemCard(item: crate::state::GalleryStateItem) -> Element {
                         {
                             preview_ctx.file.set(Some(PreviewFile {
                                 name: item.name.clone(),
+                                raw_content: content.clone(),
                                 content,
                                 mime_type: item.mime_type.clone(),
+                                ..Default::default()
                             }));
                             preview_ctx.view_mode.set(PreviewViewMode::Rendered);
                             preview_ctx.is_open.set(true);
@@ -878,7 +885,7 @@ fn load_image_as_data_url(path: &str) -> Option<String> {
 }
 
 /// Load a text file's full content from an asset path
-fn load_text_file_content(path: &str) -> Option<String> {
+pub(crate) fn load_text_file_content(path: &str) -> Option<String> {
     let full_path = if path.starts_with('/') {
         std::path::PathBuf::from(path)
     } else {
@@ -905,7 +912,7 @@ fn is_markdown_file(name: &str, mime_type: &str) -> bool {
         || mime_type == "application/markdown"
 }
 
-/// Markdown preview overlay with rendered/raw toggle
+/// File preview overlay — handles markdown (rendered/raw) and images.
 #[component]
 pub fn MarkdownPreviewOverlay(
     is_open: Signal<bool>,
@@ -919,7 +926,8 @@ pub fn MarkdownPreviewOverlay(
         return rsx! {};
     };
 
-    let is_md = is_markdown_file(&file_data.name, &file_data.mime_type);
+    let is_image = file_data.mime_type.starts_with("image/");
+    let is_md = !is_image && is_markdown_file(&file_data.name, &file_data.mime_type);
     let mode = view_mode();
 
     let rendered_html = if is_md && mode == PreviewViewMode::Rendered {
@@ -963,10 +971,20 @@ pub fn MarkdownPreviewOverlay(
 
                 // Content
                 div { class: "markdown-preview-content",
-                    if let Some(ref html) = rendered_html {
+                    if is_image {
+                        if let Some(ref url) = file_data.data_url {
+                            div { class: "image-preview",
+                                img {
+                                    class: "image-preview-img",
+                                    src: "{url}",
+                                    alt: "{file_data.name}",
+                                }
+                            }
+                        }
+                    } else if let Some(ref html) = rendered_html {
                         div { class: "markdown-rendered", dangerous_inner_html: "{html}" }
                     } else {
-                        pre { class: "markdown-raw", "{file_data.content}" }
+                        pre { class: "markdown-raw", "{file_data.raw_content}" }
                     }
                 }
             }
@@ -1590,8 +1608,10 @@ fn ChatMessageItem(message: crate::state::ChatMessage) -> Element {
                                                     {
                                                         preview_ctx.file.set(Some(PreviewFile {
                                                             name: item.name.clone(),
+                                                            raw_content: content.clone(),
                                                             content,
                                                             mime_type: item.mime_type.clone(),
+                                                            ..Default::default()
                                                         }));
                                                         preview_ctx.view_mode.set(PreviewViewMode::Rendered);
                                                         preview_ctx.is_open.set(true);

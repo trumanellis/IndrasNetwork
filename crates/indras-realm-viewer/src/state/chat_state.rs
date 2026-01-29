@@ -251,6 +251,7 @@ impl ChatState {
                 member,
                 content,
                 message_id,
+                realm_id,
                 ..
             } => {
                 // Generate ID if not provided
@@ -263,6 +264,9 @@ impl ChatState {
                     content.clone(),
                     ChatMessageType::Text,
                 );
+                if let Some(rid) = realm_id {
+                    self.add_realm_message(rid, msg.clone());
+                }
                 self.add_global_message(msg);
             }
 
@@ -669,7 +673,7 @@ fn format_duration(millis: u64) -> String {
 }
 
 /// Convert a local file path to a data URL for display.
-fn load_image_as_data_url(path: &str) -> Option<String> {
+pub(crate) fn load_image_as_data_url(path: &str) -> Option<String> {
     use base64::{Engine as _, engine::general_purpose::STANDARD};
 
     // Build absolute path

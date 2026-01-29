@@ -2,12 +2,12 @@
 //!
 //! Coordinates all sub-states and handles event processing.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use crate::events::{StreamEvent, EventCategory};
 
-use super::{ArtifactState, AttentionState, ChatState, ContactsState, ProofFolderState, QuestState, RealmState, TokenState};
+use super::{ArtifactState, AttentionState, ChatState, ContactsState, DocumentState, MemberProofDraftState, ProofFolderState, QuestState, RealmState, TokenState};
 
 /// Global event buffer for replay on reset
 static EVENT_BUFFER: std::sync::OnceLock<Arc<Mutex<Vec<StreamEvent>>>> = std::sync::OnceLock::new();
@@ -72,6 +72,110 @@ impl Default for PlaybackSettings {
     }
 }
 
+/// Which screen a member is currently viewing (derived from their most recent action)
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum MemberScreen {
+    #[default]
+    Home,
+    QuestBoard,
+    Chat,
+    ProofEditor,
+    Artifacts,
+    Realms,
+    Activity,
+}
+
+impl MemberScreen {
+    /// Lucide icon SVG inner content (stroke icons, 24x24 viewBox)
+    pub fn icon_svg(&self) -> &'static str {
+        match self {
+            MemberScreen::Home =>
+                r#"<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>"#,
+            MemberScreen::QuestBoard =>
+                r#"<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>"#,
+            MemberScreen::Chat =>
+                r#"<path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"/>"#,
+            MemberScreen::ProofEditor =>
+                r#"<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/>"#,
+            MemberScreen::Artifacts =>
+                r#"<path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"/>"#,
+            MemberScreen::Realms =>
+                r#"<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>"#,
+            MemberScreen::Activity =>
+                r#"<path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.36 8.36a.5.5 0 0 1-.96 0L8.24 2.18a.5.5 0 0 0-.96 0l-2.36 8.36A2 2 0 0 1 3 12H2"/>"#,
+        }
+    }
+
+    /// Short label shown below the icon in tab bar
+    pub fn label(&self) -> &'static str {
+        match self {
+            MemberScreen::Home => "HOME",
+            MemberScreen::QuestBoard => "QUESTS",
+            MemberScreen::Chat => "CHAT",
+            MemberScreen::ProofEditor => "PROOF",
+            MemberScreen::Artifacts => "FILES",
+            MemberScreen::Realms => "REALMS",
+            MemberScreen::Activity => "ACTIVITY",
+        }
+    }
+
+    /// Full human-readable name (for tooltips, etc.)
+    pub fn name(&self) -> &'static str {
+        match self {
+            MemberScreen::Home => "Home",
+            MemberScreen::QuestBoard => "Quest Board",
+            MemberScreen::Chat => "Chat",
+            MemberScreen::ProofEditor => "Proof Editor",
+            MemberScreen::Artifacts => "Artifacts",
+            MemberScreen::Realms => "Realms",
+            MemberScreen::Activity => "Activity",
+        }
+    }
+
+    /// All screens (including Activity)
+    pub fn all() -> &'static [MemberScreen] {
+        &[
+            MemberScreen::Home,
+            MemberScreen::QuestBoard,
+            MemberScreen::Chat,
+            MemberScreen::ProofEditor,
+            MemberScreen::Artifacts,
+            MemberScreen::Realms,
+            MemberScreen::Activity,
+        ]
+    }
+
+    /// Screens shown as tabs in the header (Activity lives in the footer)
+    pub fn tabs() -> &'static [MemberScreen] {
+        &[
+            MemberScreen::Home,
+            MemberScreen::QuestBoard,
+            MemberScreen::Chat,
+            MemberScreen::ProofEditor,
+            MemberScreen::Artifacts,
+            MemberScreen::Realms,
+        ]
+    }
+}
+
+/// Per-member screen state tracking
+#[derive(Clone, Debug)]
+pub struct MemberScreenState {
+    pub screen: MemberScreen,
+    pub last_action: String,
+    pub last_action_tick: u32,
+}
+
+impl Default for MemberScreenState {
+    fn default() -> Self {
+        Self {
+            screen: MemberScreen::Home,
+            last_action: String::new(),
+            last_action_tick: 0,
+        }
+    }
+}
+
 /// Recent event for the log panel
 #[derive(Clone, Debug)]
 pub struct LoggedEvent {
@@ -92,6 +196,9 @@ impl LoggedEvent {
             }
             StreamEvent::MemberLeft { realm_id, member, .. } => {
                 format!("{} left {}", member_name(member), short_id(realm_id))
+            }
+            StreamEvent::RealmAliasSet { member, realm_id, alias, .. } => {
+                format!("{} renamed {} to \"{}\"", member_name(member), short_id(realm_id), alias)
             }
             StreamEvent::QuestCreated { quest_id, creator, title, .. } => {
                 let title_str = if title.is_empty() { quest_id.as_str() } else { title.as_str() };
@@ -176,6 +283,9 @@ impl LoggedEvent {
             StreamEvent::Info { message, .. } => {
                 message.chars().take(50).collect()
             }
+            StreamEvent::DocumentEdit { editor, document_id, .. } => {
+                format!("{} edited document {}", member_name(editor), short_id(document_id))
+            }
             StreamEvent::ArtifactSharedRevocable { sharer, name, size, .. } => {
                 format!("{} shared \"{}\" ({}B, revocable)", member_name(sharer), name, size)
             }
@@ -235,6 +345,10 @@ pub struct AppState {
     pub proof_folder: ProofFolderState,
     /// Token of Gratitude tracking state
     pub tokens: TokenState,
+    /// Document content tracking (CRDT edits)
+    pub documents: DocumentState,
+    /// Per-member proof folder draft tracking (for V2 multi-column)
+    pub member_proof_drafts: MemberProofDraftState,
     /// Recent events for log panel (newest first)
     pub event_log: VecDeque<LoggedEvent>,
     /// Maximum events to keep in log
@@ -243,6 +357,8 @@ pub struct AppState {
     pub total_events: usize,
     /// Currently selected point-of-view member (None = overview mode)
     pub selected_pov: Option<String>,
+    /// Per-member screen state (for omni v2 multi-screen dashboard)
+    pub member_screens: HashMap<String, MemberScreenState>,
 }
 
 impl AppState {
@@ -272,7 +388,8 @@ impl AppState {
         match &event {
             StreamEvent::RealmCreated { .. }
             | StreamEvent::MemberJoined { .. }
-            | StreamEvent::MemberLeft { .. } => {
+            | StreamEvent::MemberLeft { .. }
+            | StreamEvent::RealmAliasSet { .. } => {
                 self.realms.process_event(&event);
             }
 
@@ -308,10 +425,22 @@ impl AppState {
             }
 
             StreamEvent::ProofSubmitted { .. }
-            | StreamEvent::ProofFolderSubmitted { .. }
             | StreamEvent::BlessingGiven { .. } => {
                 self.chat.process_event(&event);
                 self.tokens.process_event(&event);
+            }
+
+            StreamEvent::ProofFolderSubmitted { .. } => {
+                self.chat.process_event(&event);
+                self.tokens.process_event(&event);
+                self.member_proof_drafts.process_event(&event);
+                self.artifacts.process_event(&event);
+            }
+
+            StreamEvent::ProofFolderCreated { .. }
+            | StreamEvent::ProofFolderNarrativeUpdated { .. }
+            | StreamEvent::ProofFolderArtifactAdded { .. } => {
+                self.member_proof_drafts.process_event(&event);
             }
 
             StreamEvent::ArtifactSharedRevocable { .. }
@@ -320,10 +449,141 @@ impl AppState {
                 self.artifacts.process_event(&event);
             }
 
+            StreamEvent::DocumentEdit { .. } => {
+                self.documents.process_event(&event);
+            }
+
             _ => {}
         }
 
+        // Update member screen state based on event
+        self.update_member_screen(&event);
+
         self.total_events += 1;
+    }
+
+    /// Update the screen state for the acting member based on the event type
+    fn update_member_screen(&mut self, event: &StreamEvent) {
+        // Realm chat messages switch all realm members to Chat
+        if let StreamEvent::ChatMessage { member, content, realm_id: Some(rid), .. } = event {
+            let tick = event.tick();
+            let preview: String = content.chars().take(30).collect();
+            let sender_name = member_name(member);
+            let action_for_sender = preview.clone();
+            let action_for_others = format!("{}: {}", sender_name, preview);
+
+            // Get all members in this realm
+            let realm_members: Vec<String> = self.realms.realms_for_member(member)
+                .iter()
+                .filter(|r| r.realm_id == *rid)
+                .flat_map(|r| r.members.clone())
+                .collect();
+
+            for m in &realm_members {
+                let entry = self.member_screens.entry(m.clone()).or_default();
+                entry.screen = MemberScreen::Chat;
+                entry.last_action = if m == member {
+                    action_for_sender.clone()
+                } else {
+                    action_for_others.clone()
+                };
+                entry.last_action_tick = tick;
+            }
+
+            // Also set the sender in case they weren't in the realm member list
+            let entry = self.member_screens.entry(member.clone()).or_default();
+            entry.screen = MemberScreen::Chat;
+            entry.last_action = action_for_sender;
+            entry.last_action_tick = tick;
+            return;
+        }
+
+        let (member_id, screen, action) = match event {
+            StreamEvent::MemberJoined { member, realm_id, .. } => {
+                (member.clone(), MemberScreen::Realms, format!("joined realm {}", short_id(realm_id)))
+            }
+            StreamEvent::MemberLeft { member, realm_id, .. } => {
+                (member.clone(), MemberScreen::Realms, format!("left realm {}", short_id(realm_id)))
+            }
+            StreamEvent::RealmAliasSet { member, alias, .. } => {
+                (member.clone(), MemberScreen::Realms, format!("renamed realm to \"{}\"", alias))
+            }
+            StreamEvent::QuestCreated { creator, title, .. } => {
+                let desc = if title.is_empty() { "a quest".to_string() } else { format!("\"{}\"", title) };
+                (creator.clone(), MemberScreen::QuestBoard, format!("created {}", desc))
+            }
+            StreamEvent::QuestClaimSubmitted { claimant, quest_id, .. } => {
+                (claimant.clone(), MemberScreen::QuestBoard, format!("claimed {}", short_id(quest_id)))
+            }
+            StreamEvent::AttentionSwitched { member, quest_id, .. } => {
+                (member.clone(), MemberScreen::QuestBoard, format!("focusing on {}", short_id(quest_id)))
+            }
+            StreamEvent::AttentionCleared { member, .. } => {
+                (member.clone(), MemberScreen::Home, "cleared focus".to_string())
+            }
+            StreamEvent::ContactAdded { member, contact, .. } => {
+                (member.clone(), MemberScreen::Home, format!("added contact {}", member_name(contact)))
+            }
+            StreamEvent::ContactRemoved { member, contact, .. } => {
+                (member.clone(), MemberScreen::Home, format!("removed contact {}", member_name(contact)))
+            }
+            // ChatMessage without realm_id — sender-only screen switch
+            StreamEvent::ChatMessage { member, content, .. } => {
+                let preview: String = content.chars().take(30).collect();
+                (member.clone(), MemberScreen::Chat, preview)
+            }
+            StreamEvent::ChatMessageEdited { member, .. } => {
+                (member.clone(), MemberScreen::Chat, "edited a message".to_string())
+            }
+            StreamEvent::ChatMessageDeleted { member, .. } => {
+                (member.clone(), MemberScreen::Chat, "deleted a message".to_string())
+            }
+            StreamEvent::ChatImage { member, alt_text, filename, .. } => {
+                let desc = alt_text.as_ref().or(filename.as_ref())
+                    .map(|s| s.as_str()).unwrap_or("image");
+                (member.clone(), MemberScreen::Chat, format!("shared {}", desc))
+            }
+            StreamEvent::ChatGallery { member, title, items, .. } => {
+                let desc = title.as_deref().unwrap_or("gallery");
+                (member.clone(), MemberScreen::Chat, format!("shared {} ({} items)", desc, items.len()))
+            }
+            StreamEvent::ProofFolderCreated { claimant, .. } => {
+                (claimant.clone(), MemberScreen::ProofEditor, "started proof folder".to_string())
+            }
+            StreamEvent::ProofFolderNarrativeUpdated { claimant, .. } => {
+                (claimant.clone(), MemberScreen::ProofEditor, "updated narrative".to_string())
+            }
+            StreamEvent::ProofFolderSubmitted { claimant, artifact_count, .. } => {
+                (claimant.clone(), MemberScreen::Chat, format!("submitted proof folder ({} files)", artifact_count))
+            }
+            StreamEvent::ProofSubmitted { claimant, quest_title, .. } => {
+                let title = if quest_title.is_empty() { "quest" } else { quest_title.as_str() };
+                (claimant.clone(), MemberScreen::QuestBoard, format!("submitted proof for {}", title))
+            }
+            StreamEvent::BlessingGiven { blesser, claimant, .. } => {
+                (blesser.clone(), MemberScreen::Chat, format!("blessed {}", member_name(claimant)))
+            }
+            StreamEvent::ArtifactSharedRevocable { sharer, name, .. } => {
+                (sharer.clone(), MemberScreen::Artifacts, format!("shared \"{}\"", name))
+            }
+            StreamEvent::ArtifactRecalled { revoked_by, artifact_hash, .. } => {
+                (revoked_by.clone(), MemberScreen::Artifacts, format!("recalled {}", short_id(artifact_hash)))
+            }
+            StreamEvent::RecallAcknowledged { acknowledged_by, artifact_hash, .. } => {
+                (acknowledged_by.clone(), MemberScreen::Artifacts, format!("acknowledged recall of {}", short_id(artifact_hash)))
+            }
+            StreamEvent::DocumentEdit { editor, document_id, .. } => {
+                (editor.clone(), MemberScreen::Artifacts, format!("edited document {}", short_id(document_id)))
+            }
+            // System events with no acting member - no screen change
+            _ => return,
+        };
+
+        let tick = event.tick();
+        let entry = self.member_screens.entry(member_id).or_default();
+        entry.screen = screen;
+        entry.last_action = action;
+        entry.last_action_tick = tick;
     }
 
     /// Reset all state
@@ -364,6 +624,21 @@ impl AppState {
     /// Set POV (None clears to overview)
     pub fn set_pov(&mut self, member: Option<String>) {
         self.selected_pov = member;
+    }
+
+    /// Get the current screen state for a member
+    pub fn screen_for_member(&self, member: &str) -> &MemberScreenState {
+        static DEFAULT: std::sync::OnceLock<MemberScreenState> = std::sync::OnceLock::new();
+        self.member_screens.get(member).unwrap_or_else(|| {
+            DEFAULT.get_or_init(MemberScreenState::default)
+        })
+    }
+
+    /// How many ticks since the member's last action
+    pub fn ticks_since_action(&self, member: &str) -> u32 {
+        self.member_screens.get(member)
+            .map(|s| self.tick.saturating_sub(s.last_action_tick))
+            .unwrap_or(u32::MAX)
     }
 
     /// Get statistics for a specific member
@@ -426,6 +701,18 @@ pub fn member_name(member_id: &str) -> String {
             let idx = (n as usize) % names.len();
             return names[idx].to_string();
         }
+    }
+
+    // Short IDs (e.g. "A", "B", "C" from mesh builder): use ordinal position
+    if !member_id.is_empty() && member_id.len() < 4 {
+        let first = member_id.as_bytes()[0];
+        let idx = match first {
+            b'A'..=b'Z' => (first - b'A') as usize,
+            b'a'..=b'z' => (first - b'a') as usize,
+            b'0'..=b'9' => (first - b'0') as usize,
+            _ => first as usize,
+        };
+        return names[idx % names.len()].to_string();
     }
 
     // Fallback: use first few chars

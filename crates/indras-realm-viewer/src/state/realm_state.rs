@@ -82,6 +82,10 @@ impl RealmState {
                 }
             }
 
+            StreamEvent::RealmAliasSet { realm_id, alias, .. } => {
+                self.set_alias(realm_id, alias.clone());
+            }
+
             _ => {}
         }
     }
