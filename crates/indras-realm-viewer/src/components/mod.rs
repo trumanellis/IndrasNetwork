@@ -13,6 +13,7 @@ use crate::theme::{ThemeSwitcher, ThemedRoot};
 
 pub mod omni;
 pub mod omni_v2;
+pub mod scenario_picker;
 
 /// File being previewed in overlay
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -887,7 +888,7 @@ fn load_text_file_content(path: &str) -> Option<String> {
 }
 
 /// Render markdown to HTML
-fn render_markdown_to_html(markdown: &str) -> String {
+pub(crate) fn render_markdown_to_html(markdown: &str) -> String {
     use pulldown_cmark::{html, Options, Parser};
     let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
     let parser = Parser::new_ext(markdown, options);
@@ -976,7 +977,7 @@ pub fn MarkdownPreviewOverlay(
 /// Render markdown narrative with artifact image references replaced by data URLs.
 ///
 /// Transforms `![caption](artifact:HASH)` syntax to `![caption](data:...)` for display.
-fn render_narrative_with_images(
+pub(crate) fn render_narrative_with_images(
     narrative: &str,
     artifacts: &[crate::state::ProofArtifactStateItem],
 ) -> String {
@@ -1947,6 +1948,37 @@ pub fn FloatingControlBar(state: Signal<AppState>) -> Element {
                 div { class: "tick-counter",
                     span { class: "tick-label", "T:" }
                     span { class: "tick-current", "{tick}" }
+                }
+            }
+
+            // Timestep slider pill
+            {
+                let current_pos = playback::get_current_pos();
+                let buffer_len = playback::get_buffer_len();
+                if buffer_len > 0 {
+                    rsx! {
+                        div { class: "timestep-pill",
+                            span { class: "timestep-label", "{current_pos}" }
+                            input {
+                                class: "timestep-slider",
+                                r#type: "range",
+                                min: "0",
+                                max: "{buffer_len}",
+                                step: "1",
+                                value: "{current_pos}",
+                                onchange: move |evt| {
+                                    if let Ok(v) = evt.value().parse::<usize>() {
+                                        playback::request_seek(v);
+                                        playback::set_paused(true);
+                                        state_write.write().playback.paused = true;
+                                    }
+                                },
+                            }
+                            span { class: "timestep-total", "{buffer_len}" }
+                        }
+                    }
+                } else {
+                    rsx! {}
                 }
             }
 
