@@ -2153,6 +2153,77 @@ html, body {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
 }
 
+/* Timestep pill */
+.timestep-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-lg);
+}
+
+.timestep-label {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--accent-primary);
+  min-width: 28px;
+  text-align: right;
+  font-family: monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.timestep-total {
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  color: var(--text-secondary);
+  min-width: 28px;
+  text-align: left;
+  font-family: monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.timestep-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 140px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.timestep-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  background: var(--accent-primary);
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  transition: transform var(--transition-fast);
+}
+
+.timestep-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.1);
+}
+
+.timestep-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  background: var(--accent-primary);
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
 /* Status pill */
 .status-pill {
   display: flex;
@@ -2190,6 +2261,7 @@ html, body {
 /* Light theme adjustments for floating controls */
 [data-theme="light"] .control-pill,
 [data-theme="light"] .speed-pill,
+[data-theme="light"] .timestep-pill,
 [data-theme="light"] .status-pill {
   background: rgba(255, 255, 255, 0.9);
   border-color: rgba(0, 0, 0, 0.1);
@@ -2206,11 +2278,17 @@ html, body {
   background: rgba(0, 0, 0, 0.1);
 }
 
-[data-theme="light"] .speed-slider {
+[data-theme="light"] .speed-slider,
+[data-theme="light"] .timestep-slider {
   background: rgba(0, 0, 0, 0.15);
 }
 
 [data-theme="light"] .speed-slider::-webkit-slider-thumb {
+  background: var(--accent-primary);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+[data-theme="light"] .timestep-slider::-webkit-slider-thumb {
   background: var(--accent-primary);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
 }
