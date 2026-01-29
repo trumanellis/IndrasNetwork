@@ -9,6 +9,10 @@ description = "Standalone dashboard viewer for Indras realm features"
 name = "realm-viewer"
 path = "src/main.rs"
 
+[[bin]]
+name = "omni-viewer"
+path = "src/omni_main.rs"
+
 [dependencies]
 dioxus = { version = "0.7", features = ["desktop"] }
 tokio = { version = "1", features = ["full", "sync", "rt-multi-thread", "io-std"] }
