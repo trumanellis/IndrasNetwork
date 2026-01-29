@@ -158,6 +158,21 @@ impl LoggedEvent {
             StreamEvent::ProofFolderSubmitted { claimant, artifact_count, .. } => {
                 format!("{} submitted proof folder ({} files)", member_name(claimant), artifact_count)
             }
+            StreamEvent::ProofFolderCreated { claimant, .. } => {
+                format!("{} started proof folder", member_name(claimant))
+            }
+            StreamEvent::ProofFolderNarrativeUpdated { claimant, .. } => {
+                format!("{} updated narrative", member_name(claimant))
+            }
+            StreamEvent::ProofFolderArtifactAdded { artifact_name, .. } => {
+                format!("Added artifact: {}", artifact_name)
+            }
+            StreamEvent::CrdtConverged { folder_id, members_synced, .. } => {
+                format!("CRDT synced {} ({} members)", short_id(folder_id), members_synced)
+            }
+            StreamEvent::CrdtConflict { folder_id, .. } => {
+                format!("CRDT conflict on {}", short_id(folder_id))
+            }
             StreamEvent::Info { message, .. } => {
                 message.chars().take(50).collect()
             }

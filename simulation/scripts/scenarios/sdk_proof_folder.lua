@@ -215,6 +215,14 @@ for realm_id, realm_data in pairs(realms) do
                 message_type = "text",
             })
 
+            -- Switch attention to the quest they're working on
+            logger.event("attention_switched", {
+                tick = sim.tick,
+                member = claimant,
+                quest_id = quest.id,
+                latency_us = quest_helpers.attention_switch_latency(),
+            })
+
             sim:step()
         end
     end
@@ -236,19 +244,73 @@ logger.info("Phase 3: Update narratives", {
     description = "Claimants write markdown narratives",
 })
 
+-- Narrative templates with image placeholders
+-- Uses ![caption](artifact:HASH) syntax for image references
 local narrative_templates = {
-    "## Work Completed\n\nI finished the task by implementing the requested feature.\n\n### Steps Taken\n1. Analyzed the requirements\n2. Implemented the solution\n3. Tested thoroughly",
-    "## Summary\n\nCompleted the assigned work on schedule.\n\n### Details\n- Reviewed existing code\n- Made necessary changes\n- Verified functionality",
-    "## Task Report\n\nAll objectives met successfully.\n\n### Evidence\n- Screenshots attached\n- Tests passing\n- Documentation updated",
+    {
+        text = [[## Work Completed
+
+I finished the task by implementing the requested feature.
+
+### Before State
+![Before starting work](artifact:ARTIFACT_1)
+
+### Steps Taken
+1. Analyzed the requirements
+2. Implemented the solution
+3. Tested thoroughly
+
+### After State
+![After completing work](artifact:ARTIFACT_2)
+
+The work is now complete and ready for review.]],
+        artifact_refs = { "ARTIFACT_1", "ARTIFACT_2" }
+    },
+    {
+        text = [[## Summary
+
+Completed the assigned work on schedule.
+
+### Evidence
+![Screenshot of completed work](artifact:ARTIFACT_1)
+
+### Details
+- Reviewed existing code
+- Made necessary changes
+- Verified functionality
+
+All requirements have been met.]],
+        artifact_refs = { "ARTIFACT_1" }
+    },
+    {
+        text = [[## Task Report
+
+All objectives met successfully.
+
+### Progress Photos
+
+![Initial assessment](artifact:ARTIFACT_1)
+
+![Work in progress](artifact:ARTIFACT_2)
+
+![Final result](artifact:ARTIFACT_3)
+
+### Summary
+- All work completed on time
+- Quality checks passed
+- Ready for verification]],
+        artifact_refs = { "ARTIFACT_1", "ARTIFACT_2", "ARTIFACT_3" }
+    },
 }
 
 for folder_id, folder in pairs(proof_folders) do
     if folder.status == "draft" then
         local start_time = os.clock()
 
-        -- Select and set narrative
-        local narrative = narrative_templates[math.random(#narrative_templates)]
-        folder.narrative = narrative
+        -- Select a narrative template
+        local template = narrative_templates[math.random(#narrative_templates)]
+        folder.narrative_template = template
+        folder.narrative_text = template.text
 
         local latency = (os.clock() - start_time) * 1000000
         table.insert(latencies.narrative_update, latency)
@@ -260,7 +322,7 @@ for folder_id, folder in pairs(proof_folders) do
             realm_id = folder.realm_id,
             folder_id = folder_id,
             claimant = folder.claimant,
-            narrative_length = #narrative,
+            narrative_length = #template.text,
             latency_us = latency,
         })
 
@@ -361,10 +423,61 @@ for folder_id, folder in pairs(proof_folders) do
 
         total_folders_submitted = total_folders_submitted + 1
 
-        -- Generate narrative preview (first 100 chars)
-        local narrative_preview = folder.narrative:sub(1, 100)
-        if #folder.narrative > 100 then
+        -- Get the quest title from the quest data
+        local quest_title = ""
+        local realm_data = realms[folder.realm_id]
+        if realm_data then
+            for _, quest in ipairs(realm_data.quests) do
+                if quest.id == folder.quest_id then
+                    quest_title = quest.title
+                    break
+                end
+            end
+        end
+
+        -- Build final narrative with actual artifact hashes
+        local final_narrative = folder.narrative_text or ""
+        local template = folder.narrative_template
+
+        -- Map artifact refs to actual artifact hashes
+        if template and template.artifact_refs then
+            for i, ref in ipairs(template.artifact_refs) do
+                if folder.artifacts[i] then
+                    final_narrative = final_narrative:gsub(
+                        "artifact:" .. ref,
+                        "artifact:" .. folder.artifacts[i].artifact_id
+                    )
+                end
+            end
+        end
+
+        -- Generate narrative preview (first 100 chars, stripping markdown)
+        local preview_text = final_narrative:gsub("#", ""):gsub("%*", ""):gsub("%[.-%]%(.-%)","")
+        local narrative_preview = preview_text:sub(1, 100)
+        if #preview_text > 100 then
             narrative_preview = narrative_preview .. "..."
+        end
+
+        -- Build artifacts array for the event
+        local artifacts_data = {}
+
+        -- Use existing logo images from the assets folder for testing
+        local test_images = {
+            "assets/Logo_transparent.png",
+            "assets/Logo_black.png",
+        }
+
+        for i, artifact in ipairs(folder.artifacts) do
+            local image_idx = ((i - 1) % #test_images) + 1
+            table.insert(artifacts_data, {
+                artifact_hash = artifact.artifact_id,
+                name = artifact.name,
+                mime_type = "image/png",
+                size = artifact.size,
+                caption = artifact.caption,
+                -- Use asset_path to load real images from the repo
+                asset_path = test_images[image_idx],
+            })
         end
 
         -- This triggers the chat notification to all realm members
@@ -376,6 +489,9 @@ for folder_id, folder in pairs(proof_folders) do
             folder_id = folder_id,
             artifact_count = #folder.artifacts,
             narrative_preview = narrative_preview,
+            quest_title = quest_title,
+            narrative = final_narrative,
+            artifacts = artifacts_data,
         })
 
         total_chat_notifications = total_chat_notifications + 1
@@ -415,6 +531,16 @@ local total_completed = 0
 for realm_id, realm_data in pairs(realms) do
     for _, quest in ipairs(realm_data.quests) do
         local verified_count = 0
+
+        -- Creator focuses on their quest to review proofs
+        if #quest.proof_folders > 0 then
+            logger.event("attention_switched", {
+                tick = sim.tick,
+                member = quest.creator,
+                quest_id = quest.id,
+                latency_us = quest_helpers.attention_switch_latency(),
+            })
+        end
 
         -- Verify each submitted proof folder
         for i, folder_id in ipairs(quest.proof_folders) do

@@ -7,7 +7,7 @@ use dioxus::prelude::*;
 use crate::playback;
 use crate::state::{
     member_name, short_id, format_duration_millis, AppState, ArtifactInfo, ArtifactStatus, ClaimInfo,
-    DraftArtifact, MemberStats, QuestAttention, QuestInfo, QuestStatus, RealmInfo, TokenOfGratitude, UploadStatus,
+    DraftArtifact, QuestAttention, QuestInfo, QuestStatus, RealmInfo, TokenOfGratitude, UploadStatus,
 };
 use crate::theme::{ThemeSwitcher, ThemedRoot};
 
@@ -35,6 +35,22 @@ struct PreviewContext {
     view_mode: Signal<PreviewViewMode>,
 }
 
+/// Data for proof narrative overlay
+#[derive(Clone, Debug, Default, PartialEq)]
+struct ProofNarrativeData {
+    quest_title: String,
+    member: String,
+    narrative: String,
+    artifacts: Vec<crate::state::ProofArtifactStateItem>,
+}
+
+/// Context for proof narrative overlay
+#[derive(Clone, Copy)]
+struct ProofNarrativeContext {
+    is_open: Signal<bool>,
+    data: Signal<Option<ProofNarrativeData>>,
+}
+
 /// Main application component
 #[component]
 pub fn App(state: Signal<AppState>) -> Element {
@@ -43,11 +59,22 @@ pub fn App(state: Signal<AppState>) -> Element {
     let preview_file = use_signal(|| None::<PreviewFile>);
     let preview_mode = use_signal(|| PreviewViewMode::Rendered);
 
+    // Proof narrative overlay state
+    let proof_narrative_open = use_signal(|| false);
+    let proof_narrative_data = use_signal(|| None::<ProofNarrativeData>);
+    let proof_narrative_mode = use_signal(|| PreviewViewMode::Rendered);
+
     // Provide preview context to children
     use_context_provider(|| PreviewContext {
         is_open: preview_open,
         file: preview_file,
         view_mode: preview_mode,
+    });
+
+    // Provide proof narrative context to children
+    use_context_provider(|| ProofNarrativeContext {
+        is_open: proof_narrative_open,
+        data: proof_narrative_data,
     });
 
     let is_pov_mode = state.read().selected_pov.is_some();
@@ -73,6 +100,11 @@ pub fn App(state: Signal<AppState>) -> Element {
                     is_open: preview_open,
                     file: preview_file,
                     view_mode: preview_mode,
+                }
+                ProofNarrativeOverlay {
+                    is_open: proof_narrative_open,
+                    data: proof_narrative_data,
+                    view_mode: proof_narrative_mode,
                 }
             }
         }
@@ -938,6 +970,162 @@ fn MarkdownPreviewOverlay(
     }
 }
 
+/// Render markdown narrative with artifact image references replaced by data URLs.
+///
+/// Transforms `![caption](artifact:HASH)` syntax to `![caption](data:...)` for display.
+fn render_narrative_with_images(
+    narrative: &str,
+    artifacts: &[crate::state::ProofArtifactStateItem],
+) -> String {
+    use pulldown_cmark::{html, Event, Options, Parser, Tag};
+    use std::collections::HashMap;
+
+    // Build lookup map: artifact_hash -> data_url
+    let artifact_map: HashMap<&str, Option<&str>> = artifacts
+        .iter()
+        .map(|a| (a.artifact_hash.as_str(), a.data_url.as_deref()))
+        .collect();
+
+    let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
+    let parser = Parser::new_ext(narrative, options);
+
+    // Transform image URLs with artifact: prefix
+    let transformed = parser.map(|event| {
+        match event {
+            Event::Start(Tag::Image { link_type, dest_url, title, id }) => {
+                // Check if URL starts with "artifact:"
+                if dest_url.starts_with("artifact:") {
+                    let hash = &dest_url[9..]; // Skip "artifact:" prefix
+                    if let Some(Some(data_url)) = artifact_map.get(hash) {
+                        return Event::Start(Tag::Image {
+                            link_type,
+                            dest_url: (*data_url).to_string().into(),
+                            title,
+                            id,
+                        });
+                    }
+                }
+                Event::Start(Tag::Image { link_type, dest_url, title, id })
+            }
+            other => other,
+        }
+    });
+
+    let mut html_output = String::new();
+    html::push_html(&mut html_output, transformed);
+    html_output
+}
+
+/// Proof narrative overlay showing full markdown with embedded images.
+#[component]
+fn ProofNarrativeOverlay(
+    is_open: Signal<bool>,
+    data: Signal<Option<ProofNarrativeData>>,
+    view_mode: Signal<PreviewViewMode>,
+) -> Element {
+    if !is_open() {
+        return rsx! {};
+    }
+    let Some(narrative_data) = data() else {
+        return rsx! {};
+    };
+
+    let member_display = member_name(&narrative_data.member);
+    let color_class = member_color_class(&narrative_data.member);
+    let mode = view_mode();
+
+    // Render narrative with embedded artifact images (only in rendered mode)
+    let rendered_html = if mode == PreviewViewMode::Rendered {
+        Some(render_narrative_with_images(&narrative_data.narrative, &narrative_data.artifacts))
+    } else {
+        None
+    };
+
+    // Get image artifacts for gallery footer
+    let image_artifacts: Vec<_> = narrative_data.artifacts.iter()
+        .filter(|a| a.is_image())
+        .collect();
+
+    rsx! {
+        div {
+            class: "proof-narrative-overlay",
+            onclick: move |_| is_open.set(false),
+            div {
+                class: "proof-narrative-dialog",
+                onclick: move |e| e.stop_propagation(),
+
+                // Header
+                div { class: "proof-narrative-header",
+                    div { class: "proof-narrative-header-left",
+                        div { class: "proof-narrative-title-row",
+                            span { class: "proof-narrative-icon", "📋" }
+                            span { class: "proof-narrative-quest-title", "{narrative_data.quest_title}" }
+                        }
+                        div { class: "proof-narrative-meta",
+                            span { class: "proof-narrative-by", "by " }
+                            span { class: "proof-narrative-author {color_class}", "{member_display}" }
+                        }
+                    }
+                    div { class: "proof-narrative-controls",
+                        button {
+                            class: "proof-narrative-toggle",
+                            onclick: move |_| {
+                                view_mode.set(if mode == PreviewViewMode::Rendered {
+                                    PreviewViewMode::Raw
+                                } else {
+                                    PreviewViewMode::Rendered
+                                });
+                            },
+                            if mode == PreviewViewMode::Rendered { "View Raw" } else { "View Rendered" }
+                        }
+                        button {
+                            class: "proof-narrative-close",
+                            onclick: move |_| is_open.set(false),
+                            "×"
+                        }
+                    }
+                }
+
+                // Main content: rendered or raw markdown
+                div { class: "proof-narrative-content",
+                    if let Some(ref html) = rendered_html {
+                        div { class: "proof-narrative-rendered", dangerous_inner_html: "{html}" }
+                    } else {
+                        pre { class: "proof-narrative-raw", "{narrative_data.narrative}" }
+                    }
+                }
+
+                // Footer: artifact gallery
+                if !image_artifacts.is_empty() {
+                    div { class: "proof-narrative-gallery",
+                        div { class: "proof-narrative-gallery-label", "Attached Evidence ({image_artifacts.len()})" }
+                        div { class: "proof-narrative-gallery-grid",
+                            for artifact in image_artifacts {
+                                div {
+                                    class: "proof-narrative-gallery-item",
+                                    title: "{artifact.name}",
+                                    if let Some(ref url) = artifact.data_url {
+                                        img {
+                                            class: "proof-narrative-gallery-thumb",
+                                            src: "{url}",
+                                            alt: artifact.caption.as_deref().unwrap_or(&artifact.name),
+                                        }
+                                    } else {
+                                        div { class: "proof-narrative-gallery-placeholder", "🖼️" }
+                                    }
+                                    if let Some(ref caption) = artifact.caption {
+                                        span { class: "proof-narrative-gallery-caption", "{caption}" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Card displaying a shared artifact with its status
 #[component]
 fn SharedArtifactCard(artifact: ArtifactInfo) -> Element {
@@ -1217,20 +1405,84 @@ fn ChatMessageItem(message: crate::state::ChatMessage) -> Element {
                 }
             }
         }
-        crate::state::ChatMessageType::ProofFolderSubmitted { artifact_count, narrative_preview, .. } => {
+        crate::state::ChatMessageType::ProofFolderSubmitted {
+            artifact_count,
+            narrative_preview,
+            quest_title,
+            narrative,
+            artifacts,
+            ..
+        } => {
+            let mut proof_ctx = use_context::<ProofNarrativeContext>();
+
+            // Find first image artifact for thumbnail
+            let first_image = artifacts.iter()
+                .find(|a| a.is_image())
+                .and_then(|a| a.data_url.clone());
+
             let preview = if narrative_preview.is_empty() {
                 format!("{} files", artifact_count)
             } else {
-                narrative_preview.clone()
+                // Truncate preview if too long
+                if narrative_preview.len() > 80 {
+                    format!("{}...", &narrative_preview[..80])
+                } else {
+                    narrative_preview.clone()
+                }
             };
+
+            let title_display = if quest_title.is_empty() {
+                "Proof Submission".to_string()
+            } else {
+                quest_title.clone()
+            };
+
+            // Check if we have narrative content to show
+            let has_narrative = !narrative.is_empty();
+
+            // Data for overlay
+            let overlay_data = ProofNarrativeData {
+                quest_title: title_display.clone(),
+                member: message.member.clone(),
+                narrative: narrative.clone(),
+                artifacts: artifacts.clone(),
+            };
+
             rsx! {
-                div { class: "chat-message proof-folder-message",
-                    span { class: "chat-tick", "[{message.tick}]" }
-                    span { class: "chat-icon", "📂" }
-                    span { class: "chat-sender {color_class}", "{name}" }
-                    div { class: "proof-content",
-                        span { class: "proof-label", "Proof folder: " }
-                        span { class: "proof-preview", "{preview}" }
+                div {
+                    class: if has_narrative { "chat-message proof-folder-message clickable" } else { "chat-message proof-folder-message" },
+                    onclick: {
+                        let overlay_data = overlay_data.clone();
+                        move |_| {
+                            if has_narrative {
+                                proof_ctx.data.set(Some(overlay_data.clone()));
+                                proof_ctx.is_open.set(true);
+                            }
+                        }
+                    },
+                    // Thumbnail if available
+                    if let Some(ref thumb_url) = first_image {
+                        div { class: "proof-folder-thumb",
+                            img {
+                                src: "{thumb_url}",
+                                alt: "Proof thumbnail",
+                            }
+                        }
+                    }
+                    div { class: "proof-folder-content",
+                        div { class: "proof-folder-header",
+                            span { class: "chat-tick", "[{message.tick}]" }
+                            span { class: "chat-icon", "📋" }
+                            span { class: "chat-sender {color_class}", "{name}" }
+                        }
+                        div { class: "proof-folder-title", "{title_display}" }
+                        div { class: "proof-folder-preview", "{preview}" }
+                        div { class: "proof-folder-meta",
+                            span { class: "proof-folder-count", "{artifact_count} attachments" }
+                            if has_narrative {
+                                span { class: "proof-folder-cta", "Click to view" }
+                            }
+                        }
                     }
                 }
             }
@@ -1735,8 +1987,30 @@ pub fn POVDashboard(state: Signal<AppState>) -> Element {
     let state_read = state.read();
     let member = state_read.selected_pov.clone().unwrap_or_default();
     let name = member_name(&member);
-    let stats = state_read.stats_for_member(&member);
     let color_class = member_color_class(&member);
+
+    // Preview overlay state (for markdown files in galleries)
+    let preview_open = use_signal(|| false);
+    let preview_file = use_signal(|| None::<PreviewFile>);
+    let preview_mode = use_signal(|| PreviewViewMode::Rendered);
+
+    // Proof narrative overlay state
+    let proof_narrative_open = use_signal(|| false);
+    let proof_narrative_data = use_signal(|| None::<ProofNarrativeData>);
+    let proof_narrative_mode = use_signal(|| PreviewViewMode::Rendered);
+
+    // Provide preview context to children
+    use_context_provider(|| PreviewContext {
+        is_open: preview_open,
+        file: preview_file,
+        view_mode: preview_mode,
+    });
+
+    // Provide proof narrative context to children
+    use_context_provider(|| ProofNarrativeContext {
+        is_open: proof_narrative_open,
+        data: proof_narrative_data,
+    });
 
     rsx! {
         ThemedRoot {
@@ -1751,15 +2025,14 @@ pub fn POVDashboard(state: Signal<AppState>) -> Element {
                 main { class: "pov-content",
                     div { class: "pov-left-column",
                         ProfileHero {
+                            state,
                             member: member.clone(),
                             name: name.clone(),
-                            stats: stats.clone(),
                         }
                         TokensOfGratitudePanel { state, member: member.clone() }
                         MyNetworkView { state, member: member.clone() }
                     }
                     div { class: "pov-center-column",
-                        MyAttentionPanel { state, member: member.clone() }
                         div { class: "pov-quests-chat-row",
                             div { class: "pov-quests-artifacts-column",
                                 MyQuestsList { state }
@@ -1775,6 +2048,16 @@ pub fn POVDashboard(state: Signal<AppState>) -> Element {
                 }
             }
             FloatingControlBar { state }
+            MarkdownPreviewOverlay {
+                is_open: preview_open,
+                file: preview_file,
+                view_mode: preview_mode,
+            }
+            ProofNarrativeOverlay {
+                is_open: proof_narrative_open,
+                data: proof_narrative_data,
+                view_mode: proof_narrative_mode,
+            }
         }
     }
 }
@@ -1796,9 +2079,17 @@ fn POVHeader(name: String, on_back: EventHandler<()>) -> Element {
 }
 
 #[component]
-fn ProfileHero(member: String, name: String, stats: MemberStats) -> Element {
+fn ProfileHero(state: Signal<AppState>, member: String, name: String) -> Element {
     let initial = name.chars().next().unwrap_or('?');
     let color_class = member_color_class(&member);
+
+    let state_read = state.read();
+    let current_focus = state_read.attention.focus_for_member(&member).cloned();
+
+    // Get current focus quest title
+    let current_focus_title = current_focus.as_ref().and_then(|qid| {
+        state_read.quests.quests.get(qid).map(|q| q.title.clone())
+    });
 
     rsx! {
         div { class: "profile-hero",
@@ -1806,109 +2097,20 @@ fn ProfileHero(member: String, name: String, stats: MemberStats) -> Element {
                 "{initial}"
             }
             h2 { class: "profile-name", "{name}" }
-            div { class: "profile-stats",
-                div { class: "profile-stat",
-                    span { class: "profile-stat-value", "{stats.quests_created}" }
-                    span { class: "profile-stat-label", "Created" }
-                }
-                div { class: "profile-stat",
-                    span { class: "profile-stat-value", "{stats.quests_assigned}" }
-                    span { class: "profile-stat-label", "Claimed" }
-                }
-                div { class: "profile-stat",
-                    span { class: "profile-stat-value", "{stats.quests_completed}" }
-                    span { class: "profile-stat-label", "Done" }
-                }
-                div { class: "profile-stat token-stat",
-                    span { class: "profile-stat-value", "{stats.tokens_count}" }
-                    span { class: "profile-stat-label", "Tokens" }
-                }
-                div { class: "profile-stat",
-                    span { class: "profile-stat-value", "{stats.realms_count}" }
-                    span { class: "profile-stat-label", "Realms" }
-                }
-                div { class: "profile-stat",
-                    span { class: "profile-stat-value", "{stats.contacts_count}" }
-                    span { class: "profile-stat-label", "Contacts" }
-                }
-            }
-        }
-    }
-}
-
-#[component]
-fn MyAttentionPanel(state: Signal<AppState>, member: String) -> Element {
-    let state_read = state.read();
-    let current_focus = state_read.attention.focus_for_member(&member).cloned();
-    let attention_data = state_read.attention.attention_for_member(&member);
-
-    // Get current focus quest title
-    let current_focus_title = current_focus.as_ref().and_then(|qid| {
-        state_read.quests.quests.get(qid).map(|q| q.title.clone())
-    });
-
-    // Build attention items with quest titles
-    let attention_items: Vec<(String, String, u64)> = attention_data
-        .iter()
-        .take(8)
-        .map(|qa| {
-            let title = state_read.quests.quests.get(&qa.quest_id)
-                .map(|q| q.title.clone())
-                .unwrap_or_else(|| short_id(&qa.quest_id));
-            (qa.quest_id.clone(), title, qa.total_attention_ms)
-        })
-        .collect();
-
-    let max_attention = attention_items.first().map(|(_, _, ms)| *ms).unwrap_or(1).max(1);
-
-    rsx! {
-        div { class: "my-attention-panel",
-            div { class: "panel-header",
-                span { class: "panel-title", "My Attention" }
-            }
 
             // Current Focus Section
-            div { class: "focus-section",
-                div { class: "focus-header", "Currently Focused" }
+            div { class: "profile-focus-section",
+                div { class: "profile-focus-label", "Currently Focused" }
                 if let Some(ref title) = current_focus_title {
-                    div { class: "focus-quest-title", "{title}" }
+                    div { class: "profile-focus-quest", "{title}" }
                 } else {
-                    div { class: "focus-quest-none", "Not focusing on any quest" }
-                }
-            }
-
-            // Attention History
-            if !attention_items.is_empty() {
-                div { class: "attention-history",
-                    div { class: "attention-history-header", "Time Spent" }
-                    div { class: "attention-history-list",
-                        for (_, title, ms) in attention_items.iter() {
-                            {
-                                let secs = *ms as f64 / 1000.0;
-                                let bar_width = (*ms as f64 / max_attention as f64 * 100.0).min(100.0);
-
-                                rsx! {
-                                    div { class: "attention-history-item",
-                                        div { class: "attention-quest-title", "{title}" }
-                                        div { class: "attention-quest-bar",
-                                            div { class: "attention-bar-track",
-                                                div {
-                                                    class: "attention-bar-fill",
-                                                    style: "width: {bar_width}%"
-                                                }
-                                            }
-                                            span { class: "attention-time", "{secs:.1}s" }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    div { class: "profile-focus-none", "Not focusing on any quest" }
                 }
             }
         }
     }
 }
+
 
 #[component]
 fn MyNetworkView(state: Signal<AppState>, member: String) -> Element {

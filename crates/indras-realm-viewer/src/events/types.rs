@@ -272,6 +272,15 @@ pub enum StreamEvent {
         artifact_count: usize,
         #[serde(default)]
         narrative_preview: String,
+        /// Quest title for display
+        #[serde(default)]
+        quest_title: String,
+        /// Full markdown narrative
+        #[serde(default)]
+        narrative: String,
+        /// Artifacts in the proof folder
+        #[serde(default)]
+        artifacts: Vec<ProofArtifactItem>,
     },
 
     // ========== Artifact Sharing Events ==========
@@ -324,6 +333,71 @@ pub enum StreamEvent {
         key_removed: bool,
     },
 
+    // ========== Proof Folder Lifecycle Events ==========
+    /// Proof folder created (draft state)
+    #[serde(rename = "proof_folder_created")]
+    ProofFolderCreated {
+        #[serde(default)]
+        tick: u32,
+        realm_id: String,
+        quest_id: String,
+        folder_id: String,
+        claimant: String,
+        #[serde(default)]
+        status: String,
+    },
+
+    /// Proof folder narrative updated
+    #[serde(rename = "proof_folder_narrative_updated")]
+    ProofFolderNarrativeUpdated {
+        #[serde(default)]
+        tick: u32,
+        realm_id: String,
+        folder_id: String,
+        claimant: String,
+        #[serde(default)]
+        narrative_length: usize,
+    },
+
+    /// Artifact added to proof folder
+    #[serde(rename = "proof_folder_artifact_added")]
+    ProofFolderArtifactAdded {
+        #[serde(default)]
+        tick: u32,
+        realm_id: String,
+        folder_id: String,
+        artifact_id: String,
+        #[serde(default)]
+        artifact_name: String,
+        #[serde(default)]
+        artifact_size: u64,
+        #[serde(default)]
+        mime_type: String,
+    },
+
+    // ========== CRDT Events ==========
+    /// CRDT converged across members
+    #[serde(rename = "crdt_converged")]
+    CrdtConverged {
+        #[serde(default)]
+        tick: u32,
+        folder_id: String,
+        #[serde(default)]
+        members_synced: usize,
+    },
+
+    /// CRDT conflict detected
+    #[serde(rename = "crdt_conflict")]
+    CrdtConflict {
+        #[serde(default)]
+        tick: u32,
+        folder_id: String,
+        #[serde(default)]
+        expected_members: usize,
+        #[serde(default)]
+        actual_members: usize,
+    },
+
     // ========== Info/Log Events ==========
     #[serde(rename = "info")]
     Info {
@@ -365,6 +439,11 @@ impl StreamEvent {
             StreamEvent::ProofSubmitted { tick, .. } => *tick,
             StreamEvent::BlessingGiven { tick, .. } => *tick,
             StreamEvent::ProofFolderSubmitted { tick, .. } => *tick,
+            StreamEvent::ProofFolderCreated { tick, .. } => *tick,
+            StreamEvent::ProofFolderNarrativeUpdated { tick, .. } => *tick,
+            StreamEvent::ProofFolderArtifactAdded { tick, .. } => *tick,
+            StreamEvent::CrdtConverged { tick, .. } => *tick,
+            StreamEvent::CrdtConflict { tick, .. } => *tick,
             StreamEvent::ArtifactSharedRevocable { tick, .. } => *tick,
             StreamEvent::ArtifactRecalled { tick, .. } => *tick,
             StreamEvent::RecallAcknowledged { tick, .. } => *tick,
@@ -397,6 +476,11 @@ impl StreamEvent {
             StreamEvent::ProofSubmitted { .. } => "proof_submitted",
             StreamEvent::BlessingGiven { .. } => "blessing_given",
             StreamEvent::ProofFolderSubmitted { .. } => "proof_folder_submitted",
+            StreamEvent::ProofFolderCreated { .. } => "proof_folder_created",
+            StreamEvent::ProofFolderNarrativeUpdated { .. } => "narrative_updated",
+            StreamEvent::ProofFolderArtifactAdded { .. } => "artifact_added",
+            StreamEvent::CrdtConverged { .. } => "crdt_converged",
+            StreamEvent::CrdtConflict { .. } => "crdt_conflict",
             StreamEvent::ArtifactSharedRevocable { .. } => "artifact_shared_revocable",
             StreamEvent::ArtifactRecalled { .. } => "artifact_recalled",
             StreamEvent::RecallAcknowledged { .. } => "recall_acknowledged",
@@ -434,13 +518,19 @@ impl StreamEvent {
 
             StreamEvent::ProofSubmitted { .. }
             | StreamEvent::BlessingGiven { .. }
-            | StreamEvent::ProofFolderSubmitted { .. } => EventCategory::Blessing,
+            | StreamEvent::ProofFolderSubmitted { .. }
+            | StreamEvent::ProofFolderCreated { .. }
+            | StreamEvent::ProofFolderNarrativeUpdated { .. }
+            | StreamEvent::ProofFolderArtifactAdded { .. } => EventCategory::Blessing,
 
             StreamEvent::ArtifactSharedRevocable { .. }
             | StreamEvent::ArtifactRecalled { .. }
             | StreamEvent::RecallAcknowledged { .. } => EventCategory::Artifact,
 
-            StreamEvent::Info { .. } | StreamEvent::Unknown => EventCategory::Info,
+            StreamEvent::CrdtConverged { .. }
+            | StreamEvent::CrdtConflict { .. }
+            | StreamEvent::Info { .. }
+            | StreamEvent::Unknown => EventCategory::Info,
         }
     }
 }
@@ -510,4 +600,33 @@ pub struct GalleryEventItem {
     /// Local asset path for viewer testing
     #[serde(default)]
     pub asset_path: Option<String>,
+}
+
+/// Artifact item in a proof folder
+#[derive(Debug, Clone, Deserialize)]
+pub struct ProofArtifactItem {
+    /// BLAKE3 hash of artifact (hex)
+    pub artifact_hash: String,
+    /// Filename
+    pub name: String,
+    /// MIME type
+    pub mime_type: String,
+    /// Size in bytes
+    #[serde(default)]
+    pub size: u64,
+    /// Base64-encoded thumbnail (for images)
+    #[serde(default)]
+    pub thumbnail_data: Option<String>,
+    /// Base64-encoded inline data (for small images/files)
+    #[serde(default)]
+    pub inline_data: Option<String>,
+    /// Image dimensions (width, height) if applicable
+    #[serde(default)]
+    pub dimensions: Option<(u32, u32)>,
+    /// Local asset path for viewer testing
+    #[serde(default)]
+    pub asset_path: Option<String>,
+    /// Caption / alt text
+    #[serde(default)]
+    pub caption: Option<String>,
 }
