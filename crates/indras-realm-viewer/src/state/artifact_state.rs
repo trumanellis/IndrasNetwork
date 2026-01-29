@@ -46,6 +46,8 @@ pub struct ArtifactInfo {
     pub recall_acknowledgments: Vec<String>,
     /// Local file path for real assets (if available)
     pub asset_path: Option<String>,
+    /// Pre-computed data URL for image thumbnails
+    pub data_url: Option<String>,
 }
 
 impl ArtifactInfo {
@@ -161,6 +163,8 @@ impl ArtifactState {
                 sharer,
                 asset_path,
             } => {
+                let data_url = asset_path.as_ref()
+                    .and_then(|p| super::load_image_as_data_url(p));
                 let info = ArtifactInfo {
                     artifact_hash: artifact_hash.clone(),
                     realm_id: realm_id.clone(),
@@ -173,6 +177,7 @@ impl ArtifactState {
                     recalled_at_tick: None,
                     recall_acknowledgments: Vec::new(),
                     asset_path: asset_path.clone(),
+                    data_url,
                 };
                 self.artifacts.insert(artifact_hash.clone(), info);
                 self.total_shared += 1;
@@ -199,6 +204,35 @@ impl ArtifactState {
                     if !artifact.recall_acknowledgments.contains(acknowledged_by) {
                         artifact.recall_acknowledgments.push(acknowledged_by.clone());
                     }
+                }
+            }
+
+            StreamEvent::ProofFolderSubmitted {
+                tick,
+                realm_id,
+                claimant,
+                artifacts,
+                ..
+            } => {
+                for art in artifacts {
+                    let data_url = art.asset_path.as_ref()
+                        .and_then(|p| super::load_image_as_data_url(p));
+                    let info = ArtifactInfo {
+                        artifact_hash: art.artifact_hash.clone(),
+                        realm_id: realm_id.clone(),
+                        name: art.name.clone(),
+                        size: art.size,
+                        mime_type: Some(art.mime_type.clone()),
+                        sharer: claimant.clone(),
+                        status: ArtifactStatus::Shared,
+                        shared_at_tick: *tick,
+                        recalled_at_tick: None,
+                        recall_acknowledgments: Vec::new(),
+                        asset_path: art.asset_path.clone(),
+                        data_url,
+                    };
+                    self.artifacts.insert(art.artifact_hash.clone(), info);
+                    self.total_shared += 1;
                 }
             }
 

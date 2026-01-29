@@ -4591,6 +4591,22 @@ html, body {
   color: var(--text-primary);
 }
 
+/* Image preview */
+.image-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-height: 0;
+}
+
+.image-preview-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: var(--radius-md);
+}
+
 /* Clickable text items */
 .clickable-text-item {
   cursor: pointer;

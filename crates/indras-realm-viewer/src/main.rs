@@ -89,8 +89,9 @@ fn RootApp() -> Element {
             let buffer = event_buffer();
 
             // Create the stream config
-            let stream_config = StreamConfig {
-                file_path: FILE_PATH.get().cloned().flatten(),
+            let stream_config = match FILE_PATH.get().cloned().flatten() {
+                Some(path) => StreamConfig::file(path),
+                None => StreamConfig::stdin(),
             };
 
             // Start the event stream

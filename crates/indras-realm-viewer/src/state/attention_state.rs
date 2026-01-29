@@ -112,27 +112,38 @@ impl AttentionState {
 
     /// Get quests ranked by total attention
     pub fn quests_by_attention(&self) -> Vec<QuestAttention> {
-        let mut result: Vec<QuestAttention> = self
-            .attention
-            .iter()
-            .map(|(quest_id, by_member)| {
-                let total: u64 = by_member.values().sum();
+        // Collect all quest IDs from both closed and open focus windows
+        let mut all_quest_ids: std::collections::HashSet<&str> =
+            self.attention.keys().map(|s| s.as_str()).collect();
+        for (_, (quest_id, _)) in &self.focus_start {
+            all_quest_ids.insert(quest_id.as_str());
+        }
 
-                // Add any open windows
-                let open_duration: u64 = self
-                    .focus_start
-                    .iter()
-                    .filter(|(_, (q, _))| q == quest_id)
-                    .map(|(_, (_, start))| {
-                        self.current_tick.saturating_sub(*start) as u64 * 100
-                    })
-                    .sum();
+        let mut result: Vec<QuestAttention> = all_quest_ids
+            .iter()
+            .map(|quest_id| {
+                let mut by_member = self
+                    .attention
+                    .get(*quest_id)
+                    .cloned()
+                    .unwrap_or_default();
+                let closed_total: u64 = by_member.values().sum();
+
+                // Add open window durations to both total and per-member maps
+                let mut open_duration: u64 = 0;
+                for (member, (q, start)) in &self.focus_start {
+                    if q.as_str() == *quest_id {
+                        let dur = self.current_tick.saturating_sub(*start) as u64 * 100;
+                        open_duration += dur;
+                        *by_member.entry(member.clone()).or_default() += dur;
+                    }
+                }
 
                 let currently_focusing: Vec<String> = self
                     .current_focus
                     .iter()
                     .filter_map(|(m, q)| {
-                        if q.as_ref() == Some(quest_id) {
+                        if q.as_deref() == Some(*quest_id) {
                             Some(m.clone())
                         } else {
                             None
@@ -141,9 +152,9 @@ impl AttentionState {
                     .collect();
 
                 QuestAttention {
-                    quest_id: quest_id.clone(),
-                    total_attention_ms: total + open_duration,
-                    by_member: by_member.clone(),
+                    quest_id: quest_id.to_string(),
+                    total_attention_ms: closed_total + open_duration,
+                    by_member,
                     currently_focusing,
                 }
             })

@@ -1,22 +1,61 @@
 //! JSONL stream reader for event ingestion
 //!
-//! Reads events from stdin or a file and sends them through a channel.
+//! Reads events from stdin, a file, or a subprocess and sends them through a channel.
 
-use std::path::PathBuf;
+use std::io::BufRead;
+use std::path::{Path, PathBuf};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::mpsc;
 
 use super::StreamEvent;
 
+/// Where the event stream comes from
+pub enum StreamSource {
+    /// Read from stdin (piped input)
+    Stdin,
+    /// Read from a JSONL file on disk
+    File(PathBuf),
+    /// Spawn lua_runner as a subprocess and read its stdout
+    Subprocess {
+        scenario_path: PathBuf,
+        manifest_path: PathBuf,
+    },
+}
+
 /// Stream reader configuration
 pub struct StreamConfig {
-    /// Read from file instead of stdin
-    pub file_path: Option<PathBuf>,
+    pub source: StreamSource,
+}
+
+impl StreamConfig {
+    /// Create a config that reads from stdin
+    pub fn stdin() -> Self {
+        Self {
+            source: StreamSource::Stdin,
+        }
+    }
+
+    /// Create a config that reads from a file
+    pub fn file(path: PathBuf) -> Self {
+        Self {
+            source: StreamSource::File(path),
+        }
+    }
+
+    /// Create a config that spawns a subprocess
+    pub fn subprocess(scenario_path: PathBuf, manifest_path: PathBuf) -> Self {
+        Self {
+            source: StreamSource::Subprocess {
+                scenario_path,
+                manifest_path,
+            },
+        }
+    }
 }
 
 impl Default for StreamConfig {
     fn default() -> Self {
-        Self { file_path: None }
+        Self::stdin()
     }
 }
 
@@ -39,18 +78,67 @@ async fn run_stream(
     config: StreamConfig,
     tx: mpsc::UnboundedSender<StreamEvent>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    match config.file_path {
-        Some(path) => {
+    match config.source {
+        StreamSource::File(path) => {
             let file = tokio::fs::File::open(&path).await?;
             let reader = BufReader::new(file);
             read_lines(reader, tx).await
         }
-        None => {
+        StreamSource::Stdin => {
             let stdin = tokio::io::stdin();
             let reader = BufReader::new(stdin);
             read_lines(reader, tx).await
         }
+        StreamSource::Subprocess {
+            scenario_path,
+            manifest_path,
+        } => {
+            run_subprocess(scenario_path, manifest_path, tx).await
+        }
     }
+}
+
+async fn run_subprocess(
+    scenario_path: PathBuf,
+    manifest_path: PathBuf,
+    tx: mpsc::UnboundedSender<StreamEvent>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let stress_level = std::env::var("STRESS_LEVEL").unwrap_or_else(|_| "quick".to_string());
+
+    tracing::info!(
+        "Spawning lua_runner for scenario: {}",
+        scenario_path.display()
+    );
+
+    let mut child = tokio::process::Command::new("cargo")
+        .arg("run")
+        .arg("--bin")
+        .arg("lua_runner")
+        .arg("--manifest-path")
+        .arg(&manifest_path)
+        .arg("--")
+        .arg(&scenario_path)
+        .env("STRESS_LEVEL", &stress_level)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::inherit())
+        .kill_on_drop(true)
+        .spawn()?;
+
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or("Failed to capture subprocess stdout")?;
+
+    let reader = BufReader::new(stdout);
+    let result = read_lines(reader, tx).await;
+
+    // Wait for child to finish
+    let status = child.wait().await?;
+    if !status.success() {
+        tracing::warn!("lua_runner exited with status: {}", status);
+    }
+
+    result
 }
 
 async fn read_lines<R: tokio::io::AsyncRead + Unpin>(
@@ -81,6 +169,93 @@ async fn read_lines<R: tokio::io::AsyncRead + Unpin>(
     }
 
     Ok(())
+}
+
+// =============================================================================
+// Scenario Discovery
+// =============================================================================
+
+/// Metadata about a discovered Lua scenario file
+#[derive(Clone, Debug, PartialEq)]
+pub struct ScenarioInfo {
+    /// Human-readable name (filename without .lua)
+    pub name: String,
+    /// Full path to the .lua file
+    pub path: PathBuf,
+    /// First comment line from the file (description)
+    pub description: String,
+    /// Whether this is an SDK scenario (name starts with "sdk_")
+    pub is_sdk: bool,
+}
+
+/// Discover available scenario files in a directory.
+///
+/// Reads `*.lua` files, extracts the first `-- ` comment line as description,
+/// and sorts SDK scenarios first, then alphabetically.
+pub fn discover_scenarios(dir: &Path) -> Vec<ScenarioInfo> {
+    let mut scenarios = Vec::new();
+
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) => {
+            tracing::warn!("Failed to read scenarios directory {}: {}", dir.display(), e);
+            return scenarios;
+        }
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("lua") {
+            continue;
+        }
+
+        let name = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        let description = extract_first_comment(&path);
+        let is_sdk = name.starts_with("sdk_");
+
+        scenarios.push(ScenarioInfo {
+            name,
+            path,
+            description,
+            is_sdk,
+        });
+    }
+
+    // Sort: SDK first, then alphabetically within each group
+    scenarios.sort_by(|a, b| {
+        b.is_sdk
+            .cmp(&a.is_sdk)
+            .then_with(|| a.name.cmp(&b.name))
+    });
+
+    scenarios
+}
+
+/// Extract the first `-- ` comment line from a Lua file as a description.
+fn extract_first_comment(path: &Path) -> String {
+    let file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(_) => return String::new(),
+    };
+
+    let reader = std::io::BufReader::new(file);
+    for line in reader.lines().flatten() {
+        let trimmed = line.trim();
+        if let Some(comment) = trimmed.strip_prefix("-- ") {
+            return comment.to_string();
+        }
+        // Skip empty lines at the top
+        if !trimmed.is_empty() && !trimmed.starts_with("--") {
+            break;
+        }
+    }
+
+    String::new()
 }
 
 #[cfg(test)]
@@ -145,5 +320,21 @@ mod tests {
             count += 1;
         }
         assert_eq!(count, 13, "Expected 13 events");
+    }
+
+    #[test]
+    fn test_discover_scenarios() {
+        // Test with the actual scenarios directory if it exists
+        let dir = Path::new("../../simulation/scripts/scenarios");
+        if dir.exists() {
+            let scenarios = discover_scenarios(dir);
+            assert!(!scenarios.is_empty(), "Should find at least one scenario");
+            // SDK scenarios should come first
+            let first_non_sdk = scenarios.iter().position(|s| !s.is_sdk);
+            let last_sdk = scenarios.iter().rposition(|s| s.is_sdk);
+            if let (Some(first_non_sdk), Some(last_sdk)) = (first_non_sdk, last_sdk) {
+                assert!(last_sdk < first_non_sdk, "SDK scenarios should be sorted first");
+            }
+        }
     }
 }

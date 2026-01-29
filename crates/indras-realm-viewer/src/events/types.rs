@@ -36,6 +36,15 @@ pub enum StreamEvent {
         member: String,
     },
 
+    #[serde(rename = "realm_alias_set")]
+    RealmAliasSet {
+        #[serde(default)]
+        tick: u32,
+        realm_id: String,
+        member: String,
+        alias: String,
+    },
+
     // ========== Quest Events ==========
     #[serde(rename = "quest_created")]
     QuestCreated {
@@ -159,6 +168,8 @@ pub enum StreamEvent {
         message_type: String,
         #[serde(default)]
         message_id: Option<String>,
+        #[serde(default)]
+        realm_id: Option<String>,
     },
 
     #[serde(rename = "chat_message_edited")]
@@ -357,6 +368,9 @@ pub enum StreamEvent {
         claimant: String,
         #[serde(default)]
         narrative_length: usize,
+        /// Full markdown narrative text (for V2 rendered preview)
+        #[serde(default)]
+        narrative: String,
     },
 
     /// Artifact added to proof folder
@@ -373,6 +387,12 @@ pub enum StreamEvent {
         artifact_size: u64,
         #[serde(default)]
         mime_type: String,
+        /// Local asset path for viewer testing (images/videos)
+        #[serde(default)]
+        asset_path: Option<String>,
+        /// Caption / alt text
+        #[serde(default)]
+        caption: Option<String>,
     },
 
     // ========== CRDT Events ==========
@@ -398,6 +418,23 @@ pub enum StreamEvent {
         actual_members: usize,
     },
 
+    // ========== Document Events ==========
+    /// Document edited via CRDT
+    #[serde(rename = "document_edit")]
+    DocumentEdit {
+        #[serde(default)]
+        tick: u32,
+        /// Artifact hash identifying the document
+        document_id: String,
+        /// Member who made the edit
+        editor: String,
+        /// Full document content after edit
+        content: String,
+        /// Realm where the document lives
+        #[serde(default)]
+        realm_id: Option<String>,
+    },
+
     // ========== Info/Log Events ==========
     #[serde(rename = "info")]
     Info {
@@ -421,6 +458,7 @@ impl StreamEvent {
             StreamEvent::RealmCreated { tick, .. } => *tick,
             StreamEvent::MemberJoined { tick, .. } => *tick,
             StreamEvent::MemberLeft { tick, .. } => *tick,
+            StreamEvent::RealmAliasSet { tick, .. } => *tick,
             StreamEvent::QuestCreated { tick, .. } => *tick,
             StreamEvent::QuestClaimSubmitted { tick, .. } => *tick,
             StreamEvent::QuestClaimVerified { tick, .. } => *tick,
@@ -447,6 +485,7 @@ impl StreamEvent {
             StreamEvent::ArtifactSharedRevocable { tick, .. } => *tick,
             StreamEvent::ArtifactRecalled { tick, .. } => *tick,
             StreamEvent::RecallAcknowledged { tick, .. } => *tick,
+            StreamEvent::DocumentEdit { tick, .. } => *tick,
             StreamEvent::Info { tick, .. } => *tick,
             StreamEvent::Unknown => 0,
         }
@@ -458,6 +497,7 @@ impl StreamEvent {
             StreamEvent::RealmCreated { .. } => "realm_created",
             StreamEvent::MemberJoined { .. } => "member_joined",
             StreamEvent::MemberLeft { .. } => "member_left",
+            StreamEvent::RealmAliasSet { .. } => "realm_alias_set",
             StreamEvent::QuestCreated { .. } => "quest_created",
             StreamEvent::QuestClaimSubmitted { .. } => "claim_submitted",
             StreamEvent::QuestClaimVerified { .. } => "claim_verified",
@@ -484,6 +524,7 @@ impl StreamEvent {
             StreamEvent::ArtifactSharedRevocable { .. } => "artifact_shared_revocable",
             StreamEvent::ArtifactRecalled { .. } => "artifact_recalled",
             StreamEvent::RecallAcknowledged { .. } => "recall_acknowledged",
+            StreamEvent::DocumentEdit { .. } => "document_edit",
             StreamEvent::Info { .. } => "info",
             StreamEvent::Unknown => "unknown",
         }
@@ -494,7 +535,8 @@ impl StreamEvent {
         match self {
             StreamEvent::RealmCreated { .. }
             | StreamEvent::MemberJoined { .. }
-            | StreamEvent::MemberLeft { .. } => EventCategory::Realm,
+            | StreamEvent::MemberLeft { .. }
+            | StreamEvent::RealmAliasSet { .. } => EventCategory::Realm,
 
             StreamEvent::QuestCreated { .. }
             | StreamEvent::QuestClaimSubmitted { .. }
@@ -525,7 +567,8 @@ impl StreamEvent {
 
             StreamEvent::ArtifactSharedRevocable { .. }
             | StreamEvent::ArtifactRecalled { .. }
-            | StreamEvent::RecallAcknowledged { .. } => EventCategory::Artifact,
+            | StreamEvent::RecallAcknowledged { .. }
+            | StreamEvent::DocumentEdit { .. } => EventCategory::Artifact,
 
             StreamEvent::CrdtConverged { .. }
             | StreamEvent::CrdtConflict { .. }

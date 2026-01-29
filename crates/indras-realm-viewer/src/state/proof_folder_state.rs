@@ -217,6 +217,162 @@ impl ProofFolderState {
     }
 }
 
+// ============================================================================
+// PER-MEMBER PROOF DRAFT STATE (for Omni V2 multi-column dashboard)
+// ============================================================================
+
+use std::collections::HashMap;
+use crate::events::StreamEvent;
+
+/// Info about an artifact in a proof folder draft
+#[derive(Clone, Debug, PartialEq)]
+pub struct DraftArtifactInfo {
+    pub artifact_id: String,
+    pub name: String,
+    pub size: u64,
+    pub mime_type: String,
+    pub added_at_tick: u32,
+    /// Data URL for image/video preview (built from asset_path)
+    pub data_url: Option<String>,
+    /// Caption / alt text
+    pub caption: Option<String>,
+}
+
+impl DraftArtifactInfo {
+    /// Check if this is an image
+    pub fn is_image(&self) -> bool {
+        self.mime_type.starts_with("image/")
+    }
+
+    /// Check if this is a video
+    pub fn is_video(&self) -> bool {
+        self.mime_type.starts_with("video/")
+    }
+}
+
+/// A per-member proof folder draft (tracked from stream events)
+#[derive(Clone, Debug, PartialEq)]
+pub struct MemberProofDraft {
+    pub folder_id: String,
+    pub quest_id: String,
+    pub realm_id: String,
+    pub narrative_length: usize,
+    /// Full markdown narrative text (for rendered preview)
+    pub narrative: String,
+    pub artifacts: Vec<DraftArtifactInfo>,
+    pub created_at_tick: u32,
+    pub last_updated_tick: u32,
+}
+
+/// Tracks per-member proof folder drafts from stream events.
+/// Unlike `ProofFolderState` (which is a local UI editor state),
+/// this tracks what each member is doing based on incoming events.
+#[derive(Clone, Debug, Default)]
+pub struct MemberProofDraftState {
+    pub drafts: HashMap<String, MemberProofDraft>,
+    pub folder_to_member: HashMap<String, String>,
+}
+
+impl MemberProofDraftState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Process a stream event and update draft state
+    pub fn process_event(&mut self, event: &StreamEvent) {
+        match event {
+            StreamEvent::ProofFolderCreated {
+                tick,
+                realm_id,
+                quest_id,
+                folder_id,
+                claimant,
+                ..
+            } => {
+                self.drafts.insert(
+                    claimant.clone(),
+                    MemberProofDraft {
+                        folder_id: folder_id.clone(),
+                        quest_id: quest_id.clone(),
+                        realm_id: realm_id.clone(),
+                        narrative_length: 0,
+                        narrative: String::new(),
+                        artifacts: Vec::new(),
+                        created_at_tick: *tick,
+                        last_updated_tick: *tick,
+                    },
+                );
+                self.folder_to_member
+                    .insert(folder_id.clone(), claimant.clone());
+            }
+
+            StreamEvent::ProofFolderNarrativeUpdated {
+                tick,
+                folder_id,
+                narrative_length,
+                narrative,
+                ..
+            } => {
+                if let Some(member_id) = self.folder_to_member.get(folder_id).cloned() {
+                    if let Some(draft) = self.drafts.get_mut(&member_id) {
+                        draft.narrative_length = *narrative_length;
+                        if !narrative.is_empty() {
+                            draft.narrative = narrative.clone();
+                        }
+                        draft.last_updated_tick = *tick;
+                    }
+                }
+            }
+
+            StreamEvent::ProofFolderArtifactAdded {
+                tick,
+                folder_id,
+                artifact_id,
+                artifact_name,
+                artifact_size,
+                mime_type,
+                asset_path,
+                caption,
+                ..
+            } => {
+                if let Some(member_id) = self.folder_to_member.get(folder_id).cloned() {
+                    if let Some(draft) = self.drafts.get_mut(&member_id) {
+                        // Build data URL from asset_path if available
+                        let data_url = asset_path.as_ref()
+                            .and_then(|path| super::load_image_as_data_url(path));
+                        draft.artifacts.push(DraftArtifactInfo {
+                            artifact_id: artifact_id.clone(),
+                            name: artifact_name.clone(),
+                            size: *artifact_size,
+                            mime_type: mime_type.clone(),
+                            added_at_tick: *tick,
+                            data_url,
+                            caption: caption.clone(),
+                        });
+                        draft.last_updated_tick = *tick;
+                    }
+                }
+            }
+
+            StreamEvent::ProofFolderSubmitted {
+                folder_id,
+                claimant,
+                ..
+            } => {
+                self.drafts.remove(claimant);
+                self.folder_to_member.remove(folder_id);
+            }
+
+            _ => {}
+        }
+    }
+
+    /// Get the active draft for a member, if any
+    pub fn draft_for_member(&self, member: &str) -> Option<&MemberProofDraft> {
+        self.drafts.get(member)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -257,5 +413,75 @@ mod tests {
         state.close();
         assert!(!state.is_open());
         assert!(state.current_draft.is_none());
+    }
+
+    #[test]
+    fn test_member_proof_draft_lifecycle() {
+        let mut state = MemberProofDraftState::new();
+
+        // Create a proof folder for a member
+        state.process_event(&StreamEvent::ProofFolderCreated {
+            tick: 10,
+            realm_id: "realm1".into(),
+            quest_id: "quest1".into(),
+            folder_id: "folder1".into(),
+            claimant: "member1".into(),
+            status: "draft".into(),
+        });
+
+        let draft = state.draft_for_member("member1").unwrap();
+        assert_eq!(draft.folder_id, "folder1");
+        assert_eq!(draft.quest_id, "quest1");
+        assert_eq!(draft.narrative_length, 0);
+        assert!(draft.artifacts.is_empty());
+
+        // Update narrative
+        state.process_event(&StreamEvent::ProofFolderNarrativeUpdated {
+            tick: 15,
+            realm_id: "realm1".into(),
+            folder_id: "folder1".into(),
+            claimant: "member1".into(),
+            narrative_length: 250,
+            narrative: "## Work Completed\n\nDid the thing.".into(),
+        });
+
+        let draft = state.draft_for_member("member1").unwrap();
+        assert_eq!(draft.narrative_length, 250);
+        assert_eq!(draft.narrative, "## Work Completed\n\nDid the thing.");
+        assert_eq!(draft.last_updated_tick, 15);
+
+        // Add artifact
+        state.process_event(&StreamEvent::ProofFolderArtifactAdded {
+            tick: 20,
+            realm_id: "realm1".into(),
+            folder_id: "folder1".into(),
+            artifact_id: "art1".into(),
+            artifact_name: "photo.jpg".into(),
+            artifact_size: 1024,
+            mime_type: "image/jpeg".into(),
+            asset_path: None,
+            caption: Some("Evidence photo".into()),
+        });
+
+        let draft = state.draft_for_member("member1").unwrap();
+        assert_eq!(draft.artifacts.len(), 1);
+        assert_eq!(draft.artifacts[0].name, "photo.jpg");
+
+        // Submit clears the draft
+        state.process_event(&StreamEvent::ProofFolderSubmitted {
+            tick: 25,
+            realm_id: "realm1".into(),
+            quest_id: "quest1".into(),
+            claimant: "member1".into(),
+            folder_id: "folder1".into(),
+            artifact_count: 1,
+            narrative_preview: "My story".into(),
+            quest_title: "Test Quest".into(),
+            narrative: String::new(),
+            artifacts: Vec::new(),
+        });
+
+        assert!(state.draft_for_member("member1").is_none());
+        assert!(state.folder_to_member.get("folder1").is_none());
     }
 }
