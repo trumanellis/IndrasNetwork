@@ -164,6 +164,10 @@ pub struct MemberScreenState {
     pub screen: MemberScreen,
     pub last_action: String,
     pub last_action_tick: u32,
+    /// User-editable headline (short tagline)
+    pub headline: String,
+    /// User-editable bio (markdown)
+    pub bio: String,
 }
 
 impl Default for MemberScreenState {
@@ -172,6 +176,8 @@ impl Default for MemberScreenState {
             screen: MemberScreen::Home,
             last_action: String::new(),
             last_action_tick: 0,
+            headline: String::new(),
+            bio: String::new(),
         }
     }
 }
@@ -295,6 +301,10 @@ impl LoggedEvent {
             StreamEvent::RecallAcknowledged { acknowledged_by, artifact_hash, .. } => {
                 format!("{} acknowledged recall of {}", member_name(acknowledged_by), short_id(artifact_hash))
             }
+            StreamEvent::ProfileUpdated { member, headline, .. } => {
+                let desc = headline.as_deref().unwrap_or("profile");
+                format!("{} updated {}", member_name(member), desc)
+            }
             StreamEvent::Unknown => "Unknown event".to_string(),
         };
 
@@ -391,6 +401,16 @@ impl AppState {
             | StreamEvent::MemberLeft { .. }
             | StreamEvent::RealmAliasSet { .. } => {
                 self.realms.process_event(&event);
+            }
+
+            StreamEvent::ProfileUpdated { member, headline, bio, .. } => {
+                let screen_state = self.member_screens.entry(member.clone()).or_default();
+                if let Some(h) = headline {
+                    screen_state.headline = h.clone();
+                }
+                if let Some(b) = bio {
+                    screen_state.bio = b.clone();
+                }
             }
 
             StreamEvent::QuestCreated { realm_id, .. } => {
@@ -574,6 +594,10 @@ impl AppState {
             }
             StreamEvent::DocumentEdit { editor, document_id, .. } => {
                 (editor.clone(), MemberScreen::Artifacts, format!("edited document {}", short_id(document_id)))
+            }
+            StreamEvent::ProfileUpdated { member, headline, .. } => {
+                let desc = headline.as_deref().unwrap_or("their profile");
+                (member.clone(), MemberScreen::Home, format!("updated {}", desc))
             }
             // System events with no acting member - no screen change
             _ => return,
