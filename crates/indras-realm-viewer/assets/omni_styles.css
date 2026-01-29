@@ -1,0 +1,404 @@
+/* =============================================================================
+   Omni Viewer - Multi-Column Dashboard Stylesheet
+   Equal-width columns showing all member POVs simultaneously
+   ============================================================================= */
+
+/* =============================================================================
+   OMNI DASHBOARD - CSS Grid Layout
+   ============================================================================= */
+
+.omni-dashboard {
+  display: grid;
+  grid-template-columns: repeat(var(--omni-columns, 3), 1fr);
+  height: 100vh;
+  padding-bottom: 80px; /* clearance for FloatingControlBar */
+  overflow: hidden;
+  background: var(--bg-primary);
+}
+
+.omni-empty {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+}
+
+/* =============================================================================
+   OMNI PANEL - Individual member column
+   ============================================================================= */
+
+.omni-panel {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border-primary);
+  overflow: hidden;
+  min-width: 0;
+}
+
+.omni-panel:last-child {
+  border-right: none;
+}
+
+/* Member color tinting for panel backgrounds */
+.omni-panel.member-love {
+  background: color-mix(in srgb, var(--color-love) 3%, var(--bg-primary));
+}
+.omni-panel.member-joy {
+  background: color-mix(in srgb, var(--color-joy) 3%, var(--bg-primary));
+}
+.omni-panel.member-peace {
+  background: color-mix(in srgb, var(--color-peace) 3%, var(--bg-primary));
+}
+.omni-panel.member-grace {
+  background: color-mix(in srgb, var(--color-grace) 3%, var(--bg-primary));
+}
+.omni-panel.member-hope {
+  background: color-mix(in srgb, var(--color-hope) 3%, var(--bg-primary));
+}
+.omni-panel.member-faith {
+  background: color-mix(in srgb, var(--color-faith) 3%, var(--bg-primary));
+}
+
+.omni-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* =============================================================================
+   COMPACT PROFILE HEADER
+   ============================================================================= */
+
+.compact-profile-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-secondary);
+  border-bottom: 2px solid var(--accent-primary);
+  flex-shrink: 0;
+}
+
+.compact-profile-identity {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  flex: 1;
+}
+
+.compact-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--bg-primary);
+  flex-shrink: 0;
+  background: var(--accent-primary);
+}
+
+/* Avatar member color classes */
+.compact-avatar.member-love { background: var(--color-love); }
+.compact-avatar.member-joy { background: var(--color-joy); color: #1a1a1a; }
+.compact-avatar.member-peace { background: var(--color-peace); color: #1a1a1a; }
+.compact-avatar.member-grace { background: var(--color-grace); }
+.compact-avatar.member-hope { background: var(--color-hope); color: #1a1a1a; }
+.compact-avatar.member-faith { background: var(--color-faith); color: #1a1a1a; }
+
+/* Header border accent per member */
+.omni-panel.member-love .compact-profile-header { border-bottom-color: var(--color-love); }
+.omni-panel.member-joy .compact-profile-header { border-bottom-color: var(--color-joy); }
+.omni-panel.member-peace .compact-profile-header { border-bottom-color: var(--color-peace); }
+.omni-panel.member-grace .compact-profile-header { border-bottom-color: var(--color-grace); }
+.omni-panel.member-hope .compact-profile-header { border-bottom-color: var(--color-hope); }
+.omni-panel.member-faith .compact-profile-header { border-bottom-color: var(--color-faith); }
+
+.compact-profile-info {
+  min-width: 0;
+  flex: 1;
+}
+
+.compact-profile-name {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.compact-focus-quest {
+  font-size: var(--font-size-xs);
+  color: var(--accent-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.compact-focus-none {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.compact-profile-stats {
+  display: flex;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.compact-stat {
+  font-size: var(--font-size-xs);
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  padding: 1px 4px;
+  border-radius: var(--radius-sm);
+}
+
+/* =============================================================================
+   COMPACT QUESTS LIST
+   ============================================================================= */
+
+.compact-quests {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+}
+
+.compact-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-2);
+  padding: 0 var(--space-1);
+}
+
+.compact-section-title {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.compact-section-count {
+  font-size: var(--font-size-xs);
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+}
+
+.compact-quest-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.compact-quest-card {
+  padding: var(--space-2);
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.compact-quest-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1);
+  margin-bottom: var(--space-1);
+}
+
+.compact-quest-title {
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+.compact-quest-attention {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.compact-attention-value {
+  font-size: 10px;
+  min-width: 28px;
+}
+
+.compact-quest-focusers {
+  display: flex;
+  gap: 2px;
+  margin-top: 2px;
+}
+
+.compact-empty {
+  font-size: var(--font-size-xs);
+  padding: var(--space-2);
+}
+
+/* =============================================================================
+   OVERRIDES - Compact sizes within omni panels
+   ============================================================================= */
+
+/* Reduce padding and font sizes for all components inside omni panels */
+.omni-panel .tokens-panel {
+  padding: var(--space-2);
+  margin-top: 0;
+  border-radius: var(--radius-md);
+}
+
+.omni-panel .tokens-header {
+  margin-bottom: var(--space-2);
+}
+
+.omni-panel .tokens-title {
+  font-size: var(--font-size-xs);
+}
+
+.omni-panel .tokens-summary {
+  padding: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.omni-panel .tokens-list {
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.omni-panel .token-card {
+  padding: var(--space-2);
+}
+
+.omni-panel .token-header {
+  font-size: var(--font-size-xs);
+}
+
+.omni-panel .my-chat-panel {
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+}
+
+.omni-panel .my-chat-messages {
+  max-height: 150px;
+}
+
+.omni-panel .my-activity {
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+}
+
+.omni-panel .my-activity .panel-title {
+  font-size: var(--font-size-xs);
+}
+
+.omni-panel .activity-list {
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.omni-panel .timeline-event {
+  font-size: var(--font-size-xs);
+  padding: var(--space-1) var(--space-2);
+}
+
+.omni-panel .panel-section {
+  padding: var(--space-2);
+}
+
+.omni-panel .panel-header {
+  margin-bottom: var(--space-1);
+}
+
+.omni-panel .panel-title {
+  font-size: var(--font-size-xs);
+}
+
+/* Quest status badges - smaller in omni */
+.omni-panel .quest-status-badge {
+  font-size: 9px;
+  padding: 1px 4px;
+}
+
+/* Chat messages - smaller in omni */
+.omni-panel .chat-message {
+  padding: var(--space-1) var(--space-2);
+}
+
+.omni-panel .chat-sender {
+  font-size: var(--font-size-xs);
+}
+
+.omni-panel .chat-text {
+  font-size: var(--font-size-xs);
+}
+
+/* Shared artifact gallery - smaller in omni */
+.omni-panel .my-artifact-gallery {
+  padding: var(--space-2);
+}
+
+/* Submit proof button - smaller */
+.omni-panel .submit-proof-btn {
+  font-size: var(--font-size-xs);
+  padding: var(--space-1) var(--space-2);
+}
+
+/* Empty states */
+.omni-panel .empty-state {
+  font-size: var(--font-size-xs);
+  padding: var(--space-2);
+}
+
+.omni-panel .tokens-empty {
+  padding: var(--space-2);
+}
+
+.omni-panel .empty-icon {
+  font-size: var(--font-size-lg);
+}
+
+/* Scrollbar styling for omni panels */
+.omni-panel-body::-webkit-scrollbar,
+.compact-quest-list::-webkit-scrollbar,
+.omni-panel .my-chat-messages::-webkit-scrollbar,
+.omni-panel .activity-list::-webkit-scrollbar,
+.omni-panel .tokens-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.omni-panel-body::-webkit-scrollbar-track,
+.compact-quest-list::-webkit-scrollbar-track,
+.omni-panel .my-chat-messages::-webkit-scrollbar-track,
+.omni-panel .activity-list::-webkit-scrollbar-track,
+.omni-panel .tokens-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.omni-panel-body::-webkit-scrollbar-thumb,
+.compact-quest-list::-webkit-scrollbar-thumb,
+.omni-panel .my-chat-messages::-webkit-scrollbar-thumb,
+.omni-panel .activity-list::-webkit-scrollbar-thumb,
+.omni-panel .tokens-list::-webkit-scrollbar-thumb {
+  background: var(--border-primary);
+  border-radius: 2px;
+}

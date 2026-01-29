@@ -11,17 +11,19 @@ use crate::state::{
 };
 use crate::theme::{ThemeSwitcher, ThemedRoot};
 
+pub mod omni;
+
 /// File being previewed in overlay
 #[derive(Clone, Debug, Default, PartialEq)]
-struct PreviewFile {
-    name: String,
-    content: String,
-    mime_type: String,
+pub struct PreviewFile {
+    pub name: String,
+    pub content: String,
+    pub mime_type: String,
 }
 
 /// View mode for markdown preview
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-enum PreviewViewMode {
+pub enum PreviewViewMode {
     #[default]
     Rendered,
     Raw,
@@ -29,26 +31,26 @@ enum PreviewViewMode {
 
 /// Context for markdown preview overlay
 #[derive(Clone, Copy)]
-struct PreviewContext {
-    is_open: Signal<bool>,
-    file: Signal<Option<PreviewFile>>,
-    view_mode: Signal<PreviewViewMode>,
+pub struct PreviewContext {
+    pub is_open: Signal<bool>,
+    pub file: Signal<Option<PreviewFile>>,
+    pub view_mode: Signal<PreviewViewMode>,
 }
 
 /// Data for proof narrative overlay
 #[derive(Clone, Debug, Default, PartialEq)]
-struct ProofNarrativeData {
-    quest_title: String,
-    member: String,
-    narrative: String,
-    artifacts: Vec<crate::state::ProofArtifactStateItem>,
+pub struct ProofNarrativeData {
+    pub quest_title: String,
+    pub member: String,
+    pub narrative: String,
+    pub artifacts: Vec<crate::state::ProofArtifactStateItem>,
 }
 
 /// Context for proof narrative overlay
 #[derive(Clone, Copy)]
-struct ProofNarrativeContext {
-    is_open: Signal<bool>,
-    data: Signal<Option<ProofNarrativeData>>,
+pub struct ProofNarrativeContext {
+    pub is_open: Signal<bool>,
+    pub data: Signal<Option<ProofNarrativeData>>,
 }
 
 /// Main application component
@@ -903,7 +905,7 @@ fn is_markdown_file(name: &str, mime_type: &str) -> bool {
 
 /// Markdown preview overlay with rendered/raw toggle
 #[component]
-fn MarkdownPreviewOverlay(
+pub fn MarkdownPreviewOverlay(
     is_open: Signal<bool>,
     file: Signal<Option<PreviewFile>>,
     view_mode: Signal<PreviewViewMode>,
@@ -1018,7 +1020,7 @@ fn render_narrative_with_images(
 
 /// Proof narrative overlay showing full markdown with embedded images.
 #[component]
-fn ProofNarrativeOverlay(
+pub fn ProofNarrativeOverlay(
     is_open: Signal<bool>,
     data: Signal<Option<ProofNarrativeData>>,
     view_mode: Signal<PreviewViewMode>,
@@ -1893,7 +1895,7 @@ fn GlobalStats(state: Signal<AppState>) -> Element {
 // ============================================================================
 
 #[component]
-fn FloatingControlBar(state: Signal<AppState>) -> Element {
+pub fn FloatingControlBar(state: Signal<AppState>) -> Element {
     let mut state_write = state;
     let is_paused = state.read().playback.paused;
     let speed = state.read().playback.speed;
@@ -2400,7 +2402,7 @@ fn QuestCardWithRealm(
 
 /// Chat panel that can switch to proof folder editor
 #[component]
-fn MyChatPanel(state: Signal<AppState>, member: String) -> Element {
+pub fn MyChatPanel(state: Signal<AppState>, member: String) -> Element {
     let is_editor_open = state.read().proof_folder.is_open();
 
     if is_editor_open {
@@ -2979,7 +2981,7 @@ fn MyRealmCard(state: Signal<AppState>, realm: RealmInfo) -> Element {
 }
 
 #[component]
-fn MyActivity(state: Signal<AppState>, member: String) -> Element {
+pub fn MyActivity(state: Signal<AppState>, member: String) -> Element {
     let state_read = state.read();
     let events: Vec<_> = state_read.events_for_member(&member).into_iter().take(15).collect();
 
@@ -3009,7 +3011,7 @@ fn MyActivity(state: Signal<AppState>, member: String) -> Element {
 
 /// Panel displaying a member's Tokens of Gratitude
 #[component]
-fn TokensOfGratitudePanel(state: Signal<AppState>, member: String) -> Element {
+pub fn TokensOfGratitudePanel(state: Signal<AppState>, member: String) -> Element {
     let state_read = state.read();
     let tokens = state_read.tokens.tokens_for_member(&member);
     let token_count = tokens.len();
@@ -3140,7 +3142,7 @@ fn TokenCard(token: TokenOfGratitude, max_value: u64) -> Element {
 // HELPER FUNCTIONS
 // ============================================================================
 
-fn member_color_class(member: &str) -> &'static str {
+pub fn member_color_class(member: &str) -> &'static str {
     let name = member_name(member).to_lowercase();
     match name.as_str() {
         "love" => "member-love",
@@ -3163,7 +3165,7 @@ fn member_color_class(member: &str) -> &'static str {
     }
 }
 
-fn member_color_var(member: &str) -> &'static str {
+pub fn member_color_var(member: &str) -> &'static str {
     let name = member_name(member).to_lowercase();
     match name.as_str() {
         "love" => "var(--color-love)",
