@@ -112,6 +112,15 @@ quest.EVENTS = {
     CONTACT_REMOVED = "contact_removed",
     CONTACTS_SYNCED = "contacts_synced",
 
+    -- Sentiment & blocking
+    SENTIMENT_UPDATED = "sentiment_updated",
+    CONTACT_BLOCKED = "contact_blocked",
+    RELAYED_SENTIMENT = "relayed_sentiment_received",
+
+    -- Membership
+    MEMBER_JOINED = "member_joined",
+    MEMBER_LEFT = "member_left",
+
     -- CRDT sync
     CRDT_CONVERGED = "crdt_converged",
     CRDT_CONFLICT = "crdt_conflict",

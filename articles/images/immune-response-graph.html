@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Network Immune Response</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #060a10;
+    color: #e0e0e0;
+    font-family: 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: 24px 16px;
+    user-select: none;
+  }
+  h1 {
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: 1.5px;
+    color: #ffffff;
+    opacity: 0.7;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+  }
+  .subtitle {
+    font-size: 13px;
+    color: #80b0ff;
+    opacity: 0.5;
+    margin-bottom: 20px;
+    letter-spacing: 0.5px;
+  }
+  .graph-container {
+    position: relative;
+    width: 960px;
+    max-width: 100%;
+  }
+  svg { width: 100%; height: auto; display: block; }
+
+  .phase-info {
+    width: 960px;
+    max-width: 100%;
+    margin-bottom: 16px;
+    text-align: center;
+  }
+  .phase-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 12px;
+    margin-bottom: 6px;
+  }
+  .phase-number {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #80ffea;
+    opacity: 0.6;
+  }
+  .phase-title {
+    font-size: 20px;
+    font-weight: 600;
+    color: #ffffff;
+    opacity: 0.9;
+  }
+  .phase-analogy {
+    font-size: 13px;
+    font-style: italic;
+    color: #ffe080;
+    opacity: 0.45;
+    margin-bottom: 8px;
+  }
+  .phase-desc {
+    font-size: 14px;
+    line-height: 1.5;
+    color: #c0c8d0;
+    opacity: 0.65;
+    max-width: 700px;
+    margin: 0 auto;
+  }
+
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-top: 20px;
+  }
+  .controls button {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: #c0c8d0;
+    padding: 8px 18px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: inherit;
+  }
+  .controls button:hover {
+    background: rgba(255,255,255,0.12);
+    color: #ffffff;
+  }
+  .controls button.active {
+    background: rgba(128,255,234,0.12);
+    border-color: rgba(128,255,234,0.3);
+    color: #80ffea;
+  }
+  .controls input[type=range] {
+    width: 260px;
+    accent-color: #80ffea;
+  }
+  .phase-pips {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .pip {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.15);
+    transition: all 0.3s;
+    cursor: pointer;
+  }
+  .pip.active {
+    background: #80ffea;
+    border-color: #80ffea;
+    box-shadow: 0 0 8px rgba(128,255,234,0.4);
+  }
+  .pip.past {
+    background: rgba(128,255,234,0.25);
+    border-color: rgba(128,255,234,0.3);
+  }
+
+  .legend {
+    display: flex;
+    gap: 24px;
+    margin-top: 20px;
+    font-size: 12px;
+    opacity: 0.5;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .legend-line {
+    width: 28px;
+    height: 3px;
+    border-radius: 1px;
+  }
+  .legend-line.dashed {
+    background: repeating-linear-gradient(90deg, currentColor 0, currentColor 6px, transparent 6px, transparent 10px);
+    height: 2px;
+  }
+
+  .kbd {
+    font-size: 11px;
+    opacity: 0.3;
+    margin-top: 14px;
+    letter-spacing: 0.3px;
+  }
+
+  /* SVG transitions */
+  .edge-path {
+    transition: stroke 0.7s ease, opacity 0.7s ease, stroke-width 0.5s ease, stroke-dasharray 0.4s ease;
+  }
+  .node-glow {
+    transition: opacity 0.7s ease, r 0.5s ease;
+  }
+  .node-main {
+    transition: opacity 0.7s ease, r 0.5s ease;
+  }
+  .node-highlight {
+    transition: opacity 0.7s ease;
+  }
+  .node-label {
+    transition: opacity 0.7s ease, fill 0.5s ease;
+  }
+  .relay-path {
+    transition: opacity 0.6s ease;
+  }
+  .block-mark {
+    transition: opacity 0.5s ease;
+  }
+  .hull {
+    transition: opacity 0.8s ease;
+  }
+  .annotation {
+    transition: opacity 0.5s ease;
+  }
+  .stats-text {
+    transition: opacity 0.4s ease;
+  }
+</style>
+</head>
+<body>
+
+<h1>Network Immune Response</h1>
+<div class="subtitle">Sentiment / Trust / Blocking Lifecycle</div>
+
+<div class="phase-info">
+  <div class="phase-header">
+    <span class="phase-number" id="phaseNum">Phase 1 of 7</span>
+    <span class="phase-title" id="phaseTitle">Genesis</span>
+  </div>
+  <div class="phase-analogy" id="phaseAnalogy">Healthy body</div>
+  <div class="phase-desc" id="phaseDesc"></div>
+</div>
+
+<div class="graph-container">
+<svg viewBox="0 0 960 540" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="50%" r="70%">
+      <stop offset="0%" stop-color="#101828"/>
+      <stop offset="100%" stop-color="#060a10"/>
+    </radialGradient>
+    <radialGradient id="n-cyan" cx="38%" cy="28%" r="55%">
+      <stop offset="0%" stop-color="#b0fffa"/><stop offset="100%" stop-color="#30c0b0"/>
+    </radialGradient>
+    <radialGradient id="n-mag" cx="38%" cy="28%" r="55%">
+      <stop offset="0%" stop-color="#ffa0e0"/><stop offset="100%" stop-color="#c040a0"/>
+    </radialGradient>
+    <radialGradient id="n-gold" cx="38%" cy="28%" r="55%">
+      <stop offset="0%" stop-color="#ffe8a0"/><stop offset="100%" stop-color="#c09030"/>
+    </radialGradient>
+    <radialGradient id="n-green" cx="38%" cy="28%" r="55%">
+      <stop offset="0%" stop-color="#a0ffc0"/><stop offset="100%" stop-color="#30a050"/>
+    </radialGradient>
+    <radialGradient id="n-red" cx="38%" cy="28%" r="55%">
+      <stop offset="0%" stop-color="#ffa0a0"/><stop offset="100%" stop-color="#c03030"/>
+    </radialGradient>
+    <radialGradient id="n-blue" cx="38%" cy="28%" r="55%">
+      <stop offset="0%" stop-color="#a0d0ff"/><stop offset="100%" stop-color="#3070c0"/>
+    </radialGradient>
+    <radialGradient id="n-dim" cx="38%" cy="28%" r="55%">
+      <stop offset="0%" stop-color="#908080"/><stop offset="100%" stop-color="#504040"/>
+    </radialGradient>
+    <filter id="glow-sm" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="glow-lg" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="14" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="glow-edge" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="3" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="960" height="540" fill="url(#bg)"/>
+  <g fill="#fff">
+    <circle cx="80" cy="30" r="0.8" opacity="0.25"/>
+    <circle cx="250" cy="18" r="0.6" opacity="0.18"/>
+    <circle cx="500" cy="12" r="0.9" opacity="0.22"/>
+    <circle cx="750" cy="28" r="0.7" opacity="0.18"/>
+    <circle cx="900" cy="55" r="0.6" opacity="0.14"/>
+    <circle cx="50" cy="510" r="0.7" opacity="0.18"/>
+    <circle cx="870" cy="520" r="0.8" opacity="0.14"/>
+    <circle cx="420" cy="505" r="0.6" opacity="0.12"/>
+    <circle cx="160" cy="495" r="0.5" opacity="0.15"/>
+  </g>
+
+  <!-- Realm hulls (very subtle backgrounds) -->
+  <g id="hulls">
+    <path id="hull-ZNS" class="hull" d="M150,230 L380,130 L230,400 Z" fill="#70ff90" opacity="0.025"/>
+    <path id="hull-ZNO" class="hull" d="M150,230 L380,130 L720,240 Z" fill="#ffe080" opacity="0.018"/>
+    <path id="hull-ZSO" class="hull" d="M150,230 L230,400 L720,240 Z" fill="#80ffea" opacity="0.018"/>
+    <ellipse id="hull-OL" class="hull" cx="625" cy="310" rx="120" ry="90" fill="#a0a0a0" opacity="0.015"/>
+    <path id="hull-ZNSL" class="hull" d="M150,230 L380,130 L530,380 L230,400 Z" fill="#80b0ff" opacity="0.015"/>
+  </g>
+
+  <!-- Edges -->
+  <g id="edges" filter="url(#glow-edge)">
+    <path id="e-ZN" class="edge-path" d="M150,230 Q250,148 380,130" fill="none"/>
+    <path id="e-ZS" class="edge-path" d="M150,230 Q168,318 230,400" fill="none"/>
+    <path id="e-NS" class="edge-path" d="M380,130 Q278,258 230,400" fill="none"/>
+    <path id="e-ZO" class="edge-path" d="M150,230 Q430,160 720,240" fill="none"/>
+    <path id="e-NO" class="edge-path" d="M380,130 Q558,142 720,240" fill="none"/>
+    <path id="e-SO" class="edge-path" d="M230,400 Q482,372 720,240" fill="none"/>
+    <path id="e-ZL" class="edge-path" d="M150,230 Q328,328 530,380" fill="none"/>
+    <path id="e-NL" class="edge-path" d="M380,130 Q472,240 530,380" fill="none"/>
+    <path id="e-SL" class="edge-path" d="M230,400 Q380,408 530,380" fill="none"/>
+    <path id="e-OL" class="edge-path" d="M720,240 Q648,318 530,380" fill="none"/>
+  </g>
+
+  <!-- Relay signal paths (phase 4 only) -->
+  <g id="relays">
+    <path id="relay-ZS" class="relay-path" d="M150,230 Q120,340 230,400" fill="none" stroke="#ffe080" stroke-width="1.5" stroke-dasharray="5,7" opacity="0"/>
+    <path id="relay-NS" class="relay-path" d="M380,130 Q340,290 230,400" fill="none" stroke="#ffe080" stroke-width="1.5" stroke-dasharray="5,7" opacity="0"/>
+    <path id="relay-ZL" class="relay-path" d="M150,230 Q280,370 530,380" fill="none" stroke="#ffe080" stroke-width="1.5" stroke-dasharray="5,7" opacity="0"/>
+  </g>
+
+  <!-- Block X marks — lines of small x's along the severed edge paths -->
+  <g id="blocks" stroke="#ff4040" stroke-width="2" stroke-linecap="round">
+    <!-- Z-O blocked: along path from (150,230) to (720,240) via curve -->
+    <g id="block-ZO" class="block-mark" opacity="0">
+      <g transform="translate(270,205)"><line x1="-5" y1="-5" x2="5" y2="5"/><line x1="5" y1="-5" x2="-5" y2="5"/></g>
+      <g transform="translate(350,192)"><line x1="-5" y1="-5" x2="5" y2="5"/><line x1="5" y1="-5" x2="-5" y2="5"/></g>
+      <g transform="translate(435,190)"><line x1="-5" y1="-5" x2="5" y2="5"/><line x1="5" y1="-5" x2="-5" y2="5"/></g>
+      <g transform="translate(520,196)"><line x1="-5" y1="-5" x2="5" y2="5"/><line x1="5" y1="-5" x2="-5" y2="5"/></g>
+      <g transform="translate(605,212)"><line x1="-5" y1="-5" x2="5" y2="5"/><line x1="5" y1="-5" x2="-5" y2="5"/></g>
+    </g>
+    <!-- N-O blocked: along path from (380,130) to (720,240) -->
+    <g id="block-NO" class="block-mark" opacity="0">
+      <g transform="translate(440,145)"><line x1="-5" y1="-5" x2="5" y2="5"/><line x1="5" y1="-5" x2="-5" y2="5"/></g>
+      <g transform="translate(510,162)"><line x1="-5" y1="-5" x2="5" y2="5"/><line x1="5" y1="-5" x2="-5" y2="5"/></g>
+      <g transform="translate(580,185)"><line x1="-5" y1="-5" x2="5" y2="5"/><line x1="5" y1="-5" x2="-5" y2="5"/></g>
+      <g transform="translate(650,212)"><line x1="-5" y1="-5" x2="5" y2="5"/><line x1="5" y1="-5" x2="-5" y2="5"/></g>
+    </g>
+    <!-- S-O blocked: along path from (230,400) to (720,240) -->
+    <g id="block-SO" class="block-mark" opacity="0">
+      <g transform="translate(340,388)"><line x1="-5" y1="-5" x2="5" y2="5"/><line x1="5" y1="-5" x2="-5" y2="5"/></g>
+      <g transform="translate(430,365)"><line x1="-5" y1="-5" x2="5" y2="5"/><line x1="5" y1="-5" x2="-5" y2="5"/></g>
+      <g transform="translate(520,335)"><line x1="-5" y1="-5" x2="5" y2="5"/><line x1="5" y1="-5" x2="-5" y2="5"/></g>
+      <g transform="translate(610,298)"><line x1="-5" y1="-5" x2="5" y2="5"/><line x1="5" y1="-5" x2="-5" y2="5"/></g>
+    </g>
+  </g>
+
+  <!-- Annotations -->
+  <g id="annotations" font-family="'SF Pro Display','Helvetica Neue',Arial,sans-serif">
+    <text id="ann-spam" class="annotation" x="720" y="290" text-anchor="middle" font-size="11" font-weight="600" fill="#ff6060" opacity="0">SPAM</text>
+    <text id="ann-detect" class="annotation" x="430" y="185" text-anchor="middle" font-size="11" font-weight="600" fill="#ff6060" opacity="0">-1</text>
+    <text id="ann-relay1" class="annotation" x="120" y="310" text-anchor="middle" font-size="10" font-style="italic" fill="#ffe080" opacity="0">relay</text>
+    <text id="ann-relay2" class="annotation" x="340" y="300" text-anchor="middle" font-size="10" font-style="italic" fill="#ffe080" opacity="0">relay</text>
+    <text id="ann-relay3" class="annotation" x="290" y="365" text-anchor="middle" font-size="10" font-style="italic" fill="#ffe080" opacity="0">relay</text>
+    <text id="ann-block" class="annotation" x="430" y="215" text-anchor="middle" font-size="11" font-weight="600" fill="#ff4040" opacity="0">BLOCK</text>
+    <text id="ann-stable" class="annotation" x="340" y="290" text-anchor="middle" font-size="12" font-weight="500" fill="#70ff90" opacity="0">stable</text>
+  </g>
+
+  <!-- Stats overlay -->
+  <g id="stats" font-family="'SF Pro Display','Helvetica Neue',Arial,sans-serif" font-size="12" fill="#ffffff" transform="translate(30,32)">
+    <text class="stats-text" opacity="0.3">
+      <tspan id="stat-contacts" x="0" dy="0">Contacts: 20</tspan>
+      <tspan id="stat-realms" x="0" dy="18">Realms: 5</tspan>
+      <tspan id="stat-sentiments" x="0" dy="18">Negative: 0</tspan>
+      <tspan id="stat-blocks" x="0" dy="18">Blocks: 0</tspan>
+    </text>
+  </g>
+
+  <!-- Nodes -->
+  <g id="nodes">
+    <!-- Zephyr -->
+    <g id="node-Z">
+      <circle class="node-glow" cx="150" cy="230" r="28" fill="#80ffea" opacity="0.06" filter="url(#glow-lg)"/>
+      <circle class="node-main" cx="150" cy="230" r="15" fill="url(#n-cyan)" opacity="1" filter="url(#glow-sm)"/>
+      <circle class="node-highlight" cx="145" cy="222" r="5" fill="#fff" opacity="0.3"/>
+      <text class="node-label" x="150" y="205" text-anchor="middle" font-family="'SF Pro Display','Helvetica Neue',Arial,sans-serif" font-size="14" font-weight="500" fill="#ffffff" opacity="0.85">Zephyr</text>
+    </g>
+    <!-- Nova -->
+    <g id="node-N">
+      <circle class="node-glow" cx="380" cy="130" r="26" fill="#ff80c0" opacity="0.06" filter="url(#glow-lg)"/>
+      <circle class="node-main" cx="380" cy="130" r="14" fill="url(#n-mag)" opacity="1" filter="url(#glow-sm)"/>
+      <circle class="node-highlight" cx="375" cy="122" r="4.5" fill="#fff" opacity="0.28"/>
+      <text class="node-label" x="380" y="106" text-anchor="middle" font-family="'SF Pro Display','Helvetica Neue',Arial,sans-serif" font-size="14" font-weight="500" fill="#ffffff" opacity="0.85">Nova</text>
+    </g>
+    <!-- Sage -->
+    <g id="node-S">
+      <circle class="node-glow" cx="230" cy="400" r="26" fill="#ffd070" opacity="0.06" filter="url(#glow-lg)"/>
+      <circle class="node-main" cx="230" cy="400" r="14" fill="url(#n-gold)" opacity="1" filter="url(#glow-sm)"/>
+      <circle class="node-highlight" cx="225" cy="392" r="4.5" fill="#fff" opacity="0.28"/>
+      <text class="node-label" x="230" y="432" text-anchor="middle" font-family="'SF Pro Display','Helvetica Neue',Arial,sans-serif" font-size="14" font-weight="500" fill="#ffffff" opacity="0.85">Sage</text>
+    </g>
+    <!-- Orion -->
+    <g id="node-O">
+      <circle id="orion-glow" class="node-glow" cx="720" cy="240" r="26" fill="#80ff80" opacity="0.06" filter="url(#glow-lg)"/>
+      <circle id="orion-main" class="node-main" cx="720" cy="240" r="14" fill="url(#n-green)" opacity="1" filter="url(#glow-sm)"/>
+      <circle id="orion-hl" class="node-highlight" cx="715" cy="232" r="4.5" fill="#fff" opacity="0.28"/>
+      <text id="orion-label" class="node-label" x="720" y="216" text-anchor="middle" font-family="'SF Pro Display','Helvetica Neue',Arial,sans-serif" font-size="14" font-weight="500" fill="#ffffff" opacity="0.85">Orion</text>
+    </g>
+    <!-- Lyra -->
+    <g id="node-L">
+      <circle class="node-glow" cx="530" cy="380" r="26" fill="#80b0ff" opacity="0.06" filter="url(#glow-lg)"/>
+      <circle class="node-main" cx="530" cy="380" r="14" fill="url(#n-blue)" opacity="1" filter="url(#glow-sm)"/>
+      <circle class="node-highlight" cx="525" cy="372" r="4.5" fill="#fff" opacity="0.28"/>
+      <text class="node-label" x="530" y="412" text-anchor="middle" font-family="'SF Pro Display','Helvetica Neue',Arial,sans-serif" font-size="14" font-weight="500" fill="#ffffff" opacity="0.85">Lyra</text>
+    </g>
+  </g>
+</svg>
+</div>
+
+<div class="controls">
+  <button id="btn-prev" title="Previous phase (Left arrow)">&#9664; Prev</button>
+  <div class="phase-pips" id="pips"></div>
+  <button id="btn-next" title="Next phase (Right arrow)">Next &#9654;</button>
+  <button id="btn-play" title="Auto-play (Space)">&#9654; Play</button>
+</div>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-line" style="background:#70ff90"></div>recommend (+1)</div>
+  <div class="legend-item"><div class="legend-line" style="background:#506070"></div>neutral (0)</div>
+  <div class="legend-item"><div class="legend-line dashed" style="color:#ff5050"></div>don't recommend (-1)</div>
+  <div class="legend-item"><div class="legend-line dashed" style="color:#ffe080"></div>relayed signal</div>
+  <div class="legend-item"><span style="color:#ff4040;font-weight:bold">&times;</span>&nbsp;blocked</div>
+</div>
+
+<div class="kbd">Arrow keys to navigate &middot; Space to play/pause</div>
+
+<script>
+const EDGE_STYLES = {
+  positive:  { stroke: '#70ff90', opacity: 0.55, dash: 'none',  width: 2.5 },
+  neutral:   { stroke: '#506070', opacity: 0.30, dash: 'none',  width: 1.5 },
+  strained:  { stroke: '#ff9060', opacity: 0.40, dash: 'none',  width: 1.8 },
+  negative:  { stroke: '#ff5050', opacity: 0.50, dash: '8,5',   width: 2.0 },
+  blocked:   { stroke: '#ff3030', opacity: 0,    dash: '8,5',   width: 0   },
+};
+
+const PHASES = [
+  {
+    title: 'Genesis', analogy: 'Healthy body',
+    desc: 'All five peers form a fully connected network. Zephyr, Nova, and Sage share strong positive sentiment. Five peer-set realms emerge.',
+    edges: { ZN:'positive', ZS:'positive', NS:'positive', ZO:'neutral', NO:'neutral', SO:'neutral', ZL:'neutral', NL:'neutral', SL:'neutral', OL:'neutral' },
+    orion: { fill: 'url(#n-green)', glow: '#80ff80', opacity: 1, glowOpacity: 0.06, r: 14, labelFill: '#ffffff', labelOpacity: 0.85 },
+    relays: [], blocks: [],
+    annotations: {},
+    hulls: { ZNS: 0.025, ZNO: 0.018, ZSO: 0.018, OL: 0.015, ZNSL: 0.015 },
+    stats: { contacts: 20, realms: 5, negative: 0, blocks: 0 },
+  },
+  {
+    title: 'Infection', analogy: 'Pathogen appears',
+    desc: 'Orion floods shared realms with spam. The {Z,N,O} and {Z,S,O} realms receive unsolicited messages. Trust begins to erode.',
+    edges: { ZN:'positive', ZS:'positive', NS:'positive', ZO:'strained', NO:'strained', SO:'strained', ZL:'neutral', NL:'neutral', SL:'neutral', OL:'neutral' },
+    orion: { fill: 'url(#n-red)', glow: '#ff6060', opacity: 1, glowOpacity: 0.08, r: 14, labelFill: '#ffa0a0', labelOpacity: 0.8 },
+    relays: [], blocks: [],
+    annotations: { spam: 0.7 },
+    hulls: { ZNS: 0.025, ZNO: 0.018, ZSO: 0.018, OL: 0.015, ZNSL: 0.015 },
+    stats: { contacts: 20, realms: 5, negative: 0, blocks: 0 },
+  },
+  {
+    title: 'Detection', analogy: 'Innate immunity',
+    desc: 'Zephyr detects the threat first, setting sentiment toward Orion to -1. A warning is shared with the inner circle.',
+    edges: { ZN:'positive', ZS:'positive', NS:'positive', ZO:'negative', NO:'strained', SO:'strained', ZL:'neutral', NL:'neutral', SL:'neutral', OL:'neutral' },
+    orion: { fill: 'url(#n-red)', glow: '#ff6060', opacity: 0.9, glowOpacity: 0.07, r: 13, labelFill: '#ffa0a0', labelOpacity: 0.7 },
+    relays: [], blocks: [],
+    annotations: { detect: 0.7 },
+    hulls: { ZNS: 0.025, ZNO: 0.012, ZSO: 0.012, OL: 0.015, ZNSL: 0.015 },
+    stats: { contacts: 20, realms: 5, negative: 1, blocks: 0 },
+  },
+  {
+    title: 'Signal Propagation', analogy: 'Cytokine cascade',
+    desc: 'Nova independently confirms (-1). Relayed warnings reach Sage (via Zephyr and Nova) and Lyra (via Zephyr). Second-degree signals spread.',
+    edges: { ZN:'positive', ZS:'positive', NS:'positive', ZO:'negative', NO:'negative', SO:'strained', ZL:'neutral', NL:'neutral', SL:'neutral', OL:'neutral' },
+    orion: { fill: 'url(#n-red)', glow: '#ff6060', opacity: 0.85, glowOpacity: 0.06, r: 13, labelFill: '#ffa0a0', labelOpacity: 0.65 },
+    relays: ['ZS', 'NS', 'ZL'], blocks: [],
+    annotations: { relay1: 0.6, relay2: 0.6, relay3: 0.6 },
+    hulls: { ZNS: 0.025, ZNO: 0.008, ZSO: 0.010, OL: 0.015, ZNSL: 0.015 },
+    stats: { contacts: 20, realms: 5, negative: 2, blocks: 0 },
+  },
+  {
+    title: 'Graduated Response', analogy: 'Adaptive immunity',
+    desc: 'Sage acts on relayed signals, rating Orion -1. Zephyr blocks Orion entirely \u2014 triggering a cascade that dissolves the {Z,N,O} and {Z,S,O} realms.',
+    edges: { ZN:'positive', ZS:'positive', NS:'positive', ZO:'blocked', NO:'negative', SO:'negative', ZL:'neutral', NL:'neutral', SL:'neutral', OL:'neutral' },
+    orion: { fill: 'url(#n-red)', glow: '#ff4040', opacity: 0.7, glowOpacity: 0.04, r: 12, labelFill: '#ff8080', labelOpacity: 0.55 },
+    relays: [], blocks: ['ZO'],
+    annotations: { block: 0.8 },
+    hulls: { ZNS: 0.025, ZNO: 0, ZSO: 0, OL: 0.015, ZNSL: 0.015 },
+    stats: { contacts: 18, realms: 3, negative: 3, blocks: 1 },
+  },
+  {
+    title: 'Cascade', analogy: 'Inflammation',
+    desc: 'Nova and Sage also block Orion. All shared realms dissolve. Orion is left with one contact (Lyra) and one realm ({O,L}).',
+    edges: { ZN:'positive', ZS:'positive', NS:'positive', ZO:'blocked', NO:'blocked', SO:'blocked', ZL:'neutral', NL:'neutral', SL:'neutral', OL:'negative' },
+    orion: { fill: 'url(#n-dim)', glow: '#605050', opacity: 0.45, glowOpacity: 0.02, r: 10, labelFill: '#908080', labelOpacity: 0.4 },
+    relays: [], blocks: ['ZO', 'NO', 'SO'],
+    annotations: {},
+    hulls: { ZNS: 0.03, ZNO: 0, ZSO: 0, OL: 0.012, ZNSL: 0.018 },
+    stats: { contacts: 14, realms: 3, negative: 4, blocks: 3 },
+  },
+  {
+    title: 'Recovery', analogy: 'Homeostasis',
+    desc: 'The network stabilizes. Lyra rates Orion -1 but keeps contact. The healthy quartet strengthens mutual positive sentiment. The immune response is complete.',
+    edges: { ZN:'positive', ZS:'positive', NS:'positive', ZO:'blocked', NO:'blocked', SO:'blocked', ZL:'positive', NL:'positive', SL:'positive', OL:'negative' },
+    orion: { fill: 'url(#n-dim)', glow: '#504040', opacity: 0.35, glowOpacity: 0.015, r: 9, labelFill: '#807070', labelOpacity: 0.35 },
+    relays: [], blocks: ['ZO', 'NO', 'SO'],
+    annotations: { stable: 0.5 },
+    hulls: { ZNS: 0.035, ZNO: 0, ZSO: 0, OL: 0.010, ZNSL: 0.025 },
+    stats: { contacts: 14, realms: 3, negative: 4, blocks: 3 },
+  },
+];
+
+let currentPhase = 0;
+let playTimer = null;
+
+function applyPhase(idx) {
+  currentPhase = idx;
+  const phase = PHASES[idx];
+
+  // Phase info
+  document.getElementById('phaseNum').textContent = `Phase ${idx + 1} of 7`;
+  document.getElementById('phaseTitle').textContent = phase.title;
+  document.getElementById('phaseAnalogy').textContent = phase.analogy;
+  document.getElementById('phaseDesc').textContent = phase.desc;
+
+  // Pips
+  document.querySelectorAll('.pip').forEach((pip, i) => {
+    pip.classList.toggle('active', i === idx);
+    pip.classList.toggle('past', i < idx);
+  });
+
+  // Edges
+  for (const [key, state] of Object.entries(phase.edges)) {
+    const el = document.getElementById('e-' + key);
+    if (!el) continue;
+    const s = EDGE_STYLES[state];
+    el.style.stroke = s.stroke;
+    el.style.opacity = s.opacity;
+    el.style.strokeWidth = s.width + 'px';
+    el.style.strokeDasharray = s.dash;
+  }
+
+  // Orion node
+  const o = phase.orion;
+  document.getElementById('orion-main').style.opacity = o.opacity;
+  document.getElementById('orion-main').setAttribute('r', o.r);
+  document.getElementById('orion-main').setAttribute('fill', o.fill);
+  document.getElementById('orion-glow').style.opacity = o.glowOpacity;
+  document.getElementById('orion-glow').setAttribute('fill', o.glow);
+  document.getElementById('orion-hl').style.opacity = o.opacity * 0.28;
+  document.getElementById('orion-label').style.fill = o.labelFill;
+  document.getElementById('orion-label').style.opacity = o.labelOpacity;
+
+  // Relays
+  ['ZS', 'NS', 'ZL'].forEach(key => {
+    const el = document.getElementById('relay-' + key);
+    el.style.opacity = phase.relays.includes(key) ? 0.5 : 0;
+  });
+
+  // Block marks
+  ['ZO', 'NO', 'SO'].forEach(key => {
+    const el = document.getElementById('block-' + key);
+    el.style.opacity = phase.blocks.includes(key) ? 0.8 : 0;
+  });
+
+  // Annotations
+  const annIds = ['spam', 'detect', 'relay1', 'relay2', 'relay3', 'block', 'stable'];
+  annIds.forEach(id => {
+    const el = document.getElementById('ann-' + id);
+    el.style.opacity = phase.annotations[id] || 0;
+  });
+
+  // Hulls
+  const hullMap = { ZNS: 'hull-ZNS', ZNO: 'hull-ZNO', ZSO: 'hull-ZSO', OL: 'hull-OL', ZNSL: 'hull-ZNSL' };
+  for (const [key, elId] of Object.entries(hullMap)) {
+    document.getElementById(elId).style.opacity = phase.hulls[key];
+  }
+
+  // Stats
+  document.getElementById('stat-contacts').textContent = 'Contacts: ' + phase.stats.contacts;
+  document.getElementById('stat-realms').textContent = 'Realms: ' + phase.stats.realms;
+  document.getElementById('stat-sentiments').textContent = 'Negative: ' + phase.stats.negative;
+  document.getElementById('stat-blocks').textContent = 'Blocks: ' + phase.stats.blocks;
+}
+
+function nextPhase() {
+  if (currentPhase < PHASES.length - 1) applyPhase(currentPhase + 1);
+  else if (playTimer) stopPlay();
+}
+
+function prevPhase() {
+  if (currentPhase > 0) applyPhase(currentPhase - 1);
+}
+
+function togglePlay() {
+  if (playTimer) { stopPlay(); return; }
+  const btn = document.getElementById('btn-play');
+  btn.textContent = '\u275A\u275A Pause';
+  btn.classList.add('active');
+  playTimer = setInterval(() => {
+    if (currentPhase < PHASES.length - 1) applyPhase(currentPhase + 1);
+    else stopPlay();
+  }, 2500);
+}
+
+function stopPlay() {
+  clearInterval(playTimer);
+  playTimer = null;
+  const btn = document.getElementById('btn-play');
+  btn.textContent = '\u25B6 Play';
+  btn.classList.remove('active');
+}
+
+// Create pips
+const pipsContainer = document.getElementById('pips');
+PHASES.forEach((_, i) => {
+  const pip = document.createElement('div');
+  pip.className = 'pip';
+  pip.title = `Phase ${i + 1}: ${PHASES[i].title}`;
+  pip.addEventListener('click', () => { stopPlay(); applyPhase(i); });
+  pipsContainer.appendChild(pip);
+});
+
+// Button handlers
+document.getElementById('btn-prev').addEventListener('click', () => { stopPlay(); prevPhase(); });
+document.getElementById('btn-next').addEventListener('click', () => { stopPlay(); nextPhase(); });
+document.getElementById('btn-play').addEventListener('click', togglePlay);
+
+// Keyboard
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowRight' || e.key === 'l') { stopPlay(); nextPhase(); }
+  else if (e.key === 'ArrowLeft' || e.key === 'h') { stopPlay(); prevPhase(); }
+  else if (e.key === ' ') { e.preventDefault(); togglePlay(); }
+});
+
+// Init
+applyPhase(0);
+</script>
+</body>
+</html>
