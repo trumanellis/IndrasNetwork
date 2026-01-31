@@ -66,6 +66,7 @@ end
 -- PHASE 1: SETUP -- Create realm, join members, add contacts
 -- ============================================================================
 
+indras.narrative("Three members gather in the Gratitude Workshop")
 logger.info("Phase 1: Setup", { phase = 1 })
 
 local realm_id = quest_helpers.compute_realm_id(all_members)
@@ -116,6 +117,7 @@ logger.info("Phase 1 complete", { phase = 1, tick = sim.tick })
 -- PHASE 2: CREATE QUESTS
 -- ============================================================================
 
+indras.narrative("New quests take shape — a logo, documentation, and an API")
 logger.info("Phase 2: Create quests", { phase = 2 })
 
 -- Quest A: Design Logo (created by Zephyr)
@@ -160,6 +162,7 @@ logger.info("Phase 2 complete", { phase = 2, tick = sim.tick })
 -- PHASE 3: ATTENTION FOCUS
 -- ============================================================================
 
+indras.narrative("All eyes turn to the logo quest")
 logger.info("Phase 3: Members focus attention", { phase = 3 })
 
 -- Zephyr focuses on Quest A
@@ -198,6 +201,7 @@ logger.info("Phase 3 complete", { phase = 3, tick = sim.tick })
 -- PHASE 4: NOVA SUBMITS PROOF FOR QUEST A
 -- ============================================================================
 
+indras.narrative("Nova presents a logo that captures the workshop's spirit")
 logger.info("Phase 4: Nova submits proof for Quest A", { phase = 4 })
 
 local folder_a_id = quest_helpers.compute_folder_id(realm_id, quest_a_id, peer_nova)
@@ -231,6 +235,7 @@ logger.info("Phase 4 complete", { phase = 4, tick = sim.tick })
 -- PHASE 5: BLESSINGS FOR QUEST A (MINTING TOKENS T1 AND T2)
 -- ============================================================================
 
+indras.narrative("Blessings flow — Nova's work is recognized with tokens of gratitude")
 logger.info("Phase 5: Bless Quest A proof -> Mint tokens for Nova", { phase = 5 })
 
 -- Zephyr blesses Nova's proof (30min attention) -> Token T1 minted
@@ -317,6 +322,7 @@ logger.info("Phase 5 complete: Nova has 2 tokens", {
 -- PHASE 6: NOVA PLEDGES T2 TO QUEST B AS BOUNTY
 -- ============================================================================
 
+indras.narrative("Nova pledges gratitude forward — past work fuels the next quest")
 logger.info("Phase 6: Nova pledges T2 to Quest B", { phase = 6 })
 
 logger.event("gratitude_pledged", {
@@ -349,6 +355,7 @@ logger.info("Phase 6 complete: Quest B bounty = 20s", {
 -- PHASE 7: SAGE SUBMITS PROOF FOR QUEST B
 -- ============================================================================
 
+indras.narrative("Sage delivers documentation that brings clarity to the system")
 logger.info("Phase 7: Sage submits proof for Quest B", { phase = 7 })
 
 local folder_b_id = quest_helpers.compute_folder_id(realm_id, quest_b_id, peer_sage)
@@ -382,6 +389,7 @@ logger.info("Phase 7 complete", { phase = 7, tick = sim.tick })
 -- PHASE 8: NOVA RELEASES T2 TO SAGE (STEWARD TRANSFER)
 -- ============================================================================
 
+indras.narrative("Gratitude changes hands as Nova releases a token to Sage")
 logger.info("Phase 8: Nova releases T2 to Sage", { phase = 8 })
 
 logger.event("gratitude_released", {
@@ -416,6 +424,7 @@ logger.info("Phase 8 complete: Steward transfer", {
 -- PHASE 9: TOKEN CHAINING -- SAGE PLEDGES T2 TO QUEST C
 -- ============================================================================
 
+indras.narrative("The token travels onward — Sage pledges it to the API quest")
 logger.info("Phase 9: Token chaining -- Sage pledges T2 to Quest C", { phase = 9 })
 
 logger.event("gratitude_pledged", {
@@ -447,6 +456,7 @@ logger.info("Phase 9 complete: T2 now pledged to Quest C", {
 -- PHASE 10: ZEPHYR SUBMITS PROOF FOR QUEST C, SAGE RELEASES T2
 -- ============================================================================
 
+indras.narrative("A single token has now flowed through three stewards")
 logger.info("Phase 10: Zephyr submits proof for Quest C", { phase = 10 })
 
 local folder_c_id = quest_helpers.compute_folder_id(realm_id, quest_c_id, peer_zephyr)
@@ -498,6 +508,7 @@ logger.info("Phase 10 complete: Token chained through 3 stewards", {
 -- PHASE 11: PLEDGE AND WITHDRAW DEMONSTRATION
 -- ============================================================================
 
+indras.narrative("Nova reconsiders a pledge — gratitude returns to its source")
 logger.info("Phase 11: Withdraw demonstration", { phase = 11 })
 
 -- Nova pledges T1 to Quest C
@@ -541,6 +552,7 @@ logger.info("Phase 11 complete: T1 withdrawn, back in Nova's wallet", {
 -- PHASE 12: FINAL STATE VERIFICATION
 -- ============================================================================
 
+indras.narrative("The cycle completes — gratitude found its way to those who built")
 logger.info("Phase 12: Final state", { phase = 12 })
 
 -- Expected final state:

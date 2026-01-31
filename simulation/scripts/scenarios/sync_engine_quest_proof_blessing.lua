@@ -70,6 +70,7 @@ local FEATURED_ASSET = {
 -- PHASE 1: SETUP - Create realms and quests
 -- ============================================================================
 
+indras.narrative("Members gather to test proof and blessing")
 logger.info("Phase 1: Setup - Creating realms and quests", { phase = 1 })
 
 for _, peer in ipairs(peers) do
@@ -173,6 +174,7 @@ logger.info("Phase 1 complete", {
 -- Members share files with their realms
 -- ============================================================================
 
+indras.narrative("Knowledge flows freely — files and images travel between hands")
 logger.info("Phase 1.5: Artifact sharing", {
     phase = 1.5,
     description = "Members share artifacts with revocation support",
@@ -271,6 +273,7 @@ logger.info("Phase 1.5 complete", {
 -- Members share images and galleries in chat
 -- ============================================================================
 
+indras.narrative("A quest is posted — who will answer the call?")
 logger.info("Phase 1.6: Inline image sharing", {
     phase = 1.6,
     description = "Members share inline images in chat",
@@ -367,6 +370,7 @@ logger.info("Phase 1.6 complete", {
 -- Members focus on quests and accumulate attention
 -- ============================================================================
 
+indras.narrative("Attention gathers like rainfall — each moment counted and saved")
 logger.info("Phase 2: Attention accumulation", {
     phase = 2,
     description = "Members focus on quests to accumulate attention",
@@ -421,6 +425,7 @@ logger.info("Phase 2 complete", {
 -- One member per quest submits proof (posted to chat)
 -- ============================================================================
 
+indras.narrative("Proof is offered — the work speaks for itself")
 logger.info("Phase 3: Proof submission", {
     phase = 3,
     description = "Members submit proof for completed quests",
@@ -482,6 +487,7 @@ logger.info("Phase 3 complete", {
 -- Members bless proofs by releasing their accumulated attention
 -- ============================================================================
 
+indras.narrative("Witnesses bless the proof — trust takes tangible form")
 logger.info("Phase 4: Blessing flow", {
     phase = 4,
     description = "Members bless proofs with accumulated attention",
@@ -589,6 +595,7 @@ logger.info("Phase 4 complete", {
 -- Some members recall their shared artifacts
 -- ============================================================================
 
+indras.narrative("Some gifts are taken back — revocation rights honored")
 logger.info("Phase 4.5: Artifact recalls", {
     phase = 4.5,
     description = "Some members recall their shared artifacts",
@@ -654,6 +661,7 @@ logger.info("Phase 4.5 complete", {
 -- Creators verify claims and complete quests
 -- ============================================================================
 
+indras.narrative("The community has spoken — the quest is blessed")
 logger.info("Phase 5: Verification and completion", {
     phase = 5,
     description = "Creators verify proofs and complete quests",

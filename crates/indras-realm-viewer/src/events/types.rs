@@ -545,6 +545,10 @@ pub enum StreamEvent {
         message: String,
         #[serde(default)]
         phase: Option<u32>,
+        /// Optional high-level narrative for the window title.
+        /// When present, the viewer displays this as the ongoing story.
+        #[serde(default)]
+        narrative: Option<String>,
     },
 
     /// Catch-all for unknown event types

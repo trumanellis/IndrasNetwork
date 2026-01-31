@@ -213,6 +213,26 @@ impl TokenState {
             .count()
     }
 
+    /// Get total number of tokens minted.
+    pub fn total_tokens(&self) -> usize {
+        self.tokens.len()
+    }
+
+    /// Get count of tokens currently pledged to any quest.
+    pub fn total_pledged(&self) -> usize {
+        self.tokens.values().filter(|t| t.pledged_to.is_some()).count()
+    }
+
+    /// Get number of quests that have at least one pledged bounty.
+    pub fn quests_with_bounties(&self) -> usize {
+        self.quest_bounties.values().filter(|ids| !ids.is_empty()).count()
+    }
+
+    /// Get count of tokens whose current steward differs from original (recycled).
+    pub fn recycled_tokens(&self) -> usize {
+        self.tokens.values().filter(|t| t.steward != t.original_steward).count()
+    }
+
     /// Get all tokens.
     pub fn all_tokens(&self) -> Vec<&TokenOfGratitude> {
         self.tokens.values().collect()

@@ -474,11 +474,12 @@ end
 
 local phase1_end_tick = sim.tick
 
+indras.narrative("Collaborative documents come to life")
 indras.log.info("Phase 1 complete: Document creation", {
     trace_id = ctx.trace_id,
     documents_created = metrics.documents_created,
     realms = #realms,
-    tick_duration = phase1_end_tick - phase1_start_tick
+    tick_duration = phase1_end_tick - phase1_start_tick,
 })
 
 -- ============================================================================
@@ -559,6 +560,7 @@ local phase2_end_tick = sim.tick
 
 local update_percentiles = pq.percentiles(update_latencies)
 
+indras.narrative("Multiple hands shape the same document")
 indras.log.info("Phase 2 complete: Concurrent updates", {
     trace_id = ctx.trace_id,
     total_updates = metrics.total_updates,
@@ -567,7 +569,7 @@ indras.log.info("Phase 2 complete: Concurrent updates", {
     p95_update_latency_us = update_percentiles.p95,
     p99_update_latency_us = update_percentiles.p99,
     updates_per_tick = throughput_tracker:ops_per_tick(),
-    tick_duration = phase2_end_tick - phase2_start_tick
+    tick_duration = phase2_end_tick - phase2_start_tick,
 })
 
 -- ============================================================================
@@ -642,6 +644,7 @@ local phase3_end_tick = sim.tick
 
 local sync_percentiles = pq.percentiles(sync_latencies)
 
+indras.narrative("Concurrent edits test the document system's resilience")
 indras.log.info("Phase 3 complete: Sync verification", {
     trace_id = ctx.trace_id,
     sync_operations = metrics.sync_operations,
@@ -653,7 +656,7 @@ indras.log.info("Phase 3 complete: Sync verification", {
     p50_sync_latency_us = sync_percentiles.p50,
     p95_sync_latency_us = sync_percentiles.p95,
     p99_sync_latency_us = sync_percentiles.p99,
-    tick_duration = phase3_end_tick - phase3_start_tick
+    tick_duration = phase3_end_tick - phase3_start_tick,
 })
 
 -- ============================================================================
@@ -718,6 +721,7 @@ local phase4_end_tick = sim.tick
 local persistence_percentiles = pq.percentiles(persistence_latencies)
 local reload_percentiles = pq.percentiles(reload_latencies)
 
+indras.narrative("Every edit preserved — collaborative writing at scale")
 indras.log.info("Phase 4 complete: Persistence testing", {
     trace_id = ctx.trace_id,
     persistence_operations = metrics.persistence_operations,
@@ -731,7 +735,7 @@ indras.log.info("Phase 4 complete: Persistence testing", {
     p95_persistence_latency_us = persistence_percentiles.p95,
     avg_reload_latency_us = pq.average(reload_latencies),
     p95_reload_latency_us = reload_percentiles.p95,
-    tick_duration = phase4_end_tick - phase4_start_tick
+    tick_duration = phase4_end_tick - phase4_start_tick,
 })
 
 -- Run remaining simulation ticks

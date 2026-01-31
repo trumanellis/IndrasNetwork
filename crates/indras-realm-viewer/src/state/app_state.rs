@@ -406,6 +406,8 @@ pub struct AppState {
     pub selected_pov: Option<String>,
     /// Per-member screen state (for omni v2 multi-screen dashboard)
     pub member_screens: HashMap<String, MemberScreenState>,
+    /// Latest scenario-provided narrative (from Info events with narrative field)
+    pub scenario_narrative: Option<String>,
 }
 
 impl AppState {
@@ -514,6 +516,14 @@ impl AppState {
 
             StreamEvent::DocumentEdit { .. } => {
                 self.documents.process_event(&event);
+            }
+
+            StreamEvent::Info { narrative, .. } => {
+                if let Some(n) = narrative {
+                    if !n.is_empty() {
+                        self.scenario_narrative = Some(n.clone());
+                    }
+                }
             }
 
             _ => {}
@@ -759,6 +769,131 @@ impl AppState {
             tokens_pledged_count,
             tokens_available_value,
         }
+    }
+
+    /// Generate a high-level narrative string for the window title.
+    ///
+    /// Describes the overall mood and phase of the community rather than
+    /// echoing individual events. The narrative evolves as the simulation
+    /// progresses through formation, collaboration, recognition, and maturity.
+    pub fn generate_narrative(&self) -> String {
+        if self.total_events == 0 {
+            return "Omni V2 — Indras Network".to_string();
+        }
+
+        // Prefer scenario-provided narrative when available
+        if let Some(ref narrative) = self.scenario_narrative {
+            return narrative.clone();
+        }
+
+        let members = self.all_members().len();
+        let realms = self.realms.realm_count();
+        let total_quests = self.quests.total_quests();
+        let completed = self.quests.count_by_status(super::QuestStatus::Completed);
+        let claimed = self.quests.count_by_status(super::QuestStatus::Claimed);
+        let blessings = self.chat.total_blessings;
+        let tokens = self.tokens.total_tokens();
+        let pledged = self.tokens.total_pledged();
+        let bounty_quests = self.tokens.quests_with_bounties();
+        let recycled = self.tokens.recycled_tokens();
+        let blocked_count: usize = self.contacts.blocked.values()
+            .map(|s| s.len()).sum();
+
+        // Determine the dominant recent activity from the last few events
+        let recent: Vec<(&EventCategory, &str)> = self.event_log.iter()
+            .take(5)
+            .map(|e| (&e.category, e.type_name.as_str()))
+            .collect();
+
+        let recent_has_cat = |cat: EventCategory| recent.iter().any(|(c, _)| **c == cat);
+        let recent_has_type = |t: &str| recent.iter().any(|(_, name)| *name == t);
+
+        // Choose narrative based on community phase and recent activity
+        // Priority: conflict > token lifecycle > blessings > quests > community
+
+        if blocked_count > 0 && recent_has_cat(EventCategory::Contacts) {
+            // Immune response / conflict phase
+            if blocked_count == 1 {
+                "The community tests its boundaries as trust is questioned"
+            } else {
+                "Tensions surface — the network's immune response activates"
+            }
+        } else if recent_has_type("gratitude_released") {
+            // Tokens released to proof submitters — the cycle completes
+            if recycled > 3 {
+                "Gratitude completes its journey — tokens flow to those who answered the call"
+            } else {
+                "A token of gratitude finds a new steward as proof is recognized"
+            }
+        } else if recent_has_type("gratitude_withdrawn") {
+            // Pledge withdrawn — redirection
+            "A pledge is reconsidered — gratitude seeks a new purpose"
+        } else if recent_has_type("gratitude_pledged") {
+            // Tokens pledged as bounties on new quests
+            return if bounty_quests > 1 {
+                format!("Gratitude recycles — tokens stake bounties across {} quests", bounty_quests)
+            } else if pledged > 1 {
+                "Tokens of gratitude pool together, forming a bounty on a shared quest".into()
+            } else {
+                "A token of gratitude is pledged as bounty — past work fuels future quests".into()
+            };
+        } else if recent_has_type("token_minted") {
+            // Fresh tokens minted from blessings
+            return if tokens > 5 {
+                format!("{} tokens now circulate — the community's gratitude takes tangible form", tokens)
+            } else if tokens > 1 {
+                "Tokens of gratitude multiply as blessings crystallize into lasting value".into()
+            } else {
+                "The first token of gratitude is minted — a blessing becomes something you can hold".into()
+            };
+        } else if recycled > 0 && tokens > 3 {
+            // Background state: tokens have been recycled even if not the latest event
+            return format!("{} tokens circulate, {} recycled through new quests — gratitude compounds", tokens, recycled);
+        } else if blessings > 0 && recent_has_cat(EventCategory::Blessing) {
+            // Blessings without tokens yet, or proof submissions
+            if blessings > 3 {
+                "A web of trust deepens as members witness and bless each other's work"
+            } else {
+                "Trust builds as members begin to bless each other's contributions"
+            }
+        } else if completed > 0 {
+            // Quests completing
+            let ratio = completed as f64 / total_quests.max(1) as f64;
+            if ratio > 0.5 {
+                "A thriving network — shared purpose bears fruit across the community"
+            } else {
+                "Momentum builds as the first quests reach completion"
+            }
+        } else if claimed > 0 && recent_has_cat(EventCategory::Quest) {
+            // Active quest work
+            "Collaboration deepens as members take on quests and focus their attention"
+        } else if total_quests > 0 && recent_has_cat(EventCategory::Attention) {
+            // Attention being directed
+            "Members turn their attention to the work that matters most"
+        } else if total_quests > 0 {
+            // Quests emerging
+            if total_quests == 1 {
+                "The first quest appears — a shared purpose begins to take shape"
+            } else {
+                "Quests emerge as the community discovers what it wants to build together"
+            }
+        } else if members > 2 && realms > 0 {
+            // Community forming with multiple members
+            if realms > 1 {
+                "The community organizes into realms as members find their circles"
+            } else {
+                "A gathering takes shape as members join and begin to connect"
+            }
+        } else if members > 0 {
+            // Very early — first members
+            if members == 1 {
+                "A single member arrives — the first spark of a new network"
+            } else {
+                "The first members discover each other in a new shared space"
+            }
+        } else {
+            "A quiet network awaits its first members"
+        }.to_string()
     }
 
     /// Get events involving a specific member

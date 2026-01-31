@@ -92,6 +92,7 @@ for _, peer in ipairs(peers) do
     sim:step()
 end
 
+indras.narrative("Members begin discovering each other")
 logger.info("Phase 1 complete: All peers joined contacts realm", {
     phase = 1,
     tick = sim.tick,
@@ -171,6 +172,7 @@ for i, peer in ipairs(peers) do
     end
 end
 
+indras.narrative("Connections multiply as the social graph grows")
 logger.info("Phase 2 complete: Contacts added", {
     phase = 2,
     tick = sim.tick,
@@ -280,6 +282,7 @@ end
 
 local sync_convergence_rate = sync_converged / (sync_converged + sync_diverged)
 
+indras.narrative("The contact system is pushed to its limits")
 logger.info("Phase 4 complete: Contact sync verified", {
     phase = 4,
     tick = sim.tick,
@@ -341,6 +344,7 @@ for peer_id, contacts in pairs(peer_contacts) do
     end
 end
 
+indras.narrative("A rich web of connections holds firm under pressure")
 logger.info("Phase 5 complete: Contacts removed", {
     phase = 5,
     tick = sim.tick,

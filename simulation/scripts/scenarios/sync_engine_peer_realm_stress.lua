@@ -61,6 +61,7 @@ local realm_cache = {}
 -- PHASE 1: SETUP (Bring all peers online)
 -- ============================================================================
 
+indras.narrative("Peers reach across the network to form shared realms")
 logger.info("Phase 1: Setup - Bringing peers online", {
     phase = 1,
     peer_count = #peers,
@@ -82,6 +83,7 @@ logger.info("Phase 1 complete: All peers online", {
 -- Verify realm([A,B,C]) == realm([C,A,B])
 -- ============================================================================
 
+indras.narrative("New realms bloom where members find common ground")
 logger.info("Phase 2: Determinism test", {
     phase = 2,
     description = "Verify same peers in different order produce same realm ID",
@@ -225,6 +227,7 @@ for _ in pairs(all_realm_ids) do unique_count = unique_count + 1 end
 -- Multiple peers accessing same peer-set realm simultaneously
 -- ============================================================================
 
+indras.narrative("Realm creation at scale — the network stretches")
 logger.info("Phase 4: Concurrency test", {
     phase = 4,
     description = "Multiple peers accessing same peer-set realm simultaneously",
@@ -346,6 +349,7 @@ indras.assert.eq(consistency_rate, 1.0, "Realm ID consistency should be 100%")
 indras.assert.eq(uniqueness_rate, 1.0, "Realm ID uniqueness should be 100%")
 indras.assert.ge(concurrent_success_rate, 0.99, "Concurrent success rate should be >= 99%")
 
+indras.narrative("A constellation of peer realms spans the network")
 logger.info("Peer-based realm stress scenario passed", {
     unique_realms = unique_count,
 })

@@ -289,6 +289,12 @@ function quest.create_logger(ctx)
         indras.log.print(json_line)
     end
 
+    --- Emit a narrative event visible in the viewer's window title.
+    --- @param text string High-level description of what's happening
+    function logger.narrative(text)
+        indras.narrative(text)
+    end
+
     return logger
 end
 

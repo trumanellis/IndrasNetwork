@@ -77,6 +77,7 @@ local note_tracker = home.NoteTracker.new()
 -- PHASE 1: SETUP (Bring all peers online)
 -- ============================================================================
 
+indras.narrative("Home realms take shape — every member finds their place")
 logger.info("Phase 1: Setup - Bringing peers online", {
     phase = 1,
     peer_count = #peers,
@@ -209,6 +210,7 @@ sim:step()
 -- Create, update, delete notes with tags
 -- ============================================================================
 
+indras.narrative("Members settle into their home realms")
 logger.info("Phase 4: Note operations", {
     phase = 4,
     description = "Create, update, and delete notes in home realm",
@@ -306,6 +308,7 @@ logger.info("Phase 4 complete: Note operations", {
 -- Create and complete personal quests
 -- ============================================================================
 
+indras.narrative("The home realm system bears the weight of many members")
 logger.info("Phase 5: Quest operations", {
     phase = 5,
     description = "Create and complete personal quests in home realm",
@@ -813,6 +816,7 @@ indras.assert.eq(uniqueness_rate, 1.0, "Home realm ID uniqueness should be 100%"
 indras.assert.eq(persistence_rate, 1.0, "Data persistence rate should be 100%")
 indras.assert.eq(sync_rate, 1.0, "Multi-device sync rate should be 100%")
 
+indras.narrative("Every member housed — home realms stand strong")
 logger.info("Home realm stress scenario passed", {
     members = config.members,
     notes = note_ops.created,
