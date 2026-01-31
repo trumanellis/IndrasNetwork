@@ -1,4 +1,4 @@
--- SDK Immune Response Simulation
+-- SyncEngine Immune Response Simulation
 --
 -- Demonstrates the full sentiment/trust/blocking lifecycle — the "immune
 -- system" of Indra's Network — through a five-character story.
@@ -20,7 +20,7 @@
 --   7. Recovery          (homeostasis)
 --
 -- Usage:
---   STRESS_LEVEL=quick cargo run --bin lua_runner -- scenarios/sdk_immune_response.lua
+--   STRESS_LEVEL=quick cargo run --bin lua_runner -- scenarios/sync_engine_immune_response.lua
 --   ... | cargo run -p indras-realm-viewer --bin omni-viewer
 
 local quest_helpers = require("lib.quest_helpers")
@@ -30,7 +30,7 @@ local immune = require("lib.immune_helpers")
 -- SETUP
 -- ============================================================================
 
-local ctx = quest_helpers.new_context("sdk_immune_response")
+local ctx = quest_helpers.new_context("sync_engine_immune_response")
 local logger = quest_helpers.create_logger(ctx)
 local config = immune.get_config()
 
@@ -52,7 +52,7 @@ local sim_config = indras.SimConfig.new({
 local sim = indras.Simulation.new(mesh, sim_config)
 sim:initialize()
 
-local result = quest_helpers.result_builder("sdk_immune_response")
+local result = quest_helpers.result_builder("sync_engine_immune_response")
 
 -- Bring all peers online
 local peers = mesh:peers()

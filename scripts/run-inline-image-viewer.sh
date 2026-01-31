@@ -11,11 +11,11 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
 # Default to inline image scenario
-SCENARIO="simulation/scripts/scenarios/sdk_inline_image.lua"
+SCENARIO="simulation/scripts/scenarios/sync_engine_inline_image.lua"
 
 # Use home realm scenario if --home flag is passed
 if [[ "$1" == "--home" ]]; then
-    SCENARIO="simulation/scripts/scenarios/sdk_home_realm_stress.lua"
+    SCENARIO="simulation/scripts/scenarios/sync_engine_home_realm_stress.lua"
     export STRESS_LEVEL="${STRESS_LEVEL:-quick}"
 fi
 

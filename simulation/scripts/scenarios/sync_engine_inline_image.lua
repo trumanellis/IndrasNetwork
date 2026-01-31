@@ -1,4 +1,4 @@
--- SDK Inline Image Chat Test
+-- SyncEngine Inline Image Chat Test
 --
 -- Tests the inline image chat feature using the Logo_black.png asset.
 -- Demonstrates both embedded images and gallery sharing in chat.
@@ -32,7 +32,7 @@ local FEATURED_ASSET = {
 -- SETUP
 -- ============================================================================
 
-local ctx = artifact.new_context("sdk_inline_image")
+local ctx = artifact.new_context("sync_engine_inline_image")
 local logger = artifact.create_logger(ctx)
 
 -- Configuration - use minimal settings

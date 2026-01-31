@@ -1,17 +1,17 @@
-//! SDK-specific state for the SDK dashboard tab.
+//! SyncEngine-specific state for the SyncEngine dashboard tab.
 //!
-//! Provides state management for the three SDK stress test dashboards:
-//! - Network Lifecycle (sdk_stress.lua)
-//! - Document Operations (sdk_document_stress.lua)
-//! - Messaging & Threading (sdk_messaging_stress.lua)
+//! Provides state management for the three SyncEngine stress test dashboards:
+//! - Network Lifecycle (sync_engine_stress.lua)
+//! - Document Operations (sync_engine_document_stress.lua)
+//! - Messaging & Threading (sync_engine_messaging_stress.lua)
 
 use crate::state::{SimEvent, SimMetrics};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Which SDK dashboard is currently active
+/// Which SyncEngine dashboard is currently active
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum SDKDashboard {
+pub enum SyncEngineDashboard {
     /// Network/Realm lifecycle stress test
     #[default]
     NetworkLifecycle,
@@ -21,35 +21,35 @@ pub enum SDKDashboard {
     Messaging,
 }
 
-impl SDKDashboard {
+impl SyncEngineDashboard {
     /// Get the scenario file name for this dashboard
     pub fn scenario_name(&self) -> &'static str {
         match self {
-            SDKDashboard::NetworkLifecycle => "sdk_stress.lua",
-            SDKDashboard::DocumentOperations => "sdk_document_stress.lua",
-            SDKDashboard::Messaging => "sdk_messaging_stress.lua",
+            SyncEngineDashboard::NetworkLifecycle => "sync_engine_stress.lua",
+            SyncEngineDashboard::DocumentOperations => "sync_engine_document_stress.lua",
+            SyncEngineDashboard::Messaging => "sync_engine_messaging_stress.lua",
         }
     }
 
     /// Get display name for the dashboard
     pub fn display_name(&self) -> &'static str {
         match self {
-            SDKDashboard::NetworkLifecycle => "Network Lifecycle",
-            SDKDashboard::DocumentOperations => "Document Operations",
-            SDKDashboard::Messaging => "Messaging & Threading",
+            SyncEngineDashboard::NetworkLifecycle => "Network Lifecycle",
+            SyncEngineDashboard::DocumentOperations => "Document Operations",
+            SyncEngineDashboard::Messaging => "Messaging & Threading",
         }
     }
 
     /// Get description for the dashboard
     pub fn description(&self) -> &'static str {
         match self {
-            SDKDashboard::NetworkLifecycle => {
+            SyncEngineDashboard::NetworkLifecycle => {
                 "Tests network creation, realm formation, peer joins, and interface lifecycle"
             }
-            SDKDashboard::DocumentOperations => {
+            SyncEngineDashboard::DocumentOperations => {
                 "Tests CRDT document operations, concurrent edits, sync, and persistence"
             }
-            SDKDashboard::Messaging => {
+            SyncEngineDashboard::Messaging => {
                 "Tests message delivery, reply threading, reactions, and member presence"
             }
         }
@@ -58,18 +58,18 @@ impl SDKDashboard {
     /// Get icon for the dashboard
     pub fn icon(&self) -> &'static str {
         match self {
-            SDKDashboard::NetworkLifecycle => "🌐",
-            SDKDashboard::DocumentOperations => "📄",
-            SDKDashboard::Messaging => "💬",
+            SyncEngineDashboard::NetworkLifecycle => "🌐",
+            SyncEngineDashboard::DocumentOperations => "📄",
+            SyncEngineDashboard::Messaging => "💬",
         }
     }
 }
 
-/// State for the SDK tab
+/// State for the SyncEngine tab
 #[derive(Clone, Debug, Default)]
-pub struct SDKState {
+pub struct SyncEngineState {
     /// Currently selected dashboard
-    pub current_dashboard: SDKDashboard,
+    pub current_dashboard: SyncEngineDashboard,
     /// Whether a test is currently running
     pub running: bool,
     /// Current stress level
@@ -88,7 +88,7 @@ pub struct SDKState {
     pub current_phase_number: usize,
 }
 
-impl SDKState {
+impl SyncEngineState {
     pub fn new() -> Self {
         Self {
             stress_level: "medium".to_string(),

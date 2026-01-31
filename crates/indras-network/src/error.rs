@@ -1,4 +1,4 @@
-//! Unified error types for the Indra SDK.
+//! Unified error types for the Indra SyncEngine.
 //!
 //! Provides user-friendly, actionable error messages that wrap
 //! the underlying infrastructure errors.
@@ -7,10 +7,10 @@ use indras_node::NodeError;
 use indras_storage::StorageError;
 use std::io;
 
-/// Result type alias for SDK operations.
+/// Result type alias for SyncEngine operations.
 pub type Result<T> = std::result::Result<T, IndraError>;
 
-/// Unified error type for the Indra SDK.
+/// Unified error type for the Indra SyncEngine.
 ///
 /// Provides clear, actionable error messages for common failure scenarios.
 #[derive(Debug, thiserror::Error)]

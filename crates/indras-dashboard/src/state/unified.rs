@@ -2,7 +2,7 @@
 //!
 //! Provides a common interface across all tab types for the unified control bar.
 
-use super::{DiscoveryState, DocumentState, InstanceState, SDKState, SimMetrics, Tab};
+use super::{DiscoveryState, DocumentState, InstanceState, SyncEngineState, SimMetrics, Tab};
 
 /// Which context is currently active
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -11,7 +11,7 @@ pub enum ActiveContext {
     None,
     Simulations,
     Documents,
-    SDK,
+    SyncEngine,
     Metrics,
     Discovery,
 }
@@ -23,7 +23,7 @@ impl ActiveContext {
             ActiveContext::None => "No Context",
             ActiveContext::Simulations => "Network Simulation",
             ActiveContext::Documents => "Document Sync",
-            ActiveContext::SDK => "SDK Stress Test",
+            ActiveContext::SyncEngine => "SyncEngine Stress Test",
             ActiveContext::Metrics => "Stress Test",
             ActiveContext::Discovery => "Discovery Test",
         }
@@ -35,7 +35,7 @@ impl ActiveContext {
             ActiveContext::None => "○",
             ActiveContext::Simulations => "◉",
             ActiveContext::Documents => "📄",
-            ActiveContext::SDK => "⚡",
+            ActiveContext::SyncEngine => "⚡",
             ActiveContext::Metrics => "📊",
             ActiveContext::Discovery => "🔍",
         }
@@ -128,12 +128,12 @@ impl UnifiedPlaybackState {
         }
     }
 
-    /// Create state from the SDK tab
-    pub fn from_sdk(state: &SDKState) -> Self {
+    /// Create state from the SyncEngine tab
+    pub fn from_sync_engine(state: &SyncEngineState) -> Self {
         let dashboard_name = state.current_dashboard.display_name().to_string();
 
         Self {
-            context: ActiveContext::SDK,
+            context: ActiveContext::SyncEngine,
             context_name: dashboard_name,
             is_active: true,
             is_running: state.running,
@@ -202,7 +202,7 @@ impl UnifiedPlaybackState {
         tab: Tab,
         instance_state: &InstanceState,
         document_state: &DocumentState,
-        sdk_state: &SDKState,
+        sync_engine_state: &SyncEngineState,
         discovery_state: &DiscoveryState,
         metrics: &SimMetrics,
         metrics_running: bool,
@@ -212,7 +212,7 @@ impl UnifiedPlaybackState {
         match tab {
             Tab::Simulations => Self::from_simulations(instance_state),
             Tab::Documents => Self::from_documents(document_state),
-            Tab::SDK => Self::from_sdk(sdk_state),
+            Tab::SyncEngine => Self::from_sync_engine(sync_engine_state),
             Tab::Discovery => Self::from_discovery(discovery_state),
             Tab::Metrics => Self::from_metrics(metrics, metrics_running, metrics_scenario, metrics_stress_level),
         }

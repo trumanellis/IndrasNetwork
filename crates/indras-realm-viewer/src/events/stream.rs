@@ -184,14 +184,14 @@ pub struct ScenarioInfo {
     pub path: PathBuf,
     /// First comment line from the file (description)
     pub description: String,
-    /// Whether this is an SDK scenario (name starts with "sdk_")
-    pub is_sdk: bool,
+    /// Whether this is a SyncEngine scenario (name starts with "sync_engine_")
+    pub is_sync_engine: bool,
 }
 
 /// Discover available scenario files in a directory.
 ///
 /// Reads `*.lua` files, extracts the first `-- ` comment line as description,
-/// and sorts SDK scenarios first, then alphabetically.
+/// and sorts SyncEngine scenarios first, then alphabetically.
 pub fn discover_scenarios(dir: &Path) -> Vec<ScenarioInfo> {
     let mut scenarios = Vec::new();
 
@@ -216,20 +216,20 @@ pub fn discover_scenarios(dir: &Path) -> Vec<ScenarioInfo> {
             .to_string();
 
         let description = extract_first_comment(&path);
-        let is_sdk = name.starts_with("sdk_");
+        let is_sync_engine = name.starts_with("sync_engine_");
 
         scenarios.push(ScenarioInfo {
             name,
             path,
             description,
-            is_sdk,
+            is_sync_engine,
         });
     }
 
-    // Sort: SDK first, then alphabetically within each group
+    // Sort: SyncEngine first, then alphabetically within each group
     scenarios.sort_by(|a, b| {
-        b.is_sdk
-            .cmp(&a.is_sdk)
+        b.is_sync_engine
+            .cmp(&a.is_sync_engine)
             .then_with(|| a.name.cmp(&b.name))
     });
 
@@ -329,11 +329,11 @@ mod tests {
         if dir.exists() {
             let scenarios = discover_scenarios(dir);
             assert!(!scenarios.is_empty(), "Should find at least one scenario");
-            // SDK scenarios should come first
-            let first_non_sdk = scenarios.iter().position(|s| !s.is_sdk);
-            let last_sdk = scenarios.iter().rposition(|s| s.is_sdk);
-            if let (Some(first_non_sdk), Some(last_sdk)) = (first_non_sdk, last_sdk) {
-                assert!(last_sdk < first_non_sdk, "SDK scenarios should be sorted first");
+            // SyncEngine scenarios should come first
+            let first_non_sync_engine = scenarios.iter().position(|s| !s.is_sync_engine);
+            let last_sync_engine = scenarios.iter().rposition(|s| s.is_sync_engine);
+            if let (Some(first_non_sync_engine), Some(last_sync_engine)) = (first_non_sync_engine, last_sync_engine) {
+                assert!(last_sync_engine < first_non_sync_engine, "SyncEngine scenarios should be sorted first");
             }
         }
     }

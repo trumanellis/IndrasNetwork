@@ -278,18 +278,18 @@ impl ScenarioRunner {
                     description: "Tests schema registry, content validation throughput, and schema migration under load.",
                 },
             ]),
-            ("SDK Stress Tests", vec![
+            ("SyncEngine Stress Tests", vec![
                 ScenarioInfo {
-                    name: "sdk_stress.lua",
-                    description: "Tests SDK network creation, realm formation, peer joins, and interface lifecycle.",
+                    name: "sync_engine_stress.lua",
+                    description: "Tests SyncEngine network creation, realm formation, peer joins, and interface lifecycle.",
                 },
                 ScenarioInfo {
-                    name: "sdk_document_stress.lua",
-                    description: "Tests SDK document CRDT operations, concurrent edits, sync, and persistence.",
+                    name: "sync_engine_document_stress.lua",
+                    description: "Tests SyncEngine document CRDT operations, concurrent edits, sync, and persistence.",
                 },
                 ScenarioInfo {
-                    name: "sdk_messaging_stress.lua",
-                    description: "Tests SDK message delivery, reply threading, reactions, and member presence.",
+                    name: "sync_engine_messaging_stress.lua",
+                    description: "Tests SyncEngine message delivery, reply threading, reactions, and member presence.",
                 },
             ]),
         ]
@@ -622,7 +622,7 @@ fn parse_fields(fields: &serde_json::Value, json: &serde_json::Value) -> Option<
     None
 }
 
-/// Check if fields contain routing, PQ crypto, or SDK metrics
+/// Check if fields contain routing, PQ crypto, or SyncEngine metrics
 fn has_metrics_fields(fields: &serde_json::Value) -> bool {
     // Routing/messaging metrics
     fields.get("messages_sent").is_some()
@@ -639,16 +639,16 @@ fn has_metrics_fields(fields: &serde_json::Value) -> bool {
         || fields.get("avg_decap_latency_us").is_some()
         // Throughput
         || fields.get("ops_per_second").is_some()
-        // SDK Messaging metrics
+        // SyncEngine Messaging metrics
         || fields.get("threads_created").is_some()
         || fields.get("reactions_sent").is_some()
         || fields.get("presence_updates").is_some()
         || fields.get("total_members").is_some()
-        // SDK Document metrics
+        // SyncEngine Document metrics
         || fields.get("documents_created").is_some()
         || fields.get("total_updates").is_some()
         || fields.get("convergence_rate").is_some()
-        // SDK Network metrics
+        // SyncEngine Network metrics
         || fields.get("networks_created").is_some()
         || fields.get("realms_created").is_some()
         // Discovery metrics
@@ -792,7 +792,7 @@ fn extract_metrics(fields: &serde_json::Value, tick: u64) -> SimMetrics {
             .and_then(|v| v.as_u64())
             .unwrap_or(tick),
 
-        // SDK-specific metrics (Messaging)
+        // SyncEngine-specific metrics (Messaging)
         threads_created: fields
             .get("threads_created")
             .and_then(|v| v.as_u64())
@@ -832,7 +832,7 @@ fn extract_metrics(fields: &serde_json::Value, tick: u64) -> SimMetrics {
             .and_then(|v| v.as_u64())
             .unwrap_or(0),
 
-        // SDK-specific metrics (Document)
+        // SyncEngine-specific metrics (Document)
         documents_created: fields
             .get("documents_created")
             .and_then(|v| v.as_u64())
@@ -858,7 +858,7 @@ fn extract_metrics(fields: &serde_json::Value, tick: u64) -> SimMetrics {
             .and_then(|v| v.as_u64())
             .unwrap_or(0),
 
-        // SDK-specific metrics (Network Lifecycle)
+        // SyncEngine-specific metrics (Network Lifecycle)
         networks_created: fields
             .get("networks_created")
             .and_then(|v| v.as_u64())
@@ -882,7 +882,7 @@ fn extract_metrics(fields: &serde_json::Value, tick: u64) -> SimMetrics {
             .and_then(|v| v.as_u64())
             .unwrap_or(0),
 
-        // SDK latency metrics (microseconds)
+        // SyncEngine latency metrics (microseconds)
         p50_latency_us: fields
             .get("p50_latency_us")
             .or(fields.get("p50_send_latency_us"))

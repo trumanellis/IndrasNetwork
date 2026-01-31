@@ -1,4 +1,4 @@
--- SDK Home Realm Stress Test
+-- SyncEngine Home Realm Stress Test
 --
 -- Tests personal home realm functionality at scale with JSONL logging
 -- for automated testing and analysis.
@@ -25,7 +25,7 @@ local home = require("lib.home_realm_helpers")
 -- SETUP
 -- ============================================================================
 
-local ctx = home.new_context("sdk_home_realm_stress")
+local ctx = home.new_context("sync_engine_home_realm_stress")
 local logger = home.create_logger(ctx)
 local config = home.get_config()
 
@@ -49,7 +49,7 @@ local sim = indras.Simulation.new(mesh, sim_config)
 sim:initialize()
 
 local peers = mesh:peers()
-local result = home.result_builder("sdk_home_realm_stress")
+local result = home.result_builder("sync_engine_home_realm_stress")
 
 -- Metrics tracking
 local latencies = {
@@ -229,7 +229,7 @@ for _, peer in ipairs(peers) do
         local tags = home.random_tags()
 
         local start_time = os.clock()
-        -- Simulate note creation (in real impl this would call SDK)
+        -- Simulate note creation (in real impl this would call SyncEngine)
         note_tracker:record_note(note_id, title, content, tags)
         local latency = (os.clock() - start_time) * 1000000 + home.note_create_latency()
         table.insert(latencies.note_create, latency)

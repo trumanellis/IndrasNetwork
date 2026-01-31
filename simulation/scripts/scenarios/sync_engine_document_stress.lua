@@ -1,4 +1,4 @@
--- SDK Document<T> CRDT Stress Test
+-- SyncEngine Document<T> CRDT Stress Test
 --
 -- Stress tests the Document<T> typed CRDT wrapper from indras-network.
 -- Simulates typed documents with various schemas, concurrent updates,
@@ -57,10 +57,10 @@ local cfg = CONFIG[config_level] or CONFIG.quick
 
 -- Create correlation context
 local ctx = indras.correlation.new_root()
-ctx = ctx:with_tag("scenario", "sdk_document_stress")
+ctx = ctx:with_tag("scenario", "sync_engine_document_stress")
 ctx = ctx:with_tag("level", config_level)
 
-indras.log.info("Starting SDK Document<T> stress test", {
+indras.log.info("Starting SyncEngine Document<T> stress test", {
     trace_id = ctx.trace_id,
     config_level = config_level,
     realm_count = cfg.realm_count,
@@ -756,7 +756,7 @@ local state_validation_rate = metrics.state_validations > 0 and (1 - metrics.sta
 local final_update_percentiles = pq.percentiles(update_latencies)
 local final_sync_percentiles = pq.percentiles(sync_latencies)
 
-indras.log.info("SDK Document stress test completed", {
+indras.log.info("SyncEngine Document stress test completed", {
     trace_id = ctx.trace_id,
     config_level = config_level,
     total_ticks = sim.tick,
@@ -803,7 +803,7 @@ indras.assert.eq(metrics.state_validation_failures, 0, "No state validation fail
 indras.assert.lt(final_update_percentiles.p99, 1000, "P99 update latency should be < 1ms")
 indras.assert.lt(final_sync_percentiles.p99, 2000, "P99 sync latency should be < 2ms")
 
-indras.log.info("SDK Document stress test passed", {
+indras.log.info("SyncEngine Document stress test passed", {
     trace_id = ctx.trace_id,
     documents_created = metrics.documents_created,
     total_updates = metrics.total_updates,

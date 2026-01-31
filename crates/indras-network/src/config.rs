@@ -54,7 +54,7 @@ impl Preset {
     }
 }
 
-/// Configuration for the IndrasNetwork SDK.
+/// Configuration for the IndrasNetwork SyncEngine.
 #[derive(Debug, Clone)]
 pub struct NetworkConfig {
     /// Data directory for persistence.

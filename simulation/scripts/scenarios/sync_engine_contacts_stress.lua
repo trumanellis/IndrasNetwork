@@ -1,4 +1,4 @@
--- SDK Contacts Stress Test
+-- SyncEngine Contacts Stress Test
 --
 -- Tests contacts realm and auto-subscription pattern.
 --
@@ -16,7 +16,7 @@ local thresholds = require("config.quest_thresholds")
 -- SETUP
 -- ============================================================================
 
-local ctx = quest_helpers.new_context("sdk_contacts_stress")
+local ctx = quest_helpers.new_context("sync_engine_contacts_stress")
 local logger = quest_helpers.create_logger(ctx)
 local config = quest_helpers.get_contacts_config()
 
@@ -39,7 +39,7 @@ local sim = indras.Simulation.new(mesh, sim_config)
 sim:initialize()
 
 local peers = mesh:peers()
-local result = quest_helpers.result_builder("sdk_contacts_stress")
+local result = quest_helpers.result_builder("sync_engine_contacts_stress")
 
 -- Metrics tracking
 local latencies = {
@@ -52,7 +52,7 @@ local latencies = {
 -- Per-peer contacts
 local peer_contacts = {}  -- peer_id -> Contacts object
 for _, peer in ipairs(peers) do
-    peer_contacts[tostring(peer)] = indras.sdk.contacts.new()
+    peer_contacts[tostring(peer)] = indras.sync_engine.contacts.new()
 end
 
 -- Auto-subscribed realms tracking

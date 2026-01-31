@@ -10,12 +10,12 @@ pub mod control_bar;
 pub mod discovery;
 pub mod documents;
 pub mod panels;
-pub mod sdk;
+pub mod sync_engine;
 
 pub use control_bar::UnifiedControlBar;
 pub use discovery::DiscoveryView;
 pub use documents::DocumentsView;
-pub use sdk::SDKView;
+pub use sync_engine::SyncEngineView;
 
 /// Header component with dashboard title
 #[component]
@@ -454,7 +454,7 @@ fn format_event_type(event_type: &EventType) -> &'static str {
 // Tab Navigation Components
 // ============================================================================
 
-/// Tab bar for switching between Metrics, Simulations, Documents, SDK, and Discovery views
+/// Tab bar for switching between Metrics, Simulations, Documents, SyncEngine, and Discovery views
 #[component]
 pub fn TabBar(current_tab: Tab, on_select: EventHandler<Tab>) -> Element {
     rsx! {
@@ -475,9 +475,9 @@ pub fn TabBar(current_tab: Tab, on_select: EventHandler<Tab>) -> Element {
                 "Documents"
             }
             button {
-                class: if current_tab == Tab::SDK { "tab-btn active" } else { "tab-btn" },
-                onclick: move |_| on_select.call(Tab::SDK),
-                "SDK"
+                class: if current_tab == Tab::SyncEngine { "tab-btn active" } else { "tab-btn" },
+                onclick: move |_| on_select.call(Tab::SyncEngine),
+                "SyncEngine"
             }
             button {
                 class: if current_tab == Tab::Discovery { "tab-btn active" } else { "tab-btn" },

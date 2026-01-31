@@ -1,13 +1,13 @@
--- SDK Messaging Stress Test
+-- SyncEngine Messaging Stress Test
 --
--- Stress tests the SDK-level messaging functionality including:
+-- Stress tests the SyncEngine-level messaging functionality including:
 -- 1. High-volume message sending
 -- 2. Reply threading
 -- 3. Message delivery verification
 -- 4. Content types (text, binary, reactions)
 -- 5. Member presence during messaging
 --
--- This scenario simulates real-world SDK usage patterns with emphasis on
+-- This scenario simulates real-world SyncEngine usage patterns with emphasis on
 -- message threading, delivery confirmations, and presence awareness.
 
 -- Fix package path for helper libraries
@@ -58,10 +58,10 @@ local config_level = os.getenv("STRESS_LEVEL") or "quick"
 local cfg = CONFIG[config_level] or CONFIG.quick
 
 -- Create correlation context
-local ctx = pq.new_context("sdk_messaging_stress")
+local ctx = pq.new_context("sync_engine_messaging_stress")
 ctx = ctx:with_tag("level", config_level)
 
-indras.log.info("Starting SDK messaging stress test", {
+indras.log.info("Starting SyncEngine messaging stress test", {
     trace_id = ctx.trace_id,
     config_level = config_level,
     peers = cfg.peers,
@@ -134,7 +134,7 @@ local function random_content_size(content_type)
 end
 
 -- ============================================================================
--- MESSAGE CLASS: Represents an SDK message with threading support
+-- MESSAGE CLASS: Represents a SyncEngine message with threading support
 -- ============================================================================
 
 local Message = {}
@@ -442,7 +442,7 @@ indras.log.info("Phase 1: Channel setup", {
 local phase1_start_tick = sim.tick
 
 for i = 1, cfg.channels do
-    local channel_id = string.format("sdk-channel-%04d", i)
+    local channel_id = string.format("sync-engine-channel-%04d", i)
     local creator = random_online_peer()
 
     if creator then
@@ -949,7 +949,7 @@ local final_reaction_percentiles = reaction_latencies:percentiles()
 local final_thread_percentiles = thread_latencies:percentiles()
 local final_presence_percentiles = presence_latencies:percentiles()
 
-indras.log.info("SDK messaging stress test completed", {
+indras.log.info("SyncEngine messaging stress test completed", {
     trace_id = ctx.trace_id,
     config_level = config_level,
     total_ticks = sim.tick,
@@ -1028,7 +1028,7 @@ indras.assert.lt(final_stats:kem_failure_rate(), 0.01, "KEM failure rate should 
 indras.assert.lt(final_send_percentiles.p99, 500, "P99 send latency should be < 500us")
 indras.assert.lt(final_delivery_percentiles.p99, 500, "P99 delivery latency should be < 500us")
 
-indras.log.info("SDK messaging stress test passed", {
+indras.log.info("SyncEngine messaging stress test passed", {
     trace_id = ctx.trace_id,
     delivery_rate = delivery_rate,
     message_throughput = message_throughput:ops_per_tick(),

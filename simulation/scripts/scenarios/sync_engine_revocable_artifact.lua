@@ -1,4 +1,4 @@
--- SDK Revocable Artifact Sharing Stress Test
+-- SyncEngine Revocable Artifact Sharing Stress Test
 --
 -- Validates the revocable artifact sharing feature through automated
 -- verification and logging. Tests the full lifecycle: share, verify
@@ -37,7 +37,7 @@ local FEATURED_ASSET = {
 -- SETUP
 -- ============================================================================
 
-local ctx = artifact.new_context("sdk_revocable_artifact")
+local ctx = artifact.new_context("sync_engine_revocable_artifact")
 local logger = artifact.create_logger(ctx)
 local config = artifact.get_config()
 
@@ -61,7 +61,7 @@ local sim = indras.Simulation.new(mesh, sim_config)
 sim:initialize()
 
 local peers = mesh:peers()
-local result = artifact.result_builder("sdk_revocable_artifact")
+local result = artifact.result_builder("sync_engine_revocable_artifact")
 
 -- Create realm from all peers
 local peer_ids = {}

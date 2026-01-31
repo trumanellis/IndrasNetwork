@@ -68,8 +68,8 @@ pub fn register_indras_module(lua: &Lua) -> Result<()> {
     // Register IoT bindings (duty cycling, compact messages, memory tracking)
     bindings::iot::register(lua, &indras)?;
 
-    // Register SDK bindings
-    bindings::sdk::register(lua, &indras)?;
+    // Register SyncEngine bindings
+    bindings::sync_engine::register(lua, &indras)?;
 
     // Register assertion helpers
     assertions::register(lua, &indras)?;

@@ -1,6 +1,6 @@
-//! Lua bindings for indras-network SDK
+//! Lua bindings for indras-network SyncEngine
 //!
-//! Provides Lua wrappers for the high-level SDK types:
+//! Provides Lua wrappers for the high-level SyncEngine types:
 //! - IndrasNetwork - Main entry point for P2P applications
 //! - Realm - Collaborative space for messaging and documents
 //! - Document - CRDT-backed data structure (JSON values for Lua)
@@ -26,9 +26,9 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 //
 // The indras-network crate requires tokio async runtime and real network
 // infrastructure. For Lua scripting/testing, we provide mock types that
-// simulate the SDK behavior without actual network operations.
+// simulate the SyncEngine behavior without actual network operations.
 
-/// Configuration preset enum for SDK
+/// Configuration preset enum for SyncEngine
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LuaPreset {
     /// Balanced defaults for general use
@@ -777,7 +777,7 @@ impl UserData for LuaRealm {
 // IndrasNetwork binding
 // =============================================================================
 
-/// Lua wrapper for IndrasNetwork (main SDK entry point)
+/// Lua wrapper for IndrasNetwork (main SyncEngine entry point)
 #[derive(Clone)]
 pub struct LuaNetwork {
     /// Data directory
@@ -1031,9 +1031,9 @@ impl UserData for LuaNetworkBuilder {
 // Registration
 // =============================================================================
 
-/// Register SDK types with the indras.sdk namespace
+/// Register SyncEngine types with the indras.sync_engine namespace
 pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
-    let sdk = lua.create_table()?;
+    let sync_engine = lua.create_table()?;
 
     // =================================
     // Preset constants
@@ -1050,7 +1050,7 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
         "OfflineFirst",
         lua.create_function(|_, ()| Ok(LuaPreset::OfflineFirst))?,
     )?;
-    sdk.set("Preset", preset)?;
+    sync_engine.set("Preset", preset)?;
 
     // =================================
     // Content constructors
@@ -1085,7 +1085,7 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
         })?,
     )?;
 
-    sdk.set("Content", content)?;
+    sync_engine.set("Content", content)?;
 
     // =================================
     // InviteCode constructors
@@ -1102,7 +1102,7 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
         lua.create_function(|_, realm_id: String| Ok(LuaInviteCode::new(&realm_id)))?,
     )?;
 
-    sdk.set("InviteCode", invite_code)?;
+    sync_engine.set("InviteCode", invite_code)?;
 
     // =================================
     // Member constructors
@@ -1119,7 +1119,7 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
         lua.create_function(|_, (id, name): (String, String)| Ok(LuaMember::with_name(&id, &name)))?,
     )?;
 
-    sdk.set("Member", member)?;
+    sync_engine.set("Member", member)?;
 
     // =================================
     // Network constructors
@@ -1151,7 +1151,7 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
         lua.create_function(|_, ()| Ok(LuaNetworkBuilder::default()))?,
     )?;
 
-    sdk.set("Network", network)?;
+    sync_engine.set("Network", network)?;
 
     // =================================
     // Document constructor (for standalone use)
@@ -1165,7 +1165,7 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
         })?,
     )?;
 
-    sdk.set("Document", document)?;
+    sync_engine.set("Document", document)?;
 
     // =================================
     // Realm constructor (for standalone testing)
@@ -1177,7 +1177,7 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
         lua.create_function(|_, (id, name): (String, Option<String>)| Ok(LuaRealm::new(&id, name)))?,
     )?;
 
-    sdk.set("Realm", realm)?;
+    sync_engine.set("Realm", realm)?;
 
     // =================================
     // Peer-based Realm utilities
@@ -1185,7 +1185,7 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
 
     // compute_realm_id(peer_ids) -> realm_id string
     // Computes a deterministic realm ID from a set of peer IDs
-    sdk.set(
+    sync_engine.set(
         "compute_realm_id",
         lua.create_function(|_, peer_ids: Vec<String>| {
             if peer_ids.len() < 2 {
@@ -1198,7 +1198,7 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
     )?;
 
     // normalize_peers(peer_ids) -> sorted, deduped peer_ids
-    sdk.set(
+    sync_engine.set(
         "normalize_peers",
         lua.create_function(|_, peer_ids: Vec<String>| Ok(normalize_peers(&peer_ids)))?,
     )?;
@@ -1238,7 +1238,7 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
         )?,
     )?;
 
-    sdk.set("quest", quest)?;
+    sync_engine.set("quest", quest)?;
 
     // =================================
     // QuestClaim constructor
@@ -1252,7 +1252,7 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
         })?,
     )?;
 
-    sdk.set("QuestClaim", quest_claim)?;
+    sync_engine.set("QuestClaim", quest_claim)?;
 
     // =================================
     // Contacts operations
@@ -1262,7 +1262,7 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
     // Contacts.new() -> Contacts
     contacts.set("new", lua.create_function(|_, ()| Ok(LuaContacts::new()))?)?;
 
-    sdk.set("contacts", contacts)?;
+    sync_engine.set("contacts", contacts)?;
 
     // =================================
     // Attention tracking operations
@@ -1272,10 +1272,10 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
     // Attention.new() -> AttentionDocument
     attention.set("new", lua.create_function(|_, ()| Ok(LuaAttentionDocument::new()))?)?;
 
-    sdk.set("attention", attention)?;
+    sync_engine.set("attention", attention)?;
 
-    // Set sdk namespace on indras
-    indras.set("sdk", sdk)?;
+    // Set sync_engine namespace on indras
+    indras.set("sync_engine", sync_engine)?;
 
     Ok(())
 }
@@ -1968,7 +1968,7 @@ mod tests {
         let result: String = lua
             .load(
                 r#"
-                local preset = indras.sdk.Preset.Chat()
+                local preset = indras.sync_engine.Preset.Chat()
                 return preset.name
             "#,
             )
@@ -1984,7 +1984,7 @@ mod tests {
         let (capacity, interval): (i32, i32) = lua
             .load(
                 r#"
-                local preset = indras.sdk.Preset.IoT()
+                local preset = indras.sync_engine.Preset.IoT()
                 return preset.event_channel_capacity, preset.sync_interval_secs
             "#,
             )
@@ -2001,7 +2001,7 @@ mod tests {
         let result: String = lua
             .load(
                 r#"
-                local content = indras.sdk.Content.text("Hello, world!")
+                local content = indras.sync_engine.Content.text("Hello, world!")
                 return content:as_text()
             "#,
             )
@@ -2017,8 +2017,8 @@ mod tests {
         let (is_text, is_binary): (bool, bool) = lua
             .load(
                 r#"
-                local text = indras.sdk.Content.text("Hello")
-                local binary = indras.sdk.Content.binary("image/png", "data")
+                local text = indras.sync_engine.Content.text("Hello")
+                local binary = indras.sync_engine.Content.binary("image/png", "data")
                 return text:is_text(), binary:is_binary()
             "#,
             )
@@ -2035,7 +2035,7 @@ mod tests {
         let result: bool = lua
             .load(
                 r#"
-                local invite = indras.sdk.InviteCode.new("testrealm123")
+                local invite = indras.sync_engine.InviteCode.new("testrealm123")
                 local uri = invite:to_uri()
                 return uri:find("indra:realm:") ~= nil
             "#,
@@ -2052,7 +2052,7 @@ mod tests {
         let (name, short_id): (String, String) = lua
             .load(
                 r#"
-                local member = indras.sdk.Member.with_name("abc123def456", "Alice")
+                local member = indras.sync_engine.Member.with_name("abc123def456", "Alice")
                 return member:name(), member.short_id
             "#,
             )
@@ -2069,7 +2069,7 @@ mod tests {
         let result: bool = lua
             .load(
                 r#"
-                local network = indras.sdk.Network.new("/tmp/test")
+                local network = indras.sync_engine.Network.new("/tmp/test")
                 return network.data_dir == "/tmp/test"
             "#,
             )
@@ -2086,10 +2086,10 @@ mod tests {
         let result: (String, String) = lua
             .load(
                 r#"
-                local network = indras.sdk.Network.builder()
+                local network = indras.sync_engine.Network.builder()
                     :data_dir("/tmp/myapp")
                     :display_name("TestNode")
-                    :preset(indras.sdk.Preset.Chat())
+                    :preset(indras.sync_engine.Preset.Chat())
                     :build()
                 return network.data_dir, network.display_name
             "#,
@@ -2108,7 +2108,7 @@ mod tests {
         let result: (bool, bool) = lua
             .load(
                 r#"
-                local network = indras.sdk.Network.new("/tmp/test")
+                local network = indras.sync_engine.Network.new("/tmp/test")
                 local realm = network:create_realm("My Project")
                 return realm.name == "My Project", realm.invite_code ~= nil
             "#,
@@ -2127,7 +2127,7 @@ mod tests {
         let count: i32 = lua
             .load(
                 r#"
-                local network = indras.sdk.Network.new("/tmp/test")
+                local network = indras.sync_engine.Network.new("/tmp/test")
                 local realm = network:create_realm("Chat Room")
 
                 realm:send("Hello!")
@@ -2149,7 +2149,7 @@ mod tests {
         let result: (String, i32) = lua
             .load(
                 r#"
-                local network = indras.sdk.Network.new("/tmp/test")
+                local network = indras.sync_engine.Network.new("/tmp/test")
                 local realm = network:create_realm("Collab")
                 local doc = realm:document("tasks")
 
@@ -2175,7 +2175,7 @@ mod tests {
             .load(
                 r#"
                 local ctx = indras.correlation.new_root()
-                local network = indras.sdk.Network.new("/tmp/test")
+                local network = indras.sync_engine.Network.new("/tmp/test")
                     :with_correlation(ctx)
                 return network ~= nil
             "#,
@@ -2193,11 +2193,11 @@ mod tests {
         let result: bool = lua
             .load(
                 r#"
-                local network = indras.sdk.Network.new("/tmp/test")
+                local network = indras.sync_engine.Network.new("/tmp/test")
                 local realm1 = network:create_realm("Source")
                 local invite = realm1.invite_code
 
-                local network2 = indras.sdk.Network.new("/tmp/test2")
+                local network2 = indras.sync_engine.Network.new("/tmp/test2")
                 local realm2 = network2:join(invite)
 
                 return realm2.id == realm1.id
@@ -2221,9 +2221,9 @@ mod tests {
             .load(
                 r#"
                 -- Same peer set in different order should produce same realm ID
-                local realm1 = indras.sdk.compute_realm_id({"alice", "bob", "charlie"})
-                local realm2 = indras.sdk.compute_realm_id({"charlie", "alice", "bob"})
-                local realm3 = indras.sdk.compute_realm_id({"bob", "charlie", "alice"})
+                local realm1 = indras.sync_engine.compute_realm_id({"alice", "bob", "charlie"})
+                local realm2 = indras.sync_engine.compute_realm_id({"charlie", "alice", "bob"})
+                local realm3 = indras.sync_engine.compute_realm_id({"bob", "charlie", "alice"})
                 return realm1 == realm2 and realm2 == realm3
             "#,
             )
@@ -2240,9 +2240,9 @@ mod tests {
             .load(
                 r#"
                 -- Different peer sets should produce different realm IDs
-                local realm1 = indras.sdk.compute_realm_id({"alice", "bob"})
-                local realm2 = indras.sdk.compute_realm_id({"alice", "charlie"})
-                local realm3 = indras.sdk.compute_realm_id({"bob", "charlie"})
+                local realm1 = indras.sync_engine.compute_realm_id({"alice", "bob"})
+                local realm2 = indras.sync_engine.compute_realm_id({"alice", "charlie"})
+                local realm3 = indras.sync_engine.compute_realm_id({"bob", "charlie"})
                 return realm1 ~= realm2 and realm2 ~= realm3 and realm1 ~= realm3
             "#,
             )
@@ -2259,7 +2259,7 @@ mod tests {
         let result = lua
             .load(
                 r#"
-                indras.sdk.compute_realm_id({"alice"})
+                indras.sync_engine.compute_realm_id({"alice"})
             "#,
             )
             .eval::<String>();
@@ -2273,7 +2273,7 @@ mod tests {
         let result: Vec<String> = lua
             .load(
                 r#"
-                return indras.sdk.normalize_peers({"charlie", "alice", "bob", "alice"})
+                return indras.sync_engine.normalize_peers({"charlie", "alice", "bob", "alice"})
             "#,
             )
             .eval()
@@ -2292,7 +2292,7 @@ mod tests {
         let (title, creator, is_open): (String, String, bool) = lua
             .load(
                 r#"
-                local quest = indras.sdk.quest.new(
+                local quest = indras.sync_engine.quest.new(
                     "Review design doc",
                     "Please review the attached PDF",
                     nil,
@@ -2315,7 +2315,7 @@ mod tests {
         let (claim_count, has_claims, is_open): (usize, bool, bool) = lua
             .load(
                 r#"
-                local quest = indras.sdk.quest.new(
+                local quest = indras.sync_engine.quest.new(
                     "Review design doc",
                     "Please review the attached PDF",
                     nil,
@@ -2348,7 +2348,7 @@ mod tests {
         ) = lua
             .load(
                 r#"
-                local quest = indras.sdk.quest.new(
+                local quest = indras.sync_engine.quest.new(
                     "Review design doc",
                     "Please review the attached PDF",
                     nil,
@@ -2390,7 +2390,7 @@ mod tests {
         let (count_after_add, contains, count_after_remove): (usize, bool, usize) = lua
             .load(
                 r#"
-                local contacts = indras.sdk.contacts.new()
+                local contacts = indras.sync_engine.contacts.new()
 
                 contacts:add("alice123")
                 contacts:add("bob456")
@@ -2421,7 +2421,7 @@ mod tests {
         let contacts: Vec<String> = lua
             .load(
                 r#"
-                local contacts = indras.sdk.contacts.new()
+                local contacts = indras.sync_engine.contacts.new()
                 contacts:add("bob")
                 contacts:add("alice")
                 return contacts:list()

@@ -38,9 +38,9 @@ pub fn App() -> Element {
     let mut document_state = use_signal(DocumentState::new);
     let mut document_runner: Signal<Option<DocumentRunner>> = use_signal(|| None);
 
-    // SDK view state
-    let mut sdk_state = use_signal(SDKState::new);
-    let mut sdk_cancel_token: Signal<Option<Arc<Mutex<bool>>>> = use_signal(|| None);
+    // SyncEngine view state
+    let mut sync_engine_state = use_signal(SyncEngineState::new);
+    let mut sync_engine_cancel_token: Signal<Option<Arc<Mutex<bool>>>> = use_signal(|| None);
 
     // Discovery view state
     let mut discovery_state = use_signal(DiscoveryState::new);
@@ -497,15 +497,15 @@ pub fn App() -> Element {
                         }
                     }
                 },
-                Tab::SDK => rsx! {
-                    // Full-width content for SDK tab
+                Tab::SyncEngine => rsx! {
+                    // Full-width content for SyncEngine tab
                     div { class: "content", style: "padding: 0;",
-                        SDKView {
-                            state: sdk_state,
+                        SyncEngineView {
+                            state: sync_engine_state,
                             on_run: move |_| {
-                                let current_dashboard = sdk_state.read().current_dashboard;
+                                let current_dashboard = sync_engine_state.read().current_dashboard;
                                 let scenario = current_dashboard.scenario_name().to_string();
-                                let level_str = sdk_state.read().stress_level.clone();
+                                let level_str = sync_engine_state.read().stress_level.clone();
                                 let level = match level_str.as_str() {
                                     "quick" => StressLevel::Quick,
                                     "full" => StressLevel::Full,
@@ -513,12 +513,12 @@ pub fn App() -> Element {
                                 };
 
                                 // Reset state
-                                sdk_state.write().reset();
-                                sdk_state.write().running = true;
+                                sync_engine_state.write().reset();
+                                sync_engine_state.write().running = true;
 
                                 // Create cancel token
                                 let token = Arc::new(Mutex::new(false));
-                                sdk_cancel_token.set(Some(token.clone()));
+                                sync_engine_cancel_token.set(Some(token.clone()));
 
                                 // Spawn async task to run the scenario
                                 spawn(async move {
@@ -540,18 +540,18 @@ pub fn App() -> Element {
                                         match update {
                                             MetricsUpdate::Stats(new_metrics) => {
                                                 // Merge metrics to preserve values from earlier updates
-                                                sdk_state.write().metrics.merge(&new_metrics);
+                                                sync_engine_state.write().metrics.merge(&new_metrics);
                                             }
                                             MetricsUpdate::Event(event) => {
-                                                sdk_state.write().add_event(event);
+                                                sync_engine_state.write().add_event(event);
                                             }
                                             MetricsUpdate::Tick { current, max } => {
-                                                let mut state = sdk_state.write();
+                                                let mut state = sync_engine_state.write();
                                                 state.metrics.current_tick = current;
                                                 state.metrics.max_ticks = max;
                                             }
                                             MetricsUpdate::Complete(result) => {
-                                                sdk_state.write().add_event(SimEvent {
+                                                sync_engine_state.write().add_event(SimEvent {
                                                     tick: result.metrics.current_tick,
                                                     event_type: if result.passed {
                                                         EventType::Success
@@ -566,7 +566,7 @@ pub fn App() -> Element {
                                                 });
                                             }
                                             MetricsUpdate::Error(err) => {
-                                                sdk_state.write().add_event(SimEvent {
+                                                sync_engine_state.write().add_event(SimEvent {
                                                     tick: 0,
                                                     event_type: EventType::Error,
                                                     description: err,
@@ -576,27 +576,27 @@ pub fn App() -> Element {
                                     }
 
                                     let _ = run_handle.await;
-                                    sdk_state.write().running = false;
-                                    sdk_cancel_token.set(None);
+                                    sync_engine_state.write().running = false;
+                                    sync_engine_cancel_token.set(None);
                                 });
                             },
                             on_stop: move |_| {
-                                if let Some(token) = sdk_cancel_token() {
+                                if let Some(token) = sync_engine_cancel_token() {
                                     spawn(async move {
                                         *token.lock().await = true;
                                     });
                                 }
-                                sdk_state.write().running = false;
-                                let current_tick = sdk_state.read().metrics.current_tick;
-                                sdk_state.write().add_event(SimEvent {
+                                sync_engine_state.write().running = false;
+                                let current_tick = sync_engine_state.read().metrics.current_tick;
+                                sync_engine_state.write().add_event(SimEvent {
                                     tick: current_tick,
                                     event_type: EventType::Warning,
                                     description: "Test execution stopped by user".to_string(),
                                 });
                             },
                             on_level_change: move |level: String| {
-                                if !sdk_state.read().running {
-                                    sdk_state.write().stress_level = level;
+                                if !sync_engine_state.read().running {
+                                    sync_engine_state.write().stress_level = level;
                                 }
                             },
                         }
@@ -715,7 +715,7 @@ pub fn App() -> Element {
                     current_tab(),
                     &instance_state.read(),
                     &document_state.read(),
-                    &sdk_state.read(),
+                    &sync_engine_state.read(),
                     &discovery_state.read(),
                     &metrics(),
                     running(),
@@ -807,7 +807,7 @@ pub fn App() -> Element {
                                 }
                             }
                         }
-                        _ => {} // No step for SDK/Metrics
+                        _ => {} // No step for SyncEngine/Metrics
                     }
                 },
                 on_play_pause: move |_| {
@@ -820,32 +820,32 @@ pub fn App() -> Element {
                             let is_running = document_state.read().running;
                             document_state.write().running = !is_running;
                         }
-                        Tab::SDK => {
-                            let is_running = sdk_state.read().running;
+                        Tab::SyncEngine => {
+                            let is_running = sync_engine_state.read().running;
                             if is_running {
                                 // Stop
-                                if let Some(token) = sdk_cancel_token() {
+                                if let Some(token) = sync_engine_cancel_token() {
                                     spawn(async move {
                                         *token.lock().await = true;
                                     });
                                 }
-                                sdk_state.write().running = false;
+                                sync_engine_state.write().running = false;
                             } else {
-                                // Start SDK test
-                                let current_dashboard = sdk_state.read().current_dashboard;
+                                // Start SyncEngine test
+                                let current_dashboard = sync_engine_state.read().current_dashboard;
                                 let scenario = current_dashboard.scenario_name().to_string();
-                                let level_str = sdk_state.read().stress_level.clone();
+                                let level_str = sync_engine_state.read().stress_level.clone();
                                 let level = match level_str.as_str() {
                                     "quick" => StressLevel::Quick,
                                     "full" => StressLevel::Full,
                                     _ => StressLevel::Medium,
                                 };
 
-                                sdk_state.write().reset();
-                                sdk_state.write().running = true;
+                                sync_engine_state.write().reset();
+                                sync_engine_state.write().running = true;
 
                                 let token = Arc::new(Mutex::new(false));
-                                sdk_cancel_token.set(Some(token.clone()));
+                                sync_engine_cancel_token.set(Some(token.clone()));
 
                                 spawn(async move {
                                     let runner = ScenarioRunner::new();
@@ -862,18 +862,18 @@ pub fn App() -> Element {
                                         }
                                         match update {
                                             MetricsUpdate::Stats(new_metrics) => {
-                                                sdk_state.write().metrics.merge(&new_metrics);
+                                                sync_engine_state.write().metrics.merge(&new_metrics);
                                             }
                                             MetricsUpdate::Event(event) => {
-                                                sdk_state.write().add_event(event);
+                                                sync_engine_state.write().add_event(event);
                                             }
                                             MetricsUpdate::Tick { current, max } => {
-                                                let mut state = sdk_state.write();
+                                                let mut state = sync_engine_state.write();
                                                 state.metrics.current_tick = current;
                                                 state.metrics.max_ticks = max;
                                             }
                                             MetricsUpdate::Complete(result) => {
-                                                sdk_state.write().add_event(SimEvent {
+                                                sync_engine_state.write().add_event(SimEvent {
                                                     tick: result.metrics.current_tick,
                                                     event_type: if result.passed { EventType::Success } else { EventType::Error },
                                                     description: if result.passed {
@@ -884,7 +884,7 @@ pub fn App() -> Element {
                                                 });
                                             }
                                             MetricsUpdate::Error(err) => {
-                                                sdk_state.write().add_event(SimEvent {
+                                                sync_engine_state.write().add_event(SimEvent {
                                                     tick: 0,
                                                     event_type: EventType::Error,
                                                     description: err,
@@ -894,8 +894,8 @@ pub fn App() -> Element {
                                     }
 
                                     let _ = run_handle.await;
-                                    sdk_state.write().running = false;
-                                    sdk_cancel_token.set(None);
+                                    sync_engine_state.write().running = false;
+                                    sync_engine_cancel_token.set(None);
                                 });
                             }
                         }
@@ -1008,13 +1008,13 @@ pub fn App() -> Element {
                             document_state.write().reset();
                             document_runner.set(None);
                         }
-                        Tab::SDK => {
-                            if let Some(token) = sdk_cancel_token() {
+                        Tab::SyncEngine => {
+                            if let Some(token) = sync_engine_cancel_token() {
                                 spawn(async move {
                                     *token.lock().await = true;
                                 });
                             }
-                            sdk_state.write().reset();
+                            sync_engine_state.write().reset();
                         }
                         Tab::Metrics => {
                             if let Some(token) = cancel_token() {
@@ -1048,9 +1048,9 @@ pub fn App() -> Element {
                                 stress_level.set(level);
                             }
                         }
-                        Tab::SDK => {
-                            if !sdk_state.read().running {
-                                sdk_state.write().stress_level = level;
+                        Tab::SyncEngine => {
+                            if !sync_engine_state.read().running {
+                                sync_engine_state.write().stress_level = level;
                             }
                         }
                         Tab::Discovery => {

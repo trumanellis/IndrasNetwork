@@ -1,7 +1,7 @@
 -- Home Realm Simulation Helpers
 --
 -- Utility functions for home realm simulation scenarios.
--- Uses Rust SDK bindings for deterministic home realm ID computation.
+-- Uses Rust SyncEngine bindings for deterministic home realm ID computation.
 --
 -- Key Concepts:
 -- - Home Realm: Personal realm unique to each member
@@ -243,9 +243,9 @@ end
 -- @param member_id string Member identifier
 -- @return string Home realm ID (hex string)
 function home.compute_home_realm_id(member_id)
-    -- Use indras SDK binding if available (wraps Rust implementation)
-    if indras and indras.sdk and indras.sdk.compute_home_realm_id then
-        return indras.sdk.compute_home_realm_id(member_id)
+    -- Use indras SyncEngine binding if available (wraps Rust implementation)
+    if indras and indras.sync_engine and indras.sync_engine.compute_home_realm_id then
+        return indras.sync_engine.compute_home_realm_id(member_id)
     end
 
     -- Fallback: Simple deterministic hash using string operations
