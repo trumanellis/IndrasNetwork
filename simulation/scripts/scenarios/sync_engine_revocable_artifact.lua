@@ -102,6 +102,7 @@ local all_artifact_hashes = {}  -- For iteration
 -- PHASE 1: SETUP - Bring all peers online, create realm
 -- ============================================================================
 
+indras.narrative("Members prepare to share something precious")
 logger.info("Phase 1: Setup - Bringing peers online and creating realm", {
     phase = 1,
     peer_count = #peers,
@@ -132,6 +133,7 @@ logger.info("Phase 1 complete: All peers online, realm created", {
 -- First member shares the featured Logo_black.png asset
 -- ============================================================================
 
+indras.narrative("An artifact is shared — but with a safety net")
 logger.info("Phase 2: Share artifacts with revocation support", {
     phase = 2,
     artifacts_per_member = config.artifacts_per_member,
@@ -318,6 +320,7 @@ sim:step()
 -- Original sharers recall a portion of their artifacts
 -- ============================================================================
 
+indras.narrative("The creator pulls back their work — recall in action")
 logger.info("Phase 4: Recall artifacts", {
     phase = 4,
     recall_ratio = config.recall_ratio,
@@ -418,6 +421,7 @@ sim:step()
 -- Confirm keys removed, is_revoked returns true, status updated
 -- ============================================================================
 
+indras.narrative("The recall is honored — trust preserved through protocol")
 logger.info("Phase 5: Verify revocation state", {
     phase = 5,
     recalled_count = counters.artifacts_recalled,
@@ -756,6 +760,7 @@ if cfg.recall_p99_us then
             recall_percentiles.p99, cfg.recall_p99_us.max))
 end
 
+indras.narrative("Sharing with confidence — what is given can be taken back")
 logger.info("Revocable artifact scenario passed", {
     share_p99_us = share_percentiles.p99,
     recall_p99_us = recall_percentiles.p99,

@@ -52,6 +52,7 @@ local cfg = CONFIG[config_level] or CONFIG.quick
 
 local ctx = sync_engine.new_context("sync_engine_stress")
 
+indras.narrative("A stress test begins — how much can the network handle?")
 indras.log.info("Starting SyncEngine stress test", {
     trace_id = ctx.trace_id,
     level = config_level,
@@ -59,7 +60,7 @@ indras.log.info("Starting SyncEngine stress test", {
     realms_per_network = cfg.realms_per_network,
     members_per_realm = cfg.members_per_realm,
     messages = cfg.messages,
-    ticks = cfg.ticks
+    ticks = cfg.ticks,
 })
 
 -- ============================================================================
@@ -181,9 +182,10 @@ end
 -- PHASE 1: NETWORK CREATION AND LIFECYCLE
 -- ============================================================================
 
+indras.narrative("Networks spring to life across the mesh")
 indras.log.info("Phase 1: Network Creation", {
     trace_id = ctx.trace_id,
-    target_networks = cfg.networks
+    target_networks = cfg.networks,
 })
 
 local phase1_start = os.clock()
@@ -262,10 +264,11 @@ end
 -- PHASE 2: REALM CREATION AND JOINING
 -- ============================================================================
 
+indras.narrative("Realms multiply as the network scales")
 indras.log.info("Phase 2: Realm Creation and Joining", {
     trace_id = ctx.trace_id,
     realms_per_network = cfg.realms_per_network,
-    members_per_realm = cfg.members_per_realm
+    members_per_realm = cfg.members_per_realm,
 })
 
 local phase2_start = os.clock()
@@ -387,10 +390,11 @@ end
 -- PHASE 3: MESSAGE STRESS (High Volume)
 -- ============================================================================
 
+indras.narrative("A flood of messages tests the network's capacity")
 indras.log.info("Phase 3: Message Stress", {
     trace_id = ctx.trace_id,
     target_messages = cfg.messages,
-    active_realms = realm_count
+    active_realms = realm_count,
 })
 
 local phase3_start = os.clock()
@@ -499,9 +503,10 @@ indras.log.info("Phase 3 complete", {
 -- PHASE 4: MEMBER LISTING OPERATIONS
 -- ============================================================================
 
+indras.narrative("Members come and go — the network adapts")
 indras.log.info("Phase 4: Member Listing", {
     trace_id = ctx.trace_id,
-    target_ops = cfg.member_list_ops
+    target_ops = cfg.member_list_ops,
 })
 
 local phase4_start = os.clock()
@@ -562,8 +567,9 @@ indras.log.info("Phase 4 complete", {
 -- PHASE 5: CLEANUP AND FINAL METRICS
 -- ============================================================================
 
+indras.narrative("The network holds — resilience confirmed")
 indras.log.info("Phase 5: Cleanup and Metrics", {
-    trace_id = ctx.trace_id
+    trace_id = ctx.trace_id,
 })
 
 -- Run remaining simulation ticks to allow message delivery

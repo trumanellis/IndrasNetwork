@@ -77,6 +77,7 @@ end
 
 sim:step()
 
+indras.narrative("The attention economy awakens")
 logger.info("Phase 1 complete: Setup done", {
     phase = 1,
     tick = sim.tick,
@@ -133,6 +134,7 @@ end
 
 local phase2_duration = os.clock() - switch_start_time
 
+indras.narrative("Members shift focus — attention flows between quests")
 logger.info("Phase 2 complete: Random switches done", {
     phase = 2,
     tick = sim.tick,
@@ -176,6 +178,7 @@ for tick = 1, 50 do
     sim:step()
 end
 
+indras.narrative("Rapid context switching tests the attention system")
 logger.info("Phase 3 complete: Sustained focus established", {
     phase = 3,
     tick = sim.tick,
@@ -248,6 +251,7 @@ logger.event(attention_helpers.EVENTS.RANKING_VERIFIED, {
     top_attention_ms = ranked_quests[1] and ranked_quests[1].total_attention_millis or 0,
 })
 
+indras.narrative("The community's collective focus reveals what matters most")
 logger.info("Phase 4 complete: Verification done", {
     phase = 4,
     tick = sim.tick,
@@ -290,6 +294,7 @@ end
 
 local event_count_after_rapid = attention_doc:event_count()
 
+indras.narrative("Attention has spoken — priorities emerge from the noise")
 logger.info("Phase 5 complete: Edge cases tested", {
     phase = 5,
     tick = sim.tick,

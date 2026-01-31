@@ -216,6 +216,7 @@ sim:step()
 local initial_realm_count = 0
 for _ in pairs(realms) do initial_realm_count = initial_realm_count + 1 end
 
+indras.narrative("A community forms, unaware of the storm ahead")
 logger.info("Phase 1 complete: Healthy network formed", {
     phase = 1,
     tick = sim.tick,
@@ -250,6 +251,7 @@ for i = 1, config.spam_count do
     end
 end
 
+indras.narrative("Members build trust through personal connections")
 logger.info("Phase 2 complete: Orion sent spam", {
     phase = 2,
     tick = sim.tick,
@@ -277,6 +279,7 @@ immune.chat(logger, sim.tick, Z,
 
 sim:step()
 
+indras.narrative("Cracks appear — not everyone sees eye to eye")
 logger.info("Phase 3 complete: Zephyr flagged Orion", {
     phase = 3,
     tick = sim.tick,
@@ -318,6 +321,7 @@ immune.relay_sentiment(logger, sim.tick, L, O, -1, Z)
 
 sim:step()
 
+indras.narrative("Word spreads through the community's trust graph")
 logger.info("Phase 4 complete: Sentiment signals relayed", {
     phase = 4,
     tick = sim.tick,
@@ -352,6 +356,7 @@ block_contact(Z, O)
 
 sim:step()
 
+indras.narrative("A member is blocked — the network's immune system activates")
 logger.info("Phase 5 complete: Zephyr blocked Orion", {
     phase = 5,
     tick = sim.tick,
@@ -462,6 +467,7 @@ for _, m in ipairs(immune.ALL_MEMBERS) do
     end
 end
 
+indras.narrative("The community finds its balance — boundaries protect the whole")
 logger.info("Phase 7 complete: Network recovered", {
     phase = 7,
     tick = sim.tick,

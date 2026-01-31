@@ -68,7 +68,10 @@ local total_chat_notifications = 0
 -- PHASE 1: SETUP - Create realms and quests
 -- ============================================================================
 
-logger.info("Phase 1: Setup - Creating realms and quests", { phase = 1 })
+indras.narrative("A proof folder takes shape — evidence of work well done")
+logger.info("Phase 1: Setup - Creating realms and quests", {
+    phase = 1,
+})
 
 for _, peer in ipairs(peers) do
     sim:force_online(peer)
@@ -239,6 +242,7 @@ logger.info("Phase 2 complete", {
 -- Claimants write markdown narratives describing their work
 -- ============================================================================
 
+indras.narrative("The story of the work is written alongside the proof")
 logger.info("Phase 3: Update narratives", {
     phase = 3,
     description = "Claimants write markdown narratives",
@@ -342,6 +346,7 @@ logger.info("Phase 3 complete", {
 -- Claimants add photos, documents, etc. to their proof folders
 -- ============================================================================
 
+indras.narrative("Files gather in the folder — a portfolio of contribution")
 logger.info("Phase 4: Add artifacts", {
     phase = 4,
     description = "Claimants add supporting artifacts to folders",
@@ -457,6 +462,7 @@ logger.info("Phase 4 complete", {
 -- Claimants submit folders (triggers chat notification)
 -- ============================================================================
 
+indras.narrative("The proof folder is submitted — let the community judge")
 logger.info("Phase 5: Submit proof folders", {
     phase = 5,
     description = "Claimants submit folders for review (triggers chat notification)",
@@ -838,6 +844,7 @@ if cfg.chat_notification_rate then
             chat_notification_rate * 100, cfg.chat_notification_rate.min * 100))
 end
 
+indras.narrative("Proof speaks louder than promises")
 logger.info("Proof folder scenario passed", {
     folder_create_p99_us = folder_create_percentiles.p99,
     folder_submit_p99_us = folder_submit_percentiles.p99,

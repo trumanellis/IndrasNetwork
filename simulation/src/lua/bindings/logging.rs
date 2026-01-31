@@ -178,6 +178,20 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
 
     indras.set("log", log)?;
 
+    // indras.narrative(text) - emit a narrative event to stdout for the viewer's window title
+    indras.set(
+        "narrative",
+        lua.create_function(|_, text: String| {
+            let json = format!(
+                r#"{{"event_type":"info","message":"{}","narrative":"{}"}}"#,
+                text.replace('"', r#"\""#),
+                text.replace('"', r#"\""#),
+            );
+            println!("{}", json);
+            Ok(())
+        })?,
+    )?;
+
     Ok(())
 }
 

@@ -495,13 +495,14 @@ end
 local phase1_end_tick = sim.tick
 local phase1_stats = sim.stats
 
+indras.narrative("Channels open for the first messages")
 indras.log.info("Phase 1 complete: Channel setup", {
     trace_id = ctx.trace_id,
     channels_created = stress.table_count(channels),
     invites_created = phase1_stats.invites_created,
     invites_accepted = phase1_stats.invites_accepted,
     invite_success_rate = phase1_stats:invite_success_rate(),
-    tick_duration = phase1_end_tick - phase1_start_tick
+    tick_duration = phase1_end_tick - phase1_start_tick,
 })
 
 -- Advance simulation to stabilize
@@ -578,6 +579,7 @@ message_throughput:finish(sim.tick)
 local phase2_end_tick = sim.tick
 
 local send_stats = send_latencies:stats()
+indras.narrative("Conversation flows across realms and channels")
 indras.log.info("Phase 2 complete: High-volume messaging", {
     trace_id = ctx.trace_id,
     messages_sent = messages_sent,
@@ -585,7 +587,7 @@ indras.log.info("Phase 2 complete: High-volume messaging", {
     msgs_per_tick = message_throughput:ops_per_tick(),
     avg_send_latency_us = send_stats.avg,
     p95_send_latency_us = send_stats.p95,
-    p99_send_latency_us = send_stats.p99
+    p99_send_latency_us = send_stats.p99,
 })
 
 -- ============================================================================
@@ -883,6 +885,7 @@ if total_expected_deliveries > 0 then
     delivery_rate = delivery_success_count / total_expected_deliveries
 end
 
+indras.narrative("A torrent of messages tests the network's capacity")
 indras.log.info("Phase 6 complete: Delivery verification", {
     trace_id = ctx.trace_id,
     messages_verified = stress.table_count(all_messages),
@@ -893,7 +896,7 @@ indras.log.info("Phase 6 complete: Delivery verification", {
     delivery_confirmations = delivery_confirmations,
     avg_delivery_latency_us = delivery_stats.avg,
     p95_delivery_latency_us = delivery_stats.p95,
-    p99_delivery_latency_us = delivery_stats.p99
+    p99_delivery_latency_us = delivery_stats.p99,
 })
 
 -- ============================================================================

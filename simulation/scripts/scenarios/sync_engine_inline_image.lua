@@ -71,6 +71,7 @@ local realm_id = quest_helpers.compute_realm_id(peer_ids)
 -- PHASE 1: SETUP - Bring all peers online, create realm
 -- ============================================================================
 
+indras.narrative("A visual story begins to unfold")
 logger.info("Phase 1: Setup - Bringing peers online and creating realm", {
     phase = 1,
     peer_count = #peers,
@@ -136,6 +137,7 @@ logger.event("chat_message", {
 -- PHASE 3: SHARE INLINE IMAGE
 -- ============================================================================
 
+indras.narrative("Images flow into the conversation — seeing is believing")
 logger.info("Phase 3: Share inline image", {
     phase = 3,
     asset = FEATURED_ASSET.name,
@@ -331,6 +333,7 @@ logger.event("chat_message", {
 
 sim:step()
 
+indras.narrative("Rich media brings the community's conversations to life")
 logger.info("Inline image chat scenario complete", {
     tick = sim.tick,
     images_shared = 2,

@@ -69,6 +69,7 @@ end
 -- PHASE 1: SETUP — Create realm, join members, add contacts
 -- ============================================================================
 
+indras.narrative("Three members form the Harmony realm")
 logger.info("Phase 1: Setup — Create realm with 3 members", { phase = 1 })
 
 local realm_id = quest_helpers.compute_realm_id(all_members)
@@ -142,6 +143,7 @@ logger.info("Phase 1 complete", {
 -- PHASE 2: RENAME REALM — Love renames realm to "Harmony"
 -- ============================================================================
 
+indras.narrative("A name is chosen — this realm shall be called Harmony")
 logger.info("Phase 2: Rename realm to Harmony", { phase = 2 })
 
 logger.event("realm_alias_set", {
@@ -168,6 +170,7 @@ logger.info("Phase 2 complete", { phase = 2, tick = sim.tick })
 -- PHASE 3: CREATE QUESTS
 -- ============================================================================
 
+indras.narrative("Two quests emerge — a logo to design, a README to write")
 logger.info("Phase 3: Create quests", { phase = 3 })
 
 -- Peace creates "Create a logo for Indra's Network"
@@ -209,6 +212,7 @@ logger.info("Phase 3 complete", {
 -- PHASE 4: SET ACTIVE INTENTIONS — Focus attention on quests
 -- ============================================================================
 
+indras.narrative("The community focuses its attention on the work ahead")
 logger.info("Phase 4: Set active intentions", { phase = 4 })
 
 -- Love focuses on logo quest
@@ -250,6 +254,7 @@ logger.info("Phase 4 complete", { phase = 4, tick = sim.tick })
 -- PHASE 5: WORK PERIOD — 30 simulation steps
 -- ============================================================================
 
+indras.narrative("Quiet concentration as members pour effort into their quests")
 logger.info("Phase 5: Work period (30 ticks)", { phase = 5 })
 
 for i = 1, 30 do
@@ -262,6 +267,7 @@ logger.info("Phase 5 complete", { phase = 5, tick = sim.tick })
 -- PHASE 6: LOVE'S PROOF FOLDER — Logo quest proof submission
 -- ============================================================================
 
+indras.narrative("Love presents a logo that speaks without words")
 logger.info("Phase 6: Love submits proof folder for logo quest", { phase = 6 })
 
 -- 1. Create proof folder (draft)
@@ -362,6 +368,7 @@ logger.info("Phase 6 complete", { phase = 6, tick = sim.tick, folder_id = folder
 -- PHASE 7: GRATITUDE RELEASE — Blessings from Peace and Joy
 -- ============================================================================
 
+indras.narrative("Peace and Joy bless the logo — trust crystallizes into tokens")
 logger.info("Phase 7: Gratitude release", { phase = 7 })
 
 -- 1. Peace releases gratitude (45s attention on logo quest)
@@ -471,6 +478,7 @@ logger.info("Phase 7 complete", {
 -- PHASE 8: JOY'S PROOF FOLDER — README quest proof submission
 -- ============================================================================
 
+indras.narrative("Joy weaves the logo into a README that tells the whole story")
 logger.info("Phase 8: Joy submits proof folder for README quest", { phase = 8 })
 
 -- Joy switches attention back to the README quest
@@ -703,6 +711,7 @@ logger.info("Phase 9B complete", { phase = 9, tick = sim.tick })
 -- PHASE 9C: GRATITUDE FOR JOY — Blessings from Love and Peace
 -- ============================================================================
 
+indras.narrative("The README earns blessings — gratitude multiplies")
 logger.info("Phase 9C: Gratitude for Joy's README proof", { phase = 9 })
 
 -- 1. Love switches to README quest and releases gratitude
@@ -836,6 +845,7 @@ logger.info("Phase 9 complete", {
 --   7. Joy releases tok_love_readme to Peace (steward transfer: Joy → Peace)
 --   8. Token chaining: Peace pledges tok_peace_logo (now hers) to a future quest
 
+indras.narrative("A new quest appears, funded by tokens from past work")
 logger.info("Phase 10: Token pledge lifecycle", { phase = 10 })
 
 -- 10.1 Peace creates a new quest: "Write a community guide"
@@ -1051,6 +1061,7 @@ logger.info("Phase 10 complete", {
 -- Peace creates a final quest and pledges tok_peace_logo (originally Love's)
 -- to demonstrate token chaining: Peace → Joy → Peace → (future quest)
 
+indras.narrative("Tokens flow from hand to hand, compounding community trust")
 logger.info("Phase 11: Token chaining", { phase = 11 })
 
 -- 11.1 Joy creates a quest: "Design realm onboarding flow"

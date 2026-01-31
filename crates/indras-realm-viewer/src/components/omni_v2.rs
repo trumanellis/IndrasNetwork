@@ -33,7 +33,10 @@ struct ContactProfileContext {
 /// Top-level V2 omni viewer component
 #[component]
 pub fn OmniV2App(state: Signal<AppState>) -> Element {
+    let narrative = state.read().generate_narrative();
+
     rsx! {
+        document::Title { "{narrative}" }
         ThemedRoot {
             ThemeSwitcher {}
             OmniV2Dashboard { state }

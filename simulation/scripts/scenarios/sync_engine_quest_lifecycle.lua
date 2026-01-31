@@ -62,6 +62,7 @@ local realms = {}  -- realm_id -> { members = {}, quests = {} }
 -- PHASE 1: SETUP (Create peer-based realms)
 -- ============================================================================
 
+indras.narrative("A small team assembles to test the quest system")
 logger.info("Phase 1: Setup - Creating peer-based realms", {
     phase = 1,
     realm_count = config.realms,
@@ -113,6 +114,7 @@ logger.info("Phase 1 complete: Realms created", {
 -- Create quests at high volume
 -- ============================================================================
 
+indras.narrative("Quests appear — shared goals give the team direction")
 logger.info("Phase 2: Quest creation", {
     phase = 2,
     description = "Create quests at high volume",
@@ -172,6 +174,7 @@ logger.info("Phase 2 complete: Quests created", {
 -- Multiple members submit proofs for each quest
 -- ============================================================================
 
+indras.narrative("Members step forward to take on challenges")
 logger.info("Phase 3: Proof submission", {
     phase = 3,
     description = "Multiple members submit proofs of service",
@@ -228,6 +231,7 @@ logger.info("Phase 3 complete: Proofs submitted", {
 -- Quest creators verify claims
 -- ============================================================================
 
+indras.narrative("Work is reviewed — the community validates what was built")
 logger.info("Phase 4: Claim verification", {
     phase = 4,
     description = "Creators verify submitted claims",
@@ -280,6 +284,7 @@ logger.info("Phase 4 complete: Claims verified", {
 -- Creator marks quests complete after verification
 -- ============================================================================
 
+indras.narrative("Quests close with purpose fulfilled")
 logger.info("Phase 5: Quest completion", {
     phase = 5,
     description = "Creators mark quests complete",
@@ -329,6 +334,7 @@ logger.info("Phase 5 complete: Quests completed", {
 -- Verify consistent claim states
 -- ============================================================================
 
+indras.narrative("Every quest found its champion — the lifecycle is complete")
 logger.info("Phase 6: CRDT sync verification", {
     phase = 6,
     description = "Verify all members see consistent claim states",
