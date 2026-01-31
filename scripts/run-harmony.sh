@@ -11,4 +11,4 @@
 STRESS_LEVEL="${STRESS_LEVEL:-quick}" cargo run --bin lua_runner \
     --manifest-path simulation/Cargo.toml \
     -- "simulation/scripts/scenarios/sdk_harmony_proof.lua" \
-    | cargo run -p indras-realm-viewer --bin omni-viewer -- "$@"
+    | cargo run -p indras-realm-viewer --bin omni-viewer-v2 -- "$@"

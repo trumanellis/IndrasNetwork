@@ -6,6 +6,7 @@
 use crate::member::{Member, MemberId};
 use crate::proof_folder::ProofFolderId;
 use crate::quest::QuestId;
+use crate::token_of_gratitude::TokenOfGratitudeId;
 use chrono::{DateTime, Utc};
 use indras_core::{EventId, InterfaceId};
 use serde::{Deserialize, Serialize};
@@ -243,6 +244,44 @@ pub enum Content {
         /// Items in the gallery with thumbnails.
         items: Vec<GalleryItemRef>,
     },
+
+    /// Gratitude pledged to a quest as a bounty.
+    ///
+    /// Posted automatically when a steward pledges a Token of Gratitude to a quest.
+    GratitudePledged {
+        /// The token being pledged.
+        token_id: TokenOfGratitudeId,
+        /// The steward pledging the token.
+        pledger: MemberId,
+        /// The quest the token is pledged to.
+        target_quest_id: QuestId,
+    },
+
+    /// Gratitude released to a proof submitter (steward transfer).
+    ///
+    /// Posted automatically when a pledged token is released to a new steward.
+    GratitudeReleased {
+        /// The token being released.
+        token_id: TokenOfGratitudeId,
+        /// Who is releasing the token.
+        from_steward: MemberId,
+        /// Who is receiving the token.
+        to_steward: MemberId,
+        /// The quest the token was pledged to.
+        target_quest_id: QuestId,
+    },
+
+    /// Gratitude pledge withdrawn by the steward.
+    ///
+    /// Posted automatically when a steward withdraws a token pledge from a quest.
+    GratitudeWithdrawn {
+        /// The token being withdrawn.
+        token_id: TokenOfGratitudeId,
+        /// The steward withdrawing the pledge.
+        steward: MemberId,
+        /// The quest the token was pledged to.
+        target_quest_id: QuestId,
+    },
 }
 
 /// Reference to an item in a gallery.
@@ -319,12 +358,30 @@ impl Content {
         }
     }
 
-    /// Get the quest ID if this is a proof or blessing message.
+    /// Check if this is a gratitude pledged message.
+    pub fn is_gratitude_pledged(&self) -> bool {
+        matches!(self, Content::GratitudePledged { .. })
+    }
+
+    /// Check if this is a gratitude released message.
+    pub fn is_gratitude_released(&self) -> bool {
+        matches!(self, Content::GratitudeReleased { .. })
+    }
+
+    /// Check if this is a gratitude withdrawn message.
+    pub fn is_gratitude_withdrawn(&self) -> bool {
+        matches!(self, Content::GratitudeWithdrawn { .. })
+    }
+
+    /// Get the quest ID if this is a proof, blessing, or gratitude message.
     pub fn quest_id(&self) -> Option<&QuestId> {
         match self {
             Content::ProofSubmitted { quest_id, .. } => Some(quest_id),
             Content::BlessingGiven { quest_id, .. } => Some(quest_id),
             Content::ProofFolderSubmitted { quest_id, .. } => Some(quest_id),
+            Content::GratitudePledged { target_quest_id, .. } => Some(target_quest_id),
+            Content::GratitudeReleased { target_quest_id, .. } => Some(target_quest_id),
+            Content::GratitudeWithdrawn { target_quest_id, .. } => Some(target_quest_id),
             _ => None,
         }
     }

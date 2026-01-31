@@ -107,6 +107,7 @@ pub mod chat_message;
 pub mod config;
 pub mod contacts;
 pub mod document;
+pub mod document_registry;
 pub mod error;
 pub mod escape;
 pub mod home_realm;
@@ -117,9 +118,12 @@ pub mod network;
 pub mod note;
 pub mod proof_folder;
 pub mod quest;
+pub mod read_tracker;
 pub mod realm;
 pub mod realm_alias;
+pub mod sentiment;
 pub mod stream;
+pub mod token_of_gratitude;
 
 // Re-export main types at crate root
 pub use artifact::{Artifact, ArtifactDownload, ArtifactId, DownloadProgress};
@@ -135,7 +139,7 @@ pub use chat_message::{
     ChatMessageId, ChatMessageVersion, EditableChatMessage, EditableMessageType, RealmChatDocument,
 };
 pub use config::{NetworkBuilder, NetworkConfig, Preset};
-pub use contacts::{ContactsDocument, ContactsRealm};
+pub use contacts::{ContactEntry, ContactsDocument, ContactsRealm};
 pub use document::{Document, DocumentChange, DocumentSchema};
 pub use error::{IndraError, Result};
 pub use home_realm::{home_realm_id, HomeArtifactMetadata, HomeRealm};
@@ -148,9 +152,18 @@ pub use proof_folder::{
     ProofFolder, ProofFolderArtifact, ProofFolderDocument, ProofFolderError, ProofFolderId,
     ProofFolderStatus,
 };
-pub use quest::{Quest, QuestClaim, QuestDocument, QuestError, QuestId};
+pub use quest::{Quest, QuestClaim, QuestDocument, QuestError, QuestId, QuestPriority};
+pub use read_tracker::ReadTrackerDocument;
+pub use document_registry::DocumentRegistryDocument;
+pub use network::{GlobalEvent, IdentityBackup};
 pub use realm::Realm;
 pub use realm_alias::{RealmAlias, RealmAliasDocument, MAX_ALIAS_LENGTH};
+pub use sentiment::{
+    RelayedSentiment, SentimentRelayDocument, SentimentView, DEFAULT_RELAY_ATTENUATION,
+};
+pub use token_of_gratitude::{
+    TokenError, TokenEvent, TokenOfGratitude, TokenOfGratitudeDocument, TokenOfGratitudeId,
+};
 
 /// Prelude module for convenient imports.
 ///
@@ -162,10 +175,11 @@ pub use realm_alias::{RealmAlias, RealmAliasDocument, MAX_ALIAS_LENGTH};
 pub mod prelude {
     pub use crate::{
         Artifact, ArtifactDownload, Blessing, BlessingDocument, ClaimId, ContactsRealm, Content,
-        Document, DocumentSchema, EditableChatMessage, HomeRealm, IndraError, IndrasNetwork,
-        InviteCode, Member, MemberEvent, MemberInfo, Message, Note, NoteDocument, Preset,
-        ProofFolder, ProofFolderArtifact, ProofFolderDocument, Quest, QuestDocument, Realm,
-        RealmAlias, RealmAliasDocument, RealmChatDocument, RealmId, Result,
+        Document, DocumentSchema, EditableChatMessage, GlobalEvent, HomeRealm, IdentityBackup,
+        IndraError, IndrasNetwork, InviteCode, Member, MemberEvent, MemberInfo, Message, Note,
+        NoteDocument, Preset, ProofFolder, ProofFolderArtifact, ProofFolderDocument, Quest,
+        QuestDocument, QuestPriority, Realm, RealmAlias, RealmAliasDocument, RealmChatDocument,
+        RealmId, Result, TokenOfGratitude, TokenOfGratitudeDocument,
     };
 
     // Re-export futures StreamExt for convenient stream iteration

@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>What Emerges — 3D</title>
+<style>
+  body { margin: 0; overflow: hidden; background: #010306; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x010306);
+scene.fog = new THREE.FogExp2(0x020410, 0.022);
+
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 200);
+camera.position.set(0, 6, 16);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.8;
+document.body.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.autoRotate = true;
+controls.autoRotateSpeed = 0.25;
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 2.4, 0.5, 0.05));
+
+const palette = [0x80ffea, 0xff80d0, 0xffe080, 0x80c0ff, 0x80ffa0];
+
+// Organic clustered nodes
+const nodes = [];
+const nodeMeshes = [];
+
+function addCluster(cx, cy, cz, count, spread) {
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const radius = Math.random() * spread;
+    const height = (Math.random() - 0.5) * spread * 0.8;
+    nodes.push({
+      x: cx + Math.cos(angle) * radius,
+      y: cy + height,
+      z: cz + Math.sin(angle) * radius,
+      color: palette[Math.floor(Math.random() * palette.length)],
+      size: 0.1 + Math.random() * 0.18,
+    });
+  }
+}
+
+addCluster(-4, 0, -2, 14, 3);
+addCluster(3, 1, -1, 16, 3.5);
+addCluster(-1, -1, 4, 12, 2.5);
+addCluster(5, -0.5, 4, 10, 2);
+addCluster(-5, 1, 3, 8, 2);
+addCluster(0, 2, -4, 11, 2.5);
+addCluster(-2, -2, -1, 8, 2);
+addCluster(6, 1.5, -4, 6, 1.5);
+
+// Create glowing node meshes
+nodes.forEach(n => {
+  const col = new THREE.Color(n.color);
+  const geo = new THREE.SphereGeometry(n.size, 16, 16);
+  const mat = new THREE.MeshStandardMaterial({
+    color: col,
+    emissive: col,
+    emissiveIntensity: 3.5,
+    roughness: 0.1,
+    metalness: 0.7,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(n.x, n.y, n.z);
+  mesh.userData = { phase: Math.random() * Math.PI * 2, baseEmissive: 3.5, color: n.color };
+
+  // Ethereal halo per node
+  const haloGeo = new THREE.SphereGeometry(n.size * 5, 12, 12);
+  const haloMat = new THREE.MeshBasicMaterial({
+    color: col,
+    transparent: true,
+    opacity: 0.02,
+    depthWrite: false,
+  });
+  mesh.add(new THREE.Mesh(haloGeo, haloMat));
+
+  scene.add(mesh);
+  nodeMeshes.push(mesh);
+});
+
+// Organic glowing tube connections (mycelium tendrils)
+const maxConn = 4.5;
+const tendrils = [];
+
+for (let i = 0; i < nodes.length; i++) {
+  const ni = nodes[i];
+  const pi = new THREE.Vector3(ni.x, ni.y, ni.z);
+  const neighbors = [];
+  for (let j = 0; j < nodes.length; j++) {
+    if (i === j) continue;
+    const nj = nodes[j];
+    const d = pi.distanceTo(new THREE.Vector3(nj.x, nj.y, nj.z));
+    if (d < maxConn) neighbors.push({ index: j, dist: d });
+  }
+  neighbors.sort((a, b) => a.dist - b.dist);
+
+  for (let k = 0; k < Math.min(neighbors.length, 3); k++) {
+    const nj = nodes[neighbors[k].index];
+    const pj = new THREE.Vector3(nj.x, nj.y, nj.z);
+    const d = neighbors[k].dist;
+    const mid = new THREE.Vector3().lerpVectors(pi, pj, 0.5);
+    mid.x += (Math.random() - 0.5) * d * 0.35;
+    mid.y += (Math.random() - 0.5) * d * 0.35;
+    mid.z += (Math.random() - 0.5) * d * 0.35;
+
+    const curve = new THREE.QuadraticBezierCurve3(pi, mid, pj);
+    const proximity = 1 - d / maxConn;
+    const tubeGeo = new THREE.TubeGeometry(curve, 14, 0.012 + proximity * 0.018, 6, false);
+    const mixCol = new THREE.Color(ni.color).lerp(new THREE.Color(nj.color), 0.5);
+    const tubeMat = new THREE.MeshBasicMaterial({
+      color: mixCol,
+      transparent: true,
+      opacity: 0.12 + proximity * 0.25,
+    });
+    const tube = new THREE.Mesh(tubeGeo, tubeMat);
+    tube.userData = { baseOpacity: 0.12 + proximity * 0.25, phase: Math.random() * Math.PI * 2 };
+    scene.add(tube);
+    tendrils.push(tube);
+  }
+}
+
+// Traveling light particles
+const travelers = [];
+for (let i = 0; i < 50; i++) {
+  const a = Math.floor(Math.random() * nodes.length);
+  let b = Math.floor(Math.random() * nodes.length);
+  if (a === b) b = (b + 1) % nodes.length;
+  const na = nodes[a], nb = nodes[b];
+  const pa = new THREE.Vector3(na.x, na.y, na.z);
+  const pb = new THREE.Vector3(nb.x, nb.y, nb.z);
+  if (pa.distanceTo(pb) > 6) continue;
+
+  const mid = new THREE.Vector3().lerpVectors(pa, pb, 0.5);
+  mid.x += (Math.random() - 0.5) * 1.2;
+  mid.y += (Math.random() - 0.5) * 1.2;
+  mid.z += (Math.random() - 0.5) * 1.2;
+  const curve = new THREE.QuadraticBezierCurve3(pa, mid, pb);
+
+  const col = palette[Math.floor(Math.random() * palette.length)];
+  const dot = new THREE.Mesh(
+    new THREE.SphereGeometry(0.04, 8, 8),
+    new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.9 })
+  );
+  scene.add(dot);
+  travelers.push({ mesh: dot, curve, speed: 0.06 + Math.random() * 0.12, offset: Math.random() });
+}
+
+// Ethereal nebula clouds
+for (let i = 0; i < 8; i++) {
+  const nebula = new THREE.Mesh(
+    new THREE.SphereGeometry(2.5 + Math.random() * 3, 16, 16),
+    new THREE.MeshBasicMaterial({
+      color: palette[i % palette.length],
+      transparent: true,
+      opacity: 0.01,
+      depthWrite: false,
+    })
+  );
+  nebula.position.set((Math.random()-0.5)*12, (Math.random()-0.5)*8, (Math.random()-0.5)*12);
+  scene.add(nebula);
+}
+
+// Floating motes
+const moteGeo = new THREE.BufferGeometry();
+const motePos = [];
+for (let i = 0; i < 300; i++) motePos.push((Math.random()-0.5)*20, (Math.random()-0.5)*14, (Math.random()-0.5)*20);
+moteGeo.setAttribute('position', new THREE.Float32BufferAttribute(motePos, 3));
+scene.add(new THREE.Points(moteGeo, new THREE.PointsMaterial({ color: 0x8080ff, size: 0.04, transparent: true, opacity: 0.2 })));
+
+scene.add(new THREE.AmbientLight(0x0a1020, 0.5));
+
+const clock = new THREE.Clock();
+function animate() {
+  requestAnimationFrame(animate);
+  const t = clock.getElapsedTime();
+  controls.update();
+
+  // Pulse nodes
+  nodeMeshes.forEach(m => {
+    const pulse = Math.sin(t * 0.6 + m.userData.phase) * 0.5 + 1;
+    m.material.emissiveIntensity = m.userData.baseEmissive * pulse;
+  });
+
+  // Breathe tendrils
+  tendrils.forEach(th => {
+    th.material.opacity = th.userData.baseOpacity * (0.6 + Math.sin(t * 0.5 + th.userData.phase) * 0.4);
+  });
+
+  // Travelers
+  travelers.forEach(tr => {
+    const tt = (t * tr.speed + tr.offset) % 1;
+    tr.mesh.position.copy(tr.curve.getPoint(tt));
+    tr.mesh.material.opacity = Math.sin(tt * Math.PI) * 0.9;
+  });
+
+  composer.render();
+}
+animate();
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+  composer.setSize(innerWidth, innerHeight);
+});
+</script>
+</body>
+</html>

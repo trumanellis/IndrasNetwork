@@ -2,7 +2,8 @@
 //!
 //! Wraps `IrohIdentity` from the transport layer with a user-friendly API.
 
-use indras_core::PeerIdentity;
+use chrono::{DateTime, Utc};
+use indras_core::{PeerIdentity, PresenceStatus};
 use indras_transport::IrohIdentity;
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -20,6 +21,10 @@ pub struct Member {
     inner: IrohIdentity,
     /// Optional display name.
     display_name: Option<String>,
+    /// Last known presence status.
+    presence: PresenceStatus,
+    /// Timestamp of last observed activity.
+    last_seen: Option<DateTime<Utc>>,
 }
 
 impl Member {
@@ -28,6 +33,8 @@ impl Member {
         Self {
             inner: identity,
             display_name: None,
+            presence: PresenceStatus::default(),
+            last_seen: None,
         }
     }
 
@@ -36,6 +43,8 @@ impl Member {
         Self {
             inner: identity,
             display_name: Some(name.into()),
+            presence: PresenceStatus::default(),
+            last_seen: None,
         }
     }
 
@@ -69,6 +78,43 @@ impl Member {
     /// Set the display name.
     pub fn set_display_name(&mut self, name: Option<String>) {
         self.display_name = name;
+    }
+
+    // ============================================================
+    // Presence
+    // ============================================================
+
+    /// Get the member's current presence status.
+    pub fn presence(&self) -> PresenceStatus {
+        self.presence
+    }
+
+    /// Check if the member is currently online.
+    ///
+    /// Returns true if the presence status is `Online`, `Away`, or `Busy`
+    /// (anything other than `Offline`).
+    pub fn is_online(&self) -> bool {
+        !matches!(self.presence, PresenceStatus::Offline)
+    }
+
+    /// Get the timestamp of the member's last observed activity.
+    ///
+    /// Returns `None` if no activity has been observed.
+    pub fn last_seen(&self) -> Option<DateTime<Utc>> {
+        self.last_seen
+    }
+
+    /// Update the member's presence status and last-seen timestamp.
+    pub fn set_presence(&mut self, status: PresenceStatus) {
+        self.presence = status;
+        if !matches!(status, PresenceStatus::Offline) {
+            self.last_seen = Some(Utc::now());
+        }
+    }
+
+    /// Update the last-seen timestamp to now.
+    pub fn touch(&mut self) {
+        self.last_seen = Some(Utc::now());
     }
 
     // ============================================================

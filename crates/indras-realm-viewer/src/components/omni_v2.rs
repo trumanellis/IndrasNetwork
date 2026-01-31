@@ -409,9 +409,22 @@ fn V2HomeScreen(state: Signal<AppState>, member: String) -> Element {
                         "Total: {format_duration_millis(total_token_value)}"
                     }
                     for token in tokens.iter().take(4) {
-                        div { class: "v2-home-token-row",
-                            span { class: "v2-home-token-quest", "{token.quest_title}" }
-                            span { class: "v2-home-token-value", "{token.formatted_value()}" }
+                        {
+                            let blesser_name = member_name(&token.blesser);
+                            let pledge_label = if let Some(ref qid) = token.pledged_to {
+                                format!("[{}]", short_id(qid))
+                            } else {
+                                String::new()
+                            };
+                            rsx! {
+                                div { class: "v2-home-token-row",
+                                    span { class: "v2-home-token-quest", "From {blesser_name}" }
+                                    if !pledge_label.is_empty() {
+                                        span { class: "v2-home-token-pledge", "{pledge_label}" }
+                                    }
+                                    span { class: "v2-home-token-value", "{token.formatted_value()}" }
+                                }
+                            }
                         }
                     }
                 }
@@ -1044,12 +1057,22 @@ fn V2ProofScreen(state: Signal<AppState>, member: String) -> Element {
                 div { class: "v2-proof-no-draft", "No active proof draft" }
                 if !tokens.is_empty() {
                     div { class: "v2-proof-submitted",
-                        div { class: "mini-subsection-label", "SUBMITTED" }
+                        div { class: "mini-subsection-label", "EARNED TOKENS" }
                         for token in tokens.iter().take(5) {
-                            div { class: "v2-proof-submitted-row",
-                                span { class: "v2-proof-submitted-quest", "{token.quest_title}" }
-                                span { class: "mini-proof-badge", "{token.artifact_count} files" }
-                                span { class: "v2-proof-submitted-value", "{token.formatted_value()}" }
+                            {
+                                let blesser_name = member_name(&token.blesser);
+                                let status = if let Some(ref qid) = token.pledged_to {
+                                    format!("pledged to {}", short_id(qid))
+                                } else {
+                                    "available".to_string()
+                                };
+                                rsx! {
+                                    div { class: "v2-proof-submitted-row",
+                                        span { class: "v2-proof-submitted-quest", "From {blesser_name}" }
+                                        span { class: "mini-proof-badge", "{status}" }
+                                        span { class: "v2-proof-submitted-value", "{token.formatted_value()}" }
+                                    }
+                                }
                             }
                         }
                     }

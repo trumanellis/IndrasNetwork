@@ -17,6 +17,25 @@ use crate::proof_folder::ProofFolderId;
 
 use serde::{Deserialize, Serialize};
 
+/// Priority level for quests.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum QuestPriority {
+    /// Low priority - nice to have.
+    Low,
+    /// Normal priority (default).
+    Normal,
+    /// High priority - should be done soon.
+    High,
+    /// Urgent - needs immediate attention.
+    Urgent,
+}
+
+impl Default for QuestPriority {
+    fn default() -> Self {
+        Self::Normal
+    }
+}
+
 /// Unique identifier for a quest (16 bytes).
 pub type QuestId = [u8; 16];
 
@@ -169,6 +188,12 @@ pub struct Quest {
     pub created_at_millis: i64,
     /// When the quest was completed (None if not yet complete).
     pub completed_at_millis: Option<i64>,
+    /// Optional deadline (Unix timestamp in milliseconds).
+    #[serde(default)]
+    pub deadline_millis: Option<i64>,
+    /// Priority level.
+    #[serde(default)]
+    pub priority: QuestPriority,
 }
 
 impl Quest {
@@ -188,6 +213,8 @@ impl Quest {
             claims: Vec::new(),
             created_at_millis: chrono::Utc::now().timestamp_millis(),
             completed_at_millis: None,
+            deadline_millis: None,
+            priority: QuestPriority::default(),
         }
     }
 
@@ -269,6 +296,51 @@ impl Quest {
         }
         self.completed_at_millis = Some(chrono::Utc::now().timestamp_millis());
         Ok(())
+    }
+
+    // === Deadline & Priority ===
+
+    /// Set a deadline for this quest.
+    ///
+    /// # Arguments
+    ///
+    /// * `deadline_millis` - Unix timestamp in milliseconds
+    pub fn set_deadline(&mut self, deadline_millis: i64) {
+        self.deadline_millis = Some(deadline_millis);
+    }
+
+    /// Clear the deadline for this quest.
+    pub fn clear_deadline(&mut self) {
+        self.deadline_millis = None;
+    }
+
+    /// Check if this quest has a deadline.
+    pub fn has_deadline(&self) -> bool {
+        self.deadline_millis.is_some()
+    }
+
+    /// Check if this quest is overdue (past deadline and not complete).
+    pub fn is_overdue(&self) -> bool {
+        if let Some(deadline) = self.deadline_millis {
+            chrono::Utc::now().timestamp_millis() > deadline && !self.is_complete()
+        } else {
+            false
+        }
+    }
+
+    /// Set the priority for this quest.
+    pub fn set_priority(&mut self, priority: QuestPriority) {
+        self.priority = priority;
+    }
+
+    /// Set the title for this quest.
+    pub fn set_title(&mut self, title: impl Into<String>) {
+        self.title = title.into();
+    }
+
+    /// Set the description for this quest.
+    pub fn set_description(&mut self, description: impl Into<String>) {
+        self.description = description.into();
     }
 
     // === Legacy compatibility methods ===
@@ -413,6 +485,44 @@ impl QuestDocument {
         self.quests
             .iter()
             .filter(|q| !q.pending_claims().is_empty())
+            .collect()
+    }
+
+    /// Get quests sorted by priority (highest first), excluding completed.
+    pub fn quests_by_priority(&self) -> Vec<&Quest> {
+        let mut quests: Vec<_> = self.quests.iter().filter(|q| !q.is_complete()).collect();
+        quests.sort_by(|a, b| b.priority.cmp(&a.priority));
+        quests
+    }
+
+    /// Get overdue quests (past deadline and not complete).
+    pub fn overdue_quests(&self) -> Vec<&Quest> {
+        self.quests.iter().filter(|q| q.is_overdue()).collect()
+    }
+
+    /// Remove a quest by ID. Returns the removed quest if found.
+    pub fn remove(&mut self, id: &QuestId) -> Option<Quest> {
+        if let Some(pos) = self.quests.iter().position(|q| &q.id == id) {
+            Some(self.quests.remove(pos))
+        } else {
+            None
+        }
+    }
+
+    /// Get the number of quests.
+    pub fn quest_count(&self) -> usize {
+        self.quests.len()
+    }
+
+    /// Search quests by title or description.
+    pub fn search(&self, query: &str) -> Vec<&Quest> {
+        let query_lower = query.to_lowercase();
+        self.quests
+            .iter()
+            .filter(|q| {
+                q.title.to_lowercase().contains(&query_lower)
+                    || q.description.to_lowercase().contains(&query_lower)
+            })
             .collect()
     }
 

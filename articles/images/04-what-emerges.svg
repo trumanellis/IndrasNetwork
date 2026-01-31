@@ -1,0 +1,163 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 400">
+  <defs>
+    <radialGradient id="bg4" cx="50%" cy="50%" r="65%">
+      <stop offset="0%" stop-color="#0a1018"/>
+      <stop offset="100%" stop-color="#020406"/>
+    </radialGradient>
+    <radialGradient id="node-cyan" cx="40%" cy="35%" r="50%">
+      <stop offset="0%" stop-color="#80ffea"/>
+      <stop offset="100%" stop-color="#20a090"/>
+    </radialGradient>
+    <radialGradient id="node-magenta" cx="40%" cy="35%" r="50%">
+      <stop offset="0%" stop-color="#ff80d0"/>
+      <stop offset="100%" stop-color="#a02070"/>
+    </radialGradient>
+    <radialGradient id="node-gold" cx="40%" cy="35%" r="50%">
+      <stop offset="0%" stop-color="#ffe080"/>
+      <stop offset="100%" stop-color="#a08020"/>
+    </radialGradient>
+    <radialGradient id="node-blue" cx="40%" cy="35%" r="50%">
+      <stop offset="0%" stop-color="#80c0ff"/>
+      <stop offset="100%" stop-color="#2060a0"/>
+    </radialGradient>
+    <radialGradient id="node-green" cx="40%" cy="35%" r="50%">
+      <stop offset="0%" stop-color="#80ffa0"/>
+      <stop offset="100%" stop-color="#208040"/>
+    </radialGradient>
+    <filter id="g4" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="g4-soft" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="g4-wide" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="14" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="900" height="400" fill="url(#bg4)"/>
+
+  <!-- Organic connection threads - mycelium style with curves -->
+  <g stroke-width="1" fill="none" opacity="0.2">
+    <!-- Cluster A: upper left -->
+    <path d="M 180 130 Q 220 110 280 140" stroke="#80ffea"/>
+    <path d="M 180 130 Q 200 160 250 180" stroke="#ff80d0"/>
+    <path d="M 280 140 Q 310 160 340 150" stroke="#80ffea"/>
+    <path d="M 250 180 Q 290 190 340 150" stroke="#ffe080"/>
+    <path d="M 280 140 Q 260 180 250 180" stroke="#80ffa0"/>
+    <path d="M 180 130 Q 160 170 150 210" stroke="#80c0ff"/>
+
+    <!-- Cluster B: center -->
+    <path d="M 340 150 Q 380 170 420 190" stroke="#80ffea"/>
+    <path d="M 340 150 Q 400 140 460 160" stroke="#ff80d0"/>
+    <path d="M 420 190 Q 450 200 480 210" stroke="#ffe080"/>
+    <path d="M 460 160 Q 470 180 480 210" stroke="#80ffea"/>
+    <path d="M 420 190 Q 440 220 460 250" stroke="#80c0ff"/>
+    <path d="M 460 160 Q 500 170 540 190" stroke="#80ffa0"/>
+    <path d="M 480 210 Q 510 220 540 190" stroke="#ff80d0"/>
+
+    <!-- Cluster C: upper right -->
+    <path d="M 540 190 Q 580 170 620 140" stroke="#80ffea"/>
+    <path d="M 540 190 Q 600 200 650 180" stroke="#ffe080"/>
+    <path d="M 620 140 Q 650 150 680 170" stroke="#ff80d0"/>
+    <path d="M 650 180 Q 670 175 680 170" stroke="#80c0ff"/>
+    <path d="M 620 140 Q 660 120 710 120" stroke="#80ffa0"/>
+    <path d="M 680 170 Q 710 140 710 120" stroke="#80ffea"/>
+
+    <!-- Cross-cluster bridges -->
+    <path d="M 250 180 Q 320 230 420 190" stroke="#80c0ff" opacity="0.12"/>
+    <path d="M 460 250 Q 520 260 580 240" stroke="#ff80d0" opacity="0.12"/>
+    <path d="M 580 240 Q 620 210 650 180" stroke="#ffe080" opacity="0.12"/>
+
+    <!-- Lower tendrils -->
+    <path d="M 150 210 Q 180 250 220 270" stroke="#80ffa0"/>
+    <path d="M 220 270 Q 280 290 340 280" stroke="#80ffea"/>
+    <path d="M 340 280 Q 390 270 420 250" stroke="#ff80d0"/>
+    <path d="M 420 250 Q 440 240 460 250" stroke="#ffe080"/>
+    <path d="M 460 250 Q 500 270 550 280" stroke="#80c0ff"/>
+    <path d="M 550 280 Q 580 270 580 240" stroke="#80ffa0"/>
+
+    <!-- Outer wisps -->
+    <path d="M 180 130 Q 130 100 90 90" stroke="#80ffea" opacity="0.1"/>
+    <path d="M 150 210 Q 110 230 80 250" stroke="#ff80d0" opacity="0.1"/>
+    <path d="M 220 270 Q 190 300 170 330" stroke="#ffe080" opacity="0.1"/>
+    <path d="M 340 280 Q 340 310 350 340" stroke="#80c0ff" opacity="0.1"/>
+    <path d="M 550 280 Q 560 310 580 340" stroke="#80ffea" opacity="0.1"/>
+    <path d="M 710 120 Q 750 100 790 95" stroke="#ff80d0" opacity="0.1"/>
+    <path d="M 680 170 Q 730 190 780 210" stroke="#ffe080" opacity="0.1"/>
+  </g>
+
+  <!-- Secondary finer threads -->
+  <g stroke-width="0.4" fill="none" opacity="0.1">
+    <path d="M 180 130 Q 300 90 460 160" stroke="#80ffea"/>
+    <path d="M 250 180 Q 400 260 580 240" stroke="#ff80d0"/>
+    <path d="M 150 210 Q 300 220 460 250" stroke="#80ffa0"/>
+    <path d="M 340 150 Q 500 130 620 140" stroke="#ffe080"/>
+    <path d="M 420 190 Q 560 230 680 170" stroke="#80c0ff"/>
+  </g>
+
+  <!-- Outer faint nodes -->
+  <g filter="url(#g4)" opacity="0.3">
+    <circle cx="90" cy="90" r="2" fill="url(#node-cyan)"/>
+    <circle cx="80" cy="250" r="2.5" fill="url(#node-magenta)"/>
+    <circle cx="170" cy="330" r="2" fill="url(#node-gold)"/>
+    <circle cx="350" cy="340" r="2.5" fill="url(#node-blue)"/>
+    <circle cx="580" cy="340" r="2" fill="url(#node-cyan)"/>
+    <circle cx="790" cy="95" r="2.5" fill="url(#node-magenta)"/>
+    <circle cx="780" cy="210" r="2" fill="url(#node-gold)"/>
+  </g>
+
+  <!-- Medium nodes -->
+  <g filter="url(#g4-soft)">
+    <circle cx="150" cy="210" r="4" fill="url(#node-blue)"/>
+    <circle cx="220" cy="270" r="3.5" fill="url(#node-cyan)"/>
+    <circle cx="340" cy="280" r="3" fill="url(#node-magenta)"/>
+    <circle cx="580" cy="240" r="3.5" fill="url(#node-green)"/>
+    <circle cx="550" cy="280" r="3" fill="url(#node-blue)"/>
+    <circle cx="710" cy="120" r="4" fill="url(#node-green)"/>
+  </g>
+
+  <!-- Primary nodes - largest, brightest -->
+  <g filter="url(#g4-soft)">
+    <!-- Cluster A -->
+    <circle cx="180" cy="130" r="5.5" fill="url(#node-cyan)"/>
+    <circle cx="280" cy="140" r="5" fill="url(#node-magenta)"/>
+    <circle cx="250" cy="180" r="4.5" fill="url(#node-gold)"/>
+
+    <!-- Cluster B - largest -->
+    <circle cx="340" cy="150" r="5" fill="url(#node-green)"/>
+    <circle cx="420" cy="190" r="6" fill="url(#node-cyan)"/>
+    <circle cx="460" cy="160" r="5.5" fill="url(#node-magenta)"/>
+    <circle cx="480" cy="210" r="5" fill="url(#node-gold)"/>
+    <circle cx="460" cy="250" r="5" fill="url(#node-blue)"/>
+
+    <!-- Cluster C -->
+    <circle cx="540" cy="190" r="5" fill="url(#node-green)"/>
+    <circle cx="620" cy="140" r="5.5" fill="url(#node-cyan)"/>
+    <circle cx="650" cy="180" r="4.5" fill="url(#node-gold)"/>
+    <circle cx="680" cy="170" r="5" fill="url(#node-magenta)"/>
+  </g>
+
+  <!-- Brightest highlights on biggest nodes -->
+  <circle cx="420" cy="187" r="2" fill="#ffffff" opacity="0.3"/>
+  <circle cx="460" cy="157" r="1.8" fill="#ffffff" opacity="0.25"/>
+  <circle cx="620" cy="137" r="1.8" fill="#ffffff" opacity="0.25"/>
+  <circle cx="180" cy="127" r="1.5" fill="#ffffff" opacity="0.2"/>
+
+  <!-- Ambient glow pools -->
+  <circle cx="420" cy="190" r="60" fill="#80ffea" opacity="0.02" filter="url(#g4-wide)"/>
+  <circle cx="300" cy="160" r="50" fill="#ff80d0" opacity="0.015" filter="url(#g4-wide)"/>
+  <circle cx="620" cy="160" r="50" fill="#80ffa0" opacity="0.015" filter="url(#g4-wide)"/>
+</svg>

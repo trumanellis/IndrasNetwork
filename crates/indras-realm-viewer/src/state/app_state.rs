@@ -271,6 +271,22 @@ impl LoggedEvent {
             StreamEvent::ProofFolderSubmitted { claimant, artifact_count, .. } => {
                 format!("{} submitted proof folder ({} files)", member_name(claimant), artifact_count)
             }
+            StreamEvent::TokenMinted { steward, value_millis, blesser, .. } => {
+                let duration = format_duration_millis(*value_millis);
+                format!("{} minted token ({}) for {}", member_name(blesser), duration, member_name(steward))
+            }
+            StreamEvent::GratitudePledged { pledger, target_quest_id, amount_millis, .. } => {
+                let duration = format_duration_millis(*amount_millis);
+                format!("{} pledged {} to {}", member_name(pledger), duration, short_id(target_quest_id))
+            }
+            StreamEvent::GratitudeReleased { from_steward, to_steward, amount_millis, .. } => {
+                let duration = format_duration_millis(*amount_millis);
+                format!("{} released {} to {}", member_name(from_steward), duration, member_name(to_steward))
+            }
+            StreamEvent::GratitudeWithdrawn { steward, target_quest_id, amount_millis, .. } => {
+                let duration = format_duration_millis(*amount_millis);
+                format!("{} withdrew {} from {}", member_name(steward), duration, short_id(target_quest_id))
+            }
             StreamEvent::ProofFolderCreated { claimant, .. } => {
                 format!("{} started proof folder", member_name(claimant))
             }
@@ -305,6 +321,25 @@ impl LoggedEvent {
                 let desc = headline.as_deref().unwrap_or("profile");
                 format!("{} updated {}", member_name(member), desc)
             }
+            StreamEvent::SentimentUpdated { member, contact, sentiment, .. } => {
+                let label = match sentiment {
+                    1 => "recommends",
+                    -1 => "doesn't recommend",
+                    _ => "neutral on",
+                };
+                format!("{} {} {}", member_name(member), label, member_name(contact))
+            }
+            StreamEvent::ContactBlocked { member, contact, realms_left, .. } => {
+                format!("{} blocked {} (left {} realms)", member_name(member), member_name(contact), realms_left.len())
+            }
+            StreamEvent::RelayedSentimentReceived { member, about, sentiment, via, .. } => {
+                let label = match sentiment {
+                    1 => "+1",
+                    -1 => "-1",
+                    _ => "0",
+                };
+                format!("{} received {} about {} via {}", member_name(member), label, member_name(about), member_name(via))
+            }
             StreamEvent::Unknown => "Unknown event".to_string(),
         };
 
@@ -328,6 +363,8 @@ pub struct MemberStats {
     pub events_count: usize,
     pub tokens_count: usize,
     pub tokens_total_value: u64,
+    pub tokens_pledged_count: usize,
+    pub tokens_available_value: u64,
 }
 
 /// Main application state
@@ -447,14 +484,20 @@ impl AppState {
             StreamEvent::ProofSubmitted { .. }
             | StreamEvent::BlessingGiven { .. } => {
                 self.chat.process_event(&event);
-                self.tokens.process_event(&event);
             }
 
             StreamEvent::ProofFolderSubmitted { .. } => {
                 self.chat.process_event(&event);
-                self.tokens.process_event(&event);
                 self.member_proof_drafts.process_event(&event);
                 self.artifacts.process_event(&event);
+            }
+
+            StreamEvent::TokenMinted { .. }
+            | StreamEvent::GratitudePledged { .. }
+            | StreamEvent::GratitudeReleased { .. }
+            | StreamEvent::GratitudeWithdrawn { .. } => {
+                self.chat.process_event(&event);
+                self.tokens.process_event(&event);
             }
 
             StreamEvent::ProofFolderCreated { .. }
@@ -583,6 +626,18 @@ impl AppState {
             StreamEvent::BlessingGiven { blesser, claimant, .. } => {
                 (blesser.clone(), MemberScreen::Chat, format!("blessed {}", member_name(claimant)))
             }
+            StreamEvent::TokenMinted { steward, .. } => {
+                (steward.clone(), MemberScreen::Home, "received token".to_string())
+            }
+            StreamEvent::GratitudePledged { pledger, target_quest_id, .. } => {
+                (pledger.clone(), MemberScreen::QuestBoard, format!("pledged to {}", short_id(target_quest_id)))
+            }
+            StreamEvent::GratitudeReleased { from_steward, to_steward, .. } => {
+                (from_steward.clone(), MemberScreen::Chat, format!("released to {}", member_name(to_steward)))
+            }
+            StreamEvent::GratitudeWithdrawn { steward, .. } => {
+                (steward.clone(), MemberScreen::Home, "withdrew pledge".to_string())
+            }
             StreamEvent::ArtifactSharedRevocable { sharer, name, .. } => {
                 (sharer.clone(), MemberScreen::Artifacts, format!("shared \"{}\"", name))
             }
@@ -689,6 +744,8 @@ impl AppState {
 
         let tokens_count = self.tokens.token_count_for_member(member);
         let tokens_total_value = self.tokens.total_value_for_member(member);
+        let tokens_pledged_count = self.tokens.pledged_count_for_member(member);
+        let tokens_available_value = self.tokens.available_value_for_member(member);
 
         MemberStats {
             quests_created,
@@ -699,6 +756,8 @@ impl AppState {
             events_count,
             tokens_count,
             tokens_total_value,
+            tokens_pledged_count,
+            tokens_available_value,
         }
     }
 

@@ -3062,14 +3062,17 @@ pub fn MyActivity(state: Signal<AppState>, member: String) -> Element {
 // TOKENS OF GRATITUDE
 // ============================================================================
 
-/// Panel displaying a member's Tokens of Gratitude
+/// Panel displaying a member's discrete Tokens of Gratitude
 #[component]
 pub fn TokensOfGratitudePanel(state: Signal<AppState>, member: String) -> Element {
     let state_read = state.read();
     let tokens = state_read.tokens.tokens_for_member(&member);
     let token_count = tokens.len();
     let total_value = state_read.tokens.total_value_for_member(&member);
+    let available_value = state_read.tokens.available_value_for_member(&member);
+    let pledged_count = state_read.tokens.pledged_count_for_member(&member);
     let total_formatted = format_duration_millis(total_value);
+    let available_formatted = format_duration_millis(available_value);
 
     // Get max value for relative bar sizing
     let max_value = tokens.first().map(|t| t.value_millis).unwrap_or(1).max(1);
@@ -3084,11 +3087,16 @@ pub fn TokensOfGratitudePanel(state: Signal<AppState>, member: String) -> Elemen
                 }
             }
 
-            // Summary with total value
+            // Summary with total/available value
             if token_count > 0 {
                 div { class: "tokens-summary",
-                    span { class: "tokens-total-label", "Total blessed time:" }
+                    span { class: "tokens-total-label", "Total:" }
                     span { class: "tokens-total-value", "{total_formatted}" }
+                    if pledged_count > 0 {
+                        span { class: "tokens-total-label", " | Available:" }
+                        span { class: "tokens-total-value", "{available_formatted}" }
+                        span { class: "tokens-total-label", " ({pledged_count} pledged)" }
+                    }
                 }
             }
 
@@ -3112,7 +3120,7 @@ pub fn TokensOfGratitudePanel(state: Signal<AppState>, member: String) -> Elemen
     }
 }
 
-/// Individual Token of Gratitude card
+/// Individual discrete Token of Gratitude card
 #[component]
 fn TokenCard(token: TokenOfGratitude, max_value: u64) -> Element {
     let value_formatted = token.formatted_value();
@@ -3122,40 +3130,28 @@ fn TokenCard(token: TokenOfGratitude, max_value: u64) -> Element {
         0.0
     };
 
-    // Determine display title - use quest_title if available, otherwise use folder_id
-    let display_title = if token.quest_title.is_empty() {
-        short_id(&token.folder_id)
+    let blesser_name = member_name(&token.blesser);
+    let source_quest = short_id(&token.source_quest_id);
+
+    // Pledge status
+    let pledge_status = if let Some(ref quest_id) = token.pledged_to {
+        format!("Pledged to {}", short_id(quest_id))
     } else {
-        token.quest_title.clone()
+        "Available".to_string()
     };
 
-    // Narrative preview (truncated)
-    let preview = if token.narrative_preview.len() > 60 {
-        format!("{}...", &token.narrative_preview[..60])
-    } else if token.narrative_preview.is_empty() {
-        format!("{} artifacts", token.artifact_count)
+    let pledge_class = if token.is_pledged() {
+        "token-status-pledged"
     } else {
-        token.narrative_preview.clone()
-    };
-
-    // Format blesser/file counts with plurals
-    let blesser_text = if token.blesser_count == 1 {
-        format!("{} blesser", token.blesser_count)
-    } else {
-        format!("{} blessers", token.blesser_count)
-    };
-
-    let file_text = if token.artifact_count == 1 {
-        format!("{} file", token.artifact_count)
-    } else {
-        format!("{} files", token.artifact_count)
+        "token-status-available"
     };
 
     rsx! {
         div { class: "token-card",
             div { class: "token-header",
                 span { class: "token-icon", "🏆" }
-                span { class: "token-title", "{display_title}" }
+                span { class: "token-title", "From {blesser_name}" }
+                span { class: "token-badge {pledge_class}", "{pledge_status}" }
             }
 
             // Value bar
@@ -3173,19 +3169,12 @@ fn TokenCard(token: TokenOfGratitude, max_value: u64) -> Element {
             div { class: "token-meta",
                 span { class: "token-meta-item",
                     span { class: "meta-icon", "✨" }
-                    "{blesser_text}"
+                    "Blessed by {blesser_name}"
                 }
-                if token.artifact_count > 0 {
-                    span { class: "token-meta-item",
-                        span { class: "meta-icon", "📎" }
-                        "{file_text}"
-                    }
+                span { class: "token-meta-item",
+                    span { class: "meta-icon", "🎯" }
+                    "Source: {source_quest}"
                 }
-            }
-
-            // Narrative preview
-            if !preview.is_empty() {
-                div { class: "token-narrative", "{preview}" }
             }
         }
     }

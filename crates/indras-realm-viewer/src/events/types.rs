@@ -168,6 +168,41 @@ pub enum StreamEvent {
         contact: String,
     },
 
+    #[serde(rename = "sentiment_updated")]
+    SentimentUpdated {
+        #[serde(default)]
+        tick: u32,
+        member: String,
+        contact: String,
+        /// -1 = don't recommend, 0 = neutral, 1 = recommend
+        sentiment: i8,
+    },
+
+    #[serde(rename = "contact_blocked")]
+    ContactBlocked {
+        #[serde(default)]
+        tick: u32,
+        member: String,
+        contact: String,
+        /// Realm IDs that were left as part of the blocking cascade.
+        #[serde(default)]
+        realms_left: Vec<String>,
+    },
+
+    #[serde(rename = "relayed_sentiment_received")]
+    RelayedSentimentReceived {
+        #[serde(default)]
+        tick: u32,
+        /// The member whose view is being updated.
+        member: String,
+        /// The member this sentiment is about.
+        about: String,
+        /// The sentiment value.
+        sentiment: i8,
+        /// Which contact relayed this signal.
+        via: String,
+    },
+
     // ========== Chat Events ==========
     #[serde(rename = "chat_message")]
     ChatMessage {
@@ -303,6 +338,61 @@ pub enum StreamEvent {
         /// Artifacts in the proof folder
         #[serde(default)]
         artifacts: Vec<ProofArtifactItem>,
+    },
+
+    // ========== Token of Gratitude Events ==========
+    /// Token of gratitude minted from a blessing
+    #[serde(rename = "token_minted")]
+    TokenMinted {
+        #[serde(default)]
+        tick: u32,
+        realm_id: String,
+        token_id: String,
+        steward: String,
+        #[serde(default)]
+        value_millis: u64,
+        blesser: String,
+        source_quest_id: String,
+    },
+
+    /// Gratitude pledged to a quest as a bounty
+    #[serde(rename = "gratitude_pledged")]
+    GratitudePledged {
+        #[serde(default)]
+        tick: u32,
+        realm_id: String,
+        token_id: String,
+        pledger: String,
+        target_quest_id: String,
+        #[serde(default)]
+        amount_millis: u64,
+    },
+
+    /// Gratitude released to a proof submitter (steward transfer)
+    #[serde(rename = "gratitude_released")]
+    GratitudeReleased {
+        #[serde(default)]
+        tick: u32,
+        realm_id: String,
+        token_id: String,
+        from_steward: String,
+        to_steward: String,
+        target_quest_id: String,
+        #[serde(default)]
+        amount_millis: u64,
+    },
+
+    /// Gratitude pledge withdrawn by the steward
+    #[serde(rename = "gratitude_withdrawn")]
+    GratitudeWithdrawn {
+        #[serde(default)]
+        tick: u32,
+        realm_id: String,
+        token_id: String,
+        steward: String,
+        target_quest_id: String,
+        #[serde(default)]
+        amount_millis: u64,
     },
 
     // ========== Artifact Sharing Events ==========
@@ -481,6 +571,9 @@ impl StreamEvent {
             StreamEvent::RankingVerified { tick, .. } => *tick,
             StreamEvent::ContactAdded { tick, .. } => *tick,
             StreamEvent::ContactRemoved { tick, .. } => *tick,
+            StreamEvent::SentimentUpdated { tick, .. } => *tick,
+            StreamEvent::ContactBlocked { tick, .. } => *tick,
+            StreamEvent::RelayedSentimentReceived { tick, .. } => *tick,
             StreamEvent::ChatMessage { tick, .. } => *tick,
             StreamEvent::ChatMessageEdited { tick, .. } => *tick,
             StreamEvent::ChatMessageDeleted { tick, .. } => *tick,
@@ -494,6 +587,10 @@ impl StreamEvent {
             StreamEvent::ProofFolderArtifactAdded { tick, .. } => *tick,
             StreamEvent::CrdtConverged { tick, .. } => *tick,
             StreamEvent::CrdtConflict { tick, .. } => *tick,
+            StreamEvent::TokenMinted { tick, .. } => *tick,
+            StreamEvent::GratitudePledged { tick, .. } => *tick,
+            StreamEvent::GratitudeReleased { tick, .. } => *tick,
+            StreamEvent::GratitudeWithdrawn { tick, .. } => *tick,
             StreamEvent::ArtifactSharedRevocable { tick, .. } => *tick,
             StreamEvent::ArtifactRecalled { tick, .. } => *tick,
             StreamEvent::RecallAcknowledged { tick, .. } => *tick,
@@ -521,6 +618,9 @@ impl StreamEvent {
             StreamEvent::RankingVerified { .. } => "ranking_verified",
             StreamEvent::ContactAdded { .. } => "contact_added",
             StreamEvent::ContactRemoved { .. } => "contact_removed",
+            StreamEvent::SentimentUpdated { .. } => "sentiment_updated",
+            StreamEvent::ContactBlocked { .. } => "contact_blocked",
+            StreamEvent::RelayedSentimentReceived { .. } => "relayed_sentiment",
             StreamEvent::ChatMessage { .. } => "chat_message",
             StreamEvent::ChatMessageEdited { .. } => "chat_message_edited",
             StreamEvent::ChatMessageDeleted { .. } => "chat_message_deleted",
@@ -534,6 +634,10 @@ impl StreamEvent {
             StreamEvent::ProofFolderArtifactAdded { .. } => "artifact_added",
             StreamEvent::CrdtConverged { .. } => "crdt_converged",
             StreamEvent::CrdtConflict { .. } => "crdt_conflict",
+            StreamEvent::TokenMinted { .. } => "token_minted",
+            StreamEvent::GratitudePledged { .. } => "gratitude_pledged",
+            StreamEvent::GratitudeReleased { .. } => "gratitude_released",
+            StreamEvent::GratitudeWithdrawn { .. } => "gratitude_withdrawn",
             StreamEvent::ArtifactSharedRevocable { .. } => "artifact_shared_revocable",
             StreamEvent::ArtifactRecalled { .. } => "artifact_recalled",
             StreamEvent::RecallAcknowledged { .. } => "recall_acknowledged",
@@ -562,9 +666,11 @@ impl StreamEvent {
             | StreamEvent::AttentionCalculated { .. }
             | StreamEvent::RankingVerified { .. } => EventCategory::Attention,
 
-            StreamEvent::ContactAdded { .. } | StreamEvent::ContactRemoved { .. } => {
-                EventCategory::Contacts
-            }
+            StreamEvent::ContactAdded { .. }
+            | StreamEvent::ContactRemoved { .. }
+            | StreamEvent::SentimentUpdated { .. }
+            | StreamEvent::ContactBlocked { .. }
+            | StreamEvent::RelayedSentimentReceived { .. } => EventCategory::Contacts,
 
             StreamEvent::ChatMessage { .. }
             | StreamEvent::ChatMessageEdited { .. }
@@ -577,7 +683,11 @@ impl StreamEvent {
             | StreamEvent::ProofFolderSubmitted { .. }
             | StreamEvent::ProofFolderCreated { .. }
             | StreamEvent::ProofFolderNarrativeUpdated { .. }
-            | StreamEvent::ProofFolderArtifactAdded { .. } => EventCategory::Blessing,
+            | StreamEvent::ProofFolderArtifactAdded { .. }
+            | StreamEvent::TokenMinted { .. }
+            | StreamEvent::GratitudePledged { .. }
+            | StreamEvent::GratitudeReleased { .. }
+            | StreamEvent::GratitudeWithdrawn { .. } => EventCategory::Blessing,
 
             StreamEvent::ArtifactSharedRevocable { .. }
             | StreamEvent::ArtifactRecalled { .. }

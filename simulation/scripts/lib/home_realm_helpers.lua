@@ -83,6 +83,12 @@ home.EVENTS = {
     PROOF_SUBMITTED = "proof_submitted",
     BLESSING_GIVEN = "blessing_given",
     BLESSING_RECEIVED = "blessing_received",
+
+    -- Token of Gratitude lifecycle
+    TOKEN_MINTED = "token_minted",
+    GRATITUDE_PLEDGED = "gratitude_pledged",
+    GRATITUDE_RELEASED = "gratitude_released",
+    GRATITUDE_WITHDRAWN = "gratitude_withdrawn",
 }
 
 -- ============================================================================
@@ -722,6 +728,107 @@ function home.record_blessing_received(logger, claimant, blesser, quest_id, ques
     }
     logger.event(home.EVENTS.BLESSING_RECEIVED, event_data)
     return event_data
+end
+
+-- ============================================================================
+-- TOKEN OF GRATITUDE HELPERS
+-- ============================================================================
+
+--- Token counter for generating unique IDs
+local _token_counter = 0
+
+--- Generate a unique token ID
+-- @param quest_id string Quest ID
+-- @param steward string Steward member ID
+-- @param tick number Current tick
+-- @return string Unique token ID
+function home.make_token_id(quest_id, steward, tick)
+    _token_counter = _token_counter + 1
+    return string.format("tok_%s_%s_%d_%d",
+        quest_id:sub(1, 8),
+        steward:sub(1, 8),
+        tick,
+        _token_counter)
+end
+
+--- Emit a token_minted event
+-- @param logger table Logger object
+-- @param tick number Current tick
+-- @param realm_id string Realm ID
+-- @param token_id string Token ID
+-- @param steward string Steward (claimant) member ID
+-- @param value_millis number Token value in milliseconds
+-- @param blesser string Blesser member ID
+-- @param source_quest_id string Source quest ID
+function home.emit_token_minted(logger, tick, realm_id, token_id, steward, value_millis, blesser, source_quest_id)
+    logger.event(home.EVENTS.TOKEN_MINTED, {
+        tick = tick,
+        realm_id = realm_id,
+        token_id = token_id,
+        steward = steward,
+        value_millis = value_millis,
+        blesser = blesser,
+        source_quest_id = source_quest_id,
+    })
+end
+
+--- Emit a gratitude_pledged event
+-- @param logger table Logger object
+-- @param tick number Current tick
+-- @param realm_id string Realm ID
+-- @param token_id string Token ID
+-- @param pledger string Pledger member ID
+-- @param target_quest_id string Target quest ID
+-- @param amount_millis number Pledged amount in milliseconds
+function home.emit_gratitude_pledged(logger, tick, realm_id, token_id, pledger, target_quest_id, amount_millis)
+    logger.event(home.EVENTS.GRATITUDE_PLEDGED, {
+        tick = tick,
+        realm_id = realm_id,
+        token_id = token_id,
+        pledger = pledger,
+        target_quest_id = target_quest_id,
+        amount_millis = amount_millis,
+    })
+end
+
+--- Emit a gratitude_released event
+-- @param logger table Logger object
+-- @param tick number Current tick
+-- @param realm_id string Realm ID
+-- @param token_id string Token ID
+-- @param from_steward string Current steward member ID
+-- @param to_steward string New steward member ID
+-- @param target_quest_id string Target quest ID
+-- @param amount_millis number Released amount in milliseconds
+function home.emit_gratitude_released(logger, tick, realm_id, token_id, from_steward, to_steward, target_quest_id, amount_millis)
+    logger.event(home.EVENTS.GRATITUDE_RELEASED, {
+        tick = tick,
+        realm_id = realm_id,
+        token_id = token_id,
+        from_steward = from_steward,
+        to_steward = to_steward,
+        target_quest_id = target_quest_id,
+        amount_millis = amount_millis,
+    })
+end
+
+--- Emit a gratitude_withdrawn event
+-- @param logger table Logger object
+-- @param tick number Current tick
+-- @param realm_id string Realm ID
+-- @param token_id string Token ID
+-- @param steward string Steward member ID
+-- @param target_quest_id string Target quest ID
+-- @param amount_millis number Withdrawn amount in milliseconds
+function home.emit_gratitude_withdrawn(logger, tick, realm_id, token_id, steward, target_quest_id, amount_millis)
+    logger.event(home.EVENTS.GRATITUDE_WITHDRAWN, {
+        tick = tick,
+        realm_id = realm_id,
+        token_id = token_id,
+        steward = steward,
+        target_quest_id = target_quest_id,
+        amount_millis = amount_millis,
+    })
 end
 
 -- ============================================================================

@@ -525,6 +525,11 @@ for realm_id, realm_data in pairs(realms) do
                             attention_millis = total_millis,
                         })
 
+                        -- Mint a Token of Gratitude for the claimant
+                        local token_id = home.make_token_id(quest.id, quest.proof_submitter, sim.tick)
+                        home.emit_token_minted(logger, sim.tick, realm_id, token_id,
+                            quest.proof_submitter, total_millis, member, quest.id)
+
                         total_blessings = total_blessings + 1
 
                         -- Celebratory chat message or image

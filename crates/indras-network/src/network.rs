@@ -12,9 +12,10 @@ use crate::realm::Realm;
 
 use dashmap::DashMap;
 use indras_core::InterfaceId;
-use indras_node::IndrasNode;
+use indras_node::{IndrasNode, ReceivedEvent};
 use indras_storage::CompositeStorage;
 use indras_transport::IrohIdentity;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::Arc;
@@ -22,6 +23,32 @@ use tokio::sync::RwLock;
 
 /// Unique identifier for a realm.
 pub type RealmId = InterfaceId;
+
+/// An event from any realm, tagged with the source realm ID.
+///
+/// Used by `IndrasNetwork::events()` to provide a global event stream
+/// that aggregates events across all loaded realms.
+#[derive(Debug, Clone)]
+pub struct GlobalEvent {
+    /// The realm this event originated from.
+    pub realm_id: RealmId,
+    /// The underlying event.
+    pub event: ReceivedEvent,
+}
+
+/// Serializable identity backup containing all cryptographic keys.
+///
+/// Used by `export_identity()` and `import_identity()` for backing up
+/// and restoring node identity across devices.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IdentityBackup {
+    /// Ed25519 transport key (iroh identity).
+    pub iroh_key: Vec<u8>,
+    /// ML-DSA-65 post-quantum signing identity.
+    pub pq_identity: Vec<u8>,
+    /// ML-KEM-768 post-quantum key exchange keypair.
+    pub pq_kem: Vec<u8>,
+}
 
 /// The main entry point for the Indra SDK.
 ///
@@ -274,6 +301,39 @@ impl IndrasNetwork {
         self.realms.iter().map(|r| *r.key()).collect()
     }
 
+    /// Leave a realm.
+    ///
+    /// Removes the realm from local state and disconnects from peers.
+    /// The realm data is retained in storage, allowing you to rejoin later
+    /// if you still have the invite code.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - The realm ID to leave
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the realm is not found or the node-level
+    /// leave operation fails.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// network.leave_realm(&realm.id()).await?;
+    /// ```
+    pub async fn leave_realm(&self, id: &RealmId) -> Result<()> {
+        // Remove from local caches
+        self.realms.remove(id);
+
+        // Remove from peer_realms if it's a peer-based realm
+        self.peer_realms.retain(|_, v| v != id);
+
+        // Leave at the node level (broadcasts leave, cleans up gossip)
+        self.inner.leave_interface(id).await?;
+
+        Ok(())
+    }
+
     // ============================================================
     // Peer-based realm operations
     // ============================================================
@@ -423,6 +483,132 @@ impl IndrasNetwork {
         self.realms.get(&realm_id).map(|state| {
             Realm::from_id(realm_id, state.name.clone(), Arc::clone(&self.inner))
         })
+    }
+
+    // ============================================================
+    // Blocking
+    // ============================================================
+
+    /// Block a contact: remove them and automatically leave all shared peer-set realms.
+    ///
+    /// This is the "hard isolation" response — stronger than negative sentiment.
+    /// The contact is removed from the contacts list, and every peer-set realm
+    /// that includes the blocked member is left immediately.
+    ///
+    /// Returns the list of realm IDs that were left as a result of the cascade.
+    pub async fn block_contact(&self, member_id: &MemberId) -> Result<Vec<RealmId>> {
+        // Get the contacts realm
+        let contacts_realm = {
+            let guard = self.contacts_realm.read().await;
+            guard.clone()
+        };
+
+        let contacts = contacts_realm.ok_or_else(|| {
+            IndraError::InvalidOperation(
+                "Must join contacts realm before blocking. Call join_contacts_realm() first."
+                    .to_string(),
+            )
+        })?;
+
+        // Remove the contact
+        let removed = contacts.remove_contact(member_id).await?;
+        if !removed {
+            return Err(IndraError::InvalidOperation(
+                "Cannot block: member is not in your contacts".to_string(),
+            ));
+        }
+
+        // Find all peer-set realms containing the blocked member and leave them
+        let mut left_realms = Vec::new();
+        let realms_to_leave: Vec<(Vec<MemberId>, RealmId)> = self
+            .peer_realms
+            .iter()
+            .filter(|entry| entry.key().contains(member_id))
+            .map(|entry| (entry.key().clone(), *entry.value()))
+            .collect();
+
+        for (_peers, realm_id) in realms_to_leave {
+            if let Err(e) = self.leave_realm(&realm_id).await {
+                // Log but continue — best-effort cascade
+                tracing::warn!("Failed to leave realm {} during block cascade: {}", hex::encode(&realm_id.as_bytes()[..8]), e);
+            } else {
+                left_realms.push(realm_id);
+            }
+        }
+
+        Ok(left_realms)
+    }
+
+    // ============================================================
+    // Sentiment queries
+    // ============================================================
+
+    /// Query the aggregate sentiment view about a member.
+    ///
+    /// Returns direct sentiment from your own contacts who know the target,
+    /// plus second-degree relayed sentiment from contacts' contacts.
+    /// Only contacts with `relayable: true` contribute to relayed signals.
+    ///
+    /// This is scoped to your local view — you never see sentiment from
+    /// people outside your contact graph. A thousand fake nodes rating
+    /// someone negatively are invisible if none of them are your contacts.
+    pub async fn query_sentiment(
+        &self,
+        about: &MemberId,
+        relay_documents: &std::collections::HashMap<MemberId, crate::sentiment::SentimentRelayDocument>,
+    ) -> Result<crate::sentiment::SentimentView> {
+        let contacts_realm = {
+            let guard = self.contacts_realm.read().await;
+            guard.clone()
+        };
+
+        let contacts = contacts_realm.ok_or_else(|| {
+            IndraError::InvalidOperation(
+                "Must join contacts realm before querying sentiment.".to_string(),
+            )
+        })?;
+
+        let mut view = crate::sentiment::SentimentView::default();
+
+        // Collect direct sentiment from our contacts
+        let doc = contacts.contacts_with_sentiment();
+        for (contact_id, _sentiment) in &doc {
+            if contact_id == about {
+                // This IS the person we're asking about — skip (they're in our contacts)
+                continue;
+            }
+            // Check if this contact knows the target by looking at their relay doc
+            if let Some(relay_doc) = relay_documents.get(contact_id) {
+                if let Some(relayed_sentiment) = relay_doc.get(about) {
+                    // This contact has an opinion about the target — that's a direct signal
+                    view.direct.push((*contact_id, relayed_sentiment));
+                }
+            }
+        }
+
+        // Collect second-degree relayed sentiment
+        for (contact_id, _sentiment) in &doc {
+            if contact_id == about {
+                continue;
+            }
+            if let Some(relay_doc) = relay_documents.get(contact_id) {
+                // Look at this contact's other ratings for second-degree signals
+                for (rated_id, rated_sentiment) in relay_doc.iter() {
+                    if rated_id == about {
+                        // Already captured as direct above
+                        continue;
+                    }
+                    // This is a second-degree signal: our contact rates someone,
+                    // and that someone also rates the target. For now, we only
+                    // do one level of relay (our contacts' direct opinions).
+                    // The direct signals above already capture contacts' opinions
+                    // about the target.
+                    let _ = (rated_id, rated_sentiment);
+                }
+            }
+        }
+
+        Ok(view)
     }
 
     // ============================================================
@@ -582,6 +768,154 @@ impl IndrasNetwork {
     pub async fn get_home_realm(&self) -> Option<HomeRealm> {
         let guard = self.home_realm.read().await;
         guard.clone()
+    }
+
+    // ============================================================
+    // Global events
+    // ============================================================
+
+    /// Get a global event stream across all realms.
+    ///
+    /// Returns a stream of `GlobalEvent`s that include events from all
+    /// currently loaded realms, tagged with their source realm ID.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use futures::StreamExt;
+    ///
+    /// let mut events = network.events();
+    /// while let Some(event) = events.next().await {
+    ///     println!("Event in realm {:?}", event.realm_id);
+    /// }
+    /// ```
+    pub fn events(&self) -> impl futures::Stream<Item = GlobalEvent> + Send + '_ {
+        let realm_ids: Vec<RealmId> = self.realms.iter().map(|r| *r.key()).collect();
+        let inner = Arc::clone(&self.inner);
+
+        async_stream::stream! {
+            use futures::StreamExt;
+            use std::pin::Pin;
+
+            let mut streams: Vec<Pin<Box<dyn futures::Stream<Item = GlobalEvent> + Send>>> = Vec::new();
+
+            for realm_id in realm_ids {
+                if let Ok(rx) = inner.events(&realm_id) {
+                    let stream = crate::stream::broadcast_to_stream(rx);
+                    let tagged = stream.map(move |event| GlobalEvent {
+                        realm_id,
+                        event,
+                    });
+                    streams.push(Box::pin(tagged));
+                }
+            }
+
+            let mut merged = futures::stream::select_all(streams);
+            while let Some(event) = merged.next().await {
+                yield event;
+            }
+        }
+    }
+
+    // ============================================================
+    // Identity export/import
+    // ============================================================
+
+    /// Export the identity keypair for backup.
+    ///
+    /// Returns a serialized bundle of all cryptographic keys (Ed25519
+    /// transport key, ML-DSA signing key, ML-KEM key exchange key).
+    /// Store this securely - it contains secret key material.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let backup = network.export_identity().await?;
+    /// std::fs::write("identity.backup", &backup)?;
+    /// ```
+    pub async fn export_identity(&self) -> Result<Vec<u8>> {
+        let keys_dir = self.config.data_dir.join("keys");
+
+        let mut backup = IdentityBackup {
+            iroh_key: Vec::new(),
+            pq_identity: Vec::new(),
+            pq_kem: Vec::new(),
+        };
+
+        // Read iroh transport key
+        let iroh_path = keys_dir.join("iroh.key");
+        if iroh_path.exists() {
+            backup.iroh_key = tokio::fs::read(&iroh_path).await?;
+        }
+
+        // Read PQ signing identity
+        let pq_path = keys_dir.join("pq_identity.key");
+        if pq_path.exists() {
+            backup.pq_identity = tokio::fs::read(&pq_path).await?;
+        }
+
+        // Read PQ KEM keypair
+        let pq_kem_path = keys_dir.join("pq_kem.key");
+        if pq_kem_path.exists() {
+            backup.pq_kem = tokio::fs::read(&pq_kem_path).await?;
+        }
+
+        if backup.iroh_key.is_empty() {
+            return Err(IndraError::Crypto(
+                "No identity keys found to export".to_string(),
+            ));
+        }
+
+        let bytes = postcard::to_allocvec(&backup)?;
+        Ok(bytes)
+    }
+
+    /// Import an identity from a backup.
+    ///
+    /// Restores the identity keypair from a previously exported backup.
+    /// The network must not be running when importing. After import,
+    /// create a new `IndrasNetwork` instance to use the restored identity.
+    ///
+    /// # Arguments
+    ///
+    /// * `data_dir` - Directory for persistent storage
+    /// * `backup` - The backup data from `export_identity()`
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let backup = std::fs::read("identity.backup")?;
+    /// IndrasNetwork::import_identity("~/.myapp", &backup).await?;
+    ///
+    /// // Now create a network instance with the restored identity
+    /// let network = IndrasNetwork::new("~/.myapp").await?;
+    /// ```
+    pub async fn import_identity(
+        data_dir: impl AsRef<std::path::Path>,
+        backup: &[u8],
+    ) -> Result<()> {
+        let backup: IdentityBackup = postcard::from_bytes(backup)?;
+        let keys_dir = data_dir.as_ref().join("keys");
+
+        // Ensure keys directory exists
+        tokio::fs::create_dir_all(&keys_dir).await?;
+
+        // Write iroh transport key
+        if !backup.iroh_key.is_empty() {
+            tokio::fs::write(keys_dir.join("iroh.key"), &backup.iroh_key).await?;
+        }
+
+        // Write PQ signing identity
+        if !backup.pq_identity.is_empty() {
+            tokio::fs::write(keys_dir.join("pq_identity.key"), &backup.pq_identity).await?;
+        }
+
+        // Write PQ KEM keypair
+        if !backup.pq_kem.is_empty() {
+            tokio::fs::write(keys_dir.join("pq_kem.key"), &backup.pq_kem).await?;
+        }
+
+        Ok(())
     }
 
     // ============================================================

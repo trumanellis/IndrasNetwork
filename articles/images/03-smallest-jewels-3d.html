@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>The Smallest Jewels — 3D</title>
+<style>
+  body { margin: 0; overflow: hidden; background: #0a0818; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0818);
+scene.fog = new THREE.Fog(0x0a0818, 12, 35);
+
+const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 100);
+camera.position.set(-2, 2.5, 8);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.6;
+document.body.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.target.set(1, 0.8, 0);
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 2.0, 0.5, 0.08));
+
+// Ground -- dark, slightly luminous
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(60, 60),
+  new THREE.MeshStandardMaterial({ color: 0x0e180e, roughness: 0.9, emissive: 0x061008, emissiveIntensity: 0.4 })
+);
+ground.rotation.x = -Math.PI / 2;
+scene.add(ground);
+
+// Ethereal grass blades -- emissive
+function makeGrassBlade(x, z, height, lean, color) {
+  const curve = new THREE.QuadraticBezierCurve3(
+    new THREE.Vector3(x, 0, z),
+    new THREE.Vector3(x + lean * 0.5, height * 0.6, z),
+    new THREE.Vector3(x + lean, height, z + (Math.random() - 0.5) * 0.2)
+  );
+  const geo = new THREE.TubeGeometry(curve, 8, 0.015, 4, false);
+  const mat = new THREE.MeshStandardMaterial({
+    color,
+    roughness: 0.6,
+    emissive: color,
+    emissiveIntensity: 0.2,
+  });
+  return new THREE.Mesh(geo, mat);
+}
+
+const grassColors = [0x1a5030, 0x2a7a40, 0x155025, 0x206a35];
+for (let i = 0; i < 350; i++) {
+  const x = (Math.random() - 0.5) * 16;
+  const z = (Math.random() - 0.5) * 10;
+  const h = 0.4 + Math.random() * 0.9;
+  const lean = (Math.random() - 0.5) * 0.4;
+  const col = grassColors[Math.floor(Math.random() * grassColors.length)];
+  scene.add(makeGrassBlade(x, z, h, lean, col));
+}
+
+// Sensor node -- intensely glowing
+const sensorGroup = new THREE.Group();
+sensorGroup.position.set(-2.5, 0.15, 0);
+
+const sensorBody = new THREE.Mesh(
+  new THREE.BoxGeometry(0.3, 0.15, 0.2),
+  new THREE.MeshStandardMaterial({ color: 0x0a2a20, roughness: 0.5, metalness: 0.5, emissive: 0x43e8c0, emissiveIntensity: 0.5 })
+);
+sensorGroup.add(sensorBody);
+
+// LED -- bright ethereal
+const led = new THREE.Mesh(
+  new THREE.SphereGeometry(0.06, 16, 16),
+  new THREE.MeshStandardMaterial({ color: 0x80ffe0, emissive: 0x43e8c0, emissiveIntensity: 5 })
+);
+led.position.set(0, 0.1, 0.05);
+sensorGroup.add(led);
+
+// Antenna
+const antCurve = new THREE.LineCurve3(new THREE.Vector3(0, 0.08, 0), new THREE.Vector3(0, 0.5, 0));
+const antenna = new THREE.Mesh(
+  new THREE.TubeGeometry(antCurve, 4, 0.01, 6, false),
+  new THREE.MeshBasicMaterial({ color: 0x43e8c0, transparent: true, opacity: 0.7 })
+);
+sensorGroup.add(antenna);
+
+const antTip = new THREE.Mesh(
+  new THREE.SphereGeometry(0.05, 12, 12),
+  new THREE.MeshStandardMaterial({ color: 0x80ffea, emissive: 0x43e8c0, emissiveIntensity: 5 })
+);
+antTip.position.set(0, 0.5, 0);
+sensorGroup.add(antTip);
+
+// Glowing signal rings
+const rings = [];
+for (let i = 1; i <= 4; i++) {
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(0.2 * i, 0.008, 8, 48),
+    new THREE.MeshBasicMaterial({ color: 0x43e8c0, transparent: true, opacity: 0.3 / i })
+  );
+  ring.position.set(0, 0.5, 0);
+  ring.userData = { index: i };
+  sensorGroup.add(ring);
+  rings.push(ring);
+}
+
+// Sensor ethereal halo
+const sensorHalo = new THREE.Mesh(
+  new THREE.SphereGeometry(1.5, 16, 16),
+  new THREE.MeshBasicMaterial({ color: 0x43e8c0, transparent: true, opacity: 0.025, depthWrite: false })
+);
+sensorHalo.position.set(0, 0.3, 0);
+sensorGroup.add(sensorHalo);
+
+const sensorLight = new THREE.PointLight(0x43e8c0, 3, 8);
+sensorLight.position.set(0, 0.3, 0);
+sensorGroup.add(sensorLight);
+
+scene.add(sensorGroup);
+
+// Phone
+const phoneGroup = new THREE.Group();
+phoneGroup.position.set(5, 1.2, -1);
+phoneGroup.rotation.y = -0.3;
+
+const phoneBody = new THREE.Mesh(
+  new THREE.BoxGeometry(0.5, 0.9, 0.06),
+  new THREE.MeshStandardMaterial({ color: 0x2a2a3a, roughness: 0.4, metalness: 0.5, emissive: 0x43e8c0, emissiveIntensity: 0.1 })
+);
+phoneGroup.add(phoneBody);
+
+const phoneScreen = new THREE.Mesh(
+  new THREE.BoxGeometry(0.42, 0.75, 0.01),
+  new THREE.MeshStandardMaterial({ color: 0x0a1a18, emissive: 0x43e8c0, emissiveIntensity: 1.0, roughness: 0.2 })
+);
+phoneScreen.position.z = 0.035;
+phoneGroup.add(phoneScreen);
+
+const phoneLight = new THREE.PointLight(0x43e8c0, 1.5, 5);
+phoneLight.position.set(0, 0, 1);
+phoneGroup.add(phoneLight);
+
+// Phone halo
+const phoneHalo = new THREE.Mesh(
+  new THREE.SphereGeometry(1, 16, 16),
+  new THREE.MeshBasicMaterial({ color: 0x43e8c0, transparent: true, opacity: 0.02, depthWrite: false })
+);
+phoneGroup.add(phoneHalo);
+
+scene.add(phoneGroup);
+
+// Glowing thread arc: sensor → phone
+const arcCurve = new THREE.QuadraticBezierCurve3(
+  new THREE.Vector3(-2.5, 0.5, 0),
+  new THREE.Vector3(1.5, 3.5, -0.5),
+  new THREE.Vector3(5, 1.2, -1)
+);
+const arcTube = new THREE.Mesh(
+  new THREE.TubeGeometry(arcCurve, 40, 0.015, 6, false),
+  new THREE.MeshBasicMaterial({ color: 0x43e8c0, transparent: true, opacity: 0.25 })
+);
+scene.add(arcTube);
+
+// Traveling particles along arc
+const arcParticles = [];
+for (let i = 0; i < 20; i++) {
+  const dot = new THREE.Mesh(
+    new THREE.SphereGeometry(0.035, 8, 8),
+    new THREE.MeshBasicMaterial({ color: 0x80ffee, transparent: true })
+  );
+  dot.userData = { t: i / 20 };
+  scene.add(dot);
+  arcParticles.push(dot);
+}
+
+// Dew drops -- glowing
+for (let i = 0; i < 25; i++) {
+  const dew = new THREE.Mesh(
+    new THREE.SphereGeometry(0.025, 8, 8),
+    new THREE.MeshStandardMaterial({ color: 0x80ffea, emissive: 0x43e8c0, emissiveIntensity: 2, transparent: true, opacity: 0.6 })
+  );
+  dew.position.set(-2.5 + (Math.random() - 0.5) * 3, 0.01 + Math.random() * 0.4, (Math.random() - 0.5) * 2);
+  scene.add(dew);
+}
+
+// Horizon glow
+const horizonGlow = new THREE.PointLight(0xd4844a, 1.5, 30);
+horizonGlow.position.set(0, -1, -12);
+scene.add(horizonGlow);
+
+// Ethereal ambient mist
+for (let i = 0; i < 4; i++) {
+  const mist = new THREE.Mesh(
+    new THREE.SphereGeometry(4 + Math.random() * 3, 16, 16),
+    new THREE.MeshBasicMaterial({ color: i < 2 ? 0x43e8c0 : 0xd4844a, transparent: true, opacity: 0.008, depthWrite: false })
+  );
+  mist.position.set((Math.random() - 0.5) * 10, 1 + Math.random() * 2, (Math.random() - 0.5) * 8);
+  scene.add(mist);
+}
+
+// Stars
+const starGeo = new THREE.BufferGeometry();
+const starPos = [];
+for (let i = 0; i < 600; i++) starPos.push((Math.random()-0.5)*80, 8 + Math.random()*30, -15 - Math.random()*30);
+starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3));
+scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xaaccff, size: 0.1, transparent: true, opacity: 0.4 })));
+
+// Floating motes
+const moteGeo = new THREE.BufferGeometry();
+const motePos = [];
+for (let i = 0; i < 150; i++) motePos.push((Math.random()-0.5)*14, Math.random()*4, (Math.random()-0.5)*8);
+moteGeo.setAttribute('position', new THREE.Float32BufferAttribute(motePos, 3));
+scene.add(new THREE.Points(moteGeo, new THREE.PointsMaterial({ color: 0x43e8c0, size: 0.035, transparent: true, opacity: 0.25 })));
+
+scene.add(new THREE.AmbientLight(0x1a1030, 0.7));
+const sun = new THREE.DirectionalLight(0xd4844a, 0.3);
+sun.position.set(0, 2, -10);
+scene.add(sun);
+
+const clock = new THREE.Clock();
+function animate() {
+  requestAnimationFrame(animate);
+  const t = clock.getElapsedTime();
+  controls.update();
+
+  // Pulse sensor
+  led.material.emissiveIntensity = 3 + Math.sin(t * 2.5) * 2;
+  antTip.material.emissiveIntensity = 3 + Math.sin(t * 2.5 + 0.5) * 2;
+  sensorLight.intensity = 2 + Math.sin(t * 2.5) * 1.5;
+
+  // Expand/contract signal rings
+  rings.forEach(r => {
+    const scale = 1 + Math.sin(t * 1.5 + r.userData.index * 0.8) * 0.2;
+    r.scale.set(scale, scale, scale);
+    r.material.opacity = (0.3 / r.userData.index) * (0.6 + Math.sin(t * 1.5 + r.userData.index) * 0.4);
+  });
+
+  // Arc particles
+  arcParticles.forEach(p => {
+    const tt = (p.userData.t + t * 0.08) % 1;
+    p.position.copy(arcCurve.getPoint(tt));
+    p.material.opacity = Math.sin(tt * Math.PI) * 0.8;
+  });
+
+  // Phone screen pulse
+  phoneScreen.material.emissiveIntensity = 0.8 + Math.sin(t * 0.8) * 0.3;
+
+  composer.render();
+}
+animate();
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+  composer.setSize(innerWidth, innerHeight);
+});
+</script>
+</body>
+</html>

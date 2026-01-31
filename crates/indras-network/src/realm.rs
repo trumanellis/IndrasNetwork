@@ -14,6 +14,7 @@ use crate::message::{ArtifactRef, Content, Message, MessageId, MessagePayload};
 use crate::network::RealmId;
 use crate::note::{Note, NoteDocument, NoteId};
 use crate::quest::{Quest, QuestDocument, QuestId};
+use crate::token_of_gratitude::{TokenOfGratitude, TokenOfGratitudeDocument, TokenOfGratitudeId};
 use crate::stream::broadcast_to_stream;
 
 use chrono::Utc;
@@ -200,6 +201,33 @@ impl Realm {
         }
     }
 
+    /// React to a message with an emoji.
+    ///
+    /// Sends a reaction as a Content::Reaction message. Reactions are
+    /// visible to all realm members.
+    ///
+    /// # Arguments
+    ///
+    /// * `message_id` - The message to react to
+    /// * `emoji` - The emoji reaction (e.g., "👍", "❤️", "🎉")
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// realm.react(message_id, "👍").await?;
+    /// ```
+    pub async fn react(
+        &self,
+        message_id: MessageId,
+        emoji: impl Into<String>,
+    ) -> Result<MessageId> {
+        self.send(Content::Reaction {
+            target: message_id,
+            emoji: emoji.into(),
+        })
+        .await
+    }
+
     /// Get messages since a specific sequence number.
     pub async fn messages_since(&self, since: u64) -> Result<Vec<Message>> {
         let events = self.node.events_since(&self.id, since).await?;
@@ -216,6 +244,134 @@ impl Realm {
                 convert_event_to_message(received, realm_id)
             })
             .collect())
+    }
+
+    /// Search messages by text content.
+    ///
+    /// Performs case-insensitive full-text search across all messages
+    /// in the realm. Only searches text message content.
+    ///
+    /// # Arguments
+    ///
+    /// * `query` - The search query string
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let results = realm.search_messages("meeting notes").await?;
+    /// for msg in results {
+    ///     println!("{}: {}", msg.sender.name(), msg.content.as_text().unwrap_or(""));
+    /// }
+    /// ```
+    pub async fn search_messages(&self, query: &str) -> Result<Vec<Message>> {
+        let events = self.node.events_since(&self.id, 0).await?;
+        let realm_id = self.id;
+        let query_lower = query.to_lowercase();
+
+        Ok(events
+            .into_iter()
+            .filter_map(|event| {
+                let received = ReceivedEvent {
+                    interface_id: realm_id,
+                    event,
+                };
+                convert_event_to_message(received, realm_id)
+            })
+            .filter(|msg| {
+                if let Some(text) = msg.content.as_text() {
+                    text.to_lowercase().contains(&query_lower)
+                } else {
+                    false
+                }
+            })
+            .collect())
+    }
+
+    // ============================================================
+    // Read Tracking
+    // ============================================================
+
+    /// Mark the realm as read for a member.
+    ///
+    /// Records the current event position so that `unread_count()` can
+    /// calculate how many messages arrived since the last read.
+    ///
+    /// # Arguments
+    ///
+    /// * `member` - The member marking as read
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // User opens the realm - mark as read
+    /// realm.mark_read(my_id).await?;
+    /// ```
+    pub async fn mark_read(&self, member: MemberId) -> Result<()> {
+        use crate::read_tracker::ReadTrackerDocument;
+
+        // Get the current event count as the sequence number
+        let events = self.node.events_since(&self.id, 0).await?;
+        let seq = events.len() as u64;
+
+        let doc = self.document::<ReadTrackerDocument>("read_tracker").await?;
+        doc.update(|d| {
+            d.mark_read(member, seq);
+        })
+        .await?;
+
+        Ok(())
+    }
+
+    /// Get the number of unread messages for a member.
+    ///
+    /// Returns the count of messages that arrived after the member's
+    /// last `mark_read()` call. Returns the total message count if
+    /// the member has never marked the realm as read.
+    ///
+    /// # Arguments
+    ///
+    /// * `member` - The member to check
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let count = realm.unread_count(&my_id).await?;
+    /// if count > 0 {
+    ///     println!("{} unread messages", count);
+    /// }
+    /// ```
+    pub async fn unread_count(&self, member: &MemberId) -> Result<usize> {
+        use crate::read_tracker::ReadTrackerDocument;
+
+        let doc = self.document::<ReadTrackerDocument>("read_tracker").await?;
+        let last_read = doc.read().await.last_read_seq(member);
+
+        let events = self.node.events_since(&self.id, last_read).await?;
+        let realm_id = self.id;
+
+        // Count only message events (not membership changes, sync markers, etc.)
+        let count = events
+            .into_iter()
+            .filter_map(|event| {
+                let received = ReceivedEvent {
+                    interface_id: realm_id,
+                    event,
+                };
+                convert_event_to_message(received, realm_id)
+            })
+            .count();
+
+        Ok(count)
+    }
+
+    /// Get the sequence number of the last message read by a member.
+    ///
+    /// Returns 0 if the member has never marked the realm as read.
+    pub async fn last_read_seq(&self, member: &MemberId) -> Result<u64> {
+        use crate::read_tracker::ReadTrackerDocument;
+
+        let doc = self.document::<ReadTrackerDocument>("read_tracker").await?;
+        Ok(doc.read().await.last_read_seq(member))
     }
 
     // ============================================================
@@ -302,6 +458,42 @@ impl Realm {
     }
 
     // ============================================================
+    // Presence
+    // ============================================================
+
+    /// Get the list of currently online members.
+    ///
+    /// Returns members whose presence status is not `Offline`.
+    /// This is based on gossip discovery - members visible through
+    /// the gossip layer are considered online.
+    pub async fn online_members(&self) -> Result<Vec<Member>> {
+        // Members visible through the gossip layer are online
+        let identities: Vec<IrohIdentity> = self.node.members(&self.id).await?;
+
+        Ok(identities
+            .into_iter()
+            .map(|id| {
+                let mut member = Member::new(id);
+                member.set_presence(indras_core::PresenceStatus::Online);
+                member
+            })
+            .collect())
+    }
+
+    /// Check if a specific member is currently reachable (online).
+    ///
+    /// Returns true if the member is visible in the gossip layer.
+    pub async fn is_member_online(&self, member_id: &MemberId) -> Result<bool> {
+        let members = self.node.members(&self.id).await?;
+        Ok(members.iter().any(|id| {
+            let mut bytes = [0u8; 32];
+            let id_bytes = id.as_bytes();
+            bytes.copy_from_slice(&id_bytes[..32.min(id_bytes.len())]);
+            &bytes == member_id
+        }))
+    }
+
+    // ============================================================
     // Documents
     // ============================================================
 
@@ -338,7 +530,58 @@ impl Realm {
         &self,
         name: &str,
     ) -> Result<Document<T>> {
+        // Auto-register the document name (skip internal documents)
+        if !name.starts_with('_') {
+            let registry = Document::<crate::document_registry::DocumentRegistryDocument>::new(
+                self.id,
+                "_registry".to_string(),
+                Arc::clone(&self.node),
+            )
+            .await?;
+            let name_owned = name.to_string();
+            registry
+                .update(|d| {
+                    d.register(name_owned);
+                })
+                .await?;
+        }
+
         Document::new(self.id, name.to_string(), Arc::clone(&self.node)).await
+    }
+
+    /// List all named documents in this realm.
+    ///
+    /// Returns the names of documents that have been opened via `document()`.
+    /// Internal documents (prefixed with `_`) are excluded.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let names = realm.document_names().await?;
+    /// for name in names {
+    ///     println!("Document: {}", name);
+    /// }
+    /// ```
+    pub async fn document_names(&self) -> Result<Vec<String>> {
+        let registry = Document::<crate::document_registry::DocumentRegistryDocument>::new(
+            self.id,
+            "_registry".to_string(),
+            Arc::clone(&self.node),
+        )
+        .await?;
+        let guard = registry.read().await;
+        Ok(guard.document_names().into_iter().map(String::from).collect())
+    }
+
+    /// Check if a named document exists in this realm.
+    pub async fn has_document(&self, name: &str) -> Result<bool> {
+        let registry = Document::<crate::document_registry::DocumentRegistryDocument>::new(
+            self.id,
+            "_registry".to_string(),
+            Arc::clone(&self.node),
+        )
+        .await?;
+        Ok(registry.read().await.contains(name))
     }
 
     // ============================================================
@@ -519,6 +762,50 @@ impl Realm {
         doc.update(|d| {
             if let Some(quest) = d.find_mut(&quest_id) {
                 let _ = quest.complete();
+            }
+        })
+        .await?;
+
+        Ok(())
+    }
+
+    /// Set a deadline on a quest.
+    ///
+    /// # Arguments
+    ///
+    /// * `quest_id` - The quest to update
+    /// * `deadline_millis` - Unix timestamp in milliseconds for the deadline
+    pub async fn set_quest_deadline(
+        &self,
+        quest_id: QuestId,
+        deadline_millis: i64,
+    ) -> Result<()> {
+        let doc = self.quests().await?;
+        doc.update(|d| {
+            if let Some(quest) = d.find_mut(&quest_id) {
+                quest.set_deadline(deadline_millis);
+            }
+        })
+        .await?;
+
+        Ok(())
+    }
+
+    /// Set the priority on a quest.
+    ///
+    /// # Arguments
+    ///
+    /// * `quest_id` - The quest to update
+    /// * `priority` - The new priority level
+    pub async fn set_quest_priority(
+        &self,
+        quest_id: QuestId,
+        priority: crate::quest::QuestPriority,
+    ) -> Result<()> {
+        let doc = self.quests().await?;
+        doc.update(|d| {
+            if let Some(quest) = d.find_mut(&quest_id) {
+                quest.set_priority(priority);
             }
         })
         .await?;
@@ -1200,6 +1487,21 @@ impl Realm {
             })
             .await?;
 
+        // Mint a Token of Gratitude for the claimant
+        let token_doc = self.tokens().await?;
+        let event_indices_for_token = event_indices.clone();
+        let mut token_id = [0u8; 16];
+        token_doc
+            .update(|d| {
+                match d.mint(claimant, blessing_id, blesser, quest_id, event_indices_for_token) {
+                    Ok(id) => token_id = id,
+                    Err(e) => {
+                        tracing::warn!("Token minting failed: {}", e);
+                    }
+                }
+            })
+            .await?;
+
         // Post BlessingGiven message to chat
         self.send(Content::BlessingGiven {
             quest_id,
@@ -1328,6 +1630,160 @@ impl Realm {
         }
 
         Ok(Duration::from_millis(total_millis))
+    }
+
+    // ============================================================
+    // Tokens of Gratitude & Quest Bounties
+    // ============================================================
+
+    /// Get the token of gratitude document for this realm.
+    pub async fn tokens(&self) -> Result<Document<TokenOfGratitudeDocument>> {
+        self.document("_tokens").await
+    }
+
+    /// Pledge a token to a quest as a bounty incentive.
+    ///
+    /// The token must be owned by the caller and not already pledged.
+    /// Posts a GratitudePledged message to the realm chat.
+    pub async fn pledge_token(
+        &self,
+        token_id: TokenOfGratitudeId,
+        target_quest_id: QuestId,
+    ) -> Result<()> {
+        let token_doc = self.tokens().await?;
+        let mut pledger = [0u8; 32];
+
+        // Read pledger before update
+        {
+            let guard = token_doc.read().await;
+            if let Some(token) = guard.find(&token_id) {
+                pledger = token.steward;
+            }
+        }
+
+        token_doc
+            .update(|d| {
+                if let Err(e) = d.pledge(token_id, target_quest_id) {
+                    tracing::warn!("Token pledge failed: {}", e);
+                }
+            })
+            .await?;
+
+        self.send(Content::GratitudePledged {
+            token_id,
+            pledger,
+            target_quest_id,
+        })
+        .await?;
+
+        Ok(())
+    }
+
+    /// Release a pledged token to a new steward (transfer ownership).
+    ///
+    /// Posts a GratitudeReleased message to the realm chat.
+    pub async fn release_token(
+        &self,
+        token_id: TokenOfGratitudeId,
+        new_steward: MemberId,
+    ) -> Result<()> {
+        let token_doc = self.tokens().await?;
+        let mut from_steward = [0u8; 32];
+        let mut target_quest_id = [0u8; 16];
+
+        // Read current state before update
+        {
+            let guard = token_doc.read().await;
+            if let Some(token) = guard.find(&token_id) {
+                from_steward = token.steward;
+                if let Some(quest_id) = token.pledged_to {
+                    target_quest_id = quest_id;
+                }
+            }
+        }
+
+        token_doc
+            .update(|d| {
+                if let Err(e) = d.release(token_id, new_steward) {
+                    tracing::warn!("Token release failed: {}", e);
+                }
+            })
+            .await?;
+
+        self.send(Content::GratitudeReleased {
+            token_id,
+            from_steward,
+            to_steward: new_steward,
+            target_quest_id,
+        })
+        .await?;
+
+        Ok(())
+    }
+
+    /// Withdraw a pledge (return token to steward's wallet).
+    ///
+    /// Posts a GratitudeWithdrawn message to the realm chat.
+    pub async fn withdraw_token(
+        &self,
+        token_id: TokenOfGratitudeId,
+    ) -> Result<()> {
+        let token_doc = self.tokens().await?;
+        let mut steward = [0u8; 32];
+        let mut target_quest_id = [0u8; 16];
+
+        // Read current state before update
+        {
+            let guard = token_doc.read().await;
+            if let Some(token) = guard.find(&token_id) {
+                steward = token.steward;
+                if let Some(quest_id) = token.pledged_to {
+                    target_quest_id = quest_id;
+                }
+            }
+        }
+
+        token_doc
+            .update(|d| {
+                if let Err(e) = d.withdraw(token_id) {
+                    tracing::warn!("Token withdraw failed: {}", e);
+                }
+            })
+            .await?;
+
+        self.send(Content::GratitudeWithdrawn {
+            token_id,
+            steward,
+            target_quest_id,
+        })
+        .await?;
+
+        Ok(())
+    }
+
+    /// Get all tokens pledged to a quest.
+    pub async fn quest_pledged_tokens(
+        &self,
+        quest_id: &QuestId,
+    ) -> Result<Vec<TokenOfGratitude>> {
+        let token_doc = self.tokens().await?;
+        let guard = token_doc.read().await;
+        Ok(guard
+            .pledged_tokens_for_quest(quest_id)
+            .into_iter()
+            .cloned()
+            .collect())
+    }
+
+    /// Get all tokens owned by a member.
+    pub async fn member_tokens(&self, member: &MemberId) -> Result<Vec<TokenOfGratitude>> {
+        let token_doc = self.tokens().await?;
+        let guard = token_doc.read().await;
+        Ok(guard
+            .tokens_for_steward(member)
+            .into_iter()
+            .cloned()
+            .collect())
     }
 
     // ============================================================
