@@ -282,6 +282,34 @@ pub enum Content {
         /// The quest the token was pledged to.
         target_quest_id: QuestId,
     },
+
+    /// Access granted to an artifact.
+    ///
+    /// Sent when permanent access is granted or ownership is transferred.
+    /// The recipient's node watches for these messages and updates their
+    /// own ArtifactIndex automatically.
+    ArtifactGranted {
+        /// Reference to the artifact.
+        artifact: ArtifactRef,
+        /// What kind of access was granted.
+        mode: crate::access::AccessMode,
+        /// How the artifact was received.
+        provenance: crate::access::ArtifactProvenance,
+        /// Inherited grants (for transfers — permanent co-owners carry over).
+        inherited_grants: Vec<crate::access::AccessGrant>,
+    },
+
+    /// Request to recover artifacts from a peer after device loss.
+    RecoveryRequest {
+        /// Who is requesting recovery.
+        requester: MemberId,
+    },
+
+    /// Response to a recovery request with available artifacts.
+    RecoveryManifest {
+        /// The recovery manifest listing available artifacts.
+        manifest: crate::artifact_recovery::RecoveryManifest,
+    },
 }
 
 /// Reference to an item in a gallery.
@@ -371,6 +399,21 @@ impl Content {
     /// Check if this is a gratitude withdrawn message.
     pub fn is_gratitude_withdrawn(&self) -> bool {
         matches!(self, Content::GratitudeWithdrawn { .. })
+    }
+
+    /// Check if this is an artifact granted message.
+    pub fn is_artifact_granted(&self) -> bool {
+        matches!(self, Content::ArtifactGranted { .. })
+    }
+
+    /// Check if this is a recovery request message.
+    pub fn is_recovery_request(&self) -> bool {
+        matches!(self, Content::RecoveryRequest { .. })
+    }
+
+    /// Check if this is a recovery manifest message.
+    pub fn is_recovery_manifest(&self) -> bool {
+        matches!(self, Content::RecoveryManifest { .. })
     }
 
     /// Get the quest ID if this is a proof, blessing, or gratitude message.
@@ -661,6 +704,207 @@ mod tests {
             assert_eq!(items.len(), 2);
             assert_eq!(items[0].name, "photo1.jpg");
             assert_eq!(items[1].dimensions, Some((1024, 768)));
+        }
+    }
+
+    #[test]
+    fn test_content_artifact_granted() {
+        use crate::access::{AccessGrant, AccessMode, ArtifactProvenance, ProvenanceType};
+
+        let content = Content::ArtifactGranted {
+            artifact: ArtifactRef {
+                name: "document.pdf".to_string(),
+                size: 2048,
+                hash: [0x42u8; 32],
+                mime_type: Some("application/pdf".to_string()),
+            },
+            mode: AccessMode::Permanent,
+            provenance: ArtifactProvenance {
+                original_owner: [1u8; 32],
+                received_from: [1u8; 32],
+                received_at: 100,
+                received_via: ProvenanceType::CoOwnership,
+            },
+            inherited_grants: vec![],
+        };
+
+        assert!(content.is_artifact_granted());
+        assert!(!content.is_text());
+        assert!(!content.is_artifact());
+        assert!(!content.is_recovery_request());
+    }
+
+    #[test]
+    fn test_content_recovery_request() {
+        let content = Content::RecoveryRequest {
+            requester: [1u8; 32],
+        };
+
+        assert!(content.is_recovery_request());
+        assert!(!content.is_artifact_granted());
+        assert!(!content.is_text());
+    }
+
+    #[test]
+    fn test_content_recovery_manifest() {
+        use crate::artifact_recovery::RecoveryManifest;
+
+        let content = Content::RecoveryManifest {
+            manifest: RecoveryManifest::new(),
+        };
+
+        assert!(content.is_recovery_manifest());
+        assert!(!content.is_text());
+        assert!(!content.is_artifact_granted());
+    }
+
+    #[test]
+    fn test_content_artifact_granted_serialization() {
+        use crate::access::{AccessMode, ArtifactProvenance, ProvenanceType};
+
+        let content = Content::ArtifactGranted {
+            artifact: ArtifactRef {
+                name: "test.pdf".to_string(),
+                size: 1024,
+                hash: [0x42u8; 32],
+                mime_type: Some("application/pdf".to_string()),
+            },
+            mode: AccessMode::Revocable,
+            provenance: ArtifactProvenance {
+                original_owner: [1u8; 32],
+                received_from: [1u8; 32],
+                received_at: 100,
+                received_via: ProvenanceType::Transfer,
+            },
+            inherited_grants: vec![],
+        };
+
+        // Verify serialization roundtrip
+        let bytes = postcard::to_allocvec(&content).unwrap();
+        let deserialized: Content = postcard::from_bytes(&bytes).unwrap();
+        assert!(deserialized.is_artifact_granted());
+    }
+
+    #[test]
+    fn test_content_artifact_granted_with_timed_mode() {
+        use crate::access::{AccessMode, ArtifactProvenance, ProvenanceType};
+
+        let content = Content::ArtifactGranted {
+            artifact: ArtifactRef {
+                name: "temp_doc.pdf".to_string(),
+                size: 4096,
+                hash: [0x33u8; 32],
+                mime_type: Some("application/pdf".to_string()),
+            },
+            mode: AccessMode::Timed { expires_at: 500 },
+            provenance: ArtifactProvenance {
+                original_owner: [1u8; 32],
+                received_from: [1u8; 32],
+                received_at: 100,
+                received_via: ProvenanceType::CoOwnership,
+            },
+            inherited_grants: vec![],
+        };
+
+        assert!(content.is_artifact_granted());
+        // Verify serialization roundtrip preserves expiry
+        let bytes = postcard::to_allocvec(&content).unwrap();
+        let deserialized: Content = postcard::from_bytes(&bytes).unwrap();
+        if let Content::ArtifactGranted { mode, .. } = deserialized {
+            assert!(mode.is_expired(501));
+            assert!(!mode.is_expired(499));
+        } else {
+            panic!("Deserialized to wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_content_artifact_granted_with_inherited_grants() {
+        use crate::access::{AccessGrant, AccessMode, ArtifactProvenance, ProvenanceType};
+
+        let inherited = vec![
+            AccessGrant {
+                grantee: [2u8; 32],
+                mode: AccessMode::Permanent,
+                granted_at: 50,
+                granted_by: [1u8; 32],
+            },
+            AccessGrant {
+                grantee: [3u8; 32],
+                mode: AccessMode::Revocable,
+                granted_at: 60,
+                granted_by: [1u8; 32],
+            },
+        ];
+
+        let content = Content::ArtifactGranted {
+            artifact: ArtifactRef {
+                name: "shared_file.zip".to_string(),
+                size: 1048576,
+                hash: [0xAAu8; 32],
+                mime_type: Some("application/zip".to_string()),
+            },
+            mode: AccessMode::Transfer,
+            provenance: ArtifactProvenance {
+                original_owner: [1u8; 32],
+                received_from: [1u8; 32],
+                received_at: 200,
+                received_via: ProvenanceType::Transfer,
+            },
+            inherited_grants: inherited,
+        };
+
+        assert!(content.is_artifact_granted());
+
+        // Verify serialization roundtrip preserves inherited grants
+        let bytes = postcard::to_allocvec(&content).unwrap();
+        let deserialized: Content = postcard::from_bytes(&bytes).unwrap();
+        if let Content::ArtifactGranted { inherited_grants, mode, .. } = deserialized {
+            assert_eq!(inherited_grants.len(), 2);
+            assert_eq!(mode, AccessMode::Transfer);
+            assert!(inherited_grants[0].mode.allows_download());
+            assert!(!inherited_grants[1].mode.allows_download());
+        } else {
+            panic!("Deserialized to wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_content_recovery_manifest_with_artifacts() {
+        use crate::access::AccessMode;
+        use crate::artifact_recovery::{RecoverableArtifact, RecoveryManifest};
+
+        let mut manifest = RecoveryManifest::new();
+        manifest.add(RecoverableArtifact {
+            id: [1u8; 32],
+            name: "photo.jpg".to_string(),
+            size: 204800,
+            mime_type: Some("image/jpeg".to_string()),
+            access_mode: AccessMode::Permanent,
+            owner: [2u8; 32],
+        });
+        manifest.add(RecoverableArtifact {
+            id: [3u8; 32],
+            name: "doc.pdf".to_string(),
+            size: 8192,
+            mime_type: Some("application/pdf".to_string()),
+            access_mode: AccessMode::Revocable,
+            owner: [2u8; 32],
+        });
+
+        let content = Content::RecoveryManifest { manifest };
+
+        assert!(content.is_recovery_manifest());
+
+        // Verify serialization roundtrip
+        let bytes = postcard::to_allocvec(&content).unwrap();
+        let deserialized: Content = postcard::from_bytes(&bytes).unwrap();
+        if let Content::RecoveryManifest { manifest } = deserialized {
+            assert_eq!(manifest.len(), 2);
+            assert_eq!(manifest.total_size(), 204800 + 8192);
+            assert_eq!(manifest.fully_recoverable().len(), 1); // Only permanent
+        } else {
+            panic!("Deserialized to wrong variant");
         }
     }
 }

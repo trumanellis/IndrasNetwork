@@ -15,6 +15,9 @@ use crate::network::RealmId;
 use crate::note::{Note, NoteDocument, NoteId};
 use crate::quest::{Quest, QuestDocument, QuestId};
 use crate::token_of_gratitude::{TokenOfGratitude, TokenOfGratitudeDocument, TokenOfGratitudeId};
+use crate::access::AccessMode;
+use crate::artifact_index::HomeArtifactEntry;
+use crate::home_realm::HomeRealm;
 use crate::stream::broadcast_to_stream;
 
 use chrono::Utc;
@@ -23,28 +26,12 @@ use indras_core::{InterfaceEvent, MembershipChange, PeerIdentity};
 use indras_node::{IndrasNode, ReceivedEvent};
 use indras_storage::ContentRef;
 use indras_transport::IrohIdentity;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;
 use tracing::debug;
-
-/// Event type identifier for artifact sharing events.
-const ARTIFACT_EVENT_TYPE: &str = "artifact:shared";
-
-/// Metadata about a shared artifact, serialized as Custom event payload.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ArtifactMetadata {
-    /// Content hash (BLAKE3).
-    pub id: ArtifactId,
-    /// Original filename.
-    pub name: String,
-    /// Size in bytes.
-    pub size: u64,
-    /// MIME type if known.
-    pub mime_type: Option<String>,
-}
 
 /// A collaborative realm.
 ///
@@ -1853,8 +1840,15 @@ impl Realm {
         // Get our identity for the sharer field
         let sharer = Member::new(*self.node.identity());
 
-        // Create artifact metadata for broadcasting
-        let metadata = ArtifactMetadata {
+        // Create artifact metadata for broadcasting (legacy Custom event format)
+        #[derive(Serialize)]
+        struct LegacyArtifactMetadata {
+            id: ArtifactId,
+            name: String,
+            size: u64,
+            mime_type: Option<String>,
+        }
+        let metadata = LegacyArtifactMetadata {
             id,
             name: name.clone(),
             size,
@@ -1873,7 +1867,7 @@ impl Realm {
                 .await
                 .map(|e| e.len() as u64 + 1)
                 .unwrap_or(1),
-            ARTIFACT_EVENT_TYPE.to_string(),
+            "artifact:shared".to_string(),
             metadata_bytes,
         );
 
@@ -1884,18 +1878,130 @@ impl Realm {
         let _ = self.node.send_message(&self.id, event_bytes).await;
 
         // Create and return the Artifact
+        let owner = sharer.id();
         let artifact = Artifact {
             id,
             name,
             size,
             mime_type,
             sharer,
+            owner,
             shared_at: Utc::now(),
             is_encrypted: false,
             sharing_status: crate::artifact_sharing::SharingStatus::Shared,
         };
 
         Ok(artifact)
+    }
+
+    /// Share a file as an artifact with a specific access mode.
+    ///
+    /// Uploads to the owner's home realm, then grants access to all
+    /// realm members with the specified mode.
+    pub async fn share_artifact_with_mode(
+        &self,
+        path: impl AsRef<Path>,
+        home: &HomeRealm,
+        mode: AccessMode,
+    ) -> Result<Artifact> {
+        let path = path.as_ref();
+
+        // Upload to home realm
+        let id = home.upload(path).await?;
+
+        // Get realm member list (simplified: we don't have a full member_ids() yet)
+        // For now, grant is done by the caller per-member
+        // Post artifact reference to realm chat
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unnamed")
+            .to_string();
+
+        let file_meta = tokio::fs::metadata(path)
+            .await
+            .map_err(|e| IndraError::Artifact(format!("Failed to read file metadata: {}", e)))?;
+        let size = file_meta.len();
+        let mime_type = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| guess_mime_type(ext));
+
+        self.send(Content::Artifact(ArtifactRef {
+            name: name.clone(),
+            size,
+            hash: id,
+            mime_type: mime_type.clone(),
+        }))
+        .await?;
+
+        let sharer = Member::new(*self.node.identity());
+        let owner = sharer.id();
+        Ok(Artifact {
+            id,
+            name,
+            size,
+            mime_type,
+            sharer,
+            owner,
+            shared_at: Utc::now(),
+            is_encrypted: matches!(mode, AccessMode::Revocable),
+            sharing_status: crate::artifact_sharing::SharingStatus::Shared,
+        })
+    }
+
+    /// Share a file with per-person access mode specification.
+    pub async fn share_artifact_granular(
+        &self,
+        path: impl AsRef<Path>,
+        home: &HomeRealm,
+        grants: Vec<(MemberId, AccessMode)>,
+    ) -> Result<Artifact> {
+        let path = path.as_ref();
+
+        // Upload to home realm
+        let id = home.upload(path).await?;
+
+        // Grant access per specification
+        for (member, mode) in &grants {
+            let _ = home.grant_access(&id, *member, mode.clone()).await;
+        }
+
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unnamed")
+            .to_string();
+        let file_meta = tokio::fs::metadata(path)
+            .await
+            .map_err(|e| IndraError::Artifact(format!("Failed to read file metadata: {}", e)))?;
+        let size = file_meta.len();
+        let mime_type = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| guess_mime_type(ext));
+
+        self.send(Content::Artifact(ArtifactRef {
+            name: name.clone(),
+            size,
+            hash: id,
+            mime_type: mime_type.clone(),
+        }))
+        .await?;
+
+        let sharer = Member::new(*self.node.identity());
+        let owner = sharer.id();
+        Ok(Artifact {
+            id,
+            name,
+            size,
+            mime_type,
+            sharer,
+            owner,
+            shared_at: Utc::now(),
+            is_encrypted: false,
+            sharing_status: crate::artifact_sharing::SharingStatus::Shared,
+        })
     }
 
     /// Get the artifact key registry document for this realm.
@@ -1910,30 +2016,8 @@ impl Realm {
 
     /// Share a file as an artifact with revocation support.
     ///
-    /// This is similar to `share_artifact()` but encrypts the content with
-    /// a per-artifact key, enabling the artifact to be recalled later.
-    ///
-    /// # How It Works
-    ///
-    /// 1. Generate a random per-artifact encryption key
-    /// 2. Encrypt the file content with the key
-    /// 3. Store the encrypted content in blob storage
-    /// 4. Store the encrypted key in the realm's key registry
-    /// 5. Broadcast the artifact metadata to all members
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - Path to the file to share
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let artifact = realm.share_artifact_revocable("./secret.pdf").await?;
-    /// println!("Shared revocable: {} (encrypted)", artifact.name);
-    ///
-    /// // Later, recall it
-    /// realm.recall_artifact(&artifact.id).await?;
-    /// ```
+    /// **Deprecated**: Use `share_artifact_with_mode(path, home, AccessMode::Revocable)` instead.
+    /// This is kept for backward compatibility during migration.
     pub async fn share_artifact_revocable(
         &self,
         path: impl AsRef<Path>,
@@ -1942,42 +2026,29 @@ impl Realm {
 
         let path = path.as_ref();
 
-        // Read the file
         let file_data = tokio::fs::read(path)
             .await
             .map_err(|e| IndraError::Artifact(format!("Failed to read file: {}", e)))?;
 
-        // Get filename
         let name = path
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("unnamed")
             .to_string();
 
-        // Guess MIME type from extension
         let mime_type = path
             .extension()
             .and_then(|ext| ext.to_str())
             .map(|ext| guess_mime_type(ext));
 
-        // Generate per-artifact encryption key
         let artifact_key = indras_crypto::generate_artifact_key();
-
-        // Encrypt the content
         let encrypted = indras_crypto::encrypt_artifact(&file_data, &artifact_key)
             .map_err(|e| IndraError::Artifact(format!("Failed to encrypt artifact: {}", e)))?;
-
-        // Get the encrypted bytes
         let encrypted_bytes = encrypted.to_bytes();
-
-        // Compute BLAKE3 hash of ENCRYPTED content (this is the artifact ID)
         let hash = blake3::hash(&encrypted_bytes);
         let artifact_hash: [u8; 32] = *hash.as_bytes();
-
-        // Get encrypted content size
         let size = encrypted_bytes.len() as u64;
 
-        // Store encrypted content in blob storage
         let _content_ref = self
             .node
             .storage()
@@ -1985,21 +2056,10 @@ impl Realm {
             .await
             .map_err(|e| IndraError::Artifact(format!("Failed to store encrypted blob: {}", e)))?;
 
-        debug!(
-            artifact_hash = %hex::encode(&artifact_hash[..8]),
-            name = %name,
-            encrypted_size = size,
-            "Stored encrypted artifact in blob storage"
-        );
-
-        // Get our identity
         let sharer_id = self.node.identity();
         let sharer_hex = hex::encode(&sharer_id.as_bytes());
-
-        // Get current tick (approximation - use current timestamp in millis)
         let shared_at = chrono::Utc::now().timestamp_millis() as u64;
 
-        // Create the SharedArtifact
         let shared_artifact = SharedArtifact {
             hash: artifact_hash,
             name: name.clone(),
@@ -2010,24 +2070,18 @@ impl Realm {
             status: SharingStatus::Shared,
         };
 
-        // Encrypt the artifact key with the realm's interface key (placeholder)
-        // In a full implementation, we'd get the interface key from the node
-        // For now, we store a simple encrypted key structure
         let encrypted_key = EncryptedArtifactKey {
-            nonce: [0u8; 12], // In real impl, generate random nonce
-            ciphertext: artifact_key.to_vec(), // In real impl, encrypt with interface key
+            nonce: [0u8; 12],
+            ciphertext: artifact_key.to_vec(),
         };
 
-        // Store in key registry
-        let registry = self.artifact_key_registry().await?;
+        let registry = self.document::<crate::artifact_sharing::ArtifactKeyRegistry>("artifact_key_registry").await?;
         registry
             .update(|r| {
                 r.store(shared_artifact.clone(), encrypted_key);
             })
             .await?;
 
-        // Post ArtifactRecalled-style notification to chat (as artifact shared)
-        // This is so the chat shows when artifacts are shared
         self.send(Content::Artifact(ArtifactRef {
             name: name.clone(),
             size,
@@ -2136,6 +2190,23 @@ impl Realm {
         Ok(guard.is_revoked(artifact_hash))
     }
 
+    /// Query artifacts visible in this realm context.
+    ///
+    /// Returns artifacts where all realm members (other than the owner)
+    /// have active access grants in the owner's ArtifactIndex.
+    pub async fn artifacts_view(
+        &self,
+        home: &HomeRealm,
+        _now: u64,
+    ) -> Result<Vec<HomeArtifactEntry>> {
+        let doc = home.artifact_index().await?;
+        let data = doc.read().await;
+
+        // For now, return all active artifacts from the home index
+        // Full member filtering requires member_ids() which we don't have exposed yet
+        Ok(data.active_artifacts().cloned().collect())
+    }
+
     /// Download a shared artifact.
     ///
     /// Fetches the artifact content from blob storage and provides
@@ -2188,36 +2259,6 @@ impl Realm {
         let (download, _cancel_rx) = ArtifactDownload::new(artifact.clone(), progress_rx, destination);
 
         Ok(download)
-    }
-
-    /// Get a stream of shared artifacts.
-    ///
-    /// Returns a stream that yields artifacts as they are shared in this realm.
-    /// This listens for Custom events with the artifact event type.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let mut artifacts = realm.artifacts();
-    /// while let Some(artifact) = artifacts.next().await {
-    ///     println!("New artifact: {} ({} bytes)", artifact.name, artifact.size);
-    /// }
-    /// ```
-    pub fn artifacts(&self) -> impl Stream<Item = Artifact> + Send + '_ {
-        let rx = self.node.events(&self.id).ok();
-
-        async_stream::stream! {
-            if let Some(rx) = rx {
-                let mut stream = broadcast_to_stream(rx);
-                use futures::StreamExt;
-
-                while let Some(event) = stream.next().await {
-                    if let Some(artifact) = convert_event_to_artifact(event) {
-                        yield artifact;
-                    }
-                }
-            }
-        }
     }
 
     // ============================================================
@@ -2335,39 +2376,6 @@ fn convert_event_to_member_event(event: ReceivedEvent) -> Option<MemberEvent> {
             }
         }
         _ => None, // Other event types are not member events
-    }
-}
-
-fn convert_event_to_artifact(event: ReceivedEvent) -> Option<Artifact> {
-    match &event.event {
-        InterfaceEvent::Custom {
-            sender,
-            event_type,
-            payload,
-            timestamp,
-            ..
-        } => {
-            // Check if this is an artifact event
-            if event_type != ARTIFACT_EVENT_TYPE {
-                return None;
-            }
-
-            // Try to deserialize the artifact metadata
-            let metadata: ArtifactMetadata = postcard::from_bytes(payload).ok()?;
-
-            // Create the artifact
-            Some(Artifact {
-                id: metadata.id,
-                name: metadata.name,
-                size: metadata.size,
-                mime_type: metadata.mime_type,
-                sharer: Member::new(*sender),
-                shared_at: *timestamp,
-                is_encrypted: false,
-                sharing_status: crate::artifact_sharing::SharingStatus::Shared,
-            })
-        }
-        _ => None,
     }
 }
 

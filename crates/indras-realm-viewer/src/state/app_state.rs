@@ -340,6 +340,27 @@ impl LoggedEvent {
                 };
                 format!("{} received {} about {} via {}", member_name(member), label, member_name(about), member_name(via))
             }
+            StreamEvent::ArtifactUploaded { owner, name, size, .. } => {
+                format!("{} uploaded \"{}\" ({}B)", member_name(owner), name, size)
+            }
+            StreamEvent::ArtifactGranted { grantee, artifact_hash, mode, .. } => {
+                format!("{} granted {} access to {}", member_name(grantee), mode, short_id(artifact_hash))
+            }
+            StreamEvent::ArtifactAccessRevoked { grantee, artifact_hash, .. } => {
+                format!("Access revoked for {} on {}", member_name(grantee), short_id(artifact_hash))
+            }
+            StreamEvent::ArtifactTransferred { from, to, artifact_hash, .. } => {
+                format!("{} transferred {} to {}", member_name(from), short_id(artifact_hash), member_name(to))
+            }
+            StreamEvent::ArtifactExpired { grantee, artifact_hash, .. } => {
+                format!("Timed access expired for {} on {}", member_name(grantee), short_id(artifact_hash))
+            }
+            StreamEvent::ArtifactRecoveryRequested { requester, .. } => {
+                format!("{} requested artifact recovery", member_name(requester))
+            }
+            StreamEvent::ArtifactRecovered { artifact_hash, recovered_from, .. } => {
+                format!("Recovered {} from {}", short_id(artifact_hash), member_name(recovered_from))
+            }
             StreamEvent::Unknown => "Unknown event".to_string(),
         };
 
@@ -510,7 +531,12 @@ impl AppState {
 
             StreamEvent::ArtifactSharedRevocable { .. }
             | StreamEvent::ArtifactRecalled { .. }
-            | StreamEvent::RecallAcknowledged { .. } => {
+            | StreamEvent::RecallAcknowledged { .. }
+            | StreamEvent::ArtifactUploaded { .. }
+            | StreamEvent::ArtifactGranted { .. }
+            | StreamEvent::ArtifactAccessRevoked { .. }
+            | StreamEvent::ArtifactTransferred { .. }
+            | StreamEvent::ArtifactExpired { .. } => {
                 self.artifacts.process_event(&event);
             }
 

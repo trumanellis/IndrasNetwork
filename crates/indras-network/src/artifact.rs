@@ -15,7 +15,7 @@
 
 use crate::artifact_sharing::SharingStatus;
 use crate::error::{IndraError, Result};
-use crate::member::Member;
+use crate::member::{Member, MemberId};
 
 use chrono::{DateTime, Utc};
 use futures::Stream;
@@ -59,6 +59,8 @@ pub struct Artifact {
     pub mime_type: Option<String>,
     /// Who shared this artifact.
     pub sharer: Member,
+    /// Owner of the artifact.
+    pub owner: MemberId,
     /// When it was shared.
     pub shared_at: DateTime<Utc>,
     /// Whether content is per-artifact encrypted (for revocable sharing).
@@ -288,6 +290,7 @@ mod tests {
             size: 100,
             mime_type: Some("text/plain".to_string()),
             sharer: Member::new(identity),
+            owner: [1u8; 32],
             shared_at: Utc::now(),
             is_encrypted: false,
             sharing_status: SharingStatus::Shared,
@@ -310,6 +313,7 @@ mod tests {
             size: 100,
             mime_type: Some("text/plain".to_string()),
             sharer: Member::new(identity),
+            owner: [1u8; 32],
             shared_at: Utc::now(),
             is_encrypted: true,
             sharing_status: SharingStatus::Recalled {

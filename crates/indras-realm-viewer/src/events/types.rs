@@ -445,6 +445,98 @@ pub enum StreamEvent {
         key_removed: bool,
     },
 
+    // ========== Shared Filesystem Events ==========
+    /// Artifact uploaded to home realm filesystem
+    #[serde(rename = "artifact_uploaded")]
+    ArtifactUploaded {
+        #[serde(default)]
+        tick: u32,
+        /// Who uploaded/owns this artifact
+        owner: String,
+        /// BLAKE3 hash of content (hex)
+        artifact_hash: String,
+        name: String,
+        #[serde(default)]
+        size: u64,
+        #[serde(default)]
+        mime_type: Option<String>,
+        /// Local file path for real assets (optional)
+        #[serde(default)]
+        asset_path: Option<String>,
+    },
+
+    /// Access granted to an artifact
+    #[serde(rename = "artifact_granted")]
+    ArtifactGranted {
+        #[serde(default)]
+        tick: u32,
+        /// BLAKE3 hash of artifact (hex)
+        artifact_hash: String,
+        /// Who received access
+        grantee: String,
+        /// Access mode: "revocable", "permanent", "timed", "transfer"
+        mode: String,
+        /// Who granted access
+        granted_by: String,
+    },
+
+    /// Access revoked from an artifact
+    #[serde(rename = "artifact_access_revoked")]
+    ArtifactAccessRevoked {
+        #[serde(default)]
+        tick: u32,
+        /// BLAKE3 hash of artifact (hex)
+        artifact_hash: String,
+        /// Who lost access
+        grantee: String,
+        /// Who revoked access
+        revoked_by: String,
+    },
+
+    /// Artifact ownership transferred
+    #[serde(rename = "artifact_transferred")]
+    ArtifactTransferred {
+        #[serde(default)]
+        tick: u32,
+        /// BLAKE3 hash of artifact (hex)
+        artifact_hash: String,
+        /// Previous owner
+        from: String,
+        /// New owner
+        to: String,
+    },
+
+    /// Timed access expired
+    #[serde(rename = "artifact_expired")]
+    ArtifactExpired {
+        #[serde(default)]
+        tick: u32,
+        /// BLAKE3 hash of artifact (hex)
+        artifact_hash: String,
+        /// Who lost access
+        grantee: String,
+    },
+
+    /// Recovery requested from peers
+    #[serde(rename = "artifact_recovery_requested")]
+    ArtifactRecoveryRequested {
+        #[serde(default)]
+        tick: u32,
+        /// Who is requesting recovery
+        requester: String,
+    },
+
+    /// Artifact recovered from a peer
+    #[serde(rename = "artifact_recovered")]
+    ArtifactRecovered {
+        #[serde(default)]
+        tick: u32,
+        /// BLAKE3 hash of recovered artifact (hex)
+        artifact_hash: String,
+        /// Peer who provided the artifact
+        recovered_from: String,
+    },
+
     // ========== Proof Folder Lifecycle Events ==========
     /// Proof folder created (draft state)
     #[serde(rename = "proof_folder_created")]
@@ -598,6 +690,13 @@ impl StreamEvent {
             StreamEvent::ArtifactSharedRevocable { tick, .. } => *tick,
             StreamEvent::ArtifactRecalled { tick, .. } => *tick,
             StreamEvent::RecallAcknowledged { tick, .. } => *tick,
+            StreamEvent::ArtifactUploaded { tick, .. } => *tick,
+            StreamEvent::ArtifactGranted { tick, .. } => *tick,
+            StreamEvent::ArtifactAccessRevoked { tick, .. } => *tick,
+            StreamEvent::ArtifactTransferred { tick, .. } => *tick,
+            StreamEvent::ArtifactExpired { tick, .. } => *tick,
+            StreamEvent::ArtifactRecoveryRequested { tick, .. } => *tick,
+            StreamEvent::ArtifactRecovered { tick, .. } => *tick,
             StreamEvent::DocumentEdit { tick, .. } => *tick,
             StreamEvent::Info { tick, .. } => *tick,
             StreamEvent::Unknown => 0,
@@ -645,6 +744,13 @@ impl StreamEvent {
             StreamEvent::ArtifactSharedRevocable { .. } => "artifact_shared_revocable",
             StreamEvent::ArtifactRecalled { .. } => "artifact_recalled",
             StreamEvent::RecallAcknowledged { .. } => "recall_acknowledged",
+            StreamEvent::ArtifactUploaded { .. } => "artifact_uploaded",
+            StreamEvent::ArtifactGranted { .. } => "artifact_granted",
+            StreamEvent::ArtifactAccessRevoked { .. } => "artifact_access_revoked",
+            StreamEvent::ArtifactTransferred { .. } => "artifact_transferred",
+            StreamEvent::ArtifactExpired { .. } => "artifact_expired",
+            StreamEvent::ArtifactRecoveryRequested { .. } => "artifact_recovery_requested",
+            StreamEvent::ArtifactRecovered { .. } => "artifact_recovered",
             StreamEvent::DocumentEdit { .. } => "document_edit",
             StreamEvent::Info { .. } => "info",
             StreamEvent::Unknown => "unknown",
@@ -696,6 +802,13 @@ impl StreamEvent {
             StreamEvent::ArtifactSharedRevocable { .. }
             | StreamEvent::ArtifactRecalled { .. }
             | StreamEvent::RecallAcknowledged { .. }
+            | StreamEvent::ArtifactUploaded { .. }
+            | StreamEvent::ArtifactGranted { .. }
+            | StreamEvent::ArtifactAccessRevoked { .. }
+            | StreamEvent::ArtifactTransferred { .. }
+            | StreamEvent::ArtifactExpired { .. }
+            | StreamEvent::ArtifactRecoveryRequested { .. }
+            | StreamEvent::ArtifactRecovered { .. }
             | StreamEvent::DocumentEdit { .. } => EventCategory::Artifact,
 
             StreamEvent::CrdtConverged { .. }
