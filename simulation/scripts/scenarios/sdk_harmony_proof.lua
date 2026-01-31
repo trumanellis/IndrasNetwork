@@ -10,8 +10,15 @@
 -- 7. Gratitude release for logo quest (blessings from Peace + Joy)
 -- 8. Joy submits proof folder with README.md referencing the logo
 -- 9. Gratitude release for README quest (blessings from Love + Peace)
+-- 10. Token pledge lifecycle:
+--     a. Peace creates a "Community Guide" quest
+--     b. Love & Joy pledge tokens as bounty on the new quest
+--     c. Peace submits proof, tokens are released to Peace
+--     d. Joy withdraws a token, then re-pledges it
+--     e. Token chaining: Peace pledges a received token onward
 --
 -- Both quests go through the full lifecycle: create → focus → proof → bless → verify → complete
+-- Tokens of Gratitude flow through multiple stewards demonstrating pledge, release, withdraw, and chaining.
 --
 -- Designed for visual verification with the Omni V2 viewer.
 
@@ -36,7 +43,7 @@ local sim_config = indras.SimConfig.new({
     wake_probability = 0,
     sleep_probability = 0,
     initial_online_probability = 1,
-    max_ticks = 200,
+    max_ticks = 300,
 })
 local sim = indras.Simulation.new(mesh, sim_config)
 sim:initialize()
@@ -370,6 +377,11 @@ logger.event("blessing_given", {
     event_count = 1,
     attention_millis = peace_attention,
 })
+
+-- Mint token for Peace's blessing of Love's logo proof
+local tok_peace_logo = home.make_token_id(logo_quest_id, peer_love, sim.tick)
+home.emit_token_minted(logger, sim.tick, realm_id, tok_peace_logo,
+    peer_love, peace_attention, peer_peace, logo_quest_id)
 sim:step()
 
 -- 2. Chat from Peace
@@ -404,6 +416,11 @@ logger.event("blessing_given", {
     event_count = 1,
     attention_millis = joy_attention,
 })
+
+-- Mint token for Joy's blessing of Love's logo proof
+local tok_joy_logo = home.make_token_id(logo_quest_id, peer_love, sim.tick)
+home.emit_token_minted(logger, sim.tick, realm_id, tok_joy_logo,
+    peer_love, joy_attention, peer_joy, logo_quest_id)
 sim:step()
 
 -- 4. Chat from Joy
@@ -710,6 +727,11 @@ logger.event("blessing_given", {
     event_count = 1,
     attention_millis = love_readme_attention,
 })
+
+-- Mint token for Love's blessing of Joy's README proof
+local tok_love_readme = home.make_token_id(readme_quest_id, peer_joy, sim.tick)
+home.emit_token_minted(logger, sim.tick, realm_id, tok_love_readme,
+    peer_joy, love_readme_attention, peer_love, readme_quest_id)
 sim:step()
 
 -- 2. Chat from Love
@@ -744,6 +766,11 @@ logger.event("blessing_given", {
     event_count = 1,
     attention_millis = peace_readme_attention,
 })
+
+-- Mint token for Peace's blessing of Joy's README proof
+local tok_peace_readme = home.make_token_id(readme_quest_id, peer_joy, sim.tick)
+home.emit_token_minted(logger, sim.tick, realm_id, tok_peace_readme,
+    peer_joy, peace_readme_attention, peer_peace, readme_quest_id)
 sim:step()
 
 -- 4. Chat from Peace
@@ -791,6 +818,293 @@ logger.info("Phase 9 complete", {
 })
 
 -- ============================================================================
+-- PHASE 10: TOKEN PLEDGE LIFECYCLE — Pledge, release, withdraw, chaining
+-- ============================================================================
+--
+-- Token inventory at this point:
+--   Love holds: tok_peace_logo (45s), tok_joy_logo (15s)
+--   Joy holds:  tok_love_readme (25s), tok_peace_readme (20s)
+--   Peace holds: (none)
+--
+-- Plan:
+--   1. Peace creates a new quest: "Write a community guide"
+--   2. Love pledges tok_peace_logo (45s) to community guide as bounty
+--   3. Joy pledges tok_love_readme (25s) to community guide as bounty
+--   4. Joy also pledges tok_peace_readme (20s), then withdraws it (demonstrating withdraw)
+--   5. Peace submits proof for community guide
+--   6. Love releases tok_peace_logo to Peace (steward transfer: Love → Peace)
+--   7. Joy releases tok_love_readme to Peace (steward transfer: Joy → Peace)
+--   8. Token chaining: Peace pledges tok_peace_logo (now hers) to a future quest
+
+logger.info("Phase 10: Token pledge lifecycle", { phase = 10 })
+
+-- 10.1 Peace creates a new quest: "Write a community guide"
+local guide_quest_id = quest_helpers.generate_quest_id()
+local guide_quest_title = "Write a community guide"
+
+logger.event("quest_created", {
+    tick = sim.tick,
+    realm_id = realm_id,
+    quest_id = guide_quest_id,
+    creator = peer_peace,
+    title = guide_quest_title,
+    latency_us = quest_helpers.quest_create_latency(),
+})
+sim:step()
+
+logger.event("chat_message", {
+    tick = sim.tick,
+    member = peer_peace,
+    realm_id = realm_id,
+    content = "New quest: Write a community guide! I'm putting up a bounty call.",
+    message_type = "text",
+})
+sim:step()
+
+-- 10.2 Love pledges tok_peace_logo (45s) to the community guide quest
+home.emit_gratitude_pledged(logger, sim.tick, realm_id, tok_peace_logo,
+    peer_love, guide_quest_id, peace_attention)
+sim:step()
+
+logger.event("chat_message", {
+    tick = sim.tick,
+    member = peer_love,
+    realm_id = realm_id,
+    content = "Pledging my 45s token to the community guide quest as bounty!",
+    message_type = "text",
+})
+sim:step()
+
+-- 10.3 Joy pledges tok_love_readme (25s) to the community guide quest
+home.emit_gratitude_pledged(logger, sim.tick, realm_id, tok_love_readme,
+    peer_joy, guide_quest_id, love_readme_attention)
+sim:step()
+
+logger.event("chat_message", {
+    tick = sim.tick,
+    member = peer_joy,
+    realm_id = realm_id,
+    content = "Adding my 25s token as bounty too. Let's make this guide happen!",
+    message_type = "text",
+})
+sim:step()
+
+-- 10.4 Joy also pledges tok_peace_readme (20s), then withdraws it
+home.emit_gratitude_pledged(logger, sim.tick, realm_id, tok_peace_readme,
+    peer_joy, guide_quest_id, peace_readme_attention)
+sim:step()
+
+logger.event("chat_message", {
+    tick = sim.tick,
+    member = peer_joy,
+    realm_id = realm_id,
+    content = "Actually, let me pull that 20s token back — saving it for later.",
+    message_type = "text",
+})
+sim:step()
+
+home.emit_gratitude_withdrawn(logger, sim.tick, realm_id, tok_peace_readme,
+    peer_joy, guide_quest_id, peace_readme_attention)
+sim:step()
+
+-- 10.5 Peace submits proof for the community guide quest
+logger.event("attention_switched", {
+    tick = sim.tick,
+    member = peer_peace,
+    quest_id = guide_quest_id,
+    latency_us = quest_helpers.attention_switch_latency(),
+})
+blessing_tracker:record_attention(guide_quest_id, peer_peace, 1, 35000)
+sim:step()
+
+local guide_folder_id = home.generate_artifact_id()
+
+logger.event("proof_folder_created", {
+    tick = sim.tick,
+    realm_id = realm_id,
+    quest_id = guide_quest_id,
+    folder_id = guide_folder_id,
+    claimant = peer_peace,
+    status = "draft",
+})
+sim:step()
+
+local guide_narrative = [[## Proof of Service: Community Guide
+
+I wrote a community guide covering:
+
+### Contents
+1. How to join a realm and introduce yourself
+2. Quest etiquette — how to claim, submit proof, and give blessings
+3. Understanding Tokens of Gratitude — earning, pledging, and releasing
+4. Best practices for collaborative work
+
+### Notes
+- Written from the perspective of a new member joining Harmony
+- Covers the full lifecycle from joining to earning your first token]]
+
+logger.event("proof_folder_narrative_updated", {
+    tick = sim.tick,
+    realm_id = realm_id,
+    folder_id = guide_folder_id,
+    claimant = peer_peace,
+    narrative_length = #guide_narrative,
+    narrative = guide_narrative,
+})
+sim:step()
+
+logger.event("proof_folder_submitted", {
+    tick = sim.tick,
+    realm_id = realm_id,
+    quest_id = guide_quest_id,
+    claimant = peer_peace,
+    folder_id = guide_folder_id,
+    artifact_count = 0,
+    narrative_preview = "Proof of Service: Community Guide — I wrote a community guide covering...",
+    quest_title = guide_quest_title,
+    narrative = guide_narrative,
+    artifacts = {},
+})
+sim:step()
+
+logger.event("chat_message", {
+    tick = sim.tick,
+    member = peer_peace,
+    realm_id = realm_id,
+    content = "Submitted my proof for the community guide!",
+    message_type = "text",
+})
+sim:step()
+
+-- 10.6 Love releases tok_peace_logo to Peace (steward transfer: Love → Peace)
+home.emit_gratitude_released(logger, sim.tick, realm_id, tok_peace_logo,
+    peer_love, peer_peace, guide_quest_id, peace_attention)
+sim:step()
+
+logger.event("chat_message", {
+    tick = sim.tick,
+    member = peer_love,
+    realm_id = realm_id,
+    content = "Releasing my 45s bounty token to Peace for the guide. Well earned!",
+    message_type = "text",
+})
+sim:step()
+
+-- 10.7 Joy releases tok_love_readme to Peace (steward transfer: Joy → Peace)
+home.emit_gratitude_released(logger, sim.tick, realm_id, tok_love_readme,
+    peer_joy, peer_peace, guide_quest_id, love_readme_attention)
+sim:step()
+
+logger.event("chat_message", {
+    tick = sim.tick,
+    member = peer_joy,
+    realm_id = realm_id,
+    content = "Releasing my 25s bounty to Peace too. Great guide!",
+    message_type = "text",
+})
+sim:step()
+
+-- Quest claim verified + completed
+logger.event("quest_claim_verified", {
+    tick = sim.tick,
+    realm_id = realm_id,
+    quest_id = guide_quest_id,
+    claim_index = 0,
+})
+sim:step()
+
+logger.event("quest_completed", {
+    tick = sim.tick,
+    realm_id = realm_id,
+    quest_id = guide_quest_id,
+    verified_claims = 1,
+    pending_claims = 0,
+})
+sim:step()
+
+logger.event("chat_message", {
+    tick = sim.tick,
+    member = peer_peace,
+    realm_id = realm_id,
+    content = "Community guide quest complete! I received both bounty tokens.",
+    message_type = "text",
+})
+sim:step()
+
+logger.info("Phase 10 complete", {
+    phase = 10,
+    tick = sim.tick,
+    guide_quest = guide_quest_id,
+    tokens_released = 2,
+    tokens_withdrawn = 1,
+})
+
+-- ============================================================================
+-- PHASE 11: TOKEN CHAINING — Peace pledges a received token onward
+-- ============================================================================
+--
+-- Token inventory now:
+--   Love holds:  tok_joy_logo (15s)
+--   Joy holds:   tok_peace_readme (20s)  [withdrawn earlier, back in wallet]
+--   Peace holds: tok_peace_logo (45s), tok_love_readme (25s)  [received via release]
+--
+-- Peace creates a final quest and pledges tok_peace_logo (originally Love's)
+-- to demonstrate token chaining: Peace → Joy → Peace → (future quest)
+
+logger.info("Phase 11: Token chaining", { phase = 11 })
+
+-- 11.1 Joy creates a quest: "Design realm onboarding flow"
+local onboard_quest_id = quest_helpers.generate_quest_id()
+local onboard_quest_title = "Design realm onboarding flow"
+
+logger.event("quest_created", {
+    tick = sim.tick,
+    realm_id = realm_id,
+    quest_id = onboard_quest_id,
+    creator = peer_joy,
+    title = onboard_quest_title,
+    latency_us = quest_helpers.quest_create_latency(),
+})
+sim:step()
+
+-- 11.2 Peace pledges tok_peace_logo (45s) to the onboarding quest
+-- This token was: minted for Love → pledged by Love → released to Peace → now pledged by Peace
+home.emit_gratitude_pledged(logger, sim.tick, realm_id, tok_peace_logo,
+    peer_peace, onboard_quest_id, peace_attention)
+sim:step()
+
+logger.event("chat_message", {
+    tick = sim.tick,
+    member = peer_peace,
+    realm_id = realm_id,
+    content = "Pledging the 45s token I received to the onboarding quest. Gratitude keeps flowing!",
+    message_type = "text",
+})
+sim:step()
+
+-- 11.3 Peace also pledges tok_love_readme (25s) to the onboarding quest
+home.emit_gratitude_pledged(logger, sim.tick, realm_id, tok_love_readme,
+    peer_peace, onboard_quest_id, love_readme_attention)
+sim:step()
+
+logger.event("chat_message", {
+    tick = sim.tick,
+    member = peer_peace,
+    realm_id = realm_id,
+    content = "And 25s more. Total bounty: 70s of attention on this quest!",
+    message_type = "text",
+})
+sim:step()
+
+logger.info("Phase 11 complete", {
+    phase = 11,
+    tick = sim.tick,
+    onboard_quest = onboard_quest_id,
+    chained_tokens = 2,
+    total_bounty_millis = peace_attention + love_readme_attention,
+})
+
+-- ============================================================================
 -- FINAL RESULTS
 -- ============================================================================
 
@@ -800,18 +1114,27 @@ local total_blessed = logo_blessed + readme_blessed
 
 result:add_metrics({
     total_members = 3,
-    total_quests = 2,
-    total_proof_folders = 2,
+    total_quests = 4,  -- logo, readme, community guide, onboarding
+    total_proof_folders = 3,  -- logo, readme, community guide
     total_blessings = 4,
     total_blessed_millis = total_blessed,
+    total_tokens_minted = 4,
+    total_pledges = 5,  -- 3 on guide (1 withdrawn) + 2 on onboarding
+    total_releases = 2,
+    total_withdrawals = 1,
 })
 
 result:record_assertion("realm_created", true, true, true)
 result:record_assertion("realm_alias_set", true, true, true)
-result:record_assertion("quests_created", 2, 2, true)
-result:record_assertion("proof_submitted", 2, 2, true)
+result:record_assertion("quests_created", 4, 4, true)
+result:record_assertion("proof_submitted", 3, 3, true)
 result:record_assertion("blessings_given", 4, 4, true)
-result:record_assertion("quests_completed", 2, 2, true)
+result:record_assertion("quests_completed", 3, 3, true)
+result:record_assertion("tokens_minted", 4, 4, true)
+result:record_assertion("tokens_pledged", 5, 5, true)
+result:record_assertion("tokens_released", 2, 2, true)
+result:record_assertion("tokens_withdrawn", 1, 1, true)
+result:record_assertion("token_chaining", true, true, true)
 
 local final_result = result:build()
 
@@ -823,6 +1146,10 @@ logger.info("Harmony Proof scenario completed", {
     logo_blessed_millis = logo_blessed,
     readme_blessed_millis = readme_blessed,
     total_blessed_millis = total_blessed,
+    tokens_minted = 4,
+    pledges = 5,
+    releases = 2,
+    withdrawals = 1,
 })
 
 -- Hard assertions
@@ -838,6 +1165,11 @@ logger.info("Harmony Proof scenario passed", {
     readme_blessed_millis = readme_blessed,
     logo_blesser_count = #blessing_tracker:get_blessers(logo_quest_id, peer_love),
     readme_blesser_count = #blessing_tracker:get_blessers(readme_quest_id, peer_joy),
+    -- Token lifecycle summary:
+    -- tok_peace_logo (45s): minted for Love → pledged to guide → released to Peace → pledged to onboarding
+    -- tok_joy_logo (15s): minted for Love → (still held by Love)
+    -- tok_love_readme (25s): minted for Joy → pledged to guide → released to Peace → pledged to onboarding
+    -- tok_peace_readme (20s): minted for Joy → pledged to guide → withdrawn → (held by Joy)
 })
 
 return final_result

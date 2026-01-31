@@ -537,6 +537,92 @@ impl ChatState {
                 self.add_global_message(msg);
             }
 
+            StreamEvent::TokenMinted {
+                tick,
+                realm_id,
+                token_id,
+                steward,
+                value_millis,
+                blesser,
+                ..
+            } => {
+                let duration = format_duration(*value_millis);
+                let id = format!("token-minted-{}-{}", token_id, tick);
+                let msg = ChatMessage::new(
+                    id,
+                    *tick,
+                    blesser.clone(),
+                    format!("Minted a Token of Gratitude ({}) for {}", duration, steward),
+                    ChatMessageType::Text,
+                );
+                self.add_realm_message(realm_id, msg.clone());
+                self.add_global_message(msg);
+            }
+
+            StreamEvent::GratitudePledged {
+                tick,
+                realm_id,
+                token_id,
+                pledger,
+                target_quest_id,
+                amount_millis,
+            } => {
+                let duration = format_duration(*amount_millis);
+                let id = format!("gratitude-pledged-{}-{}", token_id, tick);
+                let msg = ChatMessage::new(
+                    id,
+                    *tick,
+                    pledger.clone(),
+                    format!("Pledged {} of gratitude to quest {}", duration, target_quest_id),
+                    ChatMessageType::Text,
+                );
+                self.add_realm_message(realm_id, msg.clone());
+                self.add_global_message(msg);
+            }
+
+            StreamEvent::GratitudeReleased {
+                tick,
+                realm_id,
+                token_id,
+                from_steward,
+                to_steward,
+                target_quest_id,
+                amount_millis,
+            } => {
+                let duration = format_duration(*amount_millis);
+                let id = format!("gratitude-released-{}-{}", token_id, tick);
+                let msg = ChatMessage::new(
+                    id,
+                    *tick,
+                    from_steward.clone(),
+                    format!("Released {} of gratitude to {} for quest {}", duration, to_steward, target_quest_id),
+                    ChatMessageType::Text,
+                );
+                self.add_realm_message(realm_id, msg.clone());
+                self.add_global_message(msg);
+            }
+
+            StreamEvent::GratitudeWithdrawn {
+                tick,
+                realm_id,
+                token_id,
+                steward,
+                target_quest_id,
+                amount_millis,
+            } => {
+                let duration = format_duration(*amount_millis);
+                let id = format!("gratitude-withdrawn-{}-{}", token_id, tick);
+                let msg = ChatMessage::new(
+                    id,
+                    *tick,
+                    steward.clone(),
+                    format!("Withdrew {} of gratitude from quest {}", duration, target_quest_id),
+                    ChatMessageType::Text,
+                );
+                self.add_realm_message(realm_id, msg.clone());
+                self.add_global_message(msg);
+            }
+
             _ => {}
         }
     }

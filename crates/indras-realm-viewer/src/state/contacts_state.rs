@@ -15,6 +15,12 @@ pub struct ContactsState {
     pub contacted_by: HashMap<String, HashSet<String>>,
     /// Selected member for details panel
     pub selected_member: Option<String>,
+    /// Sentiment per member: member -> (contact -> sentiment)
+    pub sentiments: HashMap<String, HashMap<String, i8>>,
+    /// Blocked contacts per member: member -> set of blocked contacts
+    pub blocked: HashMap<String, HashSet<String>>,
+    /// Relayed sentiment signals: member -> list of (about, sentiment, via)
+    pub relayed_sentiments: HashMap<String, Vec<(String, i8, String)>>,
 }
 
 impl ContactsState {
@@ -47,6 +53,56 @@ impl ContactsState {
                 if let Some(contacted_by) = self.contacted_by.get_mut(contact) {
                     contacted_by.remove(member);
                 }
+                // Clean up sentiment when contact is removed
+                if let Some(sentiments) = self.sentiments.get_mut(member) {
+                    sentiments.remove(contact);
+                }
+            }
+
+            StreamEvent::SentimentUpdated {
+                member,
+                contact,
+                sentiment,
+                ..
+            } => {
+                self.sentiments
+                    .entry(member.clone())
+                    .or_default()
+                    .insert(contact.clone(), *sentiment);
+            }
+
+            StreamEvent::ContactBlocked {
+                member, contact, ..
+            } => {
+                // Remove from contacts
+                if let Some(contacts) = self.contacts.get_mut(member) {
+                    contacts.remove(contact);
+                }
+                if let Some(contacted_by) = self.contacted_by.get_mut(contact) {
+                    contacted_by.remove(member);
+                }
+                // Clean up sentiment
+                if let Some(sentiments) = self.sentiments.get_mut(member) {
+                    sentiments.remove(contact);
+                }
+                // Track the block
+                self.blocked
+                    .entry(member.clone())
+                    .or_default()
+                    .insert(contact.clone());
+            }
+
+            StreamEvent::RelayedSentimentReceived {
+                member,
+                about,
+                sentiment,
+                via,
+                ..
+            } => {
+                self.relayed_sentiments
+                    .entry(member.clone())
+                    .or_default()
+                    .push((about.clone(), *sentiment, via.clone()));
             }
 
             _ => {}
@@ -116,6 +172,36 @@ impl ContactsState {
     /// Get total contact relationships
     pub fn contact_count(&self) -> usize {
         self.contacts.values().map(|c| c.len()).sum()
+    }
+
+    /// Get sentiment that a member has toward a contact.
+    pub fn get_sentiment(&self, member: &str, contact: &str) -> Option<i8> {
+        self.sentiments
+            .get(member)
+            .and_then(|s| s.get(contact))
+            .copied()
+    }
+
+    /// Check if a member has blocked a contact.
+    pub fn is_blocked(&self, member: &str, contact: &str) -> bool {
+        self.blocked
+            .get(member)
+            .map(|b| b.contains(contact))
+            .unwrap_or(false)
+    }
+
+    /// Get all edges with sentiment for graph visualization.
+    /// Returns (from, to, mutual, sentiment).
+    pub fn all_edges_with_sentiment(&self) -> Vec<(&String, &String, bool, Option<i8>)> {
+        let mut edges = Vec::new();
+        for (member, contacts) in &self.contacts {
+            for contact in contacts {
+                let mutual = self.is_mutual(member, contact);
+                let sentiment = self.get_sentiment(member, contact);
+                edges.push((member, contact, mutual, sentiment));
+            }
+        }
+        edges
     }
 
     /// Get all members relevant to a specific member (their contacts + who has them as contact)

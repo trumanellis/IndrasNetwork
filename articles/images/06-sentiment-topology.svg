@@ -1,0 +1,181 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540">
+  <defs>
+    <radialGradient id="bg6" cx="50%" cy="50%" r="70%">
+      <stop offset="0%" stop-color="#101828"/>
+      <stop offset="100%" stop-color="#060a10"/>
+    </radialGradient>
+    <radialGradient id="s-cyan" cx="40%" cy="30%" r="55%">
+      <stop offset="0%" stop-color="#b0fffa"/>
+      <stop offset="100%" stop-color="#30c0b0"/>
+    </radialGradient>
+    <radialGradient id="s-mag" cx="40%" cy="30%" r="55%">
+      <stop offset="0%" stop-color="#ffa0e0"/>
+      <stop offset="100%" stop-color="#c040a0"/>
+    </radialGradient>
+    <radialGradient id="s-gold" cx="40%" cy="30%" r="55%">
+      <stop offset="0%" stop-color="#ffe8a0"/>
+      <stop offset="100%" stop-color="#c09030"/>
+    </radialGradient>
+    <radialGradient id="s-green" cx="40%" cy="30%" r="55%">
+      <stop offset="0%" stop-color="#a0ffc0"/>
+      <stop offset="100%" stop-color="#30a050"/>
+    </radialGradient>
+    <radialGradient id="s-red" cx="40%" cy="30%" r="55%">
+      <stop offset="0%" stop-color="#ffa0a0"/>
+      <stop offset="100%" stop-color="#c03030"/>
+    </radialGradient>
+    <radialGradient id="s-dim" cx="40%" cy="30%" r="55%">
+      <stop offset="0%" stop-color="#a09090"/>
+      <stop offset="100%" stop-color="#504040"/>
+    </radialGradient>
+    <radialGradient id="s-blue" cx="40%" cy="30%" r="55%">
+      <stop offset="0%" stop-color="#a0d0ff"/>
+      <stop offset="100%" stop-color="#3070c0"/>
+    </radialGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="glow-big" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="10" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="glow-pool" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="20" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect width="960" height="540" fill="url(#bg6)"/>
+
+  <!-- Stars -->
+  <g fill="#ffffff">
+    <circle cx="80" cy="40" r="0.8" opacity="0.3"/>
+    <circle cx="250" cy="25" r="0.6" opacity="0.2"/>
+    <circle cx="500" cy="15" r="0.9" opacity="0.25"/>
+    <circle cx="750" cy="35" r="0.7" opacity="0.2"/>
+    <circle cx="900" cy="60" r="0.6" opacity="0.15"/>
+    <circle cx="60" cy="500" r="0.7" opacity="0.2"/>
+    <circle cx="880" cy="510" r="0.8" opacity="0.15"/>
+  </g>
+
+  <!-- ===== LEFT: Healthy trust cluster ===== -->
+
+  <!-- Ambient pool -->
+  <circle cx="260" cy="240" r="140" fill="#a0ffc0" opacity="0.03" filter="url(#glow-pool)"/>
+
+  <!-- Positive connections (+1) thick bright green -->
+  <g stroke-width="2.5" fill="none" opacity="0.5">
+    <path d="M 180 170 Q 230 150 290 180" stroke="#70ff90"/>
+    <path d="M 180 170 Q 175 230 200 290" stroke="#70ff90"/>
+    <path d="M 290 180 Q 270 240 200 290" stroke="#70ff90"/>
+  </g>
+
+  <!-- Cluster internal connections -->
+  <g stroke-width="2" fill="none" opacity="0.4">
+    <path d="M 290 180 Q 340 190 370 210" stroke="#70ff90"/>
+    <path d="M 200 290 Q 260 310 330 300" stroke="#70ff90"/>
+    <path d="M 180 170 Q 140 210 130 260" stroke="#70ff90"/>
+    <path d="M 130 260 Q 160 290 200 290" stroke="#70ff90"/>
+    <path d="M 370 210 Q 360 260 330 300" stroke="#70ff90"/>
+  </g>
+
+  <!-- ===== CENTER: Neutral bridge zone ===== -->
+  <g stroke-width="1.5" fill="none" opacity="0.3">
+    <path d="M 370 210 Q 430 200 490 220" stroke="#80b0ff"/>
+    <path d="M 330 300 Q 420 310 500 280" stroke="#80b0ff"/>
+  </g>
+
+  <!-- ===== RIGHT: Orion's shrinking world ===== -->
+
+  <!-- Dim reddish pool -->
+  <circle cx="720" cy="250" r="100" fill="#ffa0a0" opacity="0.02" filter="url(#glow-pool)"/>
+
+  <!-- Orion's one remaining bridge -->
+  <g stroke-width="1.5" fill="none" opacity="0.3">
+    <path d="M 490 220 Q 560 210 640 230" stroke="#ffe080"/>
+    <path d="M 640 230 Q 680 220 720 240" stroke="#ffe080" opacity="0.5"/>
+  </g>
+
+  <!-- Negative sentiment edges (dashed red, prominent) -->
+  <g stroke-width="2" fill="none" opacity="0.5">
+    <path d="M 720 240 Q 680 290 650 330" stroke="#ff7070" stroke-dasharray="6,4"/>
+    <path d="M 720 240 Q 770 290 790 330" stroke="#ff7070" stroke-dasharray="6,4"/>
+  </g>
+
+  <!-- Orion's dim remaining contacts -->
+  <g stroke-width="1" fill="none" opacity="0.15">
+    <path d="M 720 240 Q 780 200 830 190" stroke="#a09090"/>
+    <path d="M 720 240 Q 770 180 820 150" stroke="#a09090"/>
+    <path d="M 830 190 Q 835 170 820 150" stroke="#a09090"/>
+  </g>
+
+  <!-- ===== BOTTOM: Lyra + relay signals ===== -->
+  <g stroke-width="1.2" fill="none" opacity="0.35">
+    <path d="M 200 290 Q 280 390 400 420" stroke="#ffe080" stroke-dasharray="4,6"/>
+    <path d="M 290 180 Q 350 340 400 420" stroke="#ffe080" stroke-dasharray="4,6"/>
+  </g>
+
+  <!-- ===== NODES ===== -->
+
+  <!-- Small peripheral nodes -->
+  <g filter="url(#glow)">
+    <circle cx="130" cy="260" r="5" fill="url(#s-green)" opacity="0.7"/>
+    <circle cx="370" cy="210" r="5" fill="url(#s-green)" opacity="0.7"/>
+    <circle cx="330" cy="300" r="5" fill="url(#s-green)" opacity="0.7"/>
+    <circle cx="490" cy="220" r="5" fill="url(#s-blue)" opacity="0.6"/>
+    <circle cx="500" cy="280" r="4" fill="url(#s-blue)" opacity="0.5"/>
+    <circle cx="640" cy="230" r="5" fill="url(#s-gold)" opacity="0.6"/>
+    <circle cx="830" cy="190" r="4" fill="url(#s-dim)" opacity="0.5"/>
+    <circle cx="820" cy="150" r="4" fill="url(#s-dim)" opacity="0.5"/>
+    <circle cx="650" cy="330" r="4" fill="url(#s-blue)" opacity="0.5"/>
+    <circle cx="790" cy="330" r="4" fill="url(#s-blue)" opacity="0.5"/>
+  </g>
+
+  <!-- Primary named nodes -->
+  <g filter="url(#glow-big)">
+    <circle cx="180" cy="170" r="12" fill="url(#s-cyan)"/>
+    <circle cx="290" cy="180" r="11" fill="url(#s-mag)"/>
+    <circle cx="200" cy="290" r="11" fill="url(#s-gold)"/>
+    <circle cx="720" cy="240" r="11" fill="url(#s-red)"/>
+    <circle cx="400" cy="420" r="10" fill="url(#s-cyan)"/>
+  </g>
+
+  <!-- Specular highlights -->
+  <circle cx="176" cy="163" r="4" fill="#ffffff" opacity="0.3"/>
+  <circle cx="286" cy="173" r="3.5" fill="#ffffff" opacity="0.25"/>
+  <circle cx="196" cy="283" r="3.5" fill="#ffffff" opacity="0.25"/>
+  <circle cx="716" cy="233" r="3" fill="#ffffff" opacity="0.15"/>
+  <circle cx="396" cy="413" r="3" fill="#ffffff" opacity="0.25"/>
+
+  <!-- ===== LABELS ===== -->
+  <g font-family="'SF Pro Display', 'Helvetica Neue', Arial, sans-serif" font-weight="500" font-size="15" fill="#ffffff">
+    <text x="180" y="148" text-anchor="middle" opacity="0.85">Zephyr</text>
+    <text x="310" y="166" text-anchor="start" opacity="0.85">Nova</text>
+    <text x="200" y="320" text-anchor="middle" opacity="0.85">Sage</text>
+    <text x="720" y="220" text-anchor="middle" opacity="0.55">Orion</text>
+    <text x="400" y="448" text-anchor="middle" opacity="0.85">Lyra</text>
+  </g>
+
+  <!-- Annotation: relay signal -->
+  <g font-family="'SF Pro Display', 'Helvetica Neue', Arial, sans-serif" font-size="11" font-style="italic" fill="#ffe080" opacity="0.5">
+    <text x="310" y="380" text-anchor="middle">relayed warning</text>
+  </g>
+
+  <!-- ===== LEGEND ===== -->
+  <g transform="translate(50, 480)">
+    <g font-family="'SF Pro Display', 'Helvetica Neue', Arial, sans-serif" font-size="12" fill="#ffffff" opacity="0.6">
+      <line x1="0" y1="0" x2="30" y2="0" stroke="#70ff90" stroke-width="2.5"/>
+      <text x="38" y="4">recommend (+1)</text>
+
+      <line x1="200" y1="0" x2="230" y2="0" stroke="#80b0ff" stroke-width="1.5"/>
+      <text x="238" y="4">neutral (0)</text>
+
+      <line x1="370" y1="0" x2="400" y2="0" stroke="#ff7070" stroke-width="2" stroke-dasharray="6,4"/>
+      <text x="408" y="4">don't recommend (-1)</text>
+
+      <line x1="600" y1="0" x2="630" y2="0" stroke="#ffe080" stroke-width="1.2" stroke-dasharray="4,6"/>
+      <text x="638" y="4">second-degree relay</text>
+    </g>
+  </g>
+</svg>

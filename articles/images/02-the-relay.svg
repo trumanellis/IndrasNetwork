@@ -1,0 +1,130 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 420">
+  <defs>
+    <radialGradient id="bg2" cx="50%" cy="50%" r="70%">
+      <stop offset="0%" stop-color="#120a1a"/>
+      <stop offset="100%" stop-color="#060310"/>
+    </radialGradient>
+    <linearGradient id="phone-body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#2a2a3a"/>
+      <stop offset="100%" stop-color="#1a1a28"/>
+    </linearGradient>
+    <linearGradient id="phone-dark" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1a1a24"/>
+      <stop offset="100%" stop-color="#0e0e16"/>
+    </linearGradient>
+    <linearGradient id="screen-zara" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#d4a843"/>
+      <stop offset="100%" stop-color="#8a6b20"/>
+    </linearGradient>
+    <linearGradient id="screen-kai" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#43b4a0"/>
+      <stop offset="100%" stop-color="#1a5a50"/>
+    </linearGradient>
+    <linearGradient id="envelope-grad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffe8a0"/>
+      <stop offset="100%" stop-color="#d4a843"/>
+    </linearGradient>
+    <filter id="g2" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="g2-soft" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="g2-wide" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="15" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect width="900" height="420" fill="url(#bg2)"/>
+
+  <!-- Subtle particle dust -->
+  <circle cx="120" cy="90" r="0.6" fill="#d4a843" opacity="0.15"/>
+  <circle cx="300" cy="50" r="0.5" fill="#43b4a0" opacity="0.12"/>
+  <circle cx="600" cy="60" r="0.7" fill="#d4a843" opacity="0.1"/>
+  <circle cx="780" cy="100" r="0.5" fill="#4390d4" opacity="0.12"/>
+  <circle cx="150" cy="350" r="0.6" fill="#43b4a0" opacity="0.1"/>
+  <circle cx="700" cy="340" r="0.5" fill="#d4a843" opacity="0.12"/>
+
+  <!-- Full relay path: Zara → Kai → Isla -->
+  <!-- Zara → Kai (active, gold) -->
+  <path d="M 200 210 Q 320 150 400 195" stroke="#d4a843" stroke-width="1.5" fill="none" opacity="0.3" stroke-dasharray="6 4" filter="url(#g2-soft)"/>
+  <!-- Kai → Isla (waiting, teal, pulsing) -->
+  <path d="M 490 195 Q 580 150 680 200" stroke="#4390d4" stroke-width="1.2" fill="none" opacity="0.2" stroke-dasharray="4 6" filter="url(#g2-soft)"/>
+  <!-- Waiting dots along Kai→Isla path -->
+  <circle cx="530" cy="178" r="1.5" fill="#4390d4" opacity="0.18"/>
+  <circle cx="570" cy="168" r="1.8" fill="#4390d4" opacity="0.15"/>
+  <circle cx="615" cy="170" r="1.5" fill="#4390d4" opacity="0.12"/>
+  <circle cx="655" cy="182" r="1.2" fill="#4390d4" opacity="0.10"/>
+
+  <!-- Labels -->
+  <text x="160" y="360" font-family="Georgia, serif" font-size="15" fill="#d4a843" opacity="0.7" text-anchor="middle">Zara</text>
+  <text x="440" y="360" font-family="Georgia, serif" font-size="15" fill="#43b4a0" opacity="0.7" text-anchor="middle">Kai</text>
+  <text x="720" y="360" font-family="Georgia, serif" font-size="15" fill="#4390d4" opacity="0.5" text-anchor="middle">Isla</text>
+
+  <!-- Role labels -->
+  <text x="160" y="376" font-family="'SF Mono', monospace" font-size="8" fill="#d4a843" opacity="0.3" text-anchor="middle" letter-spacing="1.5px">SENDER</text>
+  <text x="440" y="376" font-family="'SF Mono', monospace" font-size="8" fill="#43b4a0" opacity="0.3" text-anchor="middle" letter-spacing="1.5px">RELAY</text>
+  <text x="720" y="376" font-family="'SF Mono', monospace" font-size="8" fill="#4390d4" opacity="0.3" text-anchor="middle" letter-spacing="1.5px">OFFLINE</text>
+
+  <!-- Zara's phone - active, gold glow -->
+  <g transform="translate(122, 155)">
+    <rect x="0" y="0" width="76" height="140" rx="10" fill="url(#phone-body)" stroke="#3a3a4a" stroke-width="1"/>
+    <rect x="6" y="14" width="64" height="108" rx="4" fill="url(#screen-zara)" opacity="0.25"/>
+    <rect x="14" y="30" width="40" height="4" rx="2" fill="#d4a843" opacity="0.4"/>
+    <rect x="14" y="40" width="48" height="4" rx="2" fill="#d4a843" opacity="0.3"/>
+    <rect x="14" y="50" width="35" height="4" rx="2" fill="#d4a843" opacity="0.25"/>
+    <polygon points="42,80 56,88 42,96" fill="#d4a843" opacity="0.5"/>
+    <circle cx="38" cy="8" r="2" fill="#d4a843" opacity="0.4"/>
+  </g>
+  <circle cx="160" cy="225" r="50" fill="#d4a843" opacity="0.04" filter="url(#g2-wide)"/>
+
+  <!-- Kai's phone - active, teal glow, holding envelope -->
+  <g transform="translate(402, 155)">
+    <rect x="0" y="0" width="76" height="140" rx="10" fill="url(#phone-body)" stroke="#3a3a4a" stroke-width="1"/>
+    <rect x="6" y="14" width="64" height="108" rx="4" fill="url(#screen-kai)" opacity="0.2"/>
+    <rect x="22" y="55" width="32" height="22" rx="2" fill="#d4a843" opacity="0.5"/>
+    <polyline points="22,55 38,70 54,55" stroke="#1a5a50" stroke-width="1.5" fill="none" opacity="0.6"/>
+    <rect x="34" y="82" width="8" height="7" rx="1" fill="#43b4a0" opacity="0.4"/>
+    <path d="M 35 82 L 35 79 Q 35 76 38 76 Q 41 76 41 79 L 41 82" stroke="#43b4a0" stroke-width="1" fill="none" opacity="0.4"/>
+    <circle cx="38" cy="8" r="2" fill="#43b4a0" opacity="0.4"/>
+  </g>
+  <circle cx="440" cy="225" r="50" fill="#43b4a0" opacity="0.04" filter="url(#g2-wide)"/>
+
+  <!-- Isla's phone - dark/asleep -->
+  <g transform="translate(682, 155)">
+    <rect x="0" y="0" width="76" height="140" rx="10" fill="url(#phone-dark)" stroke="#1a1a2a" stroke-width="1" opacity="0.7"/>
+    <rect x="6" y="14" width="64" height="108" rx="4" fill="#0a0a14" opacity="0.8"/>
+    <circle cx="38" cy="8" r="2" fill="#4390d4" opacity="0.15"/>
+    <!-- ZZZ -->
+    <text x="48" y="50" font-family="Georgia, serif" font-size="11" fill="#4390d4" opacity="0.2">z</text>
+    <text x="56" y="38" font-family="Georgia, serif" font-size="13" fill="#4390d4" opacity="0.15">z</text>
+    <text x="64" y="26" font-family="Georgia, serif" font-size="15" fill="#4390d4" opacity="0.1">z</text>
+  </g>
+  <!-- Isla dim glow (she's the destination even if offline) -->
+  <circle cx="720" cy="225" r="45" fill="#4390d4" opacity="0.02" filter="url(#g2-wide)"/>
+
+  <!-- Floating sealed envelope between Zara and Kai -->
+  <g transform="translate(268, 178)" filter="url(#g2)">
+    <rect x="0" y="8" width="50" height="34" rx="3" fill="url(#envelope-grad)" opacity="0.85"/>
+    <polygon points="0,8 25,28 50,8" fill="#ffe8a0" opacity="0.7" stroke="#d4a843" stroke-width="0.5"/>
+    <circle cx="25" cy="30" r="7" fill="#cc3333" opacity="0.8"/>
+    <circle cx="25" cy="30" r="4" fill="#ff6b6b" opacity="0.5"/>
+    <rect x="23" y="30" width="4" height="3" rx="0.5" fill="#990000" opacity="0.6"/>
+    <path d="M 23.5 30 L 23.5 28.5 Q 23.5 27 25 27 Q 26.5 27 26.5 28.5 L 26.5 30" stroke="#990000" stroke-width="0.8" fill="none" opacity="0.6"/>
+  </g>
+
+  <!-- Motion trail particles from Zara toward envelope -->
+  <circle cx="248" cy="198" r="1.5" fill="#d4a843" opacity="0.2"/>
+  <circle cx="236" cy="202" r="1" fill="#d4a843" opacity="0.15"/>
+  <circle cx="224" cy="200" r="0.8" fill="#d4a843" opacity="0.1"/>
+
+  <!-- Small clock/wait icon near Kai→Isla midpoint -->
+  <g transform="translate(565, 140)" opacity="0.25">
+    <circle cx="0" cy="0" r="8" fill="none" stroke="#4390d4" stroke-width="0.8"/>
+    <line x1="0" y1="0" x2="0" y2="-5" stroke="#4390d4" stroke-width="0.8" stroke-linecap="round"/>
+    <line x1="0" y1="0" x2="3.5" y2="0" stroke="#4390d4" stroke-width="0.8" stroke-linecap="round"/>
+  </g>
+</svg>
