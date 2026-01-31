@@ -123,6 +123,134 @@ thresholds.download_access = {
 }
 
 -- ============================================================================
+-- GRANT/REVOKE ACCESS THRESHOLDS
+-- ============================================================================
+
+thresholds.grant_access = {
+    quick = {
+        -- Grant operation latency: p99 < 500 microseconds
+        grant_p99_us = { max = 500 },
+
+        -- Revoke operation latency: p99 < 300 microseconds
+        revoke_p99_us = { max = 300 },
+
+        -- Grant success rate (valid grants succeed)
+        grant_success_rate = { min = 1.0 },
+
+        -- Permanent grants survive recall: 100%
+        permanent_survives_recall_rate = { min = 1.0 },
+
+        -- Revocable grants removed on recall: 100%
+        revocable_removed_on_recall_rate = { min = 1.0 },
+
+        -- Cannot revoke permanent: 100% denial rate
+        permanent_revoke_denial_rate = { min = 1.0 },
+    },
+    medium = {
+        grant_p99_us = { max = 500 },
+        revoke_p99_us = { max = 300 },
+        grant_success_rate = { min = 1.0 },
+        permanent_survives_recall_rate = { min = 1.0 },
+        revocable_removed_on_recall_rate = { min = 1.0 },
+        permanent_revoke_denial_rate = { min = 1.0 },
+    },
+    full = {
+        grant_p99_us = { max = 500 },
+        revoke_p99_us = { max = 300 },
+        grant_success_rate = { min = 1.0 },
+        permanent_survives_recall_rate = { min = 1.0 },
+        revocable_removed_on_recall_rate = { min = 1.0 },
+        permanent_revoke_denial_rate = { min = 1.0 },
+    }
+}
+
+-- ============================================================================
+-- TRANSFER THRESHOLDS
+-- ============================================================================
+
+thresholds.transfer = {
+    quick = {
+        -- Transfer operation latency: p99 < 1000 microseconds
+        transfer_p99_us = { max = 1000 },
+
+        -- Transfer success rate
+        transfer_success_rate = { min = 1.0 },
+
+        -- Sender gets revocable access back: 100%
+        sender_revocable_back_rate = { min = 1.0 },
+
+        -- Original marked as transferred: 100%
+        original_transferred_rate = { min = 1.0 },
+    },
+    medium = {
+        transfer_p99_us = { max = 1000 },
+        transfer_success_rate = { min = 1.0 },
+        sender_revocable_back_rate = { min = 1.0 },
+        original_transferred_rate = { min = 1.0 },
+    },
+    full = {
+        transfer_p99_us = { max = 1000 },
+        transfer_success_rate = { min = 1.0 },
+        sender_revocable_back_rate = { min = 1.0 },
+        original_transferred_rate = { min = 1.0 },
+    }
+}
+
+-- ============================================================================
+-- TIMED ACCESS THRESHOLDS
+-- ============================================================================
+
+thresholds.timed_access = {
+    quick = {
+        -- Timed grant expiry accuracy: access denied after expiry tick
+        expiry_enforcement_rate = { min = 1.0 },
+
+        -- GC removes expired grants
+        gc_removal_rate = { min = 1.0 },
+
+        -- Access valid before expiry
+        pre_expiry_access_rate = { min = 1.0 },
+    },
+    medium = {
+        expiry_enforcement_rate = { min = 1.0 },
+        gc_removal_rate = { min = 1.0 },
+        pre_expiry_access_rate = { min = 1.0 },
+    },
+    full = {
+        expiry_enforcement_rate = { min = 1.0 },
+        gc_removal_rate = { min = 1.0 },
+        pre_expiry_access_rate = { min = 1.0 },
+    }
+}
+
+-- ============================================================================
+-- RECOVERY THRESHOLDS
+-- ============================================================================
+
+thresholds.recovery = {
+    quick = {
+        -- Recovery latency: p99 < 10000 microseconds (10ms)
+        recovery_p99_us = { max = 10000 },
+
+        -- Permanent grant recovery success rate
+        permanent_recovery_rate = { min = 1.0 },
+
+        -- Overall recovery success rate (best-effort for non-permanent)
+        overall_recovery_rate = { min = 0.8 },
+    },
+    medium = {
+        recovery_p99_us = { max = 10000 },
+        permanent_recovery_rate = { min = 1.0 },
+        overall_recovery_rate = { min = 0.85 },
+    },
+    full = {
+        recovery_p99_us = { max = 10000 },
+        permanent_recovery_rate = { min = 1.0 },
+        overall_recovery_rate = { min = 0.9 },
+    }
+}
+
+-- ============================================================================
 -- UTILITY FUNCTIONS
 -- ============================================================================
 

@@ -1154,18 +1154,21 @@ fn V2ArtifactScreen(state: Signal<AppState>, member: String) -> Element {
     let member_realms = state_read.realms.realms_for_member(&member);
     let realm_ids: Vec<&str> = member_realms.iter().map(|r| r.realm_id.as_str()).collect();
 
-    // Collect realm artifacts by others (full ArtifactInfo refs)
+    // Collect artifacts shared with me (by others)
     let mut shared_artifacts: Vec<&ArtifactInfo> = Vec::new();
     for realm_id in &realm_ids {
         for a in state_read.artifacts.artifacts_for_realm(realm_id) {
-            if a.sharer != member {
+            if a.sharer != member && a.status == ArtifactStatus::Shared {
                 shared_artifacts.push(a);
             }
         }
     }
     shared_artifacts.truncate(10);
 
-    let total = member_artifacts.len() + shared_artifacts.len();
+    // Collect transferred artifacts
+    let transferred_artifacts = state_read.artifacts.transferred_artifacts();
+
+    let total = member_artifacts.len() + shared_artifacts.len() + transferred_artifacts.len();
     let files_label = if total == 1 { "1 file".to_string() } else { format!("{} files", total) };
 
     rsx! {
@@ -1184,7 +1187,6 @@ fn V2ArtifactScreen(state: Signal<AppState>, member: String) -> Element {
                             let has_thumb = a.data_url.is_some() && a.has_displayable_image();
                             let size_text = a.formatted_size();
                             let icon = a.icon();
-                            let is_shared = a.status == ArtifactStatus::Shared;
                             let file_name = a.name.clone();
                             let artifact_hash = a.artifact_hash.clone();
                             let mime = a.mime_type.clone().unwrap_or_default();
@@ -1258,11 +1260,21 @@ fn V2ArtifactScreen(state: Signal<AppState>, member: String) -> Element {
                                         div { class: "v2-file-name", "{a.name}" }
                                         div { class: "v2-file-meta", "{size_text}" }
                                     }
-                                    // Action
-                                    if is_shared {
-                                        button { class: "v2-file-action", "Recall" }
-                                    } else {
-                                        span { class: "v2-file-recalled-badge", "Recalled" }
+                                    // Access mode badge + action
+                                    div { class: "v2-file-actions",
+                                        span { class: "v2-file-mode-badge v2-mode-{a.access_mode}", "{a.access_mode}" }
+                                        if a.status == ArtifactStatus::Shared {
+                                            if a.downloadable {
+                                                button { class: "v2-file-action v2-file-download", "Download" }
+                                            }
+                                            button { class: "v2-file-action", "Recall" }
+                                        } else if a.status == ArtifactStatus::Recalled {
+                                            span { class: "v2-file-recalled-badge", "Recalled" }
+                                        } else if a.status == ArtifactStatus::Transferred {
+                                            span { class: "v2-file-transferred-badge", "Transferred" }
+                                        } else if a.status == ArtifactStatus::Expired {
+                                            span { class: "v2-file-expired-badge", "Expired" }
+                                        }
                                     }
                                 }
                             }
@@ -1355,13 +1367,44 @@ fn V2ArtifactScreen(state: Signal<AppState>, member: String) -> Element {
                                             "{size_text} · from {sharer_name}"
                                         }
                                     }
+                                    // Access mode badge
+                                    div { class: "v2-file-actions",
+                                        span { class: "v2-file-mode-badge v2-mode-{a.access_mode}", "{a.access_mode}" }
+                                        if a.downloadable {
+                                            button { class: "v2-file-action v2-file-download", "Download" }
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
-            if member_artifacts.is_empty() && shared_artifacts.is_empty() {
+            // Transferred section
+            if !transferred_artifacts.is_empty() {
+                div { class: "v2-files-section",
+                    div { class: "v2-files-section-label", "TRANSFERRED" }
+                    for a in transferred_artifacts.iter().take(10) {
+                        {
+                            let size_text = a.formatted_size();
+                            let icon = a.icon();
+                            rsx! {
+                                div { class: "v2-file-card",
+                                    div { class: "v2-file-thumb v2-file-thumb-icon",
+                                        span { "{icon}" }
+                                    }
+                                    div { class: "v2-file-info",
+                                        div { class: "v2-file-name", "{a.name}" }
+                                        div { class: "v2-file-meta", "{size_text}" }
+                                    }
+                                    span { class: "v2-file-transferred-badge", "Transferred" }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if member_artifacts.is_empty() && shared_artifacts.is_empty() && transferred_artifacts.is_empty() {
                 div { class: "v2-files-empty", "No files yet" }
             }
         }

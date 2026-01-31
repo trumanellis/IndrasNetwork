@@ -65,12 +65,24 @@ artifact.EVENTS = {
     -- CRDT sync
     CRDT_CONVERGED = "crdt_converged",
     CRDT_CONFLICT = "crdt_conflict",
+
+    -- ArtifactIndex events
+    ARTIFACT_UPLOADED = "artifact_uploaded",
+    ARTIFACT_GRANTED = "artifact_granted",
+    ARTIFACT_ACCESS_REVOKED = "artifact_access_revoked",
+    ARTIFACT_TRANSFERRED = "artifact_transferred",
+    ARTIFACT_EXPIRED = "artifact_expired",
+    RECOVERY_REQUESTED = "recovery_requested",
+    RECOVERY_COMPLETED = "recovery_completed",
 }
 
 -- Artifact status values
 artifact.STATUS = {
     SHARED = "shared",
     RECALLED = "recalled",
+    ACTIVE = "active",
+    TRANSFERRED = "transferred",
+    EXPIRED = "expired",
 }
 
 -- ============================================================================
@@ -430,6 +442,294 @@ end
 artifact.KeyRegistry = { new = artifact.KeyRegistry_new }
 
 -- ============================================================================
+-- ACCESS MODES (for ArtifactIndex)
+-- ============================================================================
+
+artifact.ACCESS_MODES = {
+    REVOCABLE = "revocable",
+    PERMANENT = "permanent",
+    TIMED = "timed",
+    TRANSFER = "transfer",
+}
+
+-- ============================================================================
+-- ARTIFACT INDEX (Replaces KeyRegistry for shared filesystem model)
+-- ============================================================================
+
+--- Create a new ArtifactIndex for simulation
+-- Simulates the home-realm CRDT document for per-artifact access control
+-- @return table ArtifactIndex object
+function artifact.ArtifactIndex_new()
+    local index = {
+        -- artifacts[hash] = { name, size, mime_type, owner, status, created_at, grants = {}, provenance = nil }
+        artifacts = {},
+        -- revocations = array of { hash, revoked_by, tick }
+        revocations = {},
+        -- Statistics
+        total_stored = 0,
+        total_grants = 0,
+        total_revocations = 0,
+        total_transfers = 0,
+    }
+
+    --- Store an artifact in the index
+    -- @param hash string Artifact hash
+    -- @param meta table { name, size, mime_type }
+    -- @param owner string Owner member ID
+    -- @param tick number Current simulation tick
+    -- @return boolean success
+    function index:store(hash, meta, owner, tick)
+        if self.artifacts[hash] then
+            return false -- Already exists
+        end
+        self.artifacts[hash] = {
+            name = meta.name,
+            size = meta.size,
+            mime_type = meta.mime_type,
+            owner = owner,
+            status = artifact.STATUS.ACTIVE,
+            created_at = tick,
+            grants = {},  -- grantee -> { mode, granted_at, granted_by, expires_at }
+        }
+        self.total_stored = self.total_stored + 1
+        return true
+    end
+
+    --- Grant access to an artifact
+    -- @param hash string Artifact hash
+    -- @param grantee string Member to grant access
+    -- @param mode string Access mode (revocable/permanent/timed/transfer)
+    -- @param granted_by string Who granted
+    -- @param tick number Current tick
+    -- @param expires_at number|nil Expiry tick for timed grants
+    -- @return boolean success, string|nil error
+    function index:grant(hash, grantee, mode, granted_by, tick, expires_at)
+        local art = self.artifacts[hash]
+        if not art then
+            return false, "Artifact not found"
+        end
+        if art.status ~= artifact.STATUS.ACTIVE then
+            return false, "Artifact not active"
+        end
+        if art.grants[grantee] then
+            return false, "Already granted"
+        end
+        art.grants[grantee] = {
+            mode = mode,
+            granted_at = tick,
+            granted_by = granted_by,
+            expires_at = expires_at,
+        }
+        self.total_grants = self.total_grants + 1
+        return true
+    end
+
+    --- Revoke access from a grantee
+    -- @param hash string Artifact hash
+    -- @param grantee string Member to revoke
+    -- @return boolean success, string|nil error
+    function index:revoke_access(hash, grantee)
+        local art = self.artifacts[hash]
+        if not art then
+            return false, "Artifact not found"
+        end
+        local grant = art.grants[grantee]
+        if not grant then
+            return false, "No grant found"
+        end
+        if grant.mode == artifact.ACCESS_MODES.PERMANENT then
+            return false, "Cannot revoke permanent grant"
+        end
+        art.grants[grantee] = nil
+        self.total_revocations = self.total_revocations + 1
+        return true
+    end
+
+    --- Recall an artifact (remove all revocable/timed grants, keep permanent)
+    -- @param hash string Artifact hash
+    -- @param tick number Current tick
+    -- @return boolean success
+    function index:recall(hash, tick)
+        local art = self.artifacts[hash]
+        if not art then
+            return false
+        end
+        art.status = artifact.STATUS.RECALLED
+        -- Remove revocable and timed grants, keep permanent
+        local to_remove = {}
+        for grantee, grant in pairs(art.grants) do
+            if grant.mode ~= artifact.ACCESS_MODES.PERMANENT then
+                table.insert(to_remove, grantee)
+            end
+        end
+        for _, grantee in ipairs(to_remove) do
+            art.grants[grantee] = nil
+        end
+        table.insert(self.revocations, { hash = hash, tick = tick })
+        return true
+    end
+
+    --- Transfer ownership of an artifact
+    -- @param hash string Artifact hash
+    -- @param to string New owner
+    -- @param from string Current owner
+    -- @param tick number Current tick
+    -- @return table|nil transferred entry, string|nil error
+    function index:transfer(hash, to, from, tick)
+        local art = self.artifacts[hash]
+        if not art then
+            return nil, "Artifact not found"
+        end
+        if art.owner ~= from then
+            return nil, "Not the owner"
+        end
+        if art.status ~= artifact.STATUS.ACTIVE then
+            return nil, "Artifact not active"
+        end
+        -- Mark as transferred
+        art.status = artifact.STATUS.TRANSFERRED
+        -- Create entry for recipient
+        local new_entry = {
+            name = art.name,
+            size = art.size,
+            mime_type = art.mime_type,
+            owner = to,
+            status = artifact.STATUS.ACTIVE,
+            created_at = tick,
+            grants = {},
+            provenance = { original_owner = from, received_at = tick },
+        }
+        -- Auto-grant revocable access back to sender
+        new_entry.grants[from] = {
+            mode = artifact.ACCESS_MODES.REVOCABLE,
+            granted_at = tick,
+            granted_by = to,
+        }
+        self.total_transfers = self.total_transfers + 1
+        return new_entry
+    end
+
+    --- Get artifacts accessible by a specific member
+    -- @param member string Member ID
+    -- @param now number Current tick (for expiry check)
+    -- @return table Array of { hash, artifact } pairs
+    function index:accessible_by(member, now)
+        local result = {}
+        for hash, art in pairs(self.artifacts) do
+            if art.status == artifact.STATUS.ACTIVE then
+                -- Owner always has access
+                if art.owner == member then
+                    table.insert(result, { hash = hash, artifact = art })
+                else
+                    local grant = art.grants[member]
+                    if grant then
+                        -- Check timed expiry
+                        if grant.mode == artifact.ACCESS_MODES.TIMED and grant.expires_at and now > grant.expires_at then
+                            -- Expired, skip
+                        else
+                            table.insert(result, { hash = hash, artifact = art })
+                        end
+                    end
+                end
+            end
+        end
+        return result
+    end
+
+    --- Get artifacts accessible by ALL members in a list (realm view)
+    -- @param members table Array of member IDs
+    -- @param now number Current tick
+    -- @return table Array of { hash, artifact } pairs
+    function index:accessible_by_all(members, now)
+        local result = {}
+        for hash, art in pairs(self.artifacts) do
+            if art.status == artifact.STATUS.ACTIVE then
+                local all_have_access = true
+                for _, member in ipairs(members) do
+                    if art.owner ~= member then
+                        local grant = art.grants[member]
+                        if not grant then
+                            all_have_access = false
+                            break
+                        end
+                        if grant.mode == artifact.ACCESS_MODES.TIMED and grant.expires_at and now > grant.expires_at then
+                            all_have_access = false
+                            break
+                        end
+                    end
+                end
+                if all_have_access then
+                    table.insert(result, { hash = hash, artifact = art })
+                end
+            end
+        end
+        return result
+    end
+
+    --- Remove expired timed grants
+    -- @param now number Current tick
+    -- @return number Count of expired grants removed
+    function index:gc_expired(now)
+        local removed = 0
+        for _, art in pairs(self.artifacts) do
+            local to_remove = {}
+            for grantee, grant in pairs(art.grants) do
+                if grant.mode == artifact.ACCESS_MODES.TIMED and grant.expires_at and now > grant.expires_at then
+                    table.insert(to_remove, grantee)
+                end
+            end
+            for _, grantee in ipairs(to_remove) do
+                art.grants[grantee] = nil
+                removed = removed + 1
+            end
+        end
+        return removed
+    end
+
+    --- Check if a grant allows download
+    -- @param mode string Access mode
+    -- @return boolean
+    function index:allows_download(mode)
+        return mode == artifact.ACCESS_MODES.PERMANENT
+    end
+
+    --- Get index statistics
+    -- @return table Statistics
+    function index:stats()
+        local active = 0
+        local recalled = 0
+        local transferred = 0
+        local total_grants = 0
+        for _, art in pairs(self.artifacts) do
+            if art.status == artifact.STATUS.ACTIVE then
+                active = active + 1
+            elseif art.status == artifact.STATUS.RECALLED then
+                recalled = recalled + 1
+            elseif art.status == artifact.STATUS.TRANSFERRED then
+                transferred = transferred + 1
+            end
+            for _ in pairs(art.grants) do
+                total_grants = total_grants + 1
+            end
+        end
+        return {
+            total_stored = self.total_stored,
+            active = active,
+            recalled = recalled,
+            transferred = transferred,
+            total_grants = total_grants,
+            total_revocations = self.total_revocations,
+            total_transfers = self.total_transfers,
+        }
+    end
+
+    return index
+end
+
+-- Alias for cleaner API
+artifact.ArtifactIndex = { new = artifact.ArtifactIndex_new }
+
+-- ============================================================================
 -- ID AND KEY GENERATION HELPERS
 -- ============================================================================
 
@@ -533,6 +833,24 @@ end
 -- @return number Latency in microseconds
 function artifact.sync_latency()
     return 200 + math.random(300)
+end
+
+--- Simulate grant latency (100-400 microseconds)
+-- @return number Latency in microseconds
+function artifact.grant_latency()
+    return 100 + math.random(300)
+end
+
+--- Simulate transfer latency (300-800 microseconds)
+-- @return number Latency in microseconds
+function artifact.transfer_latency()
+    return 300 + math.random(500)
+end
+
+--- Simulate recovery latency (1000-5000 microseconds)
+-- @return number Latency in microseconds
+function artifact.recovery_latency()
+    return 1000 + math.random(4000)
 end
 
 -- ============================================================================

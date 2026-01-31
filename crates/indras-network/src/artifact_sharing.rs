@@ -43,6 +43,9 @@ pub type ArtifactKey = [u8; ARTIFACT_KEY_SIZE];
 pub type ArtifactHash = [u8; 32];
 
 /// Status of an artifact's shareability.
+///
+/// **Deprecated**: Use `crate::access::ArtifactStatus` for the new shared filesystem.
+/// Kept for backward compatibility with existing `Artifact` struct.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum SharingStatus {
     /// Actively shared - key available for decryption.
@@ -76,8 +79,8 @@ impl SharingStatus {
 
 /// Extended artifact with sharing controls.
 ///
-/// This type wraps artifact metadata with revocation support,
-/// including encryption status and sharing lifecycle.
+/// **Deprecated**: Use `crate::artifact_index::HomeArtifactEntry` for the new shared filesystem.
+/// Kept for backward compatibility with the legacy `share_artifact_revocable` flow.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct SharedArtifact {
     /// BLAKE3 hash of encrypted content.
@@ -218,8 +221,8 @@ pub struct EncryptedArtifactKey {
 
 /// Registry mapping artifact hashes to encryption keys.
 ///
-/// This is the central data structure for managing revocable artifacts.
-/// Keys are stored encrypted with the realm's interface key.
+/// **Deprecated**: Use `crate::artifact_index::ArtifactIndex` for the new shared filesystem.
+/// Kept for backward compatibility with the legacy revocable sharing flow.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ArtifactKeyRegistry {
     /// Active keys: hash → encrypted key blob.

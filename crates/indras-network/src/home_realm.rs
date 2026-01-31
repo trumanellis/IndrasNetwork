@@ -9,7 +9,9 @@
 //! Unlike shared realms, the home realm is unique to each user and doesn't
 //! require invite codes to access from other devices.
 
+use crate::access::AccessMode;
 use crate::artifact::{Artifact, ArtifactId};
+use crate::artifact_index::{ArtifactIndex, HomeArtifactEntry};
 use crate::document::Document;
 use crate::error::{IndraError, Result};
 use crate::member::{Member, MemberId};
@@ -17,7 +19,7 @@ use crate::network::RealmId;
 use crate::note::{Note, NoteDocument, NoteId};
 use crate::quest::{Quest, QuestDocument, QuestId};
 
-use indras_core::InterfaceId;
+use indras_core::{InterfaceId, PeerIdentity};
 use indras_node::IndrasNode;
 use indras_storage::ContentRef;
 use serde::{Deserialize, Serialize};
@@ -54,6 +56,9 @@ pub struct HomeArtifactMetadata {
     /// Size in bytes.
     pub size: u64,
 }
+
+/// Type alias for backward compatibility.
+pub type LegacyHomeArtifactMetadata = HomeArtifactMetadata;
 
 /// A wrapper around the home realm providing personal document management.
 ///
@@ -363,6 +368,7 @@ impl HomeRealm {
             size,
             mime_type,
             sharer: Member::new(*self.node.identity()),
+            owner: self.node.identity().as_bytes().try_into().expect("identity bytes"),
             shared_at: chrono::Utc::now(),
             is_encrypted: false,
             sharing_status: crate::artifact_sharing::SharingStatus::Shared,
@@ -384,6 +390,162 @@ impl HomeRealm {
             .map_err(|e| IndraError::Artifact(format!("Failed to fetch artifact: {}", e)))?;
 
         Ok(data.to_vec())
+    }
+
+    // ============================================================
+    // Shared Filesystem (ArtifactIndex)
+    // ============================================================
+
+    /// Get the artifact index document for this home realm.
+    ///
+    /// The artifact index is the source of truth for all artifacts
+    /// owned by this user.
+    pub async fn artifact_index(&self) -> Result<Document<ArtifactIndex>> {
+        Document::new(self.id, "artifacts".to_string(), Arc::clone(&self.node)).await
+    }
+
+    /// Upload an artifact to the home realm filesystem.
+    ///
+    /// Reads the file, computes its BLAKE3 hash, stores the blob,
+    /// and adds an entry to the ArtifactIndex with no grants.
+    /// Idempotent: if the hash already exists, returns the existing entry ID.
+    pub async fn upload(&self, path: impl AsRef<Path>) -> Result<ArtifactId> {
+        let path = path.as_ref();
+
+        // Read the file
+        let file_data = tokio::fs::read(path)
+            .await
+            .map_err(|e| IndraError::Artifact(format!("Failed to read file: {}", e)))?;
+
+        // Compute BLAKE3 hash
+        let hash = blake3::hash(&file_data);
+        let id: ArtifactId = *hash.as_bytes();
+
+        // Store blob
+        let _content_ref = self
+            .node
+            .storage()
+            .store_blob(&file_data)
+            .await
+            .map_err(|e| IndraError::Artifact(format!("Failed to store blob: {}", e)))?;
+
+        // Get filename and metadata
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unnamed")
+            .to_string();
+        let size = file_data.len() as u64;
+        let mime_type = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(guess_mime_type);
+
+        // Add to artifact index (idempotent)
+        let doc = self.artifact_index().await?;
+        doc.update(|index| {
+            let entry = HomeArtifactEntry {
+                id,
+                name,
+                mime_type,
+                size,
+                created_at: 0, // Will be set by caller or default tick
+                encrypted_key: None,
+                status: crate::access::ArtifactStatus::Active,
+                grants: Vec::new(),
+                provenance: None,
+            };
+            index.store(entry);
+        })
+        .await?;
+
+        debug!(
+            artifact_id = %hex::encode(&id[..8]),
+            "Uploaded artifact to home realm filesystem"
+        );
+
+        Ok(id)
+    }
+
+    /// Grant access to an artifact for a specific member.
+    pub async fn grant_access(
+        &self,
+        id: &ArtifactId,
+        grantee: MemberId,
+        mode: AccessMode,
+    ) -> Result<()> {
+        let doc = self.artifact_index().await?;
+        let self_id = self.self_id;
+        let mut result = Ok(());
+        doc.update(|index| {
+            if let Err(e) = index.grant(id, grantee, mode.clone(), self_id, 0) {
+                result = Err(IndraError::Artifact(format!("Grant failed: {}", e)));
+            }
+        })
+        .await?;
+        result
+    }
+
+    /// Revoke a member's access to an artifact.
+    pub async fn revoke_access(
+        &self,
+        id: &ArtifactId,
+        grantee: &MemberId,
+    ) -> Result<()> {
+        let doc = self.artifact_index().await?;
+        let grantee = *grantee;
+        let mut result = Ok(());
+        doc.update(|index| {
+            if let Err(e) = index.revoke_access(id, &grantee) {
+                result = Err(IndraError::Artifact(format!("Revoke failed: {}", e)));
+            }
+        })
+        .await?;
+        result
+    }
+
+    /// Recall an artifact — remove all revocable/timed grants, keep permanent.
+    pub async fn recall(&self, id: &ArtifactId) -> Result<bool> {
+        let doc = self.artifact_index().await?;
+        let mut recalled = false;
+        doc.update(|index| {
+            recalled = index.recall(id, 0);
+        })
+        .await?;
+
+        if recalled {
+            // TODO: Delete the blob locally once storage API supports delete_blob
+            // let content_ref = indras_storage::ContentRef::new(*id, 0);
+            // let _ = self.node.storage().delete_blob(&content_ref).await;
+        }
+
+        Ok(recalled)
+    }
+
+    /// Transfer ownership of an artifact to another member.
+    ///
+    /// Returns the entry for the recipient to add to their index.
+    pub async fn transfer(
+        &self,
+        id: &ArtifactId,
+        to: MemberId,
+    ) -> Result<HomeArtifactEntry> {
+        let doc = self.artifact_index().await?;
+        let self_id = self.self_id;
+        let mut transfer_result: std::result::Result<HomeArtifactEntry, crate::access::TransferError> = Err(crate::access::TransferError::NotFound);
+        doc.update(|index| {
+            transfer_result = index.transfer(id, to, self_id, 0);
+        })
+        .await?;
+
+        transfer_result.map_err(|e| IndraError::Artifact(format!("Transfer failed: {}", e)))
+    }
+
+    /// Get all artifacts shared with a specific member.
+    pub async fn shared_with(&self, member: &MemberId) -> Result<Vec<HomeArtifactEntry>> {
+        let doc = self.artifact_index().await?;
+        let data = doc.read().await;
+        Ok(data.accessible_by(member, 0).into_iter().cloned().collect())
     }
 
     // ============================================================

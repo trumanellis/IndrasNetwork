@@ -101,6 +101,9 @@
 // Modules
 pub mod artifact;
 pub mod artifact_sharing;
+pub mod access;
+pub mod artifact_index;
+pub mod artifact_recovery;
 pub mod attention;
 pub mod blessing;
 pub mod chat_message;
@@ -131,6 +134,12 @@ pub use artifact_sharing::{
     ArtifactHash, ArtifactKey, ArtifactKeyRegistry, ArtifactTombstone, EncryptedArtifactKey,
     RecallAcknowledgment, RevocationEntry, SharedArtifact, SharingStatus, ARTIFACT_KEY_SIZE,
 };
+pub use access::{
+    AccessGrant, AccessMode, ArtifactProvenance, ArtifactStatus, GrantError, ProvenanceType,
+    RevokeError, TransferError,
+};
+pub use artifact_index::{ArtifactIndex, HomeArtifactEntry};
+pub use artifact_recovery::{ArtifactRecoveryRequest, ArtifactRecoveryResponse, RecoverableArtifact, RecoveryManifest};
 pub use attention::{
     AttentionDocument, AttentionError, AttentionEventId, AttentionSwitchEvent, QuestAttention,
 };
@@ -174,7 +183,7 @@ pub use token_of_gratitude::{
 /// ```
 pub mod prelude {
     pub use crate::{
-        Artifact, ArtifactDownload, Blessing, BlessingDocument, ClaimId, ContactsRealm, Content,
+        Artifact, ArtifactDownload, ArtifactIndex, HomeArtifactEntry, Blessing, BlessingDocument, ClaimId, ContactsRealm, Content,
         Document, DocumentSchema, EditableChatMessage, GlobalEvent, HomeRealm, IdentityBackup,
         IndraError, IndrasNetwork, InviteCode, Member, MemberEvent, MemberInfo, Message, Note,
         NoteDocument, Preset, ProofFolder, ProofFolderArtifact, ProofFolderDocument, Quest,
