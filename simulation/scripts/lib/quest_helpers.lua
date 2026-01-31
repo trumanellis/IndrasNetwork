@@ -1,7 +1,7 @@
 -- Quest & Contacts Simulation Helpers
 --
 -- Utility functions for quest lifecycle and contacts simulation scenarios.
--- Uses Rust SDK bindings - no logic duplication for realm ID computation.
+-- Uses Rust SyncEngine bindings - no logic duplication for realm ID computation.
 --
 -- Key Concepts:
 -- - Peer-based Realms: Realms are deterministically identified by their peer set
@@ -293,26 +293,26 @@ function quest.create_logger(ctx)
 end
 
 -- ============================================================================
--- PEER-BASED REALM IDENTITY (Wraps Rust SDK bindings)
+-- PEER-BASED REALM IDENTITY (Wraps Rust SyncEngine bindings)
 -- ============================================================================
 
 --- Compute a deterministic realm ID from a set of peer IDs
--- This wraps the Rust SDK binding - no logic duplication
+-- This wraps the Rust SyncEngine binding - no logic duplication
 -- @param peer_ids table Array of peer identifiers
 -- @return string Realm ID (hex string)
 function quest.compute_realm_id(peer_ids)
     if #peer_ids < 2 then
         return nil, "Peer-based realms require at least 2 peers"
     end
-    return indras.sdk.compute_realm_id(peer_ids)
+    return indras.sync_engine.compute_realm_id(peer_ids)
 end
 
 --- Normalize peer IDs (sort and dedupe)
--- This wraps the Rust SDK binding
+-- This wraps the Rust SyncEngine binding
 -- @param peer_ids table Array of peer identifiers
 -- @return table Sorted, deduplicated peer IDs
 function quest.normalize_peers(peer_ids)
-    return indras.sdk.normalize_peers(peer_ids)
+    return indras.sync_engine.normalize_peers(peer_ids)
 end
 
 --- Check if two peer sets would produce the same realm

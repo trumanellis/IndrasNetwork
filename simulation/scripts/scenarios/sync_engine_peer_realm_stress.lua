@@ -1,4 +1,4 @@
--- SDK Peer-Based Realm Stress Test
+-- SyncEngine Peer-Based Realm Stress Test
 --
 -- Tests deterministic peer-based realm identity at scale.
 --
@@ -20,7 +20,7 @@ local thresholds = require("config.quest_thresholds")
 -- SETUP
 -- ============================================================================
 
-local ctx = quest.new_context("sdk_peer_realm_stress")
+local ctx = quest.new_context("sync_engine_peer_realm_stress")
 local logger = quest.create_logger(ctx)
 local config = quest.get_peer_realm_config()
 
@@ -43,7 +43,7 @@ local sim = indras.Simulation.new(mesh, sim_config)
 sim:initialize()
 
 local peers = mesh:peers()
-local result = quest.result_builder("sdk_peer_realm_stress")
+local result = quest.result_builder("sync_engine_peer_realm_stress")
 
 -- Metrics tracking
 local latencies = {

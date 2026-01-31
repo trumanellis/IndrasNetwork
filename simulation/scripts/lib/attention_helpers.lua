@@ -1,7 +1,7 @@
 -- Attention Tracking Simulation Helpers
 --
 -- Utility functions for attention tracking simulation scenarios.
--- Uses Rust SDK bindings for attention document operations.
+-- Uses Rust SyncEngine bindings for attention document operations.
 --
 -- Key Concepts:
 -- - Members focus on one quest at a time to "charge it up"

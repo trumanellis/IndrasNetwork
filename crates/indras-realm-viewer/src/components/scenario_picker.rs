@@ -18,16 +18,16 @@ pub fn ScenarioPicker(
     let scenarios = use_memo(move || discover_scenarios(&scenarios_dir));
 
     let mut search_query = use_signal(String::new);
-    let mut filter_sdk_only = use_signal(|| true);
+    let mut filter_sync_engine_only = use_signal(|| true);
 
     let query = search_query.read().to_lowercase();
-    let sdk_only = *filter_sdk_only.read();
+    let sync_engine_only = *filter_sync_engine_only.read();
 
     let filtered: Vec<ScenarioInfo> = scenarios
         .read()
         .iter()
         .filter(|s| {
-            if sdk_only && !s.is_sdk {
+            if sync_engine_only && !s.is_sync_engine {
                 return false;
             }
             if query.is_empty() {
@@ -61,13 +61,13 @@ pub fn ScenarioPicker(
             // Filter buttons
             div { class: "scenario-picker-filters",
                 button {
-                    class: if sdk_only { "scenario-filter-btn active" } else { "scenario-filter-btn" },
-                    onclick: move |_| filter_sdk_only.set(true),
-                    "SDK Scenarios"
+                    class: if sync_engine_only { "scenario-filter-btn active" } else { "scenario-filter-btn" },
+                    onclick: move |_| filter_sync_engine_only.set(true),
+                    "SyncEngine Scenarios"
                 }
                 button {
-                    class: if !sdk_only { "scenario-filter-btn active" } else { "scenario-filter-btn" },
-                    onclick: move |_| filter_sdk_only.set(false),
+                    class: if !sync_engine_only { "scenario-filter-btn active" } else { "scenario-filter-btn" },
+                    onclick: move |_| filter_sync_engine_only.set(false),
                     "All"
                 }
             }
@@ -79,15 +79,15 @@ pub fn ScenarioPicker(
                         let path = scenario.path.clone();
                         let name = &scenario.name;
                         let desc = &scenario.description;
-                        let is_sdk = scenario.is_sdk;
+                        let is_sync_engine = scenario.is_sync_engine;
                         rsx! {
                             div {
                                 class: "scenario-card",
                                 onclick: move |_| on_select.call(path.clone()),
                                 div { class: "scenario-card-top",
                                     span { class: "scenario-card-name", "{name}" }
-                                    if is_sdk {
-                                        span { class: "scenario-card-badge", "SDK" }
+                                    if is_sync_engine {
+                                        span { class: "scenario-card-badge", "SyncEngine" }
                                     }
                                 }
                                 if !desc.is_empty() {

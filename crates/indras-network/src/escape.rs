@@ -1,11 +1,11 @@
 //! Escape hatches for advanced users.
 //!
 //! This module re-exports types from the underlying infrastructure
-//! for users who need more control than the high-level SDK provides.
+//! for users who need more control than the high-level SyncEngine provides.
 //!
 //! # When to Use
 //!
-//! Most applications should use the high-level SDK types (`IndrasNetwork`,
+//! Most applications should use the high-level SyncEngine types (`IndrasNetwork`,
 //! `Realm`, `Document`, etc.). Use escape hatches when you need:
 //!
 //! - Custom protocol implementations

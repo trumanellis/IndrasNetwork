@@ -23,13 +23,13 @@ When a command requires multiple flags or environment variables, create a simple
 
 Instead of:
 ```bash
-cd simulation/scripts && STRESS_LEVEL=quick cargo run --bin lua_runner -- scenarios/sdk_home_realm_stress.lua | cargo run -p indras-home-viewer
+cd simulation/scripts && STRESS_LEVEL=quick cargo run --bin lua_runner -- scenarios/sync_engine_home_realm_stress.lua | cargo run -p indras-home-viewer
 ```
 
 Create `scripts/run-home-viewer.sh`:
 ```bash
 #!/bin/bash
-STRESS_LEVEL="${STRESS_LEVEL:-quick}" cargo run --bin lua_runner --manifest-path simulation/Cargo.toml -- scripts/scenarios/sdk_home_realm_stress.lua | cargo run -p indras-home-viewer -- "$@"
+STRESS_LEVEL="${STRESS_LEVEL:-quick}" cargo run --bin lua_runner --manifest-path simulation/Cargo.toml -- scripts/scenarios/sync_engine_home_realm_stress.lua | cargo run -p indras-home-viewer -- "$@"
 ```
 
 Then the user can simply run:

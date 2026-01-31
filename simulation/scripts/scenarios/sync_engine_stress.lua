@@ -1,14 +1,14 @@
--- sdk_stress.lua
--- Comprehensive stress test for indras-network SDK
+-- sync_engine_stress.lua
+-- Comprehensive stress test for indras-network SyncEngine
 --
--- Tests the full SDK lifecycle: network creation, realm management,
+-- Tests the full SyncEngine lifecycle: network creation, realm management,
 -- high-volume messaging, and member operations under stress conditions.
--- Validates SDK performance with latency percentiles (p50/p95/p99).
+-- Validates SyncEngine performance with latency percentiles (p50/p95/p99).
 
 -- Fix package path for helper libraries
 package.path = package.path .. ";scripts/lib/?.lua;simulation/scripts/lib/?.lua"
 
-local sdk = require("sdk_helpers")
+local sync_engine = require("sync_engine_helpers")
 local pq = require("pq_helpers")
 local stress = require("stress_helpers")
 
@@ -43,16 +43,16 @@ local CONFIG = {
     }
 }
 
-local config_level = sdk.get_level()
+local config_level = sync_engine.get_level()
 local cfg = CONFIG[config_level] or CONFIG.quick
 
 -- ============================================================================
 -- CORRELATION CONTEXT
 -- ============================================================================
 
-local ctx = sdk.new_context("sdk_stress")
+local ctx = sync_engine.new_context("sync_engine_stress")
 
-indras.log.info("Starting SDK stress test", {
+indras.log.info("Starting SyncEngine stress test", {
     trace_id = ctx.trace_id,
     level = config_level,
     networks = cfg.networks,
@@ -79,7 +79,7 @@ indras.log.debug("Created mesh topology", {
     avg_degree = mesh:peer_count() > 0 and (mesh:edge_count() / mesh:peer_count()) or 0
 })
 
--- Create simulation with SDK-appropriate settings
+-- Create simulation with SyncEngine-appropriate settings
 local sim_config = indras.SimConfig.new({
     wake_probability = 0.1,
     sleep_probability = 0.05,
@@ -113,12 +113,12 @@ local messages_by_realm = {}  -- realm_id -> count
 local member_list_ops = 0
 
 -- Latency trackers
-local network_create_latencies = sdk.latency_tracker()
-local network_destroy_latencies = sdk.latency_tracker()
-local realm_create_latencies = sdk.latency_tracker()
-local realm_join_latencies = sdk.latency_tracker()
-local message_send_latencies = sdk.latency_tracker()
-local member_list_latencies = sdk.latency_tracker()
+local network_create_latencies = sync_engine.latency_tracker()
+local network_destroy_latencies = sync_engine.latency_tracker()
+local realm_create_latencies = sync_engine.latency_tracker()
+local realm_join_latencies = sync_engine.latency_tracker()
+local message_send_latencies = sync_engine.latency_tracker()
+local member_list_latencies = sync_engine.latency_tracker()
 
 -- Error counters
 local errors = {
@@ -130,7 +130,7 @@ local errors = {
 }
 
 -- Result builder
-local result = sdk.result_builder("sdk_stress")
+local result = sync_engine.result_builder("sync_engine_stress")
 
 -- ============================================================================
 -- HELPER FUNCTIONS
@@ -193,12 +193,12 @@ for i = 1, cfg.networks do
     local owner = random_online_peer()
 
     if owner then
-        -- Simulate SDK: indras.Network.create(owner, network_id)
-        -- This would call the Rust SDK binding to create a network
+        -- Simulate SyncEngine: indras.Network.create(owner, network_id)
+        -- This would call the Rust SyncEngine binding to create a network
         local start_time = os.clock()
 
-        -- Placeholder: SDK network creation call
-        -- local network = indras.sdk.Network.create({
+        -- Placeholder: SyncEngine network creation call
+        -- local network = indras.sync_engine.Network.create({
         --     id = network_id,
         --     owner = owner,
         --     config = { ... }
@@ -279,11 +279,11 @@ for network_id, network in pairs(networks) do
         local creator = network.owner
 
         if creator then
-            -- Simulate SDK: network.create_realm(realm_id, config)
-            -- This would call the Rust SDK binding to create a realm
+            -- Simulate SyncEngine: network.create_realm(realm_id, config)
+            -- This would call the Rust SyncEngine binding to create a realm
             local start_time = os.clock()
 
-            -- Placeholder: SDK realm creation call
+            -- Placeholder: SyncEngine realm creation call
             -- local realm = network:create_realm({
             --     id = realm_id,
             --     name = "Stress Test Realm",
@@ -317,10 +317,10 @@ for network_id, network in pairs(networks) do
             local additional_members = random_peers(cfg.members_per_realm - 1)
             for _, member in ipairs(additional_members) do
                 if member ~= creator then
-                    -- Simulate SDK: realm.join(member) or realm.invite(member)
+                    -- Simulate SyncEngine: realm.join(member) or realm.invite(member)
                     local join_start = os.clock()
 
-                    -- Placeholder: SDK realm join call
+                    -- Placeholder: SyncEngine realm join call
                     -- realm:invite(member)
                     -- member:accept_invite(realm_id)
 
@@ -430,14 +430,14 @@ else
                 local sender = realm.members[sender_idx]
                 local receiver = realm.members[receiver_idx]
 
-                -- Simulate SDK: realm.send_message(sender, receiver, content)
+                -- Simulate SyncEngine: realm.send_message(sender, receiver, content)
                 local start_time = os.clock()
 
-                -- Placeholder: SDK message send call
+                -- Placeholder: SyncEngine message send call
                 -- local msg = realm:send_message({
                 --     from = sender,
                 --     to = receiver,
-                --     content = sdk.random_message(50, 200),
+                --     content = sync_engine.random_message(50, 200),
                 --     encrypt = true
                 -- })
 
@@ -514,10 +514,10 @@ for i = 1, cfg.member_list_ops do
     local realm = realms[realm_id]
 
     if realm then
-        -- Simulate SDK: realm.list_members()
+        -- Simulate SyncEngine: realm.list_members()
         local start_time = os.clock()
 
-        -- Placeholder: SDK member list call
+        -- Placeholder: SyncEngine member list call
         -- local members = realm:list_members({
         --     include_online_status = true,
         --     include_roles = true
@@ -575,10 +575,10 @@ end
 -- Optional: Destroy networks (lifecycle test)
 local networks_destroyed = 0
 for network_id, network in pairs(networks) do
-    -- Simulate SDK: network.destroy()
+    -- Simulate SyncEngine: network.destroy()
     local start_time = os.clock()
 
-    -- Placeholder: SDK network destroy call
+    -- Placeholder: SyncEngine network destroy call
     -- network:destroy({ force = true })
 
     local destroy_latency_us = pq.random_latency(350, 150)  -- ~200-500us
@@ -601,7 +601,7 @@ end
 -- FINAL RESULTS AND ASSERTIONS
 -- ============================================================================
 
-indras.log.info("SDK stress test completed", {
+indras.log.info("SyncEngine stress test completed", {
     trace_id = ctx.trace_id,
     level = config_level,
     -- Configuration
@@ -677,7 +677,7 @@ indras.assert.gt(final_stats.pq_signatures_created, 0, "Should have created PQ s
 indras.assert.lt(final_stats:signature_failure_rate(), 0.01, "Signature failure rate should be < 1%")
 indras.assert.lt(final_stats:kem_failure_rate(), 0.01, "KEM failure rate should be < 1%")
 
-indras.log.info("SDK stress test passed all assertions", {
+indras.log.info("SyncEngine stress test passed all assertions", {
     trace_id = ctx.trace_id,
     level = config_level,
     networks = network_count,

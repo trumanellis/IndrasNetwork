@@ -1,4 +1,4 @@
--- SDK Gratitude Pledge Scenario
+-- SyncEngine Gratitude Pledge Scenario
 --
 -- Demonstrates the full Token of Gratitude lifecycle:
 -- 1. Realm creation with 3 members (Zephyr, Nova, Sage)
@@ -19,7 +19,7 @@ local home = require("lib.home_realm_helpers")
 -- SETUP
 -- ============================================================================
 
-local ctx = quest_helpers.new_context("sdk_gratitude_pledge")
+local ctx = quest_helpers.new_context("sync_engine_gratitude_pledge")
 local logger = quest_helpers.create_logger(ctx)
 
 logger.info("Starting Gratitude Pledge scenario", {
@@ -39,7 +39,7 @@ local sim = indras.Simulation.new(mesh, sim_config)
 sim:initialize()
 
 local peers = mesh:peers()
-local result = quest_helpers.result_builder("sdk_gratitude_pledge")
+local result = quest_helpers.result_builder("sync_engine_gratitude_pledge")
 
 -- Assign roles (futuristic names per CLAUDE.md)
 local peer_zephyr = tostring(peers[1])

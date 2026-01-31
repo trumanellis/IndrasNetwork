@@ -1,6 +1,6 @@
 //! Event type definitions for streaming from Lua scenarios
 //!
-//! These types match the JSONL output from SDK stress test scenarios.
+//! These types match the JSONL output from SyncEngine stress test scenarios.
 
 use serde::Deserialize;
 

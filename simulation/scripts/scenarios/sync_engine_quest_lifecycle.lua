@@ -1,4 +1,4 @@
--- SDK Quest Lifecycle Stress Test
+-- SyncEngine Quest Lifecycle Stress Test
 --
 -- Tests quest lifecycle with Proof of Service multi-claimant model.
 --
@@ -20,7 +20,7 @@ local thresholds = require("config.quest_thresholds")
 -- SETUP
 -- ============================================================================
 
-local ctx = quest_helpers.new_context("sdk_quest_lifecycle")
+local ctx = quest_helpers.new_context("sync_engine_quest_lifecycle")
 local logger = quest_helpers.create_logger(ctx)
 local config = quest_helpers.get_config()
 
@@ -44,7 +44,7 @@ local sim = indras.Simulation.new(mesh, sim_config)
 sim:initialize()
 
 local peers = mesh:peers()
-local result = quest_helpers.result_builder("sdk_quest_lifecycle")
+local result = quest_helpers.result_builder("sync_engine_quest_lifecycle")
 
 -- Metrics tracking
 local latencies = {
@@ -126,7 +126,7 @@ for realm_id, realm_data in pairs(realms) do
 
         -- Create quest with latency measurement
         local start_time = os.clock()
-        local quest = indras.sdk.quest.create(
+        local quest = indras.sync_engine.quest.create(
             realm_id,
             quest_helpers.random_quest_title(),
             quest_helpers.random_quest_description(),

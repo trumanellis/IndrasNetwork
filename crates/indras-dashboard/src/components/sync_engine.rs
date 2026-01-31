@@ -1,19 +1,19 @@
-//! SDK Dashboard Components
+//! SyncEngine Dashboard Components
 //!
-//! Custom dashboard components for each SDK stress test:
+//! Custom dashboard components for each SyncEngine stress test:
 //! - NetworkLifecycleDashboard - Network/realm lifecycle visualization
 //! - DocumentOperationsDashboard - CRDT document operations visualization
 //! - MessagingDashboard - Messaging and threading visualization
 
-use crate::state::sdk::{SDKDashboard, SDKState};
+use crate::state::sync_engine::{SyncEngineDashboard, SyncEngineState};
 use crate::state::{EventType, SimEvent};
 use dioxus::prelude::*;
 
-/// Main SDK tab view with dashboard selector and content
+/// Main SyncEngine tab view with dashboard selector and content
 /// Playback controls and stress level moved to unified bottom control bar
 #[component]
-pub fn SDKView(
-    state: Signal<SDKState>,
+pub fn SyncEngineView(
+    state: Signal<SyncEngineState>,
     #[allow(unused)] on_run: EventHandler<()>,
     #[allow(unused)] on_stop: EventHandler<()>,
     #[allow(unused)] on_level_change: EventHandler<String>,
@@ -21,28 +21,28 @@ pub fn SDKView(
     let current_dashboard = state.read().current_dashboard;
 
     rsx! {
-        div { class: "sdk-view",
+        div { class: "sync-engine-view",
             // Dashboard selector sidebar
-            aside { class: "sdk-sidebar",
+            aside { class: "sync-engine-sidebar",
                 div { class: "sidebar-header",
-                    h2 { "SDK Stress Tests" }
+                    h2 { "SyncEngine Stress Tests" }
                     p { class: "sidebar-subtitle", "Select a dashboard to run" }
                 }
 
                 nav { class: "dashboard-list",
-                    SDKDashboardCard {
-                        dashboard: SDKDashboard::NetworkLifecycle,
-                        selected: current_dashboard == SDKDashboard::NetworkLifecycle,
+                    SyncEngineDashboardCard {
+                        dashboard: SyncEngineDashboard::NetworkLifecycle,
+                        selected: current_dashboard == SyncEngineDashboard::NetworkLifecycle,
                         on_select: move |d| state.write().current_dashboard = d,
                     }
-                    SDKDashboardCard {
-                        dashboard: SDKDashboard::DocumentOperations,
-                        selected: current_dashboard == SDKDashboard::DocumentOperations,
+                    SyncEngineDashboardCard {
+                        dashboard: SyncEngineDashboard::DocumentOperations,
+                        selected: current_dashboard == SyncEngineDashboard::DocumentOperations,
                         on_select: move |d| state.write().current_dashboard = d,
                     }
-                    SDKDashboardCard {
-                        dashboard: SDKDashboard::Messaging,
-                        selected: current_dashboard == SDKDashboard::Messaging,
+                    SyncEngineDashboardCard {
+                        dashboard: SyncEngineDashboard::Messaging,
+                        selected: current_dashboard == SyncEngineDashboard::Messaging,
                         on_select: move |d| state.write().current_dashboard = d,
                     }
                 }
@@ -51,15 +51,15 @@ pub fn SDKView(
             }
 
             // Main dashboard content area
-            main { class: "sdk-main",
+            main { class: "sync-engine-main",
                 match current_dashboard {
-                    SDKDashboard::NetworkLifecycle => rsx! {
+                    SyncEngineDashboard::NetworkLifecycle => rsx! {
                         NetworkLifecycleDashboard { state: state }
                     },
-                    SDKDashboard::DocumentOperations => rsx! {
+                    SyncEngineDashboard::DocumentOperations => rsx! {
                         DocumentOperationsDashboard { state: state }
                     },
-                    SDKDashboard::Messaging => rsx! {
+                    SyncEngineDashboard::Messaging => rsx! {
                         MessagingDashboard { state: state }
                     },
                 }
@@ -70,10 +70,10 @@ pub fn SDKView(
 
 /// Card for selecting a dashboard
 #[component]
-fn SDKDashboardCard(
-    dashboard: SDKDashboard,
+fn SyncEngineDashboardCard(
+    dashboard: SyncEngineDashboard,
     selected: bool,
-    on_select: EventHandler<SDKDashboard>,
+    on_select: EventHandler<SyncEngineDashboard>,
 ) -> Element {
     rsx! {
         button {
@@ -93,9 +93,9 @@ fn SDKDashboardCard(
 // Network Lifecycle Dashboard
 // ============================================================================
 
-/// Dashboard for sdk_stress.lua - Network/Realm lifecycle testing
+/// Dashboard for sync_engine_stress.lua - Network/Realm lifecycle testing
 #[component]
-pub fn NetworkLifecycleDashboard(state: Signal<SDKState>) -> Element {
+pub fn NetworkLifecycleDashboard(state: Signal<SyncEngineState>) -> Element {
     let metrics = state.read().metrics.clone();
     let events = state.read().events.clone();
     let running = state.read().running;
@@ -111,7 +111,7 @@ pub fn NetworkLifecycleDashboard(state: Signal<SDKState>) -> Element {
     };
 
     rsx! {
-        div { class: "sdk-dashboard network-lifecycle-dashboard",
+        div { class: "sync-engine-dashboard network-lifecycle-dashboard",
             // Header
             div { class: "dashboard-header",
                 h2 { "🌐 Network Lifecycle Stress Test" }
@@ -222,7 +222,7 @@ pub fn NetworkLifecycleDashboard(state: Signal<SDKState>) -> Element {
             }
 
             // Event log
-            SDKEventLog { events: events }
+            SyncEngineEventLog { events: events }
         }
     }
 }
@@ -265,9 +265,9 @@ fn get_stage_status(stage: usize, current_phase: usize) -> StageStatus {
 // Document Operations Dashboard
 // ============================================================================
 
-/// Dashboard for sdk_document_stress.lua - CRDT document operations testing
+/// Dashboard for sync_engine_document_stress.lua - CRDT document operations testing
 #[component]
-pub fn DocumentOperationsDashboard(state: Signal<SDKState>) -> Element {
+pub fn DocumentOperationsDashboard(state: Signal<SyncEngineState>) -> Element {
     let metrics = state.read().metrics.clone();
     let events = state.read().events.clone();
     let running = state.read().running;
@@ -283,7 +283,7 @@ pub fn DocumentOperationsDashboard(state: Signal<SDKState>) -> Element {
     let convergence_pct = metrics.convergence_rate * 100.0;
 
     rsx! {
-        div { class: "sdk-dashboard document-operations-dashboard",
+        div { class: "sync-engine-dashboard document-operations-dashboard",
             // Header
             div { class: "dashboard-header",
                 h2 { "📄 Document Operations Stress Test" }
@@ -418,7 +418,7 @@ pub fn DocumentOperationsDashboard(state: Signal<SDKState>) -> Element {
             }
 
             // Event log
-            SDKEventLog { events: events }
+            SyncEngineEventLog { events: events }
         }
     }
 }
@@ -453,9 +453,9 @@ fn format_bytes(bytes: u64) -> String {
 // Messaging Dashboard
 // ============================================================================
 
-/// Dashboard for sdk_messaging_stress.lua - Messaging and threading testing
+/// Dashboard for sync_engine_messaging_stress.lua - Messaging and threading testing
 #[component]
-pub fn MessagingDashboard(state: Signal<SDKState>) -> Element {
+pub fn MessagingDashboard(state: Signal<SyncEngineState>) -> Element {
     let metrics = state.read().metrics.clone();
     let events = state.read().events.clone();
     let running = state.read().running;
@@ -472,7 +472,7 @@ pub fn MessagingDashboard(state: Signal<SDKState>) -> Element {
     let delivery_pct = metrics.delivery_rate * 100.0;
 
     rsx! {
-        div { class: "sdk-dashboard messaging-dashboard",
+        div { class: "sync-engine-dashboard messaging-dashboard",
             // Header
             div { class: "dashboard-header",
                 h2 { "💬 Messaging & Threading Stress Test" }
@@ -651,7 +651,7 @@ pub fn MessagingDashboard(state: Signal<SDKState>) -> Element {
             }
 
             // Event log
-            SDKEventLog { events: events }
+            SyncEngineEventLog { events: events }
         }
     }
 }
@@ -695,11 +695,11 @@ fn MetricCard(
     }
 }
 
-/// SDK event log component
+/// SyncEngine event log component
 #[component]
-fn SDKEventLog(events: Vec<SimEvent>) -> Element {
+fn SyncEngineEventLog(events: Vec<SimEvent>) -> Element {
     rsx! {
-        div { class: "sdk-event-log",
+        div { class: "sync-engine-event-log",
             h3 { "Event Log" }
             div { class: "event-list",
                 if events.is_empty() {

@@ -22,13 +22,13 @@ cargo build -p indras-home-viewer --quiet
 # Run lua_runner from simulation/scripts directory so it can find lib modules
 # This writes JSONL to the logs directory
 cd "$ROOT_DIR/simulation/scripts"
-echo "Running sdk_home_realm_stress scenario (STRESS_LEVEL=${STRESS_LEVEL:-quick})..."
+echo "Running sync_engine_home_realm_stress scenario (STRESS_LEVEL=${STRESS_LEVEL:-quick})..."
 STRESS_LEVEL="${STRESS_LEVEL:-quick}" "$ROOT_DIR/target/debug/lua_runner" \
     --log-dir "$LOG_DIR" \
-    scenarios/sdk_home_realm_stress.lua
+    scenarios/sync_engine_home_realm_stress.lua
 
 # Find the generated log file and run viewer with it
-LOG_FILE="$LOG_DIR/sdk_home_realm_stress.log"
+LOG_FILE="$LOG_DIR/sync_engine_home_realm_stress.log"
 if [ -f "$LOG_FILE" ]; then
     echo "Opening viewer with $LOG_FILE"
     "$ROOT_DIR/target/debug/indras-home-viewer" -f "$LOG_FILE" "$@"

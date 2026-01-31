@@ -1,6 +1,6 @@
-//! # Indra's Network SDK
+//! # Indra's Network SyncEngine
 //!
-//! High-level SDK for building peer-to-peer applications on Indra's Network.
+//! High-level SyncEngine for building peer-to-peer applications on Indra's Network.
 //!
 //! This crate provides a simple, unified API for creating collaborative
 //! applications with automatic peer discovery, CRDT-based synchronization,
@@ -61,7 +61,7 @@
 //!
 //! ## Configuration
 //!
-//! The SDK supports preset configurations for common use cases:
+//! The SyncEngine supports preset configurations for common use cases:
 //!
 //! ```ignore
 //! // For chat applications

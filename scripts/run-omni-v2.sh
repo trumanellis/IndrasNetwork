@@ -3,8 +3,8 @@
 #
 # Usage:
 #   ./scripts/run-omni-v2.sh                              # Scenario picker UI (default)
-#   SCENARIO=sdk_harmony_proof ./scripts/run-omni-v2.sh   # Pipe a specific scenario
-#   STRESS_LEVEL=full SCENARIO=sdk_stress ./scripts/run-omni-v2.sh
+#   SCENARIO=sync_engine_harmony_proof ./scripts/run-omni-v2.sh   # Pipe a specific scenario
+#   STRESS_LEVEL=full SCENARIO=sync_engine_stress ./scripts/run-omni-v2.sh
 #   ./scripts/run-omni-v2.sh -t light                     # Picker with light theme
 #
 # Environment variables:

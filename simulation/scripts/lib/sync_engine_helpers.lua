@@ -1,34 +1,34 @@
--- SDK Helpers for stress testing and verification
-local sdk = {}
+-- SyncEngine Helpers for stress testing and verification
+local sync_engine = {}
 
 -- Configuration levels (follows existing pattern)
-sdk.LEVELS = {
+sync_engine.LEVELS = {
     quick = { realms = 3, messages = 100, documents = 5, members = 3 },
     medium = { realms = 10, messages = 1000, documents = 20, members = 10 },
     full = { realms = 26, messages = 10000, documents = 100, members = 26 }
 }
 
 -- Get current stress level from environment
-function sdk.get_level()
+function sync_engine.get_level()
     return os.getenv("STRESS_LEVEL") or "quick"
 end
 
-function sdk.get_config()
-    local level = sdk.get_level()
-    return sdk.LEVELS[level] or sdk.LEVELS.quick
+function sync_engine.get_config()
+    local level = sync_engine.get_level()
+    return sync_engine.LEVELS[level] or sync_engine.LEVELS.quick
 end
 
--- Create a new correlation context for SDK scenarios
-function sdk.new_context(scenario_name)
+-- Create a new correlation context for SyncEngine scenarios
+function sync_engine.new_context(scenario_name)
     local ctx = indras.correlation.new_root()
     ctx = ctx:with_tag("scenario", scenario_name)
-    ctx = ctx:with_tag("level", sdk.get_level())
-    ctx = ctx:with_tag("subsystem", "sdk")
+    ctx = ctx:with_tag("level", sync_engine.get_level())
+    ctx = ctx:with_tag("subsystem", "sync_engine")
     return ctx
 end
 
--- Latency tracking for SDK operations
-function sdk.latency_tracker()
+-- Latency tracking for SyncEngine operations
+function sync_engine.latency_tracker()
     return {
         samples = {},
         add = function(self, latency_us)
@@ -58,7 +58,7 @@ function sdk.latency_tracker()
 end
 
 -- Message generation helpers
-function sdk.random_message(min_len, max_len)
+function sync_engine.random_message(min_len, max_len)
     min_len = min_len or 10
     max_len = max_len or 100
     local len = math.random(min_len, max_len)
@@ -72,17 +72,17 @@ function sdk.random_message(min_len, max_len)
 end
 
 -- Document data generation
-function sdk.random_document_data()
+function sync_engine.random_document_data()
     return {
         title = "Doc-" .. math.random(1000, 9999),
-        content = sdk.random_message(50, 500),
+        content = sync_engine.random_message(50, 500),
         version = 1,
         timestamp = os.time()
     }
 end
 
 -- Wait for async operation with timeout
-function sdk.wait_for(predicate, max_wait_ms, check_interval_ms)
+function sync_engine.wait_for(predicate, max_wait_ms, check_interval_ms)
     max_wait_ms = max_wait_ms or 5000
     check_interval_ms = check_interval_ms or 100
     local elapsed = 0
@@ -94,10 +94,10 @@ function sdk.wait_for(predicate, max_wait_ms, check_interval_ms)
     return false
 end
 
--- Assert with detailed SDK context
-function sdk.assert_metric(name, actual, min_val, max_val, ctx)
+-- Assert with detailed SyncEngine context
+function sync_engine.assert_metric(name, actual, min_val, max_val, ctx)
     if actual < min_val or actual > max_val then
-        indras.log.error("SDK metric out of range", {
+        indras.log.error("SyncEngine metric out of range", {
             trace_id = ctx and ctx.trace_id,
             metric = name,
             actual = actual,
@@ -111,11 +111,11 @@ function sdk.assert_metric(name, actual, min_val, max_val, ctx)
     end
 end
 
--- Build result table for SDK scenarios
-function sdk.result_builder(scenario_name)
+-- Build result table for SyncEngine scenarios
+function sync_engine.result_builder(scenario_name)
     return {
         scenario = scenario_name,
-        level = sdk.get_level(),
+        level = sync_engine.get_level(),
         metrics = {},
         add = function(self, key, value)
             self.metrics[key] = value
@@ -134,4 +134,4 @@ function sdk.result_builder(scenario_name)
     }
 end
 
-return sdk
+return sync_engine

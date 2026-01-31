@@ -1,4 +1,4 @@
--- SDK Attention Tracking Stress Test
+-- SyncEngine Attention Tracking Stress Test
 --
 -- Tests the attention tracking system where members focus on quests to
 -- "charge them up" and quest ranking emerges from accumulated attention.
@@ -18,7 +18,7 @@ local thresholds = require("config.attention_thresholds")
 -- SETUP
 -- ============================================================================
 
-local ctx = attention_helpers.new_context("sdk_attention_stress")
+local ctx = attention_helpers.new_context("sync_engine_attention_stress")
 local logger = attention_helpers.create_logger(ctx)
 local config = attention_helpers.get_config()
 
@@ -41,7 +41,7 @@ local sim = indras.Simulation.new(mesh, sim_config)
 sim:initialize()
 
 local peers = mesh:peers()
-local result = attention_helpers.result_builder("sdk_attention_stress")
+local result = attention_helpers.result_builder("sync_engine_attention_stress")
 
 -- Metrics tracking
 local latencies = {
@@ -49,8 +49,8 @@ local latencies = {
     calc = {},
 }
 
--- Create attention document (using SDK binding)
-local attention_doc = indras.sdk.attention.new()
+-- Create attention document (using SyncEngine binding)
+local attention_doc = indras.sync_engine.attention.new()
 
 -- Create quest IDs
 local quest_ids = {}
@@ -192,7 +192,7 @@ logger.info("Phase 4: Verification", {
     description = "Calculate attention and verify consistency",
 })
 
--- Calculate attention via SDK
+-- Calculate attention via SyncEngine
 local calc_start = os.clock()
 local ranked_quests = attention_doc:quests_by_attention()
 local calc_latency = (os.clock() - calc_start) * 1000000

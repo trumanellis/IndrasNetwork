@@ -8,7 +8,7 @@ pub mod iot;
 pub mod logging;
 pub mod mesh;
 pub mod routing;
-pub mod sdk;
+pub mod sync_engine;
 pub mod simulation;
 pub mod stats;
 pub mod types;

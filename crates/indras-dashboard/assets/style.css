@@ -1472,18 +1472,18 @@ button {
 }
 
 /* ============================================================================
-   SDK Tab Styles
+   SyncEngine Tab Styles
    ============================================================================ */
 
-/* SDK View Layout */
-.sdk-view {
+/* SyncEngine View Layout */
+.sync-engine-view {
     display: flex;
     flex: 1;
     height: calc(100vh - 120px);
 }
 
-/* SDK Sidebar */
-.sdk-sidebar {
+/* SyncEngine Sidebar */
+.sync-engine-sidebar {
     width: 320px;
     background: var(--bg-secondary);
     border-right: 1px solid var(--border-color);
@@ -1492,19 +1492,19 @@ button {
     overflow-y: auto;
 }
 
-.sdk-sidebar .sidebar-header {
+.sync-engine-sidebar .sidebar-header {
     padding: var(--spacing-lg);
     border-bottom: 1px solid var(--border-color);
 }
 
-.sdk-sidebar .sidebar-header h2 {
+.sync-engine-sidebar .sidebar-header h2 {
     font-size: 1rem;
     font-weight: 600;
     color: var(--accent-primary);
     margin-bottom: var(--spacing-xs);
 }
 
-.sdk-sidebar .sidebar-subtitle {
+.sync-engine-sidebar .sidebar-subtitle {
     font-size: 0.75rem;
     color: var(--text-muted);
 }
@@ -1616,13 +1616,13 @@ button {
 }
 
 /* Action Buttons */
-.sdk-sidebar .action-buttons {
+.sync-engine-sidebar .action-buttons {
     padding: var(--spacing-md);
     border-top: 1px solid var(--border-color);
 }
 
-.sdk-sidebar .run-button,
-.sdk-sidebar .stop-button {
+.sync-engine-sidebar .run-button,
+.sync-engine-sidebar .stop-button {
     width: 100%;
     padding: var(--spacing-md);
     border: none;
@@ -1633,49 +1633,49 @@ button {
     transition: all 0.15s ease;
 }
 
-.sdk-sidebar .run-button {
+.sync-engine-sidebar .run-button {
     background: var(--accent-success);
     color: white;
 }
 
-.sdk-sidebar .run-button:hover {
+.sync-engine-sidebar .run-button:hover {
     background: #16a34a;
 }
 
-.sdk-sidebar .stop-button {
+.sync-engine-sidebar .stop-button {
     background: var(--accent-error);
     color: white;
 }
 
-.sdk-sidebar .stop-button:hover {
+.sync-engine-sidebar .stop-button:hover {
     background: #dc2626;
 }
 
-/* SDK Main Content */
-.sdk-main {
+/* SyncEngine Main Content */
+.sync-engine-main {
     flex: 1;
     overflow-y: auto;
     padding: var(--spacing-lg);
 }
 
-/* SDK Dashboard Common */
-.sdk-dashboard {
+/* SyncEngine Dashboard Common */
+.sync-engine-dashboard {
     max-width: 1200px;
     margin: 0 auto;
 }
 
-.sdk-dashboard .dashboard-header {
+.sync-engine-dashboard .dashboard-header {
     margin-bottom: var(--spacing-lg);
 }
 
-.sdk-dashboard .dashboard-header h2 {
+.sync-engine-dashboard .dashboard-header h2 {
     font-size: 1.25rem;
     font-weight: 600;
     color: var(--accent-primary);
     margin-bottom: var(--spacing-xs);
 }
 
-.sdk-dashboard .dashboard-subtitle {
+.sync-engine-dashboard .dashboard-subtitle {
     font-size: 0.875rem;
     color: var(--text-muted);
 }
@@ -1746,7 +1746,7 @@ button {
 }
 
 /* Metrics Grid */
-.sdk-dashboard .metrics-grid {
+.sync-engine-dashboard .metrics-grid {
     display: flex;
     flex-direction: column;
     gap: var(--spacing-lg);
@@ -1775,7 +1775,7 @@ button {
 }
 
 /* Metric Card */
-.sdk-dashboard .metric-card {
+.sync-engine-dashboard .metric-card {
     display: flex;
     align-items: center;
     gap: var(--spacing-sm);
@@ -1784,7 +1784,7 @@ button {
     border-radius: var(--border-radius);
 }
 
-.sdk-dashboard .metric-card.warning .metric-value {
+.sync-engine-dashboard .metric-card.warning .metric-value {
     color: var(--accent-warning);
 }
 
@@ -1804,7 +1804,7 @@ button {
     margin-bottom: 2px;
 }
 
-.sdk-dashboard .metric-value {
+.sync-engine-dashboard .metric-value {
     font-size: 1rem;
     font-weight: 600;
     color: var(--text-primary);
@@ -2048,15 +2048,15 @@ button {
     color: var(--text-muted);
 }
 
-/* SDK Event Log */
-.sdk-event-log {
+/* SyncEngine Event Log */
+.sync-engine-event-log {
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
     border-radius: var(--border-radius);
     padding: var(--spacing-md);
 }
 
-.sdk-event-log h3 {
+.sync-engine-event-log h3 {
     font-size: 0.75rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -2064,24 +2064,24 @@ button {
     margin-bottom: var(--spacing-md);
 }
 
-.sdk-event-log .event-list {
+.sync-engine-event-log .event-list {
     max-height: 300px;
     overflow-y: auto;
 }
 
-.sdk-event-log .empty-state {
+.sync-engine-event-log .empty-state {
     text-align: center;
     padding: var(--spacing-lg);
     color: var(--text-muted);
 }
 
-.sdk-event-log .empty-icon {
+.sync-engine-event-log .empty-icon {
     font-size: 2rem;
     display: block;
     margin-bottom: var(--spacing-sm);
 }
 
-.sdk-event-log .event-item {
+.sync-engine-event-log .event-item {
     display: flex;
     gap: var(--spacing-sm);
     padding: var(--spacing-xs) 0;
@@ -2089,27 +2089,27 @@ button {
     font-size: 0.8rem;
 }
 
-.sdk-event-log .event-item:last-child {
+.sync-engine-event-log .event-item:last-child {
     border-bottom: none;
 }
 
-.sdk-event-log .event-tick {
+.sync-engine-event-log .event-tick {
     color: var(--text-muted);
     font-family: monospace;
     min-width: 60px;
 }
 
-.sdk-event-log .event-type {
+.sync-engine-event-log .event-type {
     font-weight: 600;
     min-width: 50px;
 }
 
-.sdk-event-log .event-info .event-type { color: var(--accent-info); }
-.sdk-event-log .event-warning .event-type { color: var(--accent-warning); }
-.sdk-event-log .event-error .event-type { color: var(--accent-error); }
-.sdk-event-log .event-success .event-type { color: var(--accent-success); }
+.sync-engine-event-log .event-info .event-type { color: var(--accent-info); }
+.sync-engine-event-log .event-warning .event-type { color: var(--accent-warning); }
+.sync-engine-event-log .event-error .event-type { color: var(--accent-error); }
+.sync-engine-event-log .event-success .event-type { color: var(--accent-success); }
 
-.sdk-event-log .event-description {
+.sync-engine-event-log .event-description {
     color: var(--text-secondary);
     flex: 1;
 }
@@ -2437,7 +2437,7 @@ button {
 
 /* Adjust tab content heights to account for control bar */
 .simulations-view,
-.sdk-view {
+.sync-engine-view {
     height: calc(100vh - 180px); /* header/tabs + control bar */
 }
 

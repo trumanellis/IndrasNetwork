@@ -39,7 +39,7 @@ while let Some(msg) = realm.messages().next().await {
 }
 ```
 
-**This plan transforms Indra's Network from infrastructure into a developer-friendly SDK.**
+**This plan transforms Indra's Network from infrastructure into a developer-friendly SyncEngine.**
 
 ---
 
@@ -72,12 +72,12 @@ while let Some(msg) = realm.messages().next().await {
 
 ---
 
-## Phase 1: The Indra SDK
+## Phase 1: The Indra SyncEngine
 
 **Priority:** Critical
 **Goal:** One crate to rule them all
 
-### New Crate: `indra` (the SDK)
+### New Crate: `indra` (the SyncEngine)
 
 This is the **only crate most developers will ever need**.
 
@@ -291,7 +291,7 @@ let app = Indra::preset(Preset::OfflineFirst)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                      indra (SDK)                                │
+│                      indra (SyncEngine)                                │
 │  Realms • Documents • Artifacts • Messages • Identity           │
 ├─────────────────────────────────────────────────────────────────┤
 │                   indra-runtime                                 │
@@ -308,7 +308,7 @@ let app = Indra::preset(Preset::OfflineFirst)
 
 ### New Crate: `indra-runtime`
 
-Platform abstraction that the SDK builds on:
+Platform abstraction that the SyncEngine builds on:
 
 ```rust
 // indra-runtime/src/lib.rs
@@ -548,7 +548,7 @@ Each template includes:
 **Priority:** Medium
 **Goal:** Legacy system integration
 
-For systems that can't use the native SDK, provide a REST API:
+For systems that can't use the native SyncEngine, provide a REST API:
 
 ### Gateway Server
 
@@ -605,7 +605,7 @@ paths:
 - Backend services written in Python, Go, etc.
 - Legacy system integration
 - Serverless functions
-- Mobile apps without native SDK
+- Mobile apps without native SyncEngine
 
 ---
 
@@ -721,7 +721,7 @@ app.load_plugin("./plugins/auto-translate.wasm").await?;
 
 ### For Existing Users (v1.0 → v2.0)
 
-The existing crates remain available and functional. The new SDK is an **additional layer**, not a replacement.
+The existing crates remain available and functional. The new SyncEngine is an **additional layer**, not a replacement.
 
 ```rust
 // Old way still works
@@ -735,9 +735,9 @@ use indra::prelude::*;
 
 ### Gradual Adoption
 
-1. New projects use `indra` SDK
+1. New projects use `indra` SyncEngine
 2. Existing projects can adopt incrementally
-3. Power users can mix SDK with direct crate access
+3. Power users can mix SyncEngine with direct crate access
 4. Nothing is removed or broken
 
 ---
@@ -748,8 +748,8 @@ use indra::prelude::*;
 
 | Crate | Description | Target Audience |
 |-------|-------------|-----------------|
-| `indra` | High-level SDK (the main entry point) | App developers |
-| `indra-runtime` | Platform abstraction layer | SDK internals |
+| `indra` | High-level SyncEngine (the main entry point) | App developers |
+| `indra-runtime` | Platform abstraction layer | SyncEngine internals |
 | `indra-cli` | Command-line tools | Developers |
 | `indra-gateway` | REST API server | Backend integration |
 | `indras-*` | Low-level infrastructure (existing) | Power users |
@@ -758,7 +758,7 @@ use indra::prelude::*;
 
 | Package | Description |
 |---------|-------------|
-| `@indra/sdk` | Core SDK for browser/Node.js |
+| `@indra/sdk` | Core SyncEngine for browser/Node.js |
 | `@indra/react` | React hooks |
 | `@indra/vue` | Vue composables |
 | `@indra/svelte` | Svelte stores |
@@ -768,7 +768,7 @@ use indra::prelude::*;
 
 | Package | Platform |
 |---------|----------|
-| `IndraSDK` | Swift package for iOS |
+| `IndraSyncEngine` | Swift package for iOS |
 | `indra-android` | Android AAR |
 | `@indra/react-native` | React Native bridge |
 
@@ -803,7 +803,7 @@ use indra::prelude::*;
 
 ## Implementation Phases
 
-### Phase 1: SDK Foundation (4-6 weeks)
+### Phase 1: SyncEngine Foundation (4-6 weeks)
 1. Create `indra` crate with core abstractions
 2. Implement `IndraApp`, `Realm`, `Document`, `Message`, `Artifact`
 3. Reactive stream infrastructure
@@ -896,7 +896,7 @@ async fn main() -> Result<()> {
 }
 ```
 
-### After (SDK)
+### After (SyncEngine)
 
 ```rust
 // 5 lines to send a message
@@ -930,7 +930,7 @@ async fn main() -> Result<()> {
 
 ## Appendix C: Competitive Analysis
 
-| Feature | Indra SDK | Gun.js | Yjs | libp2p |
+| Feature | Indra SyncEngine | Gun.js | Yjs | libp2p |
 |---------|-----------|--------|-----|--------|
 | Lines to hello world | ~5 | ~5 | ~10 | ~50 |
 | TypeScript support | First-class | Yes | Yes | Partial |

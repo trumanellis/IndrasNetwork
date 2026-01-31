@@ -1,4 +1,4 @@
--- SDK Quest Proof & Blessing Stress Test
+-- SyncEngine Quest Proof & Blessing Stress Test
 --
 -- Tests the full quest proof and blessing flow:
 -- 1. Members create quests
@@ -19,7 +19,7 @@ local thresholds = require("config.quest_thresholds")
 -- SETUP
 -- ============================================================================
 
-local ctx = quest_helpers.new_context("sdk_quest_proof_blessing")
+local ctx = quest_helpers.new_context("sync_engine_quest_proof_blessing")
 local logger = quest_helpers.create_logger(ctx)
 local config = quest_helpers.get_config()
 
@@ -42,7 +42,7 @@ local sim = indras.Simulation.new(mesh, sim_config)
 sim:initialize()
 
 local peers = mesh:peers()
-local result = quest_helpers.result_builder("sdk_quest_proof_blessing")
+local result = quest_helpers.result_builder("sync_engine_quest_proof_blessing")
 
 -- Tracking
 local blessing_tracker = home.BlessingTracker.new()

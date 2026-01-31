@@ -4,13 +4,13 @@ use serde::{Deserialize, Serialize};
 pub mod discovery;
 pub mod document;
 pub mod instance;
-pub mod sdk;
+pub mod sync_engine;
 pub mod unified;
 
 pub use discovery::DiscoveryState;
 pub use document::DocumentState;
 pub use instance::{format_network_event, InstanceState, PacketAnimation};
-pub use sdk::SDKState;
+pub use sync_engine::SyncEngineState;
 pub use unified::UnifiedPlaybackState;
 
 /// A data point for charts
@@ -190,8 +190,8 @@ pub enum Tab {
     Simulations,
     /// Documents/CRDT sync visualization view
     Documents,
-    /// SDK stress test dashboards
-    SDK,
+    /// SyncEngine stress test dashboards
+    SyncEngine,
     /// Discovery scenario dashboards
     Discovery,
 }
@@ -252,7 +252,7 @@ pub struct SimMetrics {
     pub current_tick: u64,
     pub max_ticks: u64,
 
-    // SDK-specific metrics (Messaging)
+    // SyncEngine-specific metrics (Messaging)
     pub threads_created: u64,
     pub reactions_sent: u64,
     pub presence_updates: u64,
@@ -263,7 +263,7 @@ pub struct SimMetrics {
     pub avg_thread_depth: f64,
     pub max_thread_depth: u64,
 
-    // SDK-specific metrics (Document)
+    // SyncEngine-specific metrics (Document)
     pub documents_created: u64,
     pub total_updates: u64,
     pub sync_operations: u64,
@@ -271,14 +271,14 @@ pub struct SimMetrics {
     pub persistence_operations: u64,
     pub reload_operations: u64,
 
-    // SDK-specific metrics (Network Lifecycle)
+    // SyncEngine-specific metrics (Network Lifecycle)
     pub networks_created: u64,
     pub networks_destroyed: u64,
     pub realms_created: u64,
     pub realm_joins: u64,
     pub active_members: u64,
 
-    // SDK latency metrics (microseconds)
+    // SyncEngine latency metrics (microseconds)
     pub p50_latency_us: f64,
     pub p95_latency_us: f64,
     pub p99_latency_us: f64,
@@ -367,7 +367,7 @@ impl SimMetrics {
             self.max_ticks = other.max_ticks;
         }
 
-        // SDK Messaging
+        // SyncEngine Messaging
         merge_field!(threads_created);
         merge_field!(reactions_sent);
         merge_field!(presence_updates);
@@ -378,7 +378,7 @@ impl SimMetrics {
         merge_float!(avg_thread_depth);
         merge_field!(max_thread_depth);
 
-        // SDK Document
+        // SyncEngine Document
         merge_field!(documents_created);
         merge_field!(total_updates);
         merge_field!(sync_operations);
@@ -386,14 +386,14 @@ impl SimMetrics {
         merge_field!(persistence_operations);
         merge_field!(reload_operations);
 
-        // SDK Network
+        // SyncEngine Network
         merge_field!(networks_created);
         merge_field!(networks_destroyed);
         merge_field!(realms_created);
         merge_field!(realm_joins);
         merge_field!(active_members);
 
-        // SDK latencies
+        // SyncEngine latencies
         merge_float!(p50_latency_us);
         merge_float!(p95_latency_us);
         merge_float!(p99_latency_us);

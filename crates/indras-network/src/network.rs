@@ -1,4 +1,4 @@
-//! IndrasNetwork - the main SDK entry point.
+//! IndrasNetwork - the main SyncEngine entry point.
 //!
 //! Provides a high-level API for building P2P applications on Indra's Network.
 
@@ -50,7 +50,7 @@ pub struct IdentityBackup {
     pub pq_kem: Vec<u8>,
 }
 
-/// The main entry point for the Indra SDK.
+/// The main entry point for the Indra SyncEngine.
 ///
 /// `IndrasNetwork` manages your identity, realms, and network connections.
 /// It wraps the underlying infrastructure and provides a simple, unified API.

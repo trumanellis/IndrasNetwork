@@ -1,4 +1,4 @@
--- SDK Harmony Proof Scenario
+-- SyncEngine Harmony Proof Scenario
 --
 -- Demonstrates the full Indra's Network lifecycle:
 -- 1. Realm creation with 3 members
@@ -29,7 +29,7 @@ local home = require("lib.home_realm_helpers")
 -- SETUP
 -- ============================================================================
 
-local ctx = quest_helpers.new_context("sdk_harmony_proof")
+local ctx = quest_helpers.new_context("sync_engine_harmony_proof")
 local logger = quest_helpers.create_logger(ctx)
 
 logger.info("Starting Harmony Proof scenario", {
@@ -49,7 +49,7 @@ local sim = indras.Simulation.new(mesh, sim_config)
 sim:initialize()
 
 local peers = mesh:peers()
-local result = quest_helpers.result_builder("sdk_harmony_proof")
+local result = quest_helpers.result_builder("sync_engine_harmony_proof")
 
 -- Assign roles
 local peer_love = tostring(peers[1])
