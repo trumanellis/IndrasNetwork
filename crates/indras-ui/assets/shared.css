@@ -689,6 +689,214 @@
    Shared Animations
    ============================================================================= */
 
+/* =============================================================================
+   Artifact Gallery
+   ============================================================================= */
+
+.artifact-gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: var(--space-3);
+}
+
+.artifact-gallery-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  cursor: default;
+}
+
+.artifact-gallery-card:hover {
+  border-color: var(--accent-primary);
+  box-shadow: var(--shadow-md);
+}
+
+.artifact-gallery-thumb {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-tertiary);
+  overflow: hidden;
+}
+
+.artifact-gallery-thumb-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.artifact-gallery-icon {
+  font-size: 32px;
+  opacity: 0.7;
+}
+
+.artifact-gallery-info {
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.artifact-gallery-name {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.artifact-gallery-meta {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.artifact-gallery-status {
+  display: inline-block;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  width: fit-content;
+}
+
+.artifact-status-active {
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--accent-success);
+}
+
+.artifact-status-recalled {
+  background: rgba(255, 217, 61, 0.15);
+  color: var(--accent-warning);
+}
+
+.artifact-status-transferred {
+  background: rgba(107, 207, 255, 0.15);
+  color: var(--color-peace);
+}
+
+.artifact-status-expired {
+  background: rgba(255, 107, 107, 0.15);
+  color: var(--accent-error);
+}
+
+/* =============================================================================
+   Shared Animations
+   ============================================================================= */
+
+/* =============================================================================
+   Contact List
+   ============================================================================= */
+
+.contacts-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+}
+
+.contact-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: var(--space-1) 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.contact-item:last-child {
+  border-bottom: none;
+}
+
+.contact-name {
+  color: var(--text-primary);
+  font-weight: 500;
+  font-size: var(--font-size-sm);
+}
+
+.contact-id {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+}
+
+.contact-id-secondary {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+/* =============================================================================
+   Event Log Panel
+   ============================================================================= */
+
+.event-log {
+  margin-top: var(--space-4);
+  border-top: 1px solid var(--border-primary);
+  padding-top: var(--space-3);
+}
+
+.event-log-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-2);
+}
+
+.event-log-title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.event-log-list {
+  max-height: 200px;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  line-height: 1.6;
+}
+
+.event-log-entry {
+  display: flex;
+  gap: var(--space-2);
+  padding: 1px 0;
+}
+
+.event-log-time {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.event-log-arrow {
+  flex-shrink: 0;
+  width: 14px;
+  text-align: center;
+}
+
+.event-log-arrow-sent {
+  color: var(--accent-primary);
+}
+
+.event-log-arrow-received {
+  color: var(--accent-warning);
+}
+
+.event-log-arrow-system {
+  color: var(--text-muted);
+}
+
+.event-log-msg {
+  color: var(--text-secondary);
+}
+
+/* =============================================================================
+   Shared Animations
+   ============================================================================= */
+
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -697,4 +905,43 @@
 @keyframes scaleIn {
   from { opacity: 0; transform: scale(0.95); }
   to { opacity: 1; transform: scale(1); }
+}
+
+/* =============================================================================
+   Contact Status & Empty States
+   ============================================================================= */
+
+.contacts-empty {
+  padding: var(--space-4) var(--space-3);
+  color: var(--text-secondary);
+  font-style: italic;
+  text-align: center;
+}
+
+.contact-pending {
+  opacity: 0.6;
+}
+
+.contact-status-badge {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin-left: var(--space-2);
+}
+
+/* =============================================================================
+   Accessibility: Focus & Touch Targets
+   ============================================================================= */
+
+button:focus-visible,
+input:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+
+button,
+.btn,
+[role="button"] {
+  min-height: 44px;
+  min-width: 44px;
 }

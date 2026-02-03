@@ -25,6 +25,8 @@ pub struct EventStore<I: PeerIdentity> {
     delivered: HashMap<I, EventId>,
     /// Current members (used to track new events)
     members: HashSet<I>,
+    /// Hash of local peer identity (used in EventId to prevent collisions)
+    local_peer_hash: u64,
 }
 
 impl<I: PeerIdentity> EventStore<I> {
@@ -36,6 +38,19 @@ impl<I: PeerIdentity> EventStore<I> {
             pending: HashMap::new(),
             delivered: HashMap::new(),
             members: HashSet::new(),
+            local_peer_hash: 0,
+        }
+    }
+
+    /// Create a new event store with a local peer hash for unique EventIds.
+    pub fn with_peer_hash(peer_hash: u64) -> Self {
+        Self {
+            events: Vec::new(),
+            sequence: 0,
+            pending: HashMap::new(),
+            delivered: HashMap::new(),
+            members: HashSet::new(),
+            local_peer_hash: peer_hash,
         }
     }
 
@@ -48,6 +63,20 @@ impl<I: PeerIdentity> EventStore<I> {
             pending,
             delivered: HashMap::new(),
             members,
+            local_peer_hash: 0,
+        }
+    }
+
+    /// Create an event store with initial members and a local peer hash.
+    pub fn with_members_and_hash(members: HashSet<I>, peer_hash: u64) -> Self {
+        let pending = members.iter().map(|p| (p.clone(), Vec::new())).collect();
+        Self {
+            events: Vec::new(),
+            sequence: 0,
+            pending,
+            delivered: HashMap::new(),
+            members,
+            local_peer_hash: peer_hash,
         }
     }
 
@@ -96,7 +125,7 @@ impl<I: PeerIdentity> EventStore<I> {
         // Get or create event ID
         let event_id = event.event_id().unwrap_or_else(|| {
             self.sequence += 1;
-            EventId::new(0, self.sequence)
+            EventId::new(self.local_peer_hash, self.sequence)
         });
 
         self.events.push(event);
@@ -188,6 +217,54 @@ impl<I: PeerIdentity> EventStore<I> {
         }
     }
 
+    /// Remove events that have been delivered to all current members.
+    ///
+    /// This frees memory by pruning events that no peer still needs.
+    /// Returns the number of pruned events.
+    pub fn prune_delivered(&mut self) -> usize {
+        if self.members.is_empty() || self.events.is_empty() {
+            return 0;
+        }
+
+        // Find the minimum delivered sequence across all members
+        let min_delivered = self.members.iter()
+            .filter_map(|m| self.delivered.get(m))
+            .map(|eid| eid.sequence)
+            .min();
+
+        let min_seq = match min_delivered {
+            Some(seq) => seq,
+            None => return 0, // No delivery tracking yet
+        };
+
+        // Count events to prune
+        let before = self.events.len();
+
+        // Find the split point: events with sequence <= min_seq can be removed
+        let prune_count = self.events.iter()
+            .take_while(|e| {
+                e.event_id().map(|id| id.sequence <= min_seq).unwrap_or(false)
+            })
+            .count();
+
+        if prune_count == 0 {
+            return 0;
+        }
+
+        // Remove pruned events
+        self.events.drain(..prune_count);
+
+        // Reindex all pending lists (shift indices down by prune_count)
+        for indices in self.pending.values_mut() {
+            indices.retain(|&idx| idx >= prune_count);
+            for idx in indices.iter_mut() {
+                *idx -= prune_count;
+            }
+        }
+
+        before - self.events.len()
+    }
+
     /// Get all events since a global sequence number
     pub fn since(&self, seq: u64) -> Vec<&InterfaceEvent<I>> {
         self.events
@@ -228,6 +305,11 @@ impl<I: PeerIdentity> EventStore<I> {
     /// Get the current global sequence
     pub fn current_sequence(&self) -> u64 {
         self.sequence
+    }
+
+    /// Set the local peer hash (used for EventId generation).
+    pub fn set_peer_hash(&mut self, hash: u64) {
+        self.local_peer_hash = hash;
     }
 
     /// Clear all events (for testing)
@@ -384,5 +466,78 @@ mod tests {
         // Get events since sequence 1
         let events = store.since(1);
         assert_eq!(events.len(), 2); // Should get events 2 and 3
+    }
+
+    #[test]
+    fn test_event_id_uses_peer_hash() {
+        use indras_core::PresenceStatus;
+
+        let (a, b, _) = create_peers();
+        let mut members = HashSet::new();
+        members.insert(a);
+        members.insert(b);
+
+        let mut store = EventStore::with_members_and_hash(members, 42);
+
+        // Create a Presence event (which has no EventId, so store generates one)
+        let event = InterfaceEvent::Presence {
+            peer: a,
+            status: PresenceStatus::Online,
+            timestamp: chrono::Utc::now(),
+        };
+        let id = store.append(event);
+
+        assert_eq!(id.sender_hash, 42);
+        assert_eq!(id.sequence, 1);
+    }
+
+    #[test]
+    fn test_prune_delivered() {
+        let (a, b, _) = create_peers();
+        let mut members = HashSet::new();
+        members.insert(a);
+        members.insert(b);
+
+        let mut store = EventStore::with_members(members);
+
+        let e1 = InterfaceEvent::message(a, 1, b"First".to_vec());
+        let e2 = InterfaceEvent::message(a, 2, b"Second".to_vec());
+        let e3 = InterfaceEvent::message(a, 3, b"Third".to_vec());
+
+        let _id1 = store.append(e1);
+        let id2 = store.append(e2);
+        let _id3 = store.append(e3);
+
+        assert_eq!(store.len(), 3);
+
+        // Mark B delivered up to event 2
+        store.mark_delivered(&b, id2);
+
+        // Prune: B has received up to 2, A sent them all so only B matters
+        // min_delivered across all members = 2 (only B has delivery tracking)
+        // But A has no entry in delivered, so min won't include A
+        let pruned = store.prune_delivered();
+        // Since A has no delivered tracking, min will be just B's = 2
+        // Events with sequence <= 2 are pruned (event 1 and 2)
+        assert_eq!(pruned, 2);
+        assert_eq!(store.len(), 1);
+    }
+
+    #[test]
+    fn test_prune_delivered_no_tracking() {
+        let (a, _b, _) = create_peers();
+        let mut store: EventStore<SimulationIdentity> = EventStore::new();
+        store.append(InterfaceEvent::message(a, 1, b"Test".to_vec()));
+
+        // No delivery tracking, nothing to prune
+        let pruned = store.prune_delivered();
+        assert_eq!(pruned, 0);
+    }
+
+    #[test]
+    fn test_with_peer_hash() {
+        let store: EventStore<SimulationIdentity> = EventStore::with_peer_hash(99);
+        assert_eq!(store.current_sequence(), 0);
+        assert!(store.is_empty());
     }
 }

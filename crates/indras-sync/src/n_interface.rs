@@ -184,8 +184,8 @@ where
     /// # Returns
     ///
     /// The serialized document bytes
-    pub fn save(&self) -> Vec<u8> {
-        self.document.write().unwrap().save()
+    pub fn save(&self) -> Result<Vec<u8>, SyncError> {
+        Ok(self.document.write().map_err(|_| SyncError::LockPoisoned)?.save())
     }
 
     /// Add a member to the interface
@@ -206,7 +206,7 @@ where
         }
 
         // Add to Automerge document
-        self.document.write().unwrap().add_member(&peer);
+        self.document.write().map_err(|_| SyncError::LockPoisoned)?.add_member(&peer);
 
         // Add to local members set
         self.members.insert(peer.clone());
@@ -231,7 +231,7 @@ where
     /// Ok(()) on success
     pub fn remove_member(&mut self, peer: &I) -> Result<(), SyncError> {
         // Remove from Automerge document
-        self.document.write().unwrap().remove_member(peer);
+        self.document.write().map_err(|_| SyncError::LockPoisoned)?.remove_member(peer);
 
         // Remove from local members set
         self.members.remove(peer);
@@ -263,8 +263,8 @@ where
     ///
     /// Provides access to the underlying Automerge document via RwLock.
     /// Returns a read guard for the document.
-    pub fn document(&self) -> std::sync::RwLockReadGuard<'_, InterfaceDocument> {
-        self.document.read().unwrap()
+    pub fn document(&self) -> Result<std::sync::RwLockReadGuard<'_, InterfaceDocument>, SyncError> {
+        self.document.read().map_err(|_| SyncError::LockPoisoned)
     }
 
     /// Get mutable document (for direct Automerge operations)
@@ -272,8 +272,8 @@ where
     /// Provides mutable access for advanced Automerge operations.
     /// Use with caution - modifications may desync the members set.
     /// Returns a write guard for the document.
-    pub fn document_mut(&self) -> std::sync::RwLockWriteGuard<'_, InterfaceDocument> {
-        self.document.write().unwrap()
+    pub fn document_mut(&self) -> Result<std::sync::RwLockWriteGuard<'_, InterfaceDocument>, SyncError> {
+        self.document.write().map_err(|_| SyncError::LockPoisoned)
     }
 
     /// Get the event store (for direct event operations)
@@ -294,14 +294,15 @@ where
     ///
     /// Call this after merging external sync data to ensure
     /// the members set is up to date.
-    pub fn sync_members(&mut self) {
-        let doc_members: HashSet<I> = self.document.read().unwrap().members();
+    pub fn sync_members(&mut self) -> Result<(), SyncError> {
+        let doc_members: HashSet<I> = self.document.read().map_err(|_| SyncError::LockPoisoned)?.members();
 
         // Update event store members
         self.event_store.set_members(doc_members.clone());
 
         // Update local members set
         self.members = doc_members;
+        Ok(())
     }
 }
 
@@ -347,7 +348,7 @@ where
         // 2. Also add to Automerge document for CRDT sync
         self.document
             .write()
-            .unwrap()
+            .map_err(|_| InterfaceError::AppendFailed("Lock poisoned".to_string()))?
             .append_event(&event)
             .map_err(|e| InterfaceError::AppendFailed(e.to_string()))?;
 
@@ -391,13 +392,13 @@ where
         if !sync_msg.sync_data.is_empty() {
             self.document
                 .write()
-                .unwrap()
+                .map_err(|_| InterfaceError::SyncFailed("Lock poisoned".to_string()))?
                 .apply_sync_message(&sync_msg.sync_data)
                 .map_err(|e| InterfaceError::SyncFailed(e.to_string()))?;
         }
 
         // Sync members after merge (in case membership changed)
-        self.sync_members();
+        self.sync_members().map_err(|e| InterfaceError::SyncFailed(e.to_string()))?;
 
         Ok(())
     }
@@ -406,6 +407,7 @@ where
     ///
     /// Creates an Automerge sync message to send to a peer for synchronization.
     fn generate_sync(&self, for_peer: &I) -> SyncMessage {
+        // generate_sync cannot return Result per trait, unwrap is acceptable
         let mut doc = self.document.write().unwrap();
 
         // Get our current heads
@@ -422,6 +424,7 @@ where
 
     /// Get the current document heads (for sync protocol)
     fn heads(&self) -> Vec<[u8; 32]> {
+        // heads cannot return Result per trait, unwrap is acceptable
         self.document.write().unwrap().heads_as_bytes()
     }
 
@@ -481,7 +484,7 @@ mod tests {
         assert_eq!(interface.members().len(), 2);
 
         // Document should also have Bob
-        assert!(interface.document().is_member(&bob));
+        assert!(interface.document().unwrap().is_member(&bob));
 
         // Remove Bob
         interface.remove_member(&bob).unwrap();
@@ -512,7 +515,7 @@ mod tests {
         assert_eq!(interface.event_count(), 1);
 
         // Event should be in both event store and document
-        assert_eq!(interface.document().event_count(), 1);
+        assert_eq!(interface.document().unwrap().event_count(), 1);
 
         // Bob should have this event pending
         let pending = interface.pending_for(&bob);
@@ -592,7 +595,7 @@ mod tests {
 
         // Save the interface
         let interface_id = interface.id();
-        let bytes = interface.save();
+        let bytes = interface.save().unwrap();
 
         // Load it back
         let loaded: NInterface<SimulationIdentity> =
@@ -618,14 +621,14 @@ mod tests {
 
         // Save and reload
         let interface_id = interface.id();
-        let bytes = interface.save();
+        let bytes = interface.save().unwrap();
         let loaded: NInterface<SimulationIdentity> =
             NInterface::load(interface_id, &bytes).unwrap();
 
         // Document should have the event
-        assert_eq!(loaded.document().event_count(), 1);
+        assert_eq!(loaded.document().unwrap().event_count(), 1);
 
-        let events: Vec<InterfaceEvent<SimulationIdentity>> = loaded.document().events();
+        let events: Vec<InterfaceEvent<SimulationIdentity>> = loaded.document().unwrap().events();
         match &events[0] {
             InterfaceEvent::Message { content, .. } => {
                 assert_eq!(content, b"Hello");
@@ -672,7 +675,7 @@ mod tests {
 
         // Save interface1 and create interface2 from it
         let interface_id = interface1.id();
-        let bytes = interface1.save();
+        let bytes = interface1.save().unwrap();
         let mut interface2: NInterface<SimulationIdentity> =
             NInterface::load(interface_id, &bytes).unwrap();
 
@@ -689,7 +692,7 @@ mod tests {
         interface1.merge_sync(sync_msg).await.unwrap();
 
         // Interface1 should now have Bob's event in the document
-        let doc_events: Vec<InterfaceEvent<SimulationIdentity>> = interface1.document().events();
+        let doc_events: Vec<InterfaceEvent<SimulationIdentity>> = interface1.document().unwrap().events();
         assert_eq!(doc_events.len(), 2);
     }
 
@@ -778,13 +781,13 @@ mod tests {
         let mut interface = NInterface::new(alice);
 
         // Manually add bob to document (simulating external sync)
-        interface.document_mut().add_member(&bob);
+        interface.document_mut().unwrap().add_member(&bob);
 
         // Members set should not have bob yet
         assert!(!interface.members().contains(&bob));
 
         // Sync members
-        interface.sync_members();
+        interface.sync_members().unwrap();
 
         // Now bob should be in members
         assert!(interface.members().contains(&bob));
@@ -798,10 +801,10 @@ mod tests {
         // Test all accessor methods compile and return correct types
         // Must drop guards before getting new ones due to borrowing rules
         {
-            let _doc = interface.document();
+            let _doc = interface.document().unwrap();
         }
         {
-            let _doc_mut = interface.document_mut();
+            let _doc_mut = interface.document_mut().unwrap();
         }
         let _sync = interface.sync_state();
         let _sync_mut = interface.sync_state_mut();

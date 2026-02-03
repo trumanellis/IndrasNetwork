@@ -1197,6 +1197,11 @@ impl IndrasNode {
             .get(interface_id)
             .map(|k| k.value().clone())
     }
+
+    /// Set an interface key (used when accepting contact invites that include the key).
+    pub fn set_interface_key(&self, interface_id: InterfaceId, key: InterfaceKey) {
+        self.interface_keys.insert(interface_id, key);
+    }
 }
 
 #[cfg(test)]

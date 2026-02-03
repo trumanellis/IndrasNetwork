@@ -64,6 +64,8 @@ pub fn ContactInviteOverlay(
 
             div {
                 class: "contact-invite-dialog",
+                role: "dialog",
+                "aria-modal": "true",
                 onclick: move |e| e.stop_propagation(),
 
                 // Header
@@ -72,6 +74,7 @@ pub fn ContactInviteOverlay(
                     h2 { "Connections" }
                     button {
                         class: "contact-invite-close",
+                        "aria-label": "Close",
                         onclick: move |_| is_open.set(false),
                         "\u{00d7}"
                     }
@@ -110,6 +113,7 @@ pub fn ContactInviteOverlay(
                             class: "contact-invite-input",
                             r#type: "text",
                             placeholder: "Paste a syncengine:contact:... link",
+                            "aria-label": "Paste invite link",
                             value: "{input_val}",
                             oninput: move |evt| {
                                 let val = evt.value();
@@ -128,6 +132,7 @@ pub fn ContactInviteOverlay(
                         if let (Some(cls), Some(txt)) = (status_class, &status_text) {
                             div {
                                 class: "{cls}",
+                                role: "alert",
                                 "{txt}"
                             }
                         }

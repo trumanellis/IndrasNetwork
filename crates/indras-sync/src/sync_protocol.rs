@@ -181,9 +181,11 @@ impl SyncProtocol {
         }
     }
 
-    /// Check if sync is complete with a peer
+    /// Check if sync is complete with a peer (bidirectional).
     ///
-    /// Sync is complete when our heads match their heads (or they're a subset).
+    /// Sync is complete when:
+    /// 1. All their heads are in our document (we have everything they have)
+    /// 2. We're not awaiting a response from them
     pub fn is_sync_complete<I: PeerIdentity>(
         doc: &mut InterfaceDocument,
         sync_state: &SyncState<I>,
@@ -193,8 +195,11 @@ impl SyncProtocol {
             let our_heads = doc.heads();
             let their_heads = &state.their_heads;
 
-            // Simple check: all their heads are in our heads
-            their_heads.iter().all(|h| our_heads.contains(h))
+            // Check: all their heads are in our document
+            let we_have_theirs = their_heads.iter().all(|h| our_heads.contains(h));
+
+            // Also check we're not still waiting for their response
+            we_have_theirs && !state.awaiting_response
         } else {
             false
         }
@@ -462,5 +467,33 @@ mod tests {
         let bytes = [0xab; 32];
         let hash = bytes_to_change_hash(&bytes);
         assert_eq!(hash.0, bytes);
+    }
+
+    #[test]
+    fn test_is_sync_complete_unknown_peer() {
+        let id = test_interface_id();
+        let mut doc = InterfaceDocument::new();
+        let sync_state: SyncState<SimulationIdentity> = SyncState::new(id);
+        let unknown = SimulationIdentity::new('X').unwrap();
+
+        // Unknown peer should not be considered synced
+        assert!(!SyncProtocol::is_sync_complete(&mut doc, &sync_state, &unknown));
+    }
+
+    #[test]
+    fn test_is_sync_complete_awaiting_blocks() {
+        let id = test_interface_id();
+        let mut doc = InterfaceDocument::new();
+        let mut sync_state: SyncState<SimulationIdentity> = SyncState::new(id);
+        let peer_a = SimulationIdentity::new('A').unwrap();
+
+        // Peer has empty heads (matches our empty doc) but we're awaiting
+        sync_state.peer_state(&peer_a);
+        sync_state.mark_awaiting(&peer_a);
+        assert!(!SyncProtocol::is_sync_complete(&mut doc, &sync_state, &peer_a));
+
+        // Clear awaiting by updating heads
+        sync_state.update_peer_heads(&peer_a, vec![]);
+        assert!(SyncProtocol::is_sync_complete(&mut doc, &sync_state, &peer_a));
     }
 }
