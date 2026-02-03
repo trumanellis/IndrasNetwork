@@ -165,7 +165,6 @@ impl ArtifactDownload {
     /// Returns both the download handle and a cancellation receiver that the
     /// download task should monitor. When the receiver yields `true`, the
     /// download task should stop.
-    #[allow(dead_code)] // TODO: Wire up artifact download feature
     pub(crate) fn new(
         artifact: Artifact,
         progress_rx: watch::Receiver<DownloadProgress>,

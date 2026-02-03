@@ -2935,8 +2935,9 @@ fn ProofEditorActions(state: Signal<AppState>, can_submit: bool) -> Element {
                 class: "proof-submit-btn",
                 disabled: !can_submit,
                 onclick: move |_| {
-                    // TODO: Call realm.submit_proof_folder() when backend is connected
-                    // For now, just close the editor
+                    // In viewer mode, submission happens in the simulation backend.
+                    // This UI just closes the editor. Actual submission state updates
+                    // come through StreamEvent::ProofFolderSubmitted.
                     state_write.write().proof_folder.close();
                 },
                 "Submit Proof"

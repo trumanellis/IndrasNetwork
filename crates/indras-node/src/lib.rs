@@ -470,9 +470,16 @@ impl IndrasNode {
                                             warn!(error = %e, "Failed to add discovered peer as member");
                                         }
 
-                                        // TODO: Store PQ keys for future direct encrypted communication
-                                        // peer_info.pq_encapsulation_key
-                                        // peer_info.pq_verifying_key
+                                        // Store PQ keys for future direct encrypted communication
+                                        if peer_info.pq_encapsulation_key.is_some() || peer_info.pq_verifying_key.is_some() {
+                                            if let Ok(Some(mut record)) = storage.peer_registry().get(&peer_info.peer_id) {
+                                                record.pq_encapsulation_key = peer_info.pq_encapsulation_key.clone();
+                                                record.pq_verifying_key = peer_info.pq_verifying_key.clone();
+                                                if let Err(e) = storage.peer_registry().upsert(&peer_info.peer_id, &record) {
+                                                    warn!(error = %e, "Failed to store PQ keys for discovered peer");
+                                                }
+                                            }
+                                        }
 
                                         // Broadcast a PeerIntroduction so others learn about this peer
                                         if let Err(e) = discovery.broadcast_peer_introduction(interface_id, peer_info.clone()).await {
