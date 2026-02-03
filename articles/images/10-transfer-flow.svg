@@ -1,0 +1,129 @@
+<svg viewBox="0 0 1000 600" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Glow filter for Juniper's new ownership -->
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Arrowhead for lines -->
+    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#f5a623"/>
+    </marker>
+
+    <!-- Transfer arrow -->
+    <marker id="transfer-arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <polygon points="0 0, 12 6, 0 12" fill="#4ecdc4"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1000" height="600" fill="#0a0a1a"/>
+
+  <!-- Section labels -->
+  <text x="200" y="40" font-family="system-ui, -apple-system, sans-serif" font-size="18" font-weight="600" fill="#e0e0e0" text-anchor="middle">Before Transfer</text>
+  <text x="750" y="40" font-family="system-ui, -apple-system, sans-serif" font-size="18" font-weight="600" fill="#e0e0e0" text-anchor="middle">After Transfer</text>
+
+  <!-- Divider line -->
+  <line x1="475" y1="60" x2="475" y2="420" stroke="#333" stroke-width="1" stroke-dasharray="4,4"/>
+
+  <!-- LEFT PANEL - BEFORE TRANSFER -->
+
+  <!-- Caspian (top left, co-owner) -->
+  <circle cx="200" cy="100" r="25" fill="#4a9eff" opacity="0.9"/>
+  <text x="200" y="106" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="600" fill="#0a0a1a" text-anchor="middle">C</text>
+  <text x="200" y="145" font-family="system-ui, -apple-system, sans-serif" font-size="11" fill="#aaa" text-anchor="middle">Caspian</text>
+
+  <!-- Ember (owner, left) -->
+  <circle cx="120" cy="230" r="28" fill="#f5a623" opacity="0.95"/>
+  <text x="120" y="237" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="700" fill="#0a0a1a" text-anchor="middle">E</text>
+  <text x="120" y="275" font-family="system-ui, -apple-system, sans-serif" font-size="11" fill="#aaa" text-anchor="middle">Ember</text>
+  <rect x="95" y="282" width="50" height="16" rx="3" fill="#f5a623" opacity="0.3"/>
+  <text x="120" y="293" font-family="system-ui, -apple-system, sans-serif" font-size="9" font-weight="600" fill="#f5a623" text-anchor="middle">Owner</text>
+
+  <!-- Artifact (left panel) -->
+  <rect x="195" y="210" width="150" height="60" rx="6" fill="#e0e0e0" opacity="0.15" stroke="#e0e0e0" stroke-width="1.5"/>
+  <text x="270" y="235" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="600" fill="#e0e0e0" text-anchor="middle">Final Assets.zip</text>
+  <text x="270" y="252" font-family="system-ui, -apple-system, sans-serif" font-size="10" fill="#aaa" text-anchor="middle">Artifact ID: 7f3a...</text>
+
+  <!-- Connection: Ember to Artifact (ownership line) -->
+  <line x1="148" y1="230" x2="195" y2="235" stroke="#f5a623" stroke-width="2" opacity="0.7"/>
+
+  <!-- Connection: Artifact to Caspian (Permanent grant) -->
+  <line x1="245" y1="210" x2="210" y2="125" stroke="#f5a623" stroke-width="2.5" opacity="0.8"/>
+  <rect x="205" y="155" width="70" height="14" rx="2" fill="#0a0a1a" opacity="0.9"/>
+  <text x="240" y="165" font-family="system-ui, -apple-system, sans-serif" font-size="9" font-weight="600" fill="#f5a623" text-anchor="middle">Permanent</text>
+
+  <!-- CENTER - TRANSFER ARROW -->
+
+  <path d="M 390,240 Q 475,240 520,240" stroke="#4ecdc4" stroke-width="6" fill="none" marker-end="url(#transfer-arrow)" opacity="0.9"/>
+  <rect x="430" y="252" width="60" height="18" rx="3" fill="#0a0a1a" opacity="0.95"/>
+  <text x="460" y="264" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="700" fill="#4ecdc4" text-anchor="middle">Transfer</text>
+
+  <!-- RIGHT PANEL - AFTER TRANSFER -->
+
+  <!-- Juniper (new owner, right) - with glow -->
+  <circle cx="670" cy="230" r="28" fill="#4ecdc4" opacity="0.95" filter="url(#glow)"/>
+  <text x="670" y="237" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="700" fill="#0a0a1a" text-anchor="middle">J</text>
+  <text x="670" y="275" font-family="system-ui, -apple-system, sans-serif" font-size="11" fill="#aaa" text-anchor="middle">Juniper</text>
+  <rect x="630" y="282" width="80" height="16" rx="3" fill="#4ecdc4" opacity="0.4"/>
+  <text x="670" y="293" font-family="system-ui, -apple-system, sans-serif" font-size="9" font-weight="700" fill="#4ecdc4" text-anchor="middle">New Owner</text>
+
+  <!-- Caspian (top right, co-owner - unchanged) -->
+  <circle cx="750" cy="100" r="25" fill="#4a9eff" opacity="0.9"/>
+  <text x="750" y="106" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="600" fill="#0a0a1a" text-anchor="middle">C</text>
+  <text x="750" y="145" font-family="system-ui, -apple-system, sans-serif" font-size="11" fill="#aaa" text-anchor="middle">Caspian</text>
+
+  <!-- Ember (dimmed, right side - former owner) -->
+  <circle cx="850" cy="230" r="24" fill="#f5a623" opacity="0.4"/>
+  <text x="850" y="237" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="600" fill="#0a0a1a" text-anchor="middle">E</text>
+  <text x="850" y="275" font-family="system-ui, -apple-system, sans-serif" font-size="11" fill="#666" text-anchor="middle">Ember</text>
+  <rect x="815" y="282" width="70" height="16" rx="3" fill="#666" opacity="0.3"/>
+  <text x="850" y="293" font-family="system-ui, -apple-system, sans-serif" font-size="9" font-weight="600" fill="#888" text-anchor="middle">Transferred</text>
+
+  <!-- Artifact (right panel) -->
+  <rect x="745" y="210" width="150" height="60" rx="6" fill="#e0e0e0" opacity="0.15" stroke="#e0e0e0" stroke-width="1.5"/>
+  <text x="820" y="235" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="600" fill="#e0e0e0" text-anchor="middle">Final Assets.zip</text>
+  <text x="820" y="252" font-family="system-ui, -apple-system, sans-serif" font-size="10" fill="#aaa" text-anchor="middle">Artifact ID: 7f3a...</text>
+
+  <!-- Connection: Juniper to Artifact (new ownership line) -->
+  <line x1="698" y1="230" x2="745" y2="235" stroke="#4ecdc4" stroke-width="2.5" opacity="0.9"/>
+
+  <!-- Connection: Artifact to Caspian (Permanent grant - inherited) -->
+  <line x1="795" y1="210" x2="760" y2="125" stroke="#f5a623" stroke-width="2.5" opacity="0.8"/>
+  <rect x="735" y="148" width="90" height="14" rx="2" fill="#0a0a1a" opacity="0.9"/>
+  <text x="780" y="158" font-family="system-ui, -apple-system, sans-serif" font-size="9" font-weight="600" fill="#f5a623" text-anchor="middle">Permanent (inherited)</text>
+
+  <!-- Connection: Artifact to Ember (Revocable - auto-granted) -->
+  <line x1="850" y1="230" x2="895" y2="240" stroke="#4a9eff" stroke-width="2" stroke-dasharray="6,4" opacity="0.7"/>
+  <rect x="870" y="252" width="100" height="14" rx="2" fill="#0a0a1a" opacity="0.9"/>
+  <text x="920" y="262" font-family="system-ui, -apple-system, sans-serif" font-size="9" font-weight="600" fill="#4a9eff" text-anchor="middle">Revocable (auto-granted)</text>
+
+  <!-- BOTTOM - PROVENANCE CHAIN -->
+
+  <rect x="50" y="450" width="900" height="120" rx="8" fill="#0f0f20" opacity="0.6" stroke="#333" stroke-width="1"/>
+  <text x="500" y="475" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="600" fill="#aaa" text-anchor="middle">Provenance Chain</text>
+
+  <!-- Provenance flow -->
+  <circle cx="300" cy="510" r="18" fill="#f5a623" opacity="0.7"/>
+  <text x="300" y="516" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="700" fill="#0a0a1a" text-anchor="middle">E</text>
+  <text x="300" y="540" font-family="system-ui, -apple-system, sans-serif" font-size="10" fill="#999" text-anchor="middle">Created by Ember</text>
+
+  <path d="M 325,510 L 475,510" stroke="#666" stroke-width="2" marker-end="url(#arrowhead)" opacity="0.6"/>
+  <text x="400" y="502" font-family="system-ui, -apple-system, sans-serif" font-size="9" fill="#777" text-anchor="middle">2026-01-31 14:23</text>
+
+  <circle cx="500" cy="510" r="18" fill="#4ecdc4" opacity="0.8"/>
+  <text x="500" y="516" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="700" fill="#0a0a1a" text-anchor="middle">J</text>
+  <text x="500" y="540" font-family="system-ui, -apple-system, sans-serif" font-size="10" fill="#999" text-anchor="middle">Transferred to Juniper</text>
+
+  <text x="700" y="510" font-family="system-ui, -apple-system, sans-serif" font-size="9" fill="#666" text-anchor="middle">Provenance recorded immutably</text>
+
+  <!-- KEY CALLOUT -->
+
+  <rect x="720" y="520" width="230" height="40" rx="4" fill="#0a0a1a" opacity="0.9" stroke="#4ecdc4" stroke-width="1"/>
+  <text x="835" y="537" font-family="system-ui, -apple-system, sans-serif" font-size="9" font-weight="600" fill="#4ecdc4" text-anchor="middle">• Permanent grants survive transfer</text>
+  <text x="835" y="552" font-family="system-ui, -apple-system, sans-serif" font-size="9" font-weight="600" fill="#4a9eff" text-anchor="middle">• Sender gets Revocable access back</text>
+</svg>

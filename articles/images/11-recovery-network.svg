@@ -1,0 +1,229 @@
+<svg viewBox="0 0 1000 600" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Glow filters -->
+    <filter id="strongGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="8" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <filter id="goldGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="10"/>
+      <feColorMatrix type="matrix" values="
+        0 0 0 0 0.96
+        0 0 0 0 0.65
+        0 0 0 0 0.14
+        0 0 0 1 0"/>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <filter id="tealGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="10"/>
+      <feColorMatrix type="matrix" values="
+        0 0 0 0 0.31
+        0 0 0 0 0.80
+        0 0 0 0 0.77
+        0 0 0 1 0"/>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <filter id="redGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="12"/>
+      <feColorMatrix type="matrix" values="
+        0 0 0 0 1
+        0 0 0 0 0.28
+        0 0 0 0 0.34
+        0 0 0 0.8 0"/>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Arrow markers -->
+    <marker id="arrowGreen" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#00d4aa"/>
+    </marker>
+
+    <marker id="arrowDim" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#888" opacity="0.4"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1000" height="600" fill="#0a0a1a"/>
+
+  <!-- Title -->
+  <text x="500" y="35" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="700" fill="#fff" text-anchor="middle">Recovery Network</text>
+
+  <!-- Center - Ember's broken device -->
+  <g id="ember-center" transform="translate(500, 280)">
+    <!-- Red glow -->
+    <circle r="60" fill="#ff4757" opacity="0.2" filter="url(#redGlow)"/>
+
+    <!-- Broken device circle -->
+    <circle r="50" fill="#1a0a0f" stroke="#ff4757" stroke-width="3"/>
+
+    <!-- Crack lines -->
+    <path d="M -20,-40 L -10,0 L -30,20" stroke="#ff4757" stroke-width="2" fill="none"/>
+    <path d="M 15,-45 L 5,-10 L 25,10 L 15,35" stroke="#ff4757" stroke-width="2" fill="none"/>
+    <path d="M -40,10 L 0,5 L 40,15" stroke="#ff4757" stroke-width="2" fill="none"/>
+
+    <!-- X overlay -->
+    <line x1="-35" y1="-35" x2="35" y2="35" stroke="#ff4757" stroke-width="3" opacity="0.6"/>
+    <line x1="35" y1="-35" x2="-35" y2="35" stroke="#ff4757" stroke-width="3" opacity="0.6"/>
+
+    <!-- Label -->
+    <text y="75" font-family="system-ui, -apple-system, sans-serif" font-size="16" font-weight="600" fill="#ff4757" text-anchor="middle">Ember</text>
+    <text y="92" font-family="system-ui, -apple-system, sans-serif" font-size="13" fill="#888" text-anchor="middle">Device Lost</text>
+  </g>
+
+  <!-- Top-right - Caspian (Permanent, fully recoverable) -->
+  <g id="caspian" transform="translate(750, 140)">
+    <!-- Gold glow -->
+    <circle r="50" fill="#f5a623" opacity="0.3" filter="url(#goldGlow)"/>
+
+    <!-- Node -->
+    <circle r="40" fill="#1a4a7a" stroke="#f5a623" stroke-width="3"/>
+
+    <!-- Icon/initial -->
+    <text y="8" font-family="system-ui, -apple-system, sans-serif" font-size="28" font-weight="700" fill="#f5a623" text-anchor="middle">C</text>
+
+    <!-- Name -->
+    <text y="65" font-family="system-ui, -apple-system, sans-serif" font-size="15" font-weight="600" fill="#fff" text-anchor="middle">Caspian</text>
+
+    <!-- Badge -->
+    <rect x="-50" y="-65" width="100" height="24" rx="12" fill="#00d4aa" opacity="0.9"/>
+    <text y="-48" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="600" fill="#0a0a1a" text-anchor="middle">Permanent ✓</text>
+
+    <!-- Artifact -->
+    <rect x="-55" y="75" width="110" height="30" rx="4" fill="#1a3a5a" stroke="#f5a623" stroke-width="2"/>
+    <text y="96" font-family="system-ui, -apple-system, sans-serif" font-size="12" fill="#f5a623" text-anchor="middle">Brand Guide</text>
+
+    <!-- Status label -->
+    <text y="125" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="600" fill="#00d4aa" text-anchor="middle">Fully Recoverable</text>
+  </g>
+
+  <!-- Recovery arrow from Caspian to Ember -->
+  <path d="M 720,165 Q 620,210 550,260" fill="none" stroke="#00d4aa" stroke-width="3" marker-end="url(#arrowGreen)" opacity="0.9"/>
+
+  <!-- Bottom-right - Juniper (Transfer, fully recoverable) -->
+  <g id="juniper" transform="translate(750, 420)">
+    <!-- Teal glow -->
+    <circle r="50" fill="#4ecdc4" opacity="0.3" filter="url(#tealGlow)"/>
+
+    <!-- Node -->
+    <circle r="40" fill="#1a3a4a" stroke="#4ecdc4" stroke-width="3"/>
+
+    <!-- Icon/initial -->
+    <text y="8" font-family="system-ui, -apple-system, sans-serif" font-size="28" font-weight="700" fill="#4ecdc4" text-anchor="middle">J</text>
+
+    <!-- Name -->
+    <text y="-55" font-family="system-ui, -apple-system, sans-serif" font-size="15" font-weight="600" fill="#fff" text-anchor="middle">Juniper</text>
+
+    <!-- Badge -->
+    <rect x="-60" y="45" width="120" height="24" rx="12" fill="#00d4aa" opacity="0.9"/>
+    <text y="62" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="600" fill="#0a0a1a" text-anchor="middle">Owner (Transfer) ✓</text>
+
+    <!-- Artifact -->
+    <rect x="-50" y="-85" width="100" height="30" rx="4" fill="#1a3a4a" stroke="#4ecdc4" stroke-width="2"/>
+    <text y="-64" font-family="system-ui, -apple-system, sans-serif" font-size="12" fill="#4ecdc4" text-anchor="middle">Final Assets</text>
+
+    <!-- Status label -->
+    <text y="-95" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="600" fill="#00d4aa" text-anchor="middle">Fully Recoverable</text>
+  </g>
+
+  <!-- Recovery arrow from Juniper to Ember -->
+  <path d="M 720,395 Q 620,350 550,300" fill="none" stroke="#00d4aa" stroke-width="3" marker-end="url(#arrowGreen)" opacity="0.9"/>
+
+  <!-- Bottom-left - Soren (Revocable, best effort) -->
+  <g id="soren" transform="translate(250, 420)" opacity="0.45">
+    <!-- Node (no glow) -->
+    <circle r="40" fill="#1a2a4a" stroke="#4a9eff" stroke-width="2"/>
+
+    <!-- Icon/initial -->
+    <text y="8" font-family="system-ui, -apple-system, sans-serif" font-size="28" font-weight="700" fill="#4a9eff" text-anchor="middle">S</text>
+
+    <!-- Name -->
+    <text y="-55" font-family="system-ui, -apple-system, sans-serif" font-size="15" font-weight="600" fill="#ccc" text-anchor="middle">Soren</text>
+
+    <!-- Badge -->
+    <rect x="-50" y="45" width="100" height="24" rx="12" fill="#666"/>
+    <text y="62" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="600" fill="#ddd" text-anchor="middle">Revocable ?</text>
+
+    <!-- Artifact -->
+    <rect x="-50" y="-85" width="100" height="30" rx="4" fill="#1a2a3a" stroke="#4a9eff" stroke-width="2"/>
+    <text y="-64" font-family="system-ui, -apple-system, sans-serif" font-size="12" fill="#4a9eff" text-anchor="middle">Mood Board</text>
+
+    <!-- Status label -->
+    <text y="-95" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="600" fill="#888" text-anchor="middle">Best Effort</text>
+  </g>
+
+  <!-- Uncertain recovery arrow from Soren to Ember -->
+  <path d="M 280,395 Q 380,350 450,300" fill="none" stroke="#888" stroke-width="2" stroke-dasharray="6,4" marker-end="url(#arrowDim)" opacity="0.4"/>
+
+  <!-- Top-left - Wren (Timed, best effort) -->
+  <g id="wren" transform="translate(250, 140)" opacity="0.45">
+    <!-- Node (no glow) -->
+    <circle r="40" fill="#2a1a0a" stroke="#ff8c42" stroke-width="2"/>
+
+    <!-- Icon/initial -->
+    <text y="8" font-family="system-ui, -apple-system, sans-serif" font-size="28" font-weight="700" fill="#ff8c42" text-anchor="middle">W</text>
+
+    <!-- Name -->
+    <text y="65" font-family="system-ui, -apple-system, sans-serif" font-size="15" font-weight="600" fill="#ccc" text-anchor="middle">Wren</text>
+
+    <!-- Badge -->
+    <rect x="-40" y="-65" width="80" height="24" rx="12" fill="#666"/>
+    <text y="-48" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="600" fill="#ddd" text-anchor="middle">Timed ?</text>
+
+    <!-- Artifact -->
+    <rect x="-40" y="75" width="80" height="30" rx="4" fill="#2a1a0a" stroke="#ff8c42" stroke-width="2"/>
+    <text y="96" font-family="system-ui, -apple-system, sans-serif" font-size="12" fill="#ff8c42" text-anchor="middle">Draft v3</text>
+
+    <!-- Status label -->
+    <text y="125" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="600" fill="#888" text-anchor="middle">Best Effort</text>
+  </g>
+
+  <!-- Uncertain recovery arrow from Wren to Ember -->
+  <path d="M 280,165 Q 380,210 450,260" fill="none" stroke="#888" stroke-width="2" stroke-dasharray="6,4" marker-end="url(#arrowDim)" opacity="0.4"/>
+
+  <!-- Recovery manifest panel -->
+  <g id="recovery-manifest" transform="translate(500, 540)">
+    <!-- Background -->
+    <rect x="-350" y="-35" width="700" height="50" rx="6" fill="#151525" stroke="#333" stroke-width="1"/>
+
+    <!-- Title -->
+    <text x="-330" y="-15" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="700" fill="#aaa" text-anchor="start">Recovery Status:</text>
+
+    <!-- Items -->
+    <!-- Brand Guide -->
+    <text x="-330" y="5" font-family="system-ui, -apple-system, sans-serif" font-size="11" fill="#00d4aa" text-anchor="start">✓</text>
+    <text x="-310" y="5" font-family="system-ui, -apple-system, sans-serif" font-size="11" fill="#ccc" text-anchor="start">Brand Guide</text>
+    <text x="-220" y="5" font-family="system-ui, -apple-system, sans-serif" font-size="10" fill="#888" text-anchor="start">via Caspian (Permanent)</text>
+
+    <!-- Final Assets -->
+    <text x="-40" y="5" font-family="system-ui, -apple-system, sans-serif" font-size="11" fill="#00d4aa" text-anchor="start">✓</text>
+    <text x="-20" y="5" font-family="system-ui, -apple-system, sans-serif" font-size="11" fill="#ccc" text-anchor="start">Final Assets</text>
+    <text x="60" y="5" font-family="system-ui, -apple-system, sans-serif" font-size="10" fill="#888" text-anchor="start">via Juniper (Transfer)</text>
+
+    <!-- Mood Board -->
+    <text x="210" y="5" font-family="system-ui, -apple-system, sans-serif" font-size="11" fill="#888" text-anchor="start">?</text>
+    <text x="225" y="5" font-family="system-ui, -apple-system, sans-serif" font-size="11" fill="#888" text-anchor="start" opacity="0.6">Mood Board</text>
+
+    <!-- Draft v3 -->
+    <text x="310" y="5" font-family="system-ui, -apple-system, sans-serif" font-size="11" fill="#888" text-anchor="start">?</text>
+    <text x="325" y="5" font-family="system-ui, -apple-system, sans-serif" font-size="11" fill="#888" text-anchor="start" opacity="0.6">Draft v3</text>
+  </g>
+
+  <!-- Key insight text -->
+  <text x="500" y="595" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-style="italic" fill="#888" text-anchor="middle">Permanent co-owners are your distributed backup. Trust makes your data safer.</text>
+</svg>

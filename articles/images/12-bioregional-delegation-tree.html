@@ -1,0 +1,850 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bioregional Delegation Tree</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #08081a;
+            color: #e0e0e0;
+            min-height: 100vh;
+            user-select: none;
+        }
+
+        /* ── Sticky header bar ─────────────────────────────────── */
+        .top-bar {
+            position: sticky; top: 0; z-index: 20;
+            background: rgba(8,8,26,0.96);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            padding: 10px 20px 0 20px;
+        }
+        .top-bar h1 {
+            font-size: 17px; font-weight: 700; color: #fff;
+            text-shadow: 0 2px 12px rgba(0,0,0,0.8);
+        }
+        .top-bar .sub {
+            font-size: 11px; color: #6b6b88; margin-top: 1px; margin-bottom: 8px;
+        }
+        .col-headers {
+            display: flex; gap: 2px; padding-bottom: 6px;
+        }
+        .col-header {
+            font-size: 10px; font-weight: 600; text-transform: uppercase;
+            letter-spacing: 0.6px; padding: 4px 8px; border-radius: 3px;
+            color: rgba(255,255,255,0.7);
+        }
+        .col-header.l0 { background: rgba(251,191,36,0.15); color: #fbbf24; }
+        .col-header.l1 { background: rgba(244,114,182,0.12); color: #f472b6; }
+        .col-header.l2 { background: rgba(167,139,250,0.12); color: #a78bfa; }
+        .col-header.l3 { background: rgba(52,211,153,0.12); color: #34d399; }
+
+        /* ── Legend (fixed top-right) ──────────────────────────── */
+        .legend {
+            position: fixed; top: 12px; right: 16px; z-index: 30;
+            display: flex; flex-direction: column; gap: 5px;
+            background: rgba(10,10,26,0.92);
+            border: 1px solid rgba(255,255,255,0.07); border-radius: 8px;
+            padding: 8px 12px; backdrop-filter: blur(10px); font-size: 10px;
+        }
+        .legend-item { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+        .legend-dot { width: 8px; height: 8px; border-radius: 2px; }
+
+        /* ── Chart container ───────────────────────────────────── */
+        .chart-wrap {
+            position: relative;
+            margin: 0 20px 80px 20px;
+        }
+
+        /* ── Cell styling ──────────────────────────────────────── */
+        .cell {
+            position: absolute;
+            border-radius: 2px;
+            display: flex;
+            align-items: center;
+            overflow: hidden;
+            cursor: default;
+            transition: opacity 0.15s ease;
+        }
+        .cell .label {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+            padding: 0 6px;
+            line-height: 1.2;
+            pointer-events: none;
+        }
+        .cell.l0 { background: rgba(251,191,36,0.6); border-left: 2px solid #fbbf24; }
+        .cell.l1 { background: rgba(244,114,182,0.5); border-left: 2px solid #f472b6; cursor: pointer; }
+        .cell.l2 { background: rgba(167,139,250,0.45); border-left: 2px solid #a78bfa; cursor: pointer; }
+        .cell.l3 { background: rgba(52,211,153,0.4); border-left: 2px solid #34d399; }
+
+        .cell.highlight {
+            filter: brightness(1.5);
+            z-index: 5;
+        }
+        .cell.dim {
+            opacity: 0.3;
+        }
+
+        /* ── Root cell vertical text ──────────────────────────── */
+        .cell.l0 .label {
+            writing-mode: vertical-rl;
+            text-orientation: mixed;
+            transform: rotate(180deg);
+            text-align: center;
+            width: 100%;
+            padding: 8px 0;
+            justify-content: center;
+        }
+
+        /* ── Tooltip ───────────────────────────────────────────── */
+        .tooltip {
+            position: fixed; display: none; background: rgba(10,10,28,0.95);
+            border: 1px solid rgba(255,255,255,0.1); border-radius: 7px;
+            padding: 8px 12px; font-size: 11px; pointer-events: none; z-index: 40;
+            backdrop-filter: blur(10px); max-width: 380px; line-height: 1.5;
+        }
+        .tooltip b { color: #fff; font-size: 12px; }
+        .tooltip .meta { color: #888; }
+        .tooltip .path { color: #a78bfa; font-size: 10px; margin-top: 3px; }
+
+        /* ── Breadcrumb bar (bottom) ───────────────────────────── */
+        .breadcrumb-bar {
+            display: none;
+            position: fixed; bottom: 0; left: 0; right: 0; z-index: 25;
+            background: rgba(10,10,26,0.95);
+            border-top: 1px solid rgba(255,255,255,0.08);
+            backdrop-filter: blur(12px);
+            padding: 10px 20px;
+            font-size: 13px; color: #aaa;
+            align-items: center; gap: 12px;
+        }
+        .breadcrumb-bar.visible { display: flex; }
+        .breadcrumb-bar .back-btn {
+            background: rgba(167,139,250,0.2); border: 1px solid rgba(167,139,250,0.3);
+            color: #a78bfa; border-radius: 4px; padding: 4px 10px; cursor: pointer;
+            font-size: 12px; white-space: nowrap;
+        }
+        .breadcrumb-bar .back-btn:hover { background: rgba(167,139,250,0.35); }
+        .breadcrumb-bar .path-text span { color: #fff; }
+    </style>
+</head>
+<body>
+
+<!-- Sticky top bar -->
+<div class="top-bar" id="topBar">
+    <h1>Bioregional Delegation Tree</h1>
+    <div class="sub">Temples of Refuge &rarr; Realms &rarr; Subrealms &rarr; Bioregions</div>
+    <div class="col-headers" id="colHeaders"></div>
+</div>
+
+<!-- Legend -->
+<div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#fbbf24"></div> Root</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#f472b6"></div> Realm (14)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#a78bfa"></div> Subrealm (53)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#34d399"></div> Bioregion (185)</div>
+</div>
+
+<!-- Chart -->
+<div class="chart-wrap" id="chartWrap"></div>
+
+<!-- Tooltip -->
+<div class="tooltip" id="tooltip"></div>
+
+<!-- Breadcrumb bar -->
+<div class="breadcrumb-bar" id="breadcrumbBar">
+    <button class="back-btn" id="backBtn">&larr; Back to overview</button>
+    <div class="path-text" id="pathText"></div>
+</div>
+
+<script>
+// ── Constants ──────────────────────────────────────────────────────────────
+const LEVEL_NAMES = ['Root','Realm','Subrealm','Bioregion'];
+const LEVEL_CLASSES = ['l0','l1','l2','l3'];
+const COL_WIDTHS = [50, 180, 200]; // Root, Realm, Subrealm; Bioregion gets the rest
+const COL_GAP = 2;
+const ROW_H = 32;
+const CELL_GAP = 1;
+
+// ── Full hierarchy data ────────────────────────────────────────────────────
+const DATA = { name:'Temples of Refuge', level:0, children:[
+  { name:'Subarctic America', level:1, children:[
+    { name:'Greenland', level:2, children:[
+      {name:'Greenland Tundra & Ice Sheets',code:'NA1',level:3},
+    ]},
+    { name:'Canadian Tundra', level:2, children:[
+      {name:'Canadian Low Arctic Tundra',code:'NA2',level:3},
+      {name:'Canadian High Arctic Tundra',code:'NA3',level:3},
+      {name:'Hudson Bay Lowlands',code:'NA4',level:3},
+    ]},
+    { name:'Canadian Boreal', level:2, children:[
+      {name:'Eastern Canadian Boreal Shield',code:'NA5',level:3},
+      {name:'Central Canadian Boreal Shield',code:'NA6',level:3},
+      {name:'Western Canadian Boreal',code:'NA7',level:3},
+    ]},
+    { name:'Alaska', level:2, children:[
+      {name:'Alaska Tundra & Boreal',code:'NA8',level:3},
+      {name:'Aleutian Islands & Alaska Peninsula',code:'NA9',level:3},
+    ]},
+  ]},
+  { name:'Northern America', level:1, children:[
+    { name:'Great Plains', level:2, children:[
+      {name:'Northern Tallgrass Prairie',code:'NA10',level:3},
+      {name:'Central Tallgrass Prairie',code:'NA11',level:3},
+      {name:'Northern Mixed & Shortgrass',code:'NA12',level:3},
+      {name:'Southern Mixed & Shortgrass',code:'NA13',level:3},
+    ]},
+    { name:'American West', level:2, children:[
+      {name:'Columbia Plateau & Great Basin',code:'NA14',level:3},
+      {name:'Colorado Plateau & Sonoran',code:'NA15',level:3},
+      {name:'Northern Rocky Mtn Forests',code:'NA16',level:3},
+      {name:'Southern Rocky Mtn Forests',code:'NA17',level:3},
+      {name:'Sierra Nevada & CA Chaparral',code:'NA18',level:3},
+    ]},
+    { name:'North Pacific Coast', level:2, children:[
+      {name:'Pacific NW Coastal Forests',code:'NA19',level:3},
+      {name:'BC Coastal Forests',code:'NA20',level:3},
+    ]},
+    { name:'Northeast Forests', level:2, children:[
+      {name:'Great Lakes Forests',code:'NA21',level:3},
+      {name:'Appalachian Mixed Forests',code:'NA22',level:3},
+      {name:'New England & Acadian',code:'NA23',level:3},
+      {name:'Mid-Atlantic Coastal',code:'NA24',level:3},
+    ]},
+    { name:'Southeast US', level:2, children:[
+      {name:'SE Conifer & Broadleaf',code:'NA25',level:3},
+      {name:'Mississippi Lowland Forests',code:'NA26',level:3},
+      {name:'Florida Peninsula',code:'NA27',level:3},
+      {name:'Gulf Coast Prairies',code:'NA28',level:3},
+    ]},
+    { name:'Mexican Drylands', level:2, children:[
+      {name:'Chihuahuan Desert',code:'NA29',level:3},
+      {name:'Tamaulipan Thornscrub',code:'NA30',level:3},
+      {name:'Baja California Desert',code:'NA31',level:3},
+    ]},
+  ]},
+  { name:'Central America', level:1, children:[
+    { name:'Central American Forests', level:2, children:[
+      {name:'Sierra Madre Pine-Oak',code:'NT24',level:3},
+      {name:'Central American Moist & Dry',code:'NT25',level:3},
+    ]},
+    { name:'Caribbean', level:2, children:[
+      {name:'Cuban Forests',code:'NT26',level:3},
+      {name:'Hispaniolan Forests',code:'NT27',level:3},
+      {name:'Jamaican & Puerto Rican',code:'NT28',level:3},
+      {name:'Lesser Antillean Forests',code:'NT29',level:3},
+    ]},
+  ]},
+  { name:'Southern America', level:1, children:[
+    { name:'Andes & Pacific', level:2, children:[
+      {name:'Atacama & Sechura Deserts',code:'NT1',level:3},
+      {name:'Central Andean Dry Puna',code:'NT2',level:3},
+      {name:'Central Andean Wet Puna',code:'NT3',level:3},
+      {name:'Valdivian Rainforests',code:'NT4',level:3},
+      {name:'Patagonian Steppe',code:'NT5',level:3},
+      {name:'Southern Andean Forests',code:'NT6',level:3},
+    ]},
+    { name:'SA Grasslands', level:2, children:[
+      {name:'Pampas Grasslands',code:'NT7',level:3},
+      {name:'Uruguayan Savanna',code:'NT8',level:3},
+      {name:'Espinal & Argentine Monte',code:'NT9',level:3},
+      {name:'Gran Chaco',code:'NT10',level:3},
+    ]},
+    { name:'Cerrado & Atlantic', level:2, children:[
+      {name:'Cerrado Savannas',code:'NT11',level:3},
+      {name:'Caatinga Dry Forests',code:'NT12',level:3},
+      {name:'Atlantic Forests of Brazil',code:'NT13',level:3},
+      {name:'Pantanal Wetlands',code:'NT14',level:3},
+    ]},
+    { name:'Amazonia', level:2, children:[
+      {name:'Western Amazonian',code:'NT15',level:3},
+      {name:'Central Amazonian',code:'NT16',level:3},
+      {name:'Eastern Amazonian',code:'NT17',level:3},
+      {name:'Guianan Moist Forests',code:'NT18',level:3},
+      {name:'Guianan Highlands & Tepuis',code:'NT19',level:3},
+    ]},
+    { name:'Upper South America', level:2, children:[
+      {name:'Northern Andean Paramo',code:'NT20',level:3},
+      {name:'Colombian & Venezuelan Dry',code:'NT21',level:3},
+      {name:'Magdalena & Choco-Darien',code:'NT22',level:3},
+      {name:'Venezuelan Llanos',code:'NT23',level:3},
+    ]},
+  ]},
+  { name:'Afrotropics', level:1, children:[
+    { name:'Southern Afrotropics', level:2, children:[
+      {name:'E African Montane',code:'AT1',level:3},
+      {name:'Southern Rift Montane',code:'AT2',level:3},
+      {name:'Zambezian Savannas',code:'AT3',level:3},
+      {name:'Southern African Bushveld',code:'AT4',level:3},
+      {name:'Kalahari & Karoo',code:'AT5',level:3},
+      {name:'Cape Floristic Fynbos',code:'AT6',level:3},
+    ]},
+    { name:'Equatorial', level:2, children:[
+      {name:'Congolian Coastal',code:'AT7',level:3},
+      {name:'Central Congolian Lowland',code:'AT8',level:3},
+      {name:'NE Congolian Forests',code:'AT9',level:3},
+      {name:'Albertine Rift Montane',code:'AT10',level:3},
+    ]},
+    { name:'Sub-Equatorial', level:2, children:[
+      {name:'W African Mangroves',code:'AT11',level:3},
+      {name:'Guinean Moist Forests',code:'AT12',level:3},
+      {name:'Nigerian Lowland',code:'AT13',level:3},
+      {name:'Cameroon Highlands',code:'AT14',level:3},
+    ]},
+    { name:'Madagascar & E Africa', level:2, children:[
+      {name:'Madagascar Moist',code:'AT15',level:3},
+      {name:'Madagascar Dry & Spiny',code:'AT16',level:3},
+      {name:'E African Coastal',code:'AT17',level:3},
+      {name:'E African Savannas',code:'AT18',level:3},
+    ]},
+    { name:'Sub-Saharan', level:2, children:[
+      {name:'Sahel Grasslands',code:'AT19',level:3},
+      {name:'West Sudanian Savanna',code:'AT20',level:3},
+      {name:'East Sudanian Savanna',code:'AT21',level:3},
+    ]},
+    { name:'Horn of Africa', level:2, children:[
+      {name:'Ethiopian Highlands',code:'AT22',level:3},
+      {name:'Somali Bushlands',code:'AT23',level:3},
+      {name:'Eritrean Coastal Desert',code:'AT24',level:3},
+    ]},
+  ]},
+  { name:'Subarctic Eurasia', level:1, children:[
+    { name:'Scandinavia & W Boreal', level:2, children:[
+      {name:'Scandinavian Boreal',code:'PA1',level:3},
+      {name:'Icelandic Tundra',code:'PA2',level:3},
+    ]},
+    { name:'Palearctic Tundra', level:2, children:[
+      {name:'Kola Peninsula Tundra',code:'PA3',level:3},
+      {name:'Taimyr & Siberian Arctic',code:'PA4',level:3},
+    ]},
+    { name:'Sea of Okhotsk', level:2, children:[
+      {name:'Chukchi & Kamchatka',code:'PA5',level:3},
+      {name:'Sea of Okhotsk Coastal',code:'PA6',level:3},
+    ]},
+    { name:'Siberia', level:2, children:[
+      {name:'West Siberian Taiga',code:'PA7',level:3},
+      {name:'East Siberian Taiga',code:'PA8',level:3},
+    ]},
+  ]},
+  { name:'Western Eurasia', level:1, children:[
+    { name:'Anglo-Celtic', level:2, children:[
+      {name:'British Isles Mixed',code:'PA9',level:3},
+      {name:'Celtic Broadleaf',code:'PA10',level:3},
+    ]},
+    { name:'Greater European', level:2, children:[
+      {name:'W European Broadleaf',code:'PA11',level:3},
+      {name:'Central European Mixed',code:'PA12',level:3},
+      {name:'Baltic Mixed Forests',code:'PA13',level:3},
+      {name:'Sarmatic Mixed',code:'PA14',level:3},
+    ]},
+    { name:'European Mountain', level:2, children:[
+      {name:'Alps & Carpathian',code:'PA15',level:3},
+      {name:'Pyrenees & S European',code:'PA16',level:3},
+    ]},
+    { name:'Black Sea', level:2, children:[
+      {name:'Caucasus & Anatolian',code:'PA17',level:3},
+      {name:'Pontic Steppe',code:'PA18',level:3},
+    ]},
+    { name:'Mediterranean', level:2, children:[
+      {name:'Iberian Peninsula',code:'PA19',level:3},
+      {name:'Italian Peninsula',code:'PA20',level:3},
+      {name:'E Mediterranean & Levant',code:'PA21',level:3},
+    ]},
+  ]},
+  { name:'Southern Eurasia', level:1, children:[
+    { name:'North Africa', level:2, children:[
+      {name:'Saharan Desert',code:'PA22',level:3},
+      {name:'N African Mediterranean',code:'PA23',level:3},
+      {name:'Nile Delta & Valley',code:'PA24',level:3},
+    ]},
+    { name:'Arabian Peninsula', level:2, children:[
+      {name:'Arabian Desert',code:'PA25',level:3},
+      {name:'Socotra & Arabian Fog',code:'PA26',level:3},
+    ]},
+  ]},
+  { name:'Central Eurasia', level:1, children:[
+    { name:'Persian Deserts', level:2, children:[
+      {name:'Persian Gulf & Iranian',code:'PA27',level:3},
+      {name:'Kopet-Dag & Hindu Kush',code:'PA28',level:3},
+    ]},
+    { name:'Tien Shan', level:2, children:[
+      {name:'Western Tien Shan',code:'PA29',level:3},
+      {name:'Eastern Tien Shan',code:'PA30',level:3},
+    ]},
+    { name:'Caspian & Central Asian', level:2, children:[
+      {name:'Caspian Hyrcanian',code:'PA31',level:3},
+      {name:'Karakum & Kyzylkum',code:'PA32',level:3},
+      {name:'Ferghana & Pamir',code:'PA33',level:3},
+    ]},
+    { name:'Kazakh Steppes', level:2, children:[
+      {name:'Kazakh Steppe',code:'PA34',level:3},
+      {name:'Kazakh Forest Steppe',code:'PA35',level:3},
+    ]},
+    { name:'Altai-Sayan', level:2, children:[
+      {name:'Altai-Sayan Montane',code:'PA36',level:3},
+      {name:'Sayan Alpine Meadows',code:'PA37',level:3},
+    ]},
+  ]},
+  { name:'Eastern Eurasia', level:1, children:[
+    { name:'East Asian Deserts', level:2, children:[
+      {name:'Taklamakan & Gobi',code:'PA38',level:3},
+      {name:'Alashan Plateau',code:'PA39',level:3},
+      {name:'Qaidam Basin Desert',code:'PA40',level:3},
+    ]},
+    { name:'Tibetan Plateau', level:2, children:[
+      {name:'Tibetan Alpine Shrublands',code:'PA41',level:3},
+      {name:'SE Tibetan Forests',code:'PA42',level:3},
+      {name:'Karakoram-W Tibetan',code:'PA43',level:3},
+    ]},
+    { name:'Mongolian Grasslands', level:2, children:[
+      {name:'Mongolian Grasslands',code:'PA44',level:3},
+      {name:'Daurian Forest Steppe',code:'PA45',level:3},
+    ]},
+    { name:'NE Asian Forests', level:2, children:[
+      {name:'Manchurian Mixed',code:'PA46',level:3},
+      {name:'Amur River Basin',code:'PA47',level:3},
+      {name:'Korean Peninsula',code:'PA48',level:3},
+    ]},
+    { name:'Japanese Islands', level:2, children:[
+      {name:'Japanese Archipelago',code:'PA49',level:3},
+      {name:'Ryukyu & Ogasawara',code:'PA50',level:3},
+    ]},
+    { name:'Central East Asian', level:2, children:[
+      {name:'Yangtze Basin',code:'PA51',level:3},
+      {name:'South China & Hainan',code:'PA52',level:3},
+      {name:'Taiwan Montane',code:'PA53',level:3},
+    ]},
+  ]},
+  { name:'Indomalaya', level:1, children:[
+    { name:'Indian Subcontinent', level:2, children:[
+      {name:'Himalayan Alpine',code:'IM1',level:3},
+      {name:'Ganges-Brahmaputra',code:'IM2',level:3},
+      {name:'Western Ghats & Sri Lanka',code:'IM3',level:3},
+      {name:'Deccan Plateau Dry',code:'IM4',level:3},
+      {name:'Thar & Indus Valley',code:'IM5',level:3},
+      {name:'NE India & Myanmar',code:'IM6',level:3},
+    ]},
+    { name:'SE Asian Forests', level:2, children:[
+      {name:'Indochina Dry',code:'IM7',level:3},
+      {name:'Indochina Moist',code:'IM8',level:3},
+      {name:'Annamite Mountains',code:'IM9',level:3},
+      {name:'Myanmar Coastal',code:'IM10',level:3},
+      {name:'South China Sea Coastal',code:'IM11',level:3},
+      {name:'Philippines Moist',code:'IM12',level:3},
+    ]},
+    { name:'Malaysia & W Indonesia', level:2, children:[
+      {name:'Peninsular Malaysian',code:'IM13',level:3},
+      {name:'Borneo Forests',code:'IM14',level:3},
+      {name:'Sumatran Tropical',code:'IM15',level:3},
+      {name:'Java & Bali Moist',code:'IM16',level:3},
+      {name:'Lesser Sunda Dry',code:'IM17',level:3},
+      {name:'Sulawesi Moist',code:'IM18',level:3},
+    ]},
+  ]},
+  { name:'Australasia', level:1, children:[
+    { name:'New Zealand', level:2, children:[
+      {name:'NZ Temperate Forests',code:'AU1',level:3},
+      {name:'NZ Subantarctic Islands',code:'AU2',level:3},
+    ]},
+    { name:'Islands & E Indonesia', level:2, children:[
+      {name:'New Guinea Tropical',code:'AU3',level:3},
+      {name:'New Guinea Montane',code:'AU4',level:3},
+      {name:'Moluccas Transition',code:'AU5',level:3},
+      {name:'Solomon & Vanuatu',code:'AU6',level:3},
+      {name:'New Caledonian Moist',code:'AU7',level:3},
+    ]},
+    { name:'Australia', level:2, children:[
+      {name:'Queensland Tropical',code:'AU8',level:3},
+      {name:'E Australian Temperate',code:'AU9',level:3},
+      {name:'SE Australian Mallee',code:'AU10',level:3},
+      {name:'Murray-Darling',code:'AU11',level:3},
+      {name:'W Australian Woodlands',code:'AU12',level:3},
+      {name:'SW Australian Forests',code:'AU13',level:3},
+      {name:'Central Australian Deserts',code:'AU14',level:3},
+      {name:'N Australian Savannas',code:'AU15',level:3},
+      {name:'Tasmanian Temperate',code:'AU16',level:3},
+    ]},
+  ]},
+  { name:'Oceania', level:1, children:[
+    { name:'Oceanic Islands', level:2, children:[
+      {name:'Hawaiian Tropical',code:'OC1',level:3},
+      {name:'Fijian Tropical',code:'OC2',level:3},
+      {name:'Samoan Tropical',code:'OC3',level:3},
+      {name:'Tongan Tropical',code:'OC4',level:3},
+      {name:'Society & Marquesas',code:'OC5',level:3},
+      {name:'Micronesian Islands',code:'OC6',level:3},
+      {name:'Palau & Marianas',code:'OC7',level:3},
+      {name:'Cook & Tuamotu',code:'OC8',level:3},
+      {name:'Easter Island & SE Poly.',code:'OC9',level:3},
+      {name:'Galapagos Islands',code:'OC10',level:3},
+      {name:'Line & Phoenix Islands',code:'OC11',level:3},
+    ]},
+  ]},
+  { name:'Antarctica', level:1, children:[
+    { name:'Antarctic Continent', level:2, children:[
+      {name:'Antarctic Peninsula',code:'AN1',level:3},
+      {name:'Continental Antarctica',code:'AN2',level:3},
+      {name:'Subantarctic Islands',code:'AN3',level:3},
+    ]},
+  ]},
+]};
+
+// ── Tree annotation: parent refs, leaf indices, descendant counts ───────
+let leafIndex = 0;
+
+function annotate(node, parent) {
+    node.parent = parent || null;
+    if (!node.children || node.children.length === 0) {
+        node.leafStart = leafIndex;
+        node.leafEnd = leafIndex;
+        node.leafCount = 1;
+        leafIndex++;
+    } else {
+        for (const c of node.children) annotate(c, node);
+        node.leafStart = node.children[0].leafStart;
+        node.leafEnd = node.children[node.children.length - 1].leafEnd;
+        node.leafCount = node.leafEnd - node.leafStart + 1;
+    }
+}
+annotate(DATA, null);
+
+const TOTAL_LEAVES = DATA.leafCount; // 185
+
+// ── Collect all nodes by level ──────────────────────────────────────────
+function collectByLevel(node, acc) {
+    if (!acc[node.level]) acc[node.level] = [];
+    acc[node.level].push(node);
+    if (node.children) for (const c of node.children) collectByLevel(c, acc);
+}
+
+// ── Get ancestry chain ──────────────────────────────────────────────────
+function getAncestors(node) {
+    const chain = [];
+    let n = node;
+    while (n) { chain.push(n); n = n.parent; }
+    return chain;
+}
+
+// ── Get full path string ────────────────────────────────────────────────
+function getPathString(node) {
+    return getAncestors(node).reverse().map(n => n.name).join(' \u2192 ');
+}
+
+// ── Count direct children ───────────────────────────────────────────────
+function childCount(node) {
+    return node.children ? node.children.length : 0;
+}
+
+// ── DOM refs ────────────────────────────────────────────────────────────
+const chartWrap = document.getElementById('chartWrap');
+const colHeaders = document.getElementById('colHeaders');
+const tooltipEl = document.getElementById('tooltip');
+const breadcrumbBar = document.getElementById('breadcrumbBar');
+const backBtn = document.getElementById('backBtn');
+const pathText = document.getElementById('pathText');
+
+// ── Zoom state ──────────────────────────────────────────────────────────
+let zoomStack = []; // stack of nodes; empty = full view
+let allCellEls = []; // all rendered cell DOM elements
+let cellNodeMap = new WeakMap(); // DOM element -> node
+let nodeCellMap = new Map(); // node -> DOM element
+
+// ── Render the chart ────────────────────────────────────────────────────
+function render(rootNode) {
+    // Clear
+    chartWrap.innerHTML = '';
+    allCellEls = [];
+    nodeCellMap = new Map();
+
+    // Determine which levels to show
+    const baseLevel = rootNode.level;
+    const levelsToShow = []; // indices into LEVEL_NAMES
+    for (let l = baseLevel; l <= 3; l++) levelsToShow.push(l);
+
+    // Collect visible nodes
+    const nodesByLevel = {};
+    collectByLevel(rootNode, nodesByLevel);
+
+    // Compute row height and total leaves for this subtree
+    const subtreeLeaves = rootNode.leafCount;
+    const vpH = window.innerHeight - 120; // leave room for header + breadcrumb
+    const rowH = zoomStack.length > 0 ? Math.max(40, Math.floor(vpH / subtreeLeaves)) : ROW_H;
+    const totalH = subtreeLeaves * rowH;
+
+    // Column X positions
+    const colXs = [];
+    let x = 0;
+    for (let i = 0; i < levelsToShow.length; i++) {
+        colXs.push(x);
+        if (i < levelsToShow.length - 1) {
+            const lvl = levelsToShow[i];
+            const colIdx = lvl - baseLevel;
+            const w = colIdx < COL_WIDTHS.length ? COL_WIDTHS[colIdx] : COL_WIDTHS[COL_WIDTHS.length - 1];
+            x += w + COL_GAP;
+        }
+    }
+    // Last column fills remaining width
+    const chartWidth = Math.max(document.documentElement.clientWidth - 40, 800);
+    const lastColW = chartWidth - colXs[colXs.length - 1];
+
+    // Compute column widths array
+    const colWidths = [];
+    for (let i = 0; i < levelsToShow.length; i++) {
+        if (i < levelsToShow.length - 1) {
+            colWidths.push(colXs[i + 1] - colXs[i] - COL_GAP);
+        } else {
+            colWidths.push(lastColW);
+        }
+    }
+
+    // Render column headers
+    colHeaders.innerHTML = '';
+    for (let i = 0; i < levelsToShow.length; i++) {
+        const lvl = levelsToShow[i];
+        const hdr = document.createElement('div');
+        hdr.className = 'col-header ' + LEVEL_CLASSES[lvl];
+        hdr.style.width = colWidths[i] + 'px';
+        const count = nodesByLevel[lvl] ? nodesByLevel[lvl].length : 0;
+        hdr.textContent = lvl === 0 ? LEVEL_NAMES[lvl] : LEVEL_NAMES[lvl] + ' (' + count + ')';
+        colHeaders.appendChild(hdr);
+    }
+
+    // Set chart height
+    chartWrap.style.height = totalH + 'px';
+
+    // The leaf offset: when zoomed, we rebase leafStart relative to rootNode
+    const leafOffset = rootNode.leafStart;
+
+    // Create cells for each visible node
+    function createCells(node) {
+        const lvl = node.level;
+        const colIdx = lvl - baseLevel;
+        if (colIdx < 0 || colIdx >= levelsToShow.length) return;
+
+        const top = (node.leafStart - leafOffset) * rowH;
+        const height = (node.leafEnd - node.leafStart + 1) * rowH - CELL_GAP;
+
+        if (height < 1) return;
+
+        const el = document.createElement('div');
+        el.className = 'cell ' + LEVEL_CLASSES[lvl];
+        el.style.left = colXs[colIdx] + 'px';
+        el.style.top = top + 'px';
+        el.style.width = colWidths[colIdx] + 'px';
+        el.style.height = height + 'px';
+
+        // Label
+        const labelEl = document.createElement('span');
+        labelEl.className = 'label';
+
+        if (lvl === 0) {
+            // Root: vertical text
+            labelEl.textContent = node.name;
+            labelEl.style.fontSize = '13px';
+            labelEl.style.fontWeight = '700';
+            labelEl.style.color = '#fff';
+        } else if (lvl === 3) {
+            // Bioregion: code + name
+            labelEl.textContent = node.code + ' ' + node.name;
+        } else {
+            labelEl.textContent = node.name;
+        }
+
+        // Font sizing based on cell height
+        if (lvl !== 0) {
+            if (height < 10) {
+                labelEl.style.display = 'none';
+            } else if (height < 18) {
+                labelEl.style.fontSize = '8px';
+            } else if (height < 24) {
+                labelEl.style.fontSize = '10px';
+            } else {
+                labelEl.style.fontSize = '12px';
+            }
+            labelEl.style.color = 'rgba(255,255,255,0.9)';
+        }
+
+        el.appendChild(labelEl);
+        chartWrap.appendChild(el);
+
+        allCellEls.push(el);
+        cellNodeMap.set(el, node);
+        nodeCellMap.set(node, el);
+
+        // Events
+        el.addEventListener('mouseenter', onCellEnter);
+        el.addEventListener('mouseleave', onCellLeave);
+        el.addEventListener('mousemove', onCellMove);
+        el.addEventListener('click', onCellClick);
+
+        // Recurse children
+        if (node.children) {
+            for (const c of node.children) createCells(c);
+        }
+    }
+
+    createCells(rootNode);
+
+    // Update breadcrumb
+    updateBreadcrumb();
+}
+
+// ── Hover highlighting ──────────────────────────────────────────────────
+let currentHoverNode = null;
+
+function onCellEnter(e) {
+    const node = cellNodeMap.get(e.currentTarget);
+    if (!node) return;
+    currentHoverNode = node;
+
+    const ancestors = new Set(getAncestors(node));
+
+    // Also highlight all descendants
+    const descendants = new Set();
+    function walkDesc(n) {
+        descendants.add(n);
+        if (n.children) for (const c of n.children) walkDesc(c);
+    }
+    walkDesc(node);
+
+    const related = new Set([...ancestors, ...descendants]);
+
+    for (const el of allCellEls) {
+        const n = cellNodeMap.get(el);
+        if (related.has(n)) {
+            el.classList.add('highlight');
+            el.classList.remove('dim');
+        } else {
+            el.classList.add('dim');
+            el.classList.remove('highlight');
+        }
+    }
+
+    showTooltip(node, e);
+}
+
+function onCellLeave(e) {
+    currentHoverNode = null;
+    for (const el of allCellEls) {
+        el.classList.remove('highlight');
+        el.classList.remove('dim');
+    }
+    tooltipEl.style.display = 'none';
+}
+
+function onCellMove(e) {
+    const node = cellNodeMap.get(e.currentTarget);
+    if (node) positionTooltip(e);
+}
+
+function showTooltip(node, e) {
+    const cc = childCount(node);
+    const childLvl = Math.min(node.level + 1, 3);
+    const childLbl = cc > 0
+        ? cc + ' ' + LEVEL_NAMES[childLvl] + (cc > 1 ? 's' : '')
+        : 'Leaf';
+
+    tooltipEl.innerHTML =
+        '<b>' + node.name + '</b>' +
+        (node.code ? ' <span class="meta">(' + node.code + ')</span>' : '') + '<br>' +
+        '<span class="meta">' + LEVEL_NAMES[Math.min(node.level, 3)] + '</span>' +
+        ' &middot; <span style="color:#4ade80">' + childLbl + '</span>' +
+        '<div class="path">' + getPathString(node) + '</div>';
+
+    tooltipEl.style.display = 'block';
+    positionTooltip(e);
+}
+
+function positionTooltip(e) {
+    const pad = 14;
+    let left = e.clientX + pad;
+    let top = e.clientY - 10;
+    if (left + 390 > window.innerWidth) left = e.clientX - 390;
+    if (top < 10) top = 10;
+    if (top + 100 > window.innerHeight) top = window.innerHeight - 110;
+    tooltipEl.style.left = left + 'px';
+    tooltipEl.style.top = top + 'px';
+}
+
+// ── Click to zoom ───────────────────────────────────────────────────────
+function onCellClick(e) {
+    const node = cellNodeMap.get(e.currentTarget);
+    if (!node) return;
+    // Only zoom on realm (level 1) or subrealm (level 2) that have children
+    if (node.children && node.children.length > 0 && (node.level === 1 || node.level === 2)) {
+        zoomStack.push(node);
+        render(node);
+        window.scrollTo(0, 0);
+    }
+}
+
+function zoomOut() {
+    if (zoomStack.length > 0) {
+        zoomStack.pop();
+        const target = zoomStack.length > 0 ? zoomStack[zoomStack.length - 1] : DATA;
+        render(target);
+        window.scrollTo(0, 0);
+    }
+}
+
+function zoomToOverview() {
+    zoomStack = [];
+    render(DATA);
+    window.scrollTo(0, 0);
+}
+
+// ── Breadcrumb ──────────────────────────────────────────────────────────
+function updateBreadcrumb() {
+    if (zoomStack.length === 0) {
+        breadcrumbBar.classList.remove('visible');
+        return;
+    }
+    breadcrumbBar.classList.add('visible');
+
+    const parts = [DATA, ...zoomStack];
+    pathText.innerHTML = parts.map((n, i) =>
+        i === parts.length - 1
+            ? '<span>' + n.name + '</span>'
+            : n.name
+    ).join(' \u2192 ');
+}
+
+backBtn.addEventListener('click', () => {
+    if (zoomStack.length > 1) {
+        zoomOut();
+    } else {
+        zoomToOverview();
+    }
+});
+
+// ── Keyboard ────────────────────────────────────────────────────────────
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' || e.key === 'Backspace') {
+        if (zoomStack.length > 0) {
+            e.preventDefault();
+            zoomOut();
+        }
+    }
+});
+
+// ── Resize ──────────────────────────────────────────────────────────────
+let resizeTimer;
+window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+        const target = zoomStack.length > 0 ? zoomStack[zoomStack.length - 1] : DATA;
+        render(target);
+    }, 150);
+});
+
+// ── Initial render ──────────────────────────────────────────────────────
+render(DATA);
+</script>
+</body>
+</html>

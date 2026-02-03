@@ -1,0 +1,11 @@
+#!/bin/bash
+# Open the bundled IndrasDashboard app with proper macOS dock icon
+
+APP_PATH="../../target/dx/indras-dashboard/bundle/macos/bundle/macos/IndrasDashboard.app"
+
+if [ ! -d "$APP_PATH" ]; then
+    echo "App bundle not found. Building..."
+    dx bundle --release
+fi
+
+open "$APP_PATH"

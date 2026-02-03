@@ -18,6 +18,8 @@ members = [
     "crates/indras-collaboration-viewer",
     "crates/indras-realm-viewer",
     "crates/indras-home-viewer",
+    "crates/indras-semantic-dashboard",
+    "crates/indras-fractal-canvas",
     "simulation",
     "examples/chat-app",
     "examples/sync-demo",

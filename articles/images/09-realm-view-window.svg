@@ -1,0 +1,331 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 600">
+  <defs>
+    <!-- Glow filter for realm window -->
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Stronger glow for visible artifacts -->
+    <filter id="artifactGlow">
+      <feGaussianBlur stdDeviation="6" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Gradient for realm window border -->
+    <linearGradient id="realmGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:rgba(255,255,255,0.3)"/>
+      <stop offset="50%" style="stop-color:rgba(255,255,255,0.15)"/>
+      <stop offset="100%" style="stop-color:rgba(255,255,255,0.3)"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1000" height="600" fill="#0a0a1a"/>
+
+  <!-- Home Realm Area (left side) -->
+  <rect x="30" y="80" width="600" height="420" rx="8"
+        fill="rgba(245, 166, 35, 0.06)"
+        stroke="rgba(245, 166, 35, 0.2)"
+        stroke-width="1.5"/>
+
+  <!-- Home Realm Label -->
+  <text x="40" y="105" font-family="'SF Pro Display', -apple-system, sans-serif"
+        font-size="18" font-weight="600" fill="rgba(245, 166, 35, 0.9)">
+    Ember's Home Realm
+  </text>
+
+  <!-- Artifacts in Home Realm -->
+
+  <!-- Row 1 -->
+  <!-- 1. Brand Guide (visible) -->
+  <g opacity="1">
+    <rect x="60" y="140" width="170" height="100" rx="6"
+          fill="rgba(255, 255, 255, 0.12)"
+          stroke="rgba(255, 215, 0, 0.6)"
+          stroke-width="2"
+          filter="url(#artifactGlow)"/>
+    <text x="145" y="175" font-family="'SF Pro Display', sans-serif"
+          font-size="16" font-weight="600" fill="#ffffff" text-anchor="middle">
+      Brand Guide
+    </text>
+    <!-- Checkmark -->
+    <circle cx="210" cy="155" r="10" fill="rgba(76, 217, 100, 0.3)"/>
+    <path d="M 206 155 L 209 158 L 214 151" stroke="#4cd964" stroke-width="2"
+          fill="none" stroke-linecap="round"/>
+    <!-- Grant badges -->
+    <g transform="translate(75, 205)">
+      <rect x="0" y="0" width="62" height="20" rx="4" fill="rgba(74, 158, 255, 0.2)"/>
+      <circle cx="8" cy="10" r="4" fill="#4a9eff"/>
+      <text x="16" y="14" font-family="monospace" font-size="11" fill="#4a9eff">Caspian: P</text>
+    </g>
+    <g transform="translate(145, 205)">
+      <rect x="0" y="0" width="55" height="20" rx="4" fill="rgba(78, 205, 196, 0.2)"/>
+      <circle cx="8" cy="10" r="4" fill="#4ecdc4"/>
+      <text x="16" y="14" font-family="monospace" font-size="11" fill="#4ecdc4">Soren: R</text>
+    </g>
+  </g>
+
+  <!-- 2. Mood Board (visible) -->
+  <g opacity="1">
+    <rect x="250" y="140" width="170" height="100" rx="6"
+          fill="rgba(255, 255, 255, 0.12)"
+          stroke="rgba(255, 215, 0, 0.6)"
+          stroke-width="2"
+          filter="url(#artifactGlow)"/>
+    <text x="335" y="175" font-family="'SF Pro Display', sans-serif"
+          font-size="16" font-weight="600" fill="#ffffff" text-anchor="middle">
+      Mood Board
+    </text>
+    <!-- Checkmark -->
+    <circle cx="400" cy="155" r="10" fill="rgba(76, 217, 100, 0.3)"/>
+    <path d="M 396 155 L 399 158 L 404 151" stroke="#4cd964" stroke-width="2"
+          fill="none" stroke-linecap="round"/>
+    <!-- Grant badges -->
+    <g transform="translate(265, 205)">
+      <rect x="0" y="0" width="62" height="20" rx="4" fill="rgba(74, 158, 255, 0.2)"/>
+      <circle cx="8" cy="10" r="4" fill="#4a9eff"/>
+      <text x="16" y="14" font-family="monospace" font-size="11" fill="#4a9eff">Caspian: R</text>
+    </g>
+    <g transform="translate(335, 205)">
+      <rect x="0" y="0" width="55" height="20" rx="4" fill="rgba(78, 205, 196, 0.2)"/>
+      <circle cx="8" cy="10" r="4" fill="#4ecdc4"/>
+      <text x="16" y="14" font-family="monospace" font-size="11" fill="#4ecdc4">Soren: R</text>
+    </g>
+  </g>
+
+  <!-- 3. Final Logo (visible) -->
+  <g opacity="1">
+    <rect x="440" y="140" width="170" height="100" rx="6"
+          fill="rgba(255, 255, 255, 0.12)"
+          stroke="rgba(255, 215, 0, 0.6)"
+          stroke-width="2"
+          filter="url(#artifactGlow)"/>
+    <text x="525" y="175" font-family="'SF Pro Display', sans-serif"
+          font-size="16" font-weight="600" fill="#ffffff" text-anchor="middle">
+      Final Logo
+    </text>
+    <!-- Checkmark -->
+    <circle cx="590" cy="155" r="10" fill="rgba(76, 217, 100, 0.3)"/>
+    <path d="M 586 155 L 589 158 L 594 151" stroke="#4cd964" stroke-width="2"
+          fill="none" stroke-linecap="round"/>
+    <!-- Grant badges -->
+    <g transform="translate(455, 205)">
+      <rect x="0" y="0" width="62" height="20" rx="4" fill="rgba(74, 158, 255, 0.2)"/>
+      <circle cx="8" cy="10" r="4" fill="#4a9eff"/>
+      <text x="16" y="14" font-family="monospace" font-size="11" fill="#4a9eff">Caspian: P</text>
+    </g>
+    <g transform="translate(525, 205)">
+      <rect x="0" y="0" width="55" height="20" rx="4" fill="rgba(78, 205, 196, 0.2)"/>
+      <circle cx="8" cy="10" r="4" fill="#4ecdc4"/>
+      <text x="16" y="14" font-family="monospace" font-size="11" fill="#4ecdc4">Soren: P</text>
+    </g>
+  </g>
+
+  <!-- Row 2 -->
+  <!-- 4. Draft v3 (hidden - only Soren) -->
+  <g opacity="0.3">
+    <rect x="60" y="270" width="170" height="100" rx="6"
+          fill="rgba(80, 80, 90, 0.3)"
+          stroke="rgba(100, 100, 110, 0.3)"
+          stroke-width="1"/>
+    <text x="145" y="305" font-family="'SF Pro Display', sans-serif"
+          font-size="16" font-weight="500" fill="#888888" text-anchor="middle">
+      Draft v3
+    </text>
+    <!-- X mark -->
+    <circle cx="210" cy="285" r="10" fill="rgba(255, 59, 48, 0.2)"/>
+    <path d="M 206 281 L 214 289 M 214 281 L 206 289" stroke="#ff3b30"
+          stroke-width="2" stroke-linecap="round"/>
+    <!-- Only Soren badge -->
+    <g transform="translate(85, 335)">
+      <rect x="0" y="0" width="54" height="20" rx="4" fill="rgba(78, 205, 196, 0.15)"/>
+      <circle cx="8" cy="10" r="4" fill="rgba(78, 205, 196, 0.5)"/>
+      <text x="16" y="14" font-family="monospace" font-size="11" fill="rgba(78, 205, 196, 0.6)">Soren: T</text>
+    </g>
+  </g>
+
+  <!-- 5. Meeting Notes (hidden - only Caspian) -->
+  <g opacity="0.3">
+    <rect x="250" y="270" width="170" height="100" rx="6"
+          fill="rgba(80, 80, 90, 0.3)"
+          stroke="rgba(100, 100, 110, 0.3)"
+          stroke-width="1"/>
+    <text x="335" y="305" font-family="'SF Pro Display', sans-serif"
+          font-size="16" font-weight="500" fill="#888888" text-anchor="middle">
+      Meeting Notes
+    </text>
+    <!-- X mark -->
+    <circle cx="400" cy="285" r="10" fill="rgba(255, 59, 48, 0.2)"/>
+    <path d="M 396 281 L 404 289 M 404 281 L 396 289" stroke="#ff3b30"
+          stroke-width="2" stroke-linecap="round"/>
+    <!-- Only Caspian badge -->
+    <g transform="translate(268, 335)">
+      <rect x="0" y="0" width="62" height="20" rx="4" fill="rgba(74, 158, 255, 0.15)"/>
+      <circle cx="8" cy="10" r="4" fill="rgba(74, 158, 255, 0.5)"/>
+      <text x="16" y="14" font-family="monospace" font-size="11" fill="rgba(74, 158, 255, 0.6)">Caspian: P</text>
+    </g>
+  </g>
+
+  <!-- 6. Personal Notes (hidden - no grants) -->
+  <g opacity="0.3">
+    <rect x="440" y="270" width="170" height="100" rx="6"
+          fill="rgba(80, 80, 90, 0.3)"
+          stroke="rgba(100, 100, 110, 0.3)"
+          stroke-width="1"/>
+    <text x="525" y="305" font-family="'SF Pro Display', sans-serif"
+          font-size="16" font-weight="500" fill="#888888" text-anchor="middle">
+      Personal Notes
+    </text>
+    <!-- Lock icon -->
+    <g transform="translate(515, 278)">
+      <rect x="0" y="8" width="14" height="10" rx="2"
+            fill="none" stroke="#666666" stroke-width="1.5"/>
+      <path d="M 3 8 L 3 5 A 4 4 0 0 1 11 5 L 11 8"
+            fill="none" stroke="#666666" stroke-width="1.5"/>
+    </g>
+    <text x="525" y="355" font-family="'SF Pro Display', sans-serif"
+          font-size="12" fill="#666666" text-anchor="middle">
+      (no grants)
+    </text>
+  </g>
+
+  <!-- Realm View Window (right side) -->
+  <rect x="680" y="100" width="280" height="360" rx="12"
+        fill="rgba(20, 20, 40, 0.7)"
+        stroke="url(#realmGlow)"
+        stroke-width="3"
+        filter="url(#glow)"/>
+
+  <!-- Realm View Label -->
+  <text x="820" y="135" font-family="'SF Pro Display', sans-serif"
+        font-size="20" font-weight="700" fill="rgba(255, 255, 255, 0.9)"
+        text-anchor="middle" letter-spacing="0.5">
+    Realm View
+  </text>
+
+  <!-- Visible artifacts in realm -->
+  <g transform="translate(700, 165)">
+    <!-- Brand Guide -->
+    <rect x="0" y="0" width="240" height="45" rx="6"
+          fill="rgba(255, 255, 255, 0.08)"
+          stroke="rgba(255, 215, 0, 0.4)"
+          stroke-width="1.5"/>
+    <circle cx="20" cy="22" r="8" fill="rgba(76, 217, 100, 0.3)"/>
+    <path d="M 17 22 L 19.5 24.5 L 23 19.5" stroke="#4cd964"
+          stroke-width="1.8" fill="none" stroke-linecap="round"/>
+    <text x="35" y="27" font-family="'SF Pro Display', sans-serif"
+          font-size="15" font-weight="600" fill="#ffffff">
+      Brand Guide
+    </text>
+
+    <!-- Mood Board -->
+    <rect x="0" y="60" width="240" height="45" rx="6"
+          fill="rgba(255, 255, 255, 0.08)"
+          stroke="rgba(255, 215, 0, 0.4)"
+          stroke-width="1.5"/>
+    <circle cx="20" cy="82" r="8" fill="rgba(76, 217, 100, 0.3)"/>
+    <path d="M 17 82 L 19.5 84.5 L 23 79.5" stroke="#4cd964"
+          stroke-width="1.8" fill="none" stroke-linecap="round"/>
+    <text x="35" y="87" font-family="'SF Pro Display', sans-serif"
+          font-size="15" font-weight="600" fill="#ffffff">
+      Mood Board
+    </text>
+
+    <!-- Final Logo -->
+    <rect x="0" y="120" width="240" height="45" rx="6"
+          fill="rgba(255, 255, 255, 0.08)"
+          stroke="rgba(255, 215, 0, 0.4)"
+          stroke-width="1.5"/>
+    <circle cx="20" cy="142" r="8" fill="rgba(76, 217, 100, 0.3)"/>
+    <path d="M 17 142 L 19.5 144.5 L 23 139.5" stroke="#4cd964"
+          stroke-width="1.8" fill="none" stroke-linecap="round"/>
+    <text x="35" y="147" font-family="'SF Pro Display', sans-serif"
+          font-size="15" font-weight="600" fill="#ffffff">
+      Final Logo
+    </text>
+  </g>
+
+  <!-- Explanation text in realm window -->
+  <text x="820" y="395" font-family="'SF Pro Display', sans-serif"
+        font-size="13" fill="rgba(255, 255, 255, 0.6)"
+        text-anchor="middle">
+    Only artifacts where
+  </text>
+  <text x="820" y="415" font-family="'SF Pro Display', sans-serif"
+        font-size="13" font-weight="600" fill="rgba(255, 255, 255, 0.7)"
+        text-anchor="middle">
+    ALL members have active grants
+  </text>
+
+  <!-- Connecting arrows from visible artifacts to realm window -->
+  <!-- From Brand Guide -->
+  <path d="M 230 190 Q 450 180, 680 200"
+        fill="none" stroke="rgba(255, 215, 0, 0.25)"
+        stroke-width="1.5" stroke-dasharray="4,4"/>
+
+  <!-- From Mood Board -->
+  <path d="M 420 190 Q 550 200, 680 230"
+        fill="none" stroke="rgba(255, 215, 0, 0.25)"
+        stroke-width="1.5" stroke-dasharray="4,4"/>
+
+  <!-- From Final Logo -->
+  <path d="M 610 190 Q 645 220, 680 265"
+        fill="none" stroke="rgba(255, 215, 0, 0.25)"
+        stroke-width="1.5" stroke-dasharray="4,4"/>
+
+  <!-- Legend/Key at bottom -->
+  <g transform="translate(30, 525)">
+    <text x="0" y="0" font-family="'SF Pro Display', sans-serif"
+          font-size="15" font-weight="600" fill="rgba(255, 255, 255, 0.8)">
+      Members in realm:
+    </text>
+
+    <!-- Caspian -->
+    <circle cx="160" cy="-4" r="6" fill="#4a9eff"/>
+    <text x="172" y="0" font-family="'SF Pro Display', sans-serif"
+          font-size="14" fill="#4a9eff">
+      Caspian
+    </text>
+
+    <!-- Soren -->
+    <circle cx="250" cy="-4" r="6" fill="#4ecdc4"/>
+    <text x="262" y="0" font-family="'SF Pro Display', sans-serif"
+          font-size="14" fill="#4ecdc4">
+      Soren
+    </text>
+  </g>
+
+  <!-- Realm explanation at bottom -->
+  <text x="30" y="565" font-family="'SF Pro Display', sans-serif"
+        font-size="13" fill="rgba(255, 255, 255, 0.5)"
+        font-style="italic">
+    Realm = intersection of all members' access
+  </text>
+
+  <!-- Grant type legend -->
+  <g transform="translate(680, 520)">
+    <text x="0" y="0" font-family="'SF Pro Display', sans-serif"
+          font-size="12" font-weight="600" fill="rgba(255, 255, 255, 0.6)">
+      Grant Types:
+    </text>
+    <circle cx="0" cy="18" r="4" fill="#ffd700"/>
+    <text x="10" y="22" font-family="monospace" font-size="11" fill="rgba(255, 215, 0, 0.8)">
+      P = Permanent
+    </text>
+    <circle cx="110" cy="18" r="4" fill="#4a9eff"/>
+    <text x="120" y="22" font-family="monospace" font-size="11" fill="rgba(74, 158, 255, 0.8)">
+      R = Revocable
+    </text>
+    <circle cx="220" cy="18" r="4" fill="#ffb900"/>
+    <text x="230" y="22" font-family="monospace" font-size="11" fill="rgba(255, 185, 0, 0.8)">
+      T = Timed
+    </text>
+  </g>
+</svg>

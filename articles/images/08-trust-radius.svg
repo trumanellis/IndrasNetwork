@@ -1,0 +1,237 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 600">
+  <defs>
+    <!-- Glow filters -->
+    <filter id="glow-gold">
+      <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <filter id="glow-blue">
+      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <filter id="glow-amber">
+      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <filter id="glow-teal">
+      <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <filter id="glow-white">
+      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <filter id="glow-center">
+      <feGaussianBlur stdDeviation="8" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Arrow marker for transfer -->
+    <marker id="arrow-transfer" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#4ecdc4"/>
+    </marker>
+
+    <!-- Gradients -->
+    <radialGradient id="ember-gradient">
+      <stop offset="0%" style="stop-color:#f5a623;stop-opacity:1" />
+      <stop offset="70%" style="stop-color:#f5a623;stop-opacity:0.9" />
+      <stop offset="100%" style="stop-color:#d68910;stop-opacity:0.8" />
+    </radialGradient>
+
+    <radialGradient id="artifact-gradient">
+      <stop offset="0%" style="stop-color:#ffffff;stop-opacity:0.9" />
+      <stop offset="100%" style="stop-color:#cccccc;stop-opacity:0.7" />
+    </radialGradient>
+
+    <radialGradient id="contact-gradient">
+      <stop offset="0%" style="stop-color:#aaaaaa;stop-opacity:0.8" />
+      <stop offset="100%" style="stop-color:#888888;stop-opacity:0.6" />
+    </radialGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1000" height="600" fill="#0a0a1a"/>
+
+  <!-- Connection lines (drawn first, behind nodes) -->
+  <g id="connections">
+    <!-- Brand Guidelines → Caspian (Permanent, gold solid) -->
+    <line x1="500" y1="180" x2="650" y2="220"
+          stroke="#f5a623" stroke-width="2.5"
+          filter="url(#glow-gold)" opacity="0.9"/>
+
+    <!-- Brand Guidelines → Soren (Revocable, blue dashed) -->
+    <line x1="500" y1="180" x2="650" y2="380"
+          stroke="#4a9eff" stroke-width="2"
+          stroke-dasharray="8,4"
+          filter="url(#glow-blue)" opacity="0.85"/>
+
+    <!-- Mood Board → Soren (Revocable, blue dashed) -->
+    <line x1="620" y1="300" x2="650" y2="380"
+          stroke="#4a9eff" stroke-width="2"
+          stroke-dasharray="8,4"
+          filter="url(#glow-blue)" opacity="0.85"/>
+
+    <!-- Mood Board → Wren (Timed, amber dotted) -->
+    <line x1="620" y1="300" x2="350" y2="380"
+          stroke="#ff8c42" stroke-width="2"
+          stroke-dasharray="2,3"
+          filter="url(#glow-amber)" opacity="0.85"/>
+
+    <!-- Final Assets → Juniper (Transfer, teal thick arrow) -->
+    <line x1="500" y1="420" x2="350" y2="220"
+          stroke="#4ecdc4" stroke-width="3.5"
+          marker-end="url(#arrow-transfer)"
+          filter="url(#glow-teal)" opacity="0.9"/>
+
+    <!-- Draft v3 → Wren (Timed, amber dotted) -->
+    <line x1="380" y1="300" x2="350" y2="380"
+          stroke="#ff8c42" stroke-width="2"
+          stroke-dasharray="2,3"
+          filter="url(#glow-amber)" opacity="0.85"/>
+  </g>
+
+  <!-- Nodes -->
+  <g id="nodes">
+    <!-- Ember (center) -->
+    <circle cx="500" cy="300" r="30"
+            fill="url(#ember-gradient)"
+            stroke="#f5a623" stroke-width="2"
+            filter="url(#glow-center)"/>
+    <text x="500" y="350"
+          font-family="sans-serif" font-size="16" font-weight="bold"
+          fill="#e0e0e0" text-anchor="middle">Ember</text>
+
+    <!-- Artifacts (inner ring) -->
+    <!-- Brand Guidelines (top) -->
+    <circle cx="500" cy="180" r="12"
+            fill="url(#artifact-gradient)"
+            stroke="#ffffff" stroke-width="1.5"
+            filter="url(#glow-white)"/>
+    <text x="500" y="165"
+          font-family="sans-serif" font-size="12"
+          fill="#e0e0e0" text-anchor="middle">Brand Guidelines</text>
+
+    <!-- Mood Board (right) -->
+    <circle cx="620" cy="300" r="12"
+            fill="url(#artifact-gradient)"
+            stroke="#ffffff" stroke-width="1.5"
+            filter="url(#glow-white)"/>
+    <text x="620" y="285"
+          font-family="sans-serif" font-size="12"
+          fill="#e0e0e0" text-anchor="middle">Mood Board</text>
+
+    <!-- Final Assets (bottom) -->
+    <circle cx="500" cy="420" r="12"
+            fill="url(#artifact-gradient)"
+            stroke="#ffffff" stroke-width="1.5"
+            filter="url(#glow-white)"/>
+    <text x="500" y="440"
+          font-family="sans-serif" font-size="12"
+          fill="#e0e0e0" text-anchor="middle">Final Assets</text>
+
+    <!-- Draft v3 (left) -->
+    <circle cx="380" cy="300" r="12"
+            fill="url(#artifact-gradient)"
+            stroke="#ffffff" stroke-width="1.5"
+            filter="url(#glow-white)"/>
+    <text x="380" y="285"
+          font-family="sans-serif" font-size="12"
+          fill="#e0e0e0" text-anchor="middle">Draft v3</text>
+
+    <!-- Contacts (outer ring) -->
+    <!-- Caspian (top-right) -->
+    <circle cx="650" cy="220" r="18"
+            fill="url(#contact-gradient)"
+            stroke="#aaaaaa" stroke-width="1.5"
+            filter="url(#glow-white)" opacity="0.9"/>
+    <text x="650" y="205"
+          font-family="sans-serif" font-size="14"
+          fill="#e0e0e0" text-anchor="middle">Caspian</text>
+
+    <!-- Soren (bottom-right) -->
+    <circle cx="650" cy="380" r="18"
+            fill="url(#contact-gradient)"
+            stroke="#aaaaaa" stroke-width="1.5"
+            filter="url(#glow-white)" opacity="0.9"/>
+    <text x="650" y="405"
+          font-family="sans-serif" font-size="14"
+          fill="#e0e0e0" text-anchor="middle">Soren</text>
+
+    <!-- Wren (bottom-left) -->
+    <circle cx="350" cy="380" r="18"
+            fill="url(#contact-gradient)"
+            stroke="#aaaaaa" stroke-width="1.5"
+            filter="url(#glow-white)" opacity="0.9"/>
+    <text x="350" y="405"
+          font-family="sans-serif" font-size="14"
+          fill="#e0e0e0" text-anchor="middle">Wren</text>
+
+    <!-- Juniper (top-left) -->
+    <circle cx="350" cy="220" r="18"
+            fill="url(#contact-gradient)"
+            stroke="#aaaaaa" stroke-width="1.5"
+            filter="url(#glow-white)" opacity="0.9"/>
+    <text x="350" y="205"
+          font-family="sans-serif" font-size="14"
+          fill="#e0e0e0" text-anchor="middle">Juniper</text>
+  </g>
+
+  <!-- Legend -->
+  <g id="legend" transform="translate(250, 520)">
+    <text x="0" y="0"
+          font-family="sans-serif" font-size="11" font-weight="bold"
+          fill="#e0e0e0">Access Modes:</text>
+
+    <!-- Permanent -->
+    <line x1="100" y1="-3" x2="150" y2="-3"
+          stroke="#f5a623" stroke-width="2.5"/>
+    <text x="155" y="0"
+          font-family="sans-serif" font-size="11"
+          fill="#888888">Permanent (co-owner)</text>
+
+    <!-- Revocable -->
+    <line x1="300" y1="-3" x2="350" y2="-3"
+          stroke="#4a9eff" stroke-width="2" stroke-dasharray="8,4"/>
+    <text x="355" y="0"
+          font-family="sans-serif" font-size="11"
+          fill="#888888">Revocable (view-only)</text>
+
+    <!-- Timed -->
+    <line x1="100" y1="17" x2="150" y2="17"
+          stroke="#ff8c42" stroke-width="2" stroke-dasharray="2,3"/>
+    <text x="155" y="20"
+          font-family="sans-serif" font-size="11"
+          fill="#888888">Timed (expires)</text>
+
+    <!-- Transfer -->
+    <line x1="300" y1="17" x2="350" y2="17"
+          stroke="#4ecdc4" stroke-width="3.5" marker-end="url(#arrow-transfer)"/>
+    <text x="355" y="20"
+          font-family="sans-serif" font-size="11"
+          fill="#888888">Transfer (ownership)</text>
+  </g>
+</svg>

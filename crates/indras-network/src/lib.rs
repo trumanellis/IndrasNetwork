@@ -114,6 +114,7 @@ pub mod document_registry;
 pub mod error;
 pub mod escape;
 pub mod home_realm;
+pub mod humanness;
 pub mod invite;
 pub mod member;
 pub mod message;
@@ -127,6 +128,7 @@ pub mod realm_alias;
 pub mod sentiment;
 pub mod stream;
 pub mod token_of_gratitude;
+pub mod token_valuation;
 
 // Re-export main types at crate root
 pub use artifact::{Artifact, ArtifactDownload, ArtifactId, DownloadProgress};
@@ -135,8 +137,8 @@ pub use artifact_sharing::{
     RecallAcknowledgment, RevocationEntry, SharedArtifact, SharingStatus, ARTIFACT_KEY_SIZE,
 };
 pub use access::{
-    AccessGrant, AccessMode, ArtifactProvenance, ArtifactStatus, GrantError, ProvenanceType,
-    RevokeError, TransferError,
+    AccessGrant, AccessMode, ArtifactProvenance, ArtifactStatus, GrantError, HolonicError,
+    ProvenanceType, RevokeError, TransferError,
 };
 pub use artifact_index::{ArtifactIndex, HomeArtifactEntry};
 pub use artifact_recovery::{ArtifactRecoveryRequest, ArtifactRecoveryResponse, RecoverableArtifact, RecoveryManifest};
@@ -173,6 +175,12 @@ pub use sentiment::{
 pub use token_of_gratitude::{
     TokenError, TokenEvent, TokenOfGratitude, TokenOfGratitudeDocument, TokenOfGratitudeId,
 };
+pub use humanness::{
+    BioregionalLevel, Delegation, DelegationError, HumannessAttestation, HumannessDocument,
+    HumannessEvent, humanness_freshness, validate_delegation_chain, FRESHNESS_DECAY_RATE,
+    FRESHNESS_GRACE_DAYS,
+};
+pub use token_valuation::{SubjectiveTokenValue, STEWARD_CHAIN_DECAY, subjective_value};
 
 /// Prelude module for convenient imports.
 ///

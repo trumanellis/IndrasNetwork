@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transfer Flow - Artifact Movement Visualization</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: #0a0a1a;
+            color: #e0e0e0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1000px;
+        }
+
+        .title {
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: 24px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        .visualization {
+            position: relative;
+            width: 100%;
+            height: 500px;
+            background: #0f0f1f;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        }
+
+        svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Member nodes */
+        .member {
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .member-circle {
+            transition: all 0.3s ease;
+        }
+
+        .member:hover .member-circle {
+            filter: brightness(1.3);
+        }
+
+        .member-label {
+            font-size: 14px;
+            font-weight: 600;
+            text-anchor: middle;
+            fill: #e0e0e0;
+        }
+
+        .member-role {
+            font-size: 11px;
+            text-anchor: middle;
+            fill: #999;
+        }
+
+        /* Artifact */
+        .artifact {
+            transition: all 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .artifact-glow {
+            filter: url(#glow);
+        }
+
+        .artifact-label {
+            font-size: 12px;
+            font-weight: 600;
+            text-anchor: middle;
+            fill: #fff;
+        }
+
+        .artifact-owner {
+            font-size: 10px;
+            text-anchor: middle;
+            fill: #f5a623;
+            font-style: italic;
+        }
+
+        /* Connections */
+        .connection {
+            transition: all 0.5s ease;
+            stroke-width: 2.5;
+        }
+
+        .connection-permanent {
+            stroke: #f5a623;
+            stroke-dasharray: none;
+            opacity: 1;
+        }
+
+        .connection-revocable {
+            stroke: #4a9eff;
+            stroke-dasharray: 6, 4;
+            opacity: 0;
+            transition: opacity 0.5s ease 0.4s;
+        }
+
+        .connection-revocable.visible {
+            opacity: 0.9;
+        }
+
+        .transfer-arrow {
+            stroke: #4ecdc4;
+            stroke-width: 3;
+            fill: none;
+            stroke-dasharray: 1000;
+            stroke-dashoffset: 1000;
+            opacity: 0;
+        }
+
+        .transfer-arrow.animating {
+            opacity: 1;
+            animation: drawArrow 1.2s ease-out forwards;
+        }
+
+        @keyframes drawArrow {
+            to {
+                stroke-dashoffset: 0;
+            }
+        }
+
+        .transfer-particles {
+            opacity: 0;
+        }
+
+        .transfer-particles.animating {
+            opacity: 1;
+        }
+
+        .particle {
+            fill: #4ecdc4;
+            opacity: 0;
+            animation: particle-flow 1.5s ease-in-out infinite;
+        }
+
+        @keyframes particle-flow {
+            0% { opacity: 0; transform: translateX(0); }
+            20% { opacity: 1; }
+            80% { opacity: 1; }
+            100% { opacity: 0; transform: translateX(350px); }
+        }
+
+        .particle:nth-child(2) { animation-delay: 0.3s; }
+        .particle:nth-child(3) { animation-delay: 0.6s; }
+        .particle:nth-child(4) { animation-delay: 0.9s; }
+
+        /* Provenance */
+        .provenance {
+            opacity: 0;
+            transition: opacity 0.6s ease;
+        }
+
+        .provenance.visible {
+            opacity: 1;
+        }
+
+        .provenance-bg {
+            fill: #1a1a2e;
+            rx: 6;
+        }
+
+        .provenance-title {
+            font-size: 11px;
+            font-weight: 600;
+            fill: #999;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .provenance-chain {
+            font-size: 13px;
+            fill: #e0e0e0;
+        }
+
+        .provenance-arrow {
+            fill: #4ecdc4;
+        }
+
+        /* Controls */
+        .controls {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            margin-top: 24px;
+        }
+
+        button {
+            padding: 12px 32px;
+            font-size: 15px;
+            font-weight: 600;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn-transfer {
+            background: linear-gradient(135deg, #4ecdc4, #44b3aa);
+            color: #0a0a1a;
+        }
+
+        .btn-transfer:hover {
+            background: linear-gradient(135deg, #5ed7ce, #4ecdc4);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(78, 205, 196, 0.4);
+        }
+
+        .btn-transfer:disabled {
+            background: #2a2a3a;
+            color: #555;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-reset {
+            background: #2a2a3a;
+            color: #e0e0e0;
+            border: 1px solid #3a3a4a;
+        }
+
+        .btn-reset:hover {
+            background: #3a3a4a;
+            transform: translateY(-2px);
+        }
+
+        /* Step indicators */
+        .step-indicators {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 20px;
+        }
+
+        .step {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #2a2a3a;
+            transition: all 0.3s ease;
+        }
+
+        .step.active {
+            background: #4ecdc4;
+            width: 24px;
+            border-radius: 4px;
+        }
+
+        /* Tooltip */
+        .connection-label {
+            font-size: 10px;
+            fill: #999;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            pointer-events: none;
+        }
+
+        .connection:hover + .connection-label,
+        .connection-label.visible {
+            opacity: 1;
+        }
+
+        /* Dimmed state */
+        .dimmed {
+            opacity: 0.5;
+        }
+
+        .glowing {
+            filter: brightness(1.4) drop-shadow(0 0 12px currentColor);
+        }
+
+        /* Legend */
+        .legend {
+            display: flex;
+            justify-content: center;
+            gap: 24px;
+            margin-top: 16px;
+            font-size: 12px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .legend-line {
+            width: 24px;
+            height: 2px;
+        }
+
+        .legend-permanent {
+            background: #f5a623;
+        }
+
+        .legend-revocable {
+            background: #4a9eff;
+            background-image: repeating-linear-gradient(
+                90deg,
+                #4a9eff,
+                #4a9eff 4px,
+                transparent 4px,
+                transparent 8px
+            );
+        }
+
+        .legend-transfer {
+            background: #4ecdc4;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="title">Transfer Flow: Artifact Movement</h1>
+
+        <div class="visualization">
+            <svg viewBox="0 0 1000 500" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <!-- Glow effect -->
+                    <filter id="glow">
+                        <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
+                        <feMerge>
+                            <feMergeNode in="coloredBlur"/>
+                            <feMergeNode in="SourceGraphic"/>
+                        </feMerge>
+                    </filter>
+
+                    <!-- Arrow marker -->
+                    <marker id="arrowhead" markerWidth="10" markerHeight="10"
+                            refX="8" refY="3" orient="auto" fill="#4ecdc4">
+                        <polygon points="0 0, 10 3, 0 6" />
+                    </marker>
+                </defs>
+
+                <!-- Connections layer -->
+                <g id="connections">
+                    <!-- Permanent connection: Caspian to Artifact -->
+                    <line id="conn-permanent" class="connection connection-permanent"
+                          x1="500" y1="80" x2="280" y2="220" />
+                    <text class="connection-label" x="400" y="140">Permanent Access</text>
+
+                    <!-- Revocable connection: Ember to Artifact (appears after transfer) -->
+                    <line id="conn-revocable" class="connection connection-revocable"
+                          x1="150" y1="250" x2="280" y2="260" />
+                    <text id="label-revocable" class="connection-label" x="200" y="245">Revocable Access</text>
+
+                    <!-- Transfer arrow (animated during transfer) -->
+                    <path id="transfer-arrow" class="transfer-arrow"
+                          d="M 150 250 Q 400 200 750 250"
+                          marker-end="url(#arrowhead)" />
+
+                    <!-- Transfer particles -->
+                    <g id="transfer-particles" class="transfer-particles">
+                        <circle class="particle" cx="150" cy="250" r="4" />
+                        <circle class="particle" cx="150" cy="250" r="4" />
+                        <circle class="particle" cx="150" cy="250" r="4" />
+                        <circle class="particle" cx="150" cy="250" r="4" />
+                    </g>
+                </g>
+
+                <!-- Members layer -->
+                <g id="members">
+                    <!-- Ember (sender) -->
+                    <g id="member-ember" class="member" transform="translate(150, 250)">
+                        <circle class="member-circle" r="40" fill="#f5a623" />
+                        <text class="member-label" y="-50">Ember</text>
+                        <text id="ember-role" class="member-role" y="-35">Owner → Sender</text>
+                    </g>
+
+                    <!-- Juniper (recipient) -->
+                    <g id="member-juniper" class="member" transform="translate(750, 250)">
+                        <circle class="member-circle" r="40" fill="#4ecdc4" opacity="0.6" />
+                        <text class="member-label" y="-50">Juniper</text>
+                        <text id="juniper-role" class="member-role" y="-35">Recipient</text>
+                    </g>
+
+                    <!-- Caspian (permanent co-owner) -->
+                    <g id="member-caspian" class="member" transform="translate(500, 80)">
+                        <circle class="member-circle" r="35" fill="#4a9eff" />
+                        <text class="member-label" y="-45">Caspian</text>
+                        <text class="member-role" y="-30">Permanent Co-owner</text>
+                    </g>
+                </g>
+
+                <!-- Artifact layer -->
+                <g id="artifact-group" class="artifact" transform="translate(280, 260)">
+                    <rect class="artifact-glow" x="-50" y="-30" width="100" height="60"
+                          rx="6" fill="#fff" opacity="0.9" />
+                    <path d="M -30,-10 L -30,10 L -20,18 L 30,18 L 30,-10 L 20,-18 L -20,-18 Z"
+                          fill="#e0e0e0" stroke="#999" stroke-width="1.5" />
+                    <text class="artifact-label" y="0">Final Assets.zip</text>
+                    <text id="artifact-owner-label" class="artifact-owner" y="14">owned by Ember</text>
+                </g>
+
+                <!-- Provenance layer -->
+                <g id="provenance" class="provenance" transform="translate(200, 420)">
+                    <rect class="provenance-bg" width="600" height="60" />
+                    <text class="provenance-title" x="20" y="22">Provenance Chain</text>
+                    <text class="provenance-chain" x="20" y="45">
+                        Created by Ember
+                    </text>
+                    <path class="provenance-arrow" d="M 180 42 l 15 0 l -5 -4 l 0 8 Z" />
+                    <text id="transfer-text" class="provenance-chain" x="205" y="45" opacity="0">
+                        Transferred to Juniper
+                    </text>
+                </g>
+            </svg>
+        </div>
+
+        <div class="controls">
+            <button id="btn-transfer" class="btn-transfer">Transfer</button>
+            <button id="btn-reset" class="btn-reset">Reset</button>
+        </div>
+
+        <div class="step-indicators">
+            <div class="step active" data-step="0"></div>
+            <div class="step" data-step="1"></div>
+            <div class="step" data-step="2"></div>
+            <div class="step" data-step="3"></div>
+        </div>
+
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-line legend-permanent"></div>
+                <span>Permanent Access</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-line legend-revocable"></div>
+                <span>Revocable Access</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-line legend-transfer"></div>
+                <span>Transfer Flow</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class TransferFlowAnimation {
+            constructor() {
+                this.currentStep = 0;
+                this.isAnimating = false;
+
+                // Elements
+                this.artifact = document.getElementById('artifact-group');
+                this.transferArrow = document.getElementById('transfer-arrow');
+                this.transferParticles = document.getElementById('transfer-particles');
+                this.connRevocable = document.getElementById('conn-revocable');
+                this.labelRevocable = document.getElementById('label-revocable');
+                this.provenance = document.getElementById('provenance');
+                this.transferText = document.getElementById('transfer-text');
+                this.artifactOwnerLabel = document.getElementById('artifact-owner-label');
+                this.emberRole = document.getElementById('ember-role');
+                this.juniperRole = document.getElementById('juniper-role');
+                this.memberEmber = document.getElementById('member-ember');
+                this.memberJuniper = document.getElementById('member-juniper');
+
+                this.btnTransfer = document.getElementById('btn-transfer');
+                this.btnReset = document.getElementById('btn-reset');
+                this.steps = document.querySelectorAll('.step');
+
+                // Bind events
+                this.btnTransfer.addEventListener('click', () => this.startTransfer());
+                this.btnReset.addEventListener('click', () => this.reset());
+
+                // Hover effects for connections
+                this.setupConnectionHovers();
+            }
+
+            setupConnectionHovers() {
+                const connPermanent = document.getElementById('conn-permanent');
+                connPermanent.addEventListener('mouseenter', function() {
+                    this.style.strokeWidth = '4';
+                    this.style.filter = 'drop-shadow(0 0 8px #f5a623)';
+                });
+                connPermanent.addEventListener('mouseleave', function() {
+                    this.style.strokeWidth = '2.5';
+                    this.style.filter = 'none';
+                });
+            }
+
+            updateStepIndicator(step) {
+                this.steps.forEach((s, i) => {
+                    s.classList.toggle('active', i === step);
+                });
+            }
+
+            async startTransfer() {
+                if (this.isAnimating) return;
+                this.isAnimating = true;
+                this.btnTransfer.disabled = true;
+
+                // Step 1: Transfer begins
+                await this.step1_TransferBegins();
+
+                // Step 2: Artifact moves
+                await this.step2_ArtifactMoves();
+
+                // Step 3: Transfer completes
+                await this.step3_TransferComplete();
+
+                this.isAnimating = false;
+            }
+
+            async step1_TransferBegins() {
+                this.currentStep = 1;
+                this.updateStepIndicator(1);
+
+                // Show transfer arrow and particles
+                this.transferArrow.classList.add('animating');
+                this.transferParticles.classList.add('animating');
+
+                // Dim Ember slightly
+                this.memberEmber.classList.add('dimmed');
+                this.emberRole.textContent = 'Transferring...';
+
+                await this.wait(1200);
+            }
+
+            async step2_ArtifactMoves() {
+                this.currentStep = 2;
+                this.updateStepIndicator(2);
+
+                // Move artifact from Ember (280, 260) to Juniper (750, 260)
+                this.artifact.style.transform = 'translate(750, 260)';
+
+                // Add glow to artifact during movement
+                this.artifact.classList.add('glowing');
+
+                await this.wait(800);
+            }
+
+            async step3_TransferComplete() {
+                this.currentStep = 3;
+                this.updateStepIndicator(3);
+
+                // Remove transfer arrow and particles
+                this.transferArrow.classList.remove('animating');
+                this.transferParticles.classList.remove('animating');
+                this.artifact.classList.remove('glowing');
+
+                // Update Juniper to be the new owner
+                this.memberJuniper.querySelector('.member-circle').style.opacity = '1';
+                this.memberJuniper.classList.add('glowing');
+                this.juniperRole.textContent = 'New Owner';
+                this.artifactOwnerLabel.textContent = 'owned by Juniper';
+
+                // Update Ember's role
+                this.emberRole.textContent = 'Former Owner (Revocable)';
+
+                // Show revocable connection from artifact to Ember
+                this.connRevocable.classList.add('visible');
+                setTimeout(() => {
+                    this.labelRevocable.classList.add('visible');
+                }, 200);
+
+                // Show provenance chain
+                this.provenance.classList.add('visible');
+                setTimeout(() => {
+                    this.transferText.style.opacity = '1';
+                }, 300);
+
+                await this.wait(500);
+
+                // Remove glow from Juniper
+                this.memberJuniper.classList.remove('glowing');
+            }
+
+            reset() {
+                this.isAnimating = false;
+                this.currentStep = 0;
+                this.updateStepIndicator(0);
+                this.btnTransfer.disabled = false;
+
+                // Reset artifact position
+                this.artifact.style.transform = 'translate(280, 260)';
+                this.artifact.classList.remove('glowing');
+
+                // Reset transfer arrow and particles
+                this.transferArrow.classList.remove('animating');
+                this.transferParticles.classList.remove('animating');
+
+                // Reset Ember
+                this.memberEmber.classList.remove('dimmed');
+                this.emberRole.textContent = 'Owner → Sender';
+
+                // Reset Juniper
+                this.memberJuniper.querySelector('.member-circle').style.opacity = '0.6';
+                this.memberJuniper.classList.remove('glowing');
+                this.juniperRole.textContent = 'Recipient';
+
+                // Reset artifact owner
+                this.artifactOwnerLabel.textContent = 'owned by Ember';
+
+                // Hide revocable connection
+                this.connRevocable.classList.remove('visible');
+                this.labelRevocable.classList.remove('visible');
+
+                // Hide provenance
+                this.provenance.classList.remove('visible');
+                this.transferText.style.opacity = '0';
+            }
+
+            wait(ms) {
+                return new Promise(resolve => setTimeout(resolve, ms));
+            }
+        }
+
+        // Initialize on page load
+        const animation = new TransferFlowAnimation();
+    </script>
+</body>
+</html>
