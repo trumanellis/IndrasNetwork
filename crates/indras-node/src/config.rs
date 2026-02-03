@@ -23,6 +23,11 @@ pub struct NodeConfig {
     pub allow_legacy_unsigned: bool,
     /// Optional display name for peer discovery
     pub display_name: Option<String>,
+    /// Optional passphrase for encrypted keystore.
+    ///
+    /// When set, keys are encrypted at rest using Argon2id + ChaCha20-Poly1305.
+    /// When None, keys are stored in plaintext (protected by file permissions).
+    pub passphrase: Option<String>,
 }
 
 impl Default for NodeConfig {
@@ -36,6 +41,7 @@ impl Default for NodeConfig {
             // Default to allowing legacy during transition period
             allow_legacy_unsigned: true,
             display_name: None,
+            passphrase: None,
         }
     }
 }
@@ -52,6 +58,7 @@ impl NodeConfig {
             // Default to allowing legacy during transition period
             allow_legacy_unsigned: true,
             display_name: None,
+            passphrase: None,
         }
     }
 
@@ -96,5 +103,11 @@ impl NodeConfig {
     /// Use this in production deployments.
     pub fn enforce_pq_signatures(self) -> Self {
         self.with_allow_legacy_unsigned(false)
+    }
+
+    /// Set the passphrase for encrypted keystore
+    pub fn with_passphrase(mut self, passphrase: impl Into<String>) -> Self {
+        self.passphrase = Some(passphrase.into());
+        self
     }
 }

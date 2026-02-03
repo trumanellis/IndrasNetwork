@@ -82,11 +82,12 @@ async fn test_create_quest_in_home_realm() {
     // Verify quest exists
     let quests = home.quests().await.unwrap();
     let doc = quests.read().await;
-    assert_eq!(doc.quests.len(), 1);
-    assert_eq!(doc.quests[0].title, "Personal Task");
-    assert_eq!(doc.quests[0].description, "Do something productive");
-    assert_eq!(doc.quests[0].id, quest_id);
-    assert_eq!(doc.quests[0].creator, network.id());
+    // Welcome quest + our quest = 2
+    assert_eq!(doc.quests.len(), 2);
+    let quest = doc.find(&quest_id).unwrap();
+    assert_eq!(quest.title, "Personal Task");
+    assert_eq!(quest.description, "Do something productive");
+    assert_eq!(quest.creator, network.id());
 }
 
 #[tokio::test]
@@ -365,9 +366,10 @@ async fn test_home_realm_persistence() {
         // Verify quest persisted
         let quests = home.quests().await.unwrap();
         let doc = quests.read().await;
-        assert_eq!(doc.quests.len(), 1);
-        assert_eq!(doc.quests[0].title, "Persistent Quest");
-        assert_eq!(doc.quests[0].id, quest_id);
+        // Welcome quest + our quest = 2
+        assert_eq!(doc.quests.len(), 2);
+        let quest = doc.find(&quest_id).unwrap();
+        assert_eq!(quest.title, "Persistent Quest");
 
         // Verify artifact persisted (blob store)
         let artifact_data = home.get_artifact(&artifact_id).await.unwrap();

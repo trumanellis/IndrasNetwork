@@ -7,6 +7,7 @@ pub mod events;
 pub mod iot;
 pub mod logging;
 pub mod mesh;
+pub mod pass_story;
 pub mod routing;
 pub mod sync_engine;
 pub mod simulation;

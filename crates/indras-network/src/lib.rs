@@ -125,7 +125,9 @@ pub mod quest;
 pub mod read_tracker;
 pub mod realm;
 pub mod realm_alias;
+pub mod rehearsal;
 pub mod sentiment;
+pub mod story_auth;
 pub mod stream;
 pub mod token_of_gratitude;
 pub mod token_valuation;
@@ -180,6 +182,8 @@ pub use humanness::{
     HumannessEvent, humanness_freshness, validate_delegation_chain, FRESHNESS_DECAY_RATE,
     FRESHNESS_GRACE_DAYS,
 };
+pub use rehearsal::RehearsalState;
+pub use story_auth::{AuthResult, StoryAuth};
 pub use token_valuation::{SubjectiveTokenValue, STEWARD_CHAIN_DECAY, subjective_value};
 
 /// Prelude module for convenient imports.

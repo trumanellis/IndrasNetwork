@@ -71,6 +71,9 @@ pub fn register_indras_module(lua: &Lua) -> Result<()> {
     // Register SyncEngine bindings
     bindings::sync_engine::register(lua, &indras)?;
 
+    // Register pass story authentication bindings
+    bindings::pass_story::register(lua, &indras)?;
+
     // Register assertion helpers
     assertions::register(lua, &indras)?;
 

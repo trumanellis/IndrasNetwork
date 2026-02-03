@@ -54,6 +54,10 @@ pub mod interface_key;
 pub mod key_distribution;
 pub mod pq_identity;
 pub mod pq_kem;
+pub mod entropy;
+pub mod pass_story;
+pub mod story_template;
+pub mod word_frequencies;
 
 // Re-exports
 pub use artifact_encryption::{
@@ -75,6 +79,10 @@ pub use pq_kem::{
     PQ_CIPHERTEXT_SIZE, PQ_DECAPSULATION_KEY_SIZE, PQ_ENCAPSULATION_KEY_SIZE,
     PQ_SHARED_SECRET_SIZE, PQCiphertext, PQEncapsulationKey, PQKemKeyPair,
 };
+
+// Pass story re-exports
+pub use pass_story::StorySubkeys;
+pub use story_template::{PassStory, StoryStage, StoryTemplate};
 
 // Re-export x25519 types for legacy code (deprecated)
 #[deprecated(since = "0.2.0", note = "Use ML-KEM via PQKemKeyPair instead")]

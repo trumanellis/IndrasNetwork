@@ -67,6 +67,16 @@ pub struct NetworkConfig {
     pub preset: Preset,
     /// Whether to enforce post-quantum signatures.
     pub enforce_pq_signatures: bool,
+    /// Optional passphrase for encrypted keystore.
+    ///
+    /// When set, identity keys are encrypted at rest using Argon2id + ChaCha20-Poly1305.
+    /// When None, keys are stored in plaintext (protected only by OS file permissions).
+    pub passphrase: Option<String>,
+    /// Optional pass story for story-based authentication.
+    ///
+    /// When set, uses StoryKeystore with pass story authentication
+    /// instead of passphrase-based EncryptedKeystore.
+    pub pass_story: Option<indras_crypto::story_template::PassStory>,
     /// Underlying node configuration.
     pub(crate) node_config: Option<NodeConfig>,
 }
@@ -81,6 +91,8 @@ impl Default for NetworkConfig {
             relay_servers: Vec::new(),
             preset: Preset::Default,
             enforce_pq_signatures: false,
+            passphrase: None,
+            pass_story: None,
             node_config: None,
         }
     }
@@ -106,6 +118,14 @@ impl NetworkConfig {
 
         if self.enforce_pq_signatures {
             config = config.enforce_pq_signatures();
+        }
+
+        if let Some(ref passphrase) = self.passphrase {
+            config = config.with_passphrase(passphrase.clone());
+        }
+
+        if let Some(ref name) = self.display_name {
+            config = config.with_display_name(name.clone());
         }
 
         config
@@ -157,6 +177,23 @@ impl NetworkBuilder {
     /// Enforce post-quantum signatures (disable legacy unsigned messages).
     pub fn enforce_pq_signatures(mut self) -> Self {
         self.config.enforce_pq_signatures = true;
+        self
+    }
+
+    /// Set the passphrase for encrypted keystore.
+    ///
+    /// Identity keys will be encrypted at rest using Argon2id + ChaCha20-Poly1305.
+    pub fn passphrase(mut self, passphrase: impl Into<String>) -> Self {
+        self.config.passphrase = Some(passphrase.into());
+        self
+    }
+
+    /// Set a pass story for story-based authentication.
+    ///
+    /// This enables StoryKeystore, which uses the hero's journey
+    /// narrative as a cryptographic key source.
+    pub fn pass_story(mut self, story: indras_crypto::story_template::PassStory) -> Self {
+        self.config.pass_story = Some(story);
         self
     }
 

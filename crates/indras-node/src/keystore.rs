@@ -45,19 +45,15 @@ const PQ_KEM_DK_FILENAME: &str = "kem_dk.pq";
 const PQ_KEM_EK_FILENAME: &str = "kem_ek.pq";
 
 /// Filename suffix for encrypted key files
-#[allow(dead_code)] // Reserved for future encrypted keystore feature
 const ENCRYPTED_SUFFIX: &str = ".enc";
 
 /// Filename for the encryption salt
-#[allow(dead_code)] // Reserved for future encrypted keystore feature
 const SALT_FILENAME: &str = "keystore.salt";
 
 /// Nonce size for ChaCha20-Poly1305 (12 bytes)
-#[allow(dead_code)] // Reserved for future encrypted keystore feature
 const NONCE_SIZE: usize = 12;
 
 /// Key size for encryption (32 bytes)
-#[allow(dead_code)] // Reserved for future encrypted keystore feature
 const ENCRYPTION_KEY_SIZE: usize = 32;
 
 /// Keystore for managing node identity persistence
@@ -80,7 +76,7 @@ impl Keystore {
     // ========== Iroh Key (Transport Layer) ==========
 
     /// Get the path to the iroh key file
-    pub(crate) fn iroh_key_path(&self) -> PathBuf {
+    pub fn iroh_key_path(&self) -> PathBuf {
         self.path.join(IROH_KEY_FILENAME)
     }
 
@@ -147,11 +143,11 @@ impl Keystore {
     // ========== PQ Identity (Dilithium3 / ML-DSA-65 Signatures) ==========
 
     /// Get the paths to the PQ identity files
-    pub(crate) fn pq_signing_key_path(&self) -> PathBuf {
+    pub fn pq_signing_key_path(&self) -> PathBuf {
         self.path.join(PQ_SIGNING_KEY_FILENAME)
     }
 
-    pub(crate) fn pq_verifying_key_path(&self) -> PathBuf {
+    pub fn pq_verifying_key_path(&self) -> PathBuf {
         self.path.join(PQ_VERIFYING_KEY_FILENAME)
     }
 
@@ -220,11 +216,11 @@ impl Keystore {
     // ========== PQ KEM Key Pair (Kyber768 / ML-KEM-768) ==========
 
     /// Get the paths to the PQ KEM key files
-    pub(crate) fn pq_kem_dk_path(&self) -> PathBuf {
+    pub fn pq_kem_dk_path(&self) -> PathBuf {
         self.path.join(PQ_KEM_DK_FILENAME)
     }
 
-    pub(crate) fn pq_kem_ek_path(&self) -> PathBuf {
+    pub fn pq_kem_ek_path(&self) -> PathBuf {
         self.path.join(PQ_KEM_EK_FILENAME)
     }
 
@@ -356,7 +352,7 @@ impl Keystore {
     }
 
     /// Set restrictive permissions on a key file (Unix only)
-    pub(crate) fn set_restrictive_permissions(path: &PathBuf) -> NodeResult<()> {
+    pub fn set_restrictive_permissions(path: &PathBuf) -> NodeResult<()> {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -386,7 +382,6 @@ impl Keystore {
 /// // Now use like regular keystore
 /// let iroh_key = encrypted.load_or_generate_iroh()?;
 /// ```
-#[allow(dead_code)] // Reserved for future encrypted keystore feature
 pub struct EncryptedKeystore {
     /// The underlying unencrypted keystore
     inner: Keystore,
@@ -396,7 +391,6 @@ pub struct EncryptedKeystore {
     encrypted: bool,
 }
 
-#[allow(dead_code)] // Reserved for future encrypted keystore feature
 impl EncryptedKeystore {
     /// Create a new encrypted keystore
     ///
@@ -1030,6 +1024,239 @@ impl EncryptedKeystore {
 impl Drop for EncryptedKeystore {
     fn drop(&mut self) {
         // Zeroize the encryption key on drop
+        self.lock();
+    }
+}
+
+/// Filename for the story verification token
+const STORY_TOKEN_FILENAME: &str = "story.token";
+
+/// Filename for the story salt (separate from keystore salt)
+const STORY_SALT_FILENAME: &str = "story.salt";
+
+/// Story-backed keystore using pass story authentication.
+///
+/// Wraps [`EncryptedKeystore`] with pass-story-specific key derivation
+/// using higher Argon2id parameters (256MB memory, 4 iterations, parallelism 4).
+///
+/// The story-derived encryption key encrypts the PQ keys at rest.
+/// A verification token (BLAKE3 hash of master key) is stored to check
+/// authentication without attempting decryption.
+pub struct StoryKeystore {
+    /// The underlying encrypted keystore.
+    inner: EncryptedKeystore,
+    /// Stored verification token for quick auth checking.
+    verification_token: Option<[u8; 32]>,
+    /// Path to the keystore directory.
+    path: PathBuf,
+}
+
+impl StoryKeystore {
+    /// Create a new story-backed keystore.
+    pub fn new(data_dir: &Path) -> Self {
+        Self {
+            inner: EncryptedKeystore::new(data_dir),
+            verification_token: None,
+            path: data_dir.to_path_buf(),
+        }
+    }
+
+    /// Initialize with a pass story.
+    ///
+    /// Generates PQ keys, encrypts them with the story-derived encryption key,
+    /// and stores the verification token.
+    ///
+    /// `story_subkeys` should be derived from `indras_crypto::pass_story::derive_keys_from_story`.
+    /// `verification_token` should be from `indras_crypto::pass_story::story_verification_token`.
+    pub fn initialize(
+        &mut self,
+        encryption_key: &[u8; 32],
+        verification_token: [u8; 32],
+        salt: &[u8],
+    ) -> NodeResult<()> {
+        // Store the salt
+        self.save_story_salt(salt)?;
+
+        // Store the verification token
+        self.save_verification_token(&verification_token)?;
+        self.verification_token = Some(verification_token);
+
+        // Set the encryption key on the inner keystore
+        self.inner.encryption_key = Some(*encryption_key);
+
+        // Generate and save all key types (encrypted with story-derived key)
+        self.inner.load_or_generate_iroh()?;
+        self.inner.load_or_generate_pq_identity()?;
+        self.inner.load_or_generate_pq_kem()?;
+
+        info!("Story keystore initialized");
+        Ok(())
+    }
+
+    /// Authenticate with story-derived keys.
+    ///
+    /// Verifies the token matches, then unlocks the keystore.
+    pub fn authenticate(
+        &mut self,
+        encryption_key: &[u8; 32],
+        verification_token: [u8; 32],
+    ) -> NodeResult<()> {
+        // Load stored token
+        let stored_token = self.load_verification_token()?;
+
+        // Compare tokens
+        if stored_token != verification_token {
+            return Err(NodeError::StoryAuth(
+                "Story verification failed — this doesn't match the stored story".to_string(),
+            ));
+        }
+
+        // Set the encryption key
+        self.inner.encryption_key = Some(*encryption_key);
+        self.verification_token = Some(verification_token);
+
+        info!("Story keystore authenticated");
+        Ok(())
+    }
+
+    /// Check if a story matches without fully unlocking.
+    pub fn verify_token(&self, verification_token: &[u8; 32]) -> NodeResult<bool> {
+        let stored_token = self.load_verification_token()?;
+        Ok(stored_token == *verification_token)
+    }
+
+    /// Rotate to a new story.
+    ///
+    /// The old encryption key must already be set (via authenticate).
+    /// Re-encrypts all keys with the new story-derived key.
+    pub fn rotate_story(
+        &mut self,
+        new_encryption_key: &[u8; 32],
+        new_verification_token: [u8; 32],
+        new_salt: &[u8],
+    ) -> NodeResult<()> {
+        // Ensure currently unlocked
+        if self.inner.is_locked() {
+            return Err(NodeError::StoryAuth(
+                "Must authenticate with current story before rotating".to_string(),
+            ));
+        }
+
+        // Load all existing keys
+        let iroh_key = self.inner.load_iroh()?;
+        let pq_identity = self.inner.load_pq_identity()?;
+        let pq_kem = self.inner.load_pq_kem()?;
+
+        // Switch to new encryption key
+        self.inner.encryption_key = Some(*new_encryption_key);
+
+        // Re-save all keys encrypted with new key
+        self.inner.save_iroh(&iroh_key)?;
+        self.inner.save_pq_identity(&pq_identity)?;
+        self.inner.save_pq_kem(&pq_kem)?;
+
+        // Update salt and verification token
+        self.save_story_salt(new_salt)?;
+        self.save_verification_token(&new_verification_token)?;
+        self.verification_token = Some(new_verification_token);
+
+        info!("Story keystore rotated to new story");
+        Ok(())
+    }
+
+    /// Check if a story keystore has been initialized.
+    pub fn is_initialized(&self) -> bool {
+        self.token_path().exists() && self.story_salt_path().exists()
+    }
+
+    /// Load the iroh key (must be authenticated first).
+    pub fn load_or_generate_iroh(&self) -> NodeResult<SecretKey> {
+        self.inner.load_or_generate_iroh()
+    }
+
+    /// Load the PQ identity (must be authenticated first).
+    pub fn load_or_generate_pq_identity(&self) -> NodeResult<indras_crypto::PQIdentity> {
+        self.inner.load_or_generate_pq_identity()
+    }
+
+    /// Load the PQ KEM key pair (must be authenticated first).
+    pub fn load_or_generate_pq_kem(&self) -> NodeResult<indras_crypto::PQKemKeyPair> {
+        self.inner.load_or_generate_pq_kem()
+    }
+
+    /// Lock the keystore (clear encryption key from memory).
+    pub fn lock(&mut self) {
+        self.inner.lock();
+    }
+
+    /// Check if the keystore is locked.
+    pub fn is_locked(&self) -> bool {
+        self.inner.is_locked()
+    }
+
+    // ========== Private Helpers ==========
+
+    fn token_path(&self) -> PathBuf {
+        self.path.join(STORY_TOKEN_FILENAME)
+    }
+
+    fn story_salt_path(&self) -> PathBuf {
+        self.path.join(STORY_SALT_FILENAME)
+    }
+
+    fn save_verification_token(&self, token: &[u8; 32]) -> NodeResult<()> {
+        std::fs::create_dir_all(&self.path)
+            .map_err(|e| NodeError::Keystore(format!("Failed to create keystore dir: {}", e)))?;
+
+        let path = self.token_path();
+        std::fs::write(&path, token)
+            .map_err(|e| NodeError::Keystore(format!("Failed to write verification token: {}", e)))?;
+
+        Keystore::set_restrictive_permissions(&path)?;
+        Ok(())
+    }
+
+    fn load_verification_token(&self) -> NodeResult<[u8; 32]> {
+        let path = self.token_path();
+        let bytes = std::fs::read(&path).map_err(|e| {
+            NodeError::StoryAuth(format!("No verification token found: {}", e))
+        })?;
+
+        if bytes.len() != 32 {
+            return Err(NodeError::StoryAuth(format!(
+                "Invalid verification token: expected 32 bytes, got {}",
+                bytes.len()
+            )));
+        }
+
+        let mut token = [0u8; 32];
+        token.copy_from_slice(&bytes);
+        Ok(token)
+    }
+
+    fn save_story_salt(&self, salt: &[u8]) -> NodeResult<()> {
+        std::fs::create_dir_all(&self.path)
+            .map_err(|e| NodeError::Keystore(format!("Failed to create keystore dir: {}", e)))?;
+
+        let path = self.story_salt_path();
+        std::fs::write(&path, salt)
+            .map_err(|e| NodeError::Keystore(format!("Failed to write story salt: {}", e)))?;
+
+        Keystore::set_restrictive_permissions(&path)?;
+        Ok(())
+    }
+
+    /// Load the story salt from disk.
+    pub fn load_story_salt(&self) -> NodeResult<Vec<u8>> {
+        let path = self.story_salt_path();
+        std::fs::read(&path).map_err(|e| {
+            NodeError::StoryAuth(format!("No story salt found: {}", e))
+        })
+    }
+}
+
+impl Drop for StoryKeystore {
+    fn drop(&mut self) {
         self.lock();
     }
 }

@@ -52,6 +52,10 @@ pub enum NodeError {
     /// Crypto error
     #[error("Crypto error: {0}")]
     Crypto(String),
+
+    /// Story authentication error
+    #[error("Story auth error: {0}")]
+    StoryAuth(String),
 }
 
 impl From<indras_transport::AdapterError> for NodeError {
