@@ -353,7 +353,7 @@ fn test_member_churn() {
     );
 
     // Verify document integrity matches interface state
-    let doc = interface.document();
+    let doc = interface.document().unwrap();
     let doc_members: HashSet<SimulationIdentity> = doc.members();
     assert_eq!(doc_members.len(), final_count, "Document and interface member counts should match");
 
@@ -620,7 +620,7 @@ fn test_interface_save_load() {
     // Save
     let save_start = std::time::Instant::now();
     let interface_id = interface.id();
-    let bytes = interface.save();
+    let bytes = interface.save().unwrap();
     let save_duration = save_start.elapsed();
 
     println!(
@@ -642,12 +642,12 @@ fn test_interface_save_load() {
     assert_eq!(loaded.members().len(), MEMBER_COUNT);
 
     // Verify document events
-    let doc_event_count = loaded.document().event_count();
+    let doc_event_count = loaded.document().unwrap().event_count();
     println!("Document has {} events after load", doc_event_count);
     assert_eq!(doc_event_count, EVENT_COUNT);
 
     // Sample verification of events
-    let events: Vec<InterfaceEvent<SimulationIdentity>> = loaded.document().events();
+    let events: Vec<InterfaceEvent<SimulationIdentity>> = loaded.document().unwrap().events();
     for i in (0..EVENT_COUNT).step_by(EVENT_COUNT / 10) {
         match &events[i] {
             InterfaceEvent::Message { content, .. } => {

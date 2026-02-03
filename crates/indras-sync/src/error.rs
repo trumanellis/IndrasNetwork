@@ -31,6 +31,9 @@ pub enum SyncError {
 
     #[error("Protocol error: {0}")]
     Protocol(String),
+
+    #[error("Internal lock poisoned")]
+    LockPoisoned,
 }
 
 /// Result type for sync operations

@@ -4,27 +4,23 @@
 
 use crate::config::{NetworkBuilder, NetworkConfig, Preset};
 use crate::contacts::{contacts_realm_id, ContactsRealm};
+use crate::document::Document;
 use crate::error::{IndraError, Result};
-use crate::handshake::{inbox_interface_id, ConnectionRequest};
+use crate::handshake::{inbox_interface_id, ConnectionRequest, HandshakeDocument};
 use crate::home_realm::{home_realm_id, HomeRealm};
 use crate::invite::InviteCode;
 use crate::member::{Member, MemberId};
 use crate::realm::Realm;
 
 use dashmap::DashMap;
-use indras_core::transport::Transport;
-use indras_core::{InterfaceEvent, InterfaceId};
+use indras_core::InterfaceId;
 use indras_crypto::InterfaceKey;
-use indras_node::{
-    IndrasNode, InterfaceEventMessage, InviteKey, NetworkMessage, ReceivedEvent,
-    SIGNED_MESSAGE_VERSION, SignedNetworkMessage,
-};
+use indras_node::{IndrasNode, InviteKey, ReceivedEvent};
 use indras_storage::CompositeStorage;
 use indras_transport::IrohIdentity;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -108,8 +104,6 @@ pub struct IndrasNetwork {
     config: NetworkConfig,
     /// Our identity.
     identity: Member,
-    /// Last processed inbox event sequence (avoids reprocessing).
-    inbox_last_seq: AtomicU64,
 }
 
 /// Internal realm state.
@@ -197,7 +191,6 @@ impl IndrasNetwork {
             home_realm: RwLock::new(None),
             config,
             identity,
-            inbox_last_seq: AtomicU64::new(0),
         })
     }
 
@@ -623,6 +616,34 @@ impl IndrasNetwork {
             ));
         }
 
+        // Clean up any pending connection request from the blocked member in our inbox
+        let my_hex = hex::encode(&self.id());
+        let inbox_name = format!("inbox:{}", my_hex);
+        let blocked_id = *member_id;
+        if let Ok(doc) = Document::<HandshakeDocument>::new(
+            contacts.id(),
+            inbox_name,
+            Arc::clone(&self.inner),
+        ).await {
+            let _ = doc.update(|inbox| {
+                inbox.remove_request(&blocked_id);
+            }).await;
+        }
+
+        // Also clean from P2P inbox if it exists
+        let p2p_inbox_id = inbox_interface_id(self.id());
+        if self.inner.interface_key(&p2p_inbox_id).is_some() {
+            if let Ok(doc) = Document::<HandshakeDocument>::new(
+                p2p_inbox_id,
+                "inbox".to_string(),
+                Arc::clone(&self.inner),
+            ).await {
+                let _ = doc.update(|inbox| {
+                    inbox.remove_request(&blocked_id);
+                }).await;
+            }
+        }
+
         // Find all peer-set realms containing the blocked member and leave them
         let mut left_realms = Vec::new();
         let realms_to_leave: Vec<(Vec<MemberId>, RealmId)> = self
@@ -778,9 +799,12 @@ impl IndrasNetwork {
     ///
     /// This adds the inviter to your contact list, then uses the transport
     /// bootstrap info embedded in the invite to join the inviter's inbox
-    /// interface and send a `ConnectionRequest` message. The inviter's node
+    /// interface and write a `ConnectionRequest` there. The inviter's node
     /// picks it up via `process_handshake_inbox()`, completing the
     /// bidirectional connection.
+    ///
+    /// Falls back to the contacts realm inbox if the invite doesn't
+    /// contain transport info (backward compatibility).
     pub async fn accept_contact_invite(
         &self,
         code: &crate::contact_invite::ContactInviteCode,
@@ -792,14 +816,61 @@ impl IndrasNetwork {
 
         // 1. Add inviter as contact with their display name
         let contacts = self.join_contacts_realm().await?;
-        contacts
-            .add_contact_with_name(
-                code.member_id(),
-                code.display_name().map(|s| s.to_string()),
-            )
-            .await?;
+        let already_contact = contacts.is_contact(&code.member_id()).await;
 
-        // 2. Join inviter's inbox interface and send ConnectionRequest as a message
+        if !already_contact {
+            contacts
+                .add_contact_with_name(
+                    code.member_id(),
+                    code.display_name().map(|s| s.to_string()),
+                )
+                .await?;
+        }
+
+        // 2. Build the connection request
+        let my_id = self.id();
+        let my_name = self.display_name().map(|s| s.to_string());
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
+        let request = ConnectionRequest {
+            member_id: my_id,
+            display_name: my_name,
+            timestamp_millis: now,
+        };
+
+        // 3. Try to write connection request; roll back contact on failure
+        let write_result = self.write_connection_request(&contacts, code, request).await;
+
+        match write_result {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                // Roll back contact addition if this was a new contact
+                if !already_contact {
+                    let _ = contacts.remove_contact(&code.member_id()).await;
+                    tracing::warn!(
+                        inviter = %hex::encode(&code.member_id()[..8]),
+                        error = %e,
+                        "Rolled back contact addition after connection request failure"
+                    );
+                }
+                Err(e)
+            }
+        }
+    }
+
+    /// Write a connection request to the inviter's inbox.
+    ///
+    /// Tries P2P inbox first, falls back to contacts realm inbox.
+    async fn write_connection_request(
+        &self,
+        contacts: &ContactsRealm,
+        code: &crate::contact_invite::ContactInviteCode,
+        request: ConnectionRequest,
+    ) -> Result<()> {
+        // Try P2P path: join inviter's inbox interface and send request
         if let (Some(inbox_id_bytes), Some(bootstrap), Some(key_bytes)) =
             (code.inbox_id(), code.bootstrap(), code.inbox_key())
         {
@@ -807,86 +878,65 @@ impl IndrasNetwork {
 
             // Insert the inviter's inbox key so we can encrypt messages to it
             let iface_key = InterfaceKey::from_bytes(*key_bytes, inbox_id);
-            self.inner.set_interface_key(inbox_id, iface_key.clone());
+            self.inner.set_interface_key(inbox_id, iface_key);
 
             // Build an InviteKey with the bootstrap address to join the interface
             let invite = InviteKey::new(inbox_id)
                 .with_bootstrap(bootstrap.to_vec());
 
             // Join the inviter's inbox interface (connects via P2P transport)
-            self.inner.join_interface(invite).await
-                .map_err(|e| IndraError::InvalidOperation(format!("Join inbox: {}", e)))?;
-
-            // Build and send the connection request as a plain message
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis() as u64;
-
-            let request = ConnectionRequest {
-                member_id: self.id(),
-                display_name: self.display_name().map(|s| s.to_string()),
-                timestamp_millis: now,
-            };
-
-            let payload = postcard::to_allocvec(&request)
-                .map_err(|e| IndraError::InvalidOperation(format!("Serialize request: {}", e)))?;
-
-            // send_message stores the event locally and tries to send to known
-            // interface members. After join_interface the only member is us,
-            // so the event won't reach the inviter through that path alone.
-            let event_id = self.inner.send_message(&inbox_id, payload.clone()).await
-                .map_err(|e| IndraError::InvalidOperation(format!("Send request: {}", e)))?;
-
-            // Deliver the message directly to the bootstrap peer.
-            // join_interface connected us to this peer but didn't add them
-            // as an interface member yet (that happens after CRDT sync).
-            if let Ok(addr) = postcard::from_bytes::<iroh::EndpointAddr>(bootstrap) {
-                let peer_id = IrohIdentity::new(addr.id);
-
-                if let Some(transport) = self.inner.transport().await {
-                    // Build the encrypted+signed envelope
-                    let event = InterfaceEvent::<IrohIdentity>::message(
-                        *self.inner.identity(),
-                        event_id.sequence,
-                        payload,
-                    );
-                    let plaintext = postcard::to_allocvec(&event)
-                        .map_err(|e| IndraError::InvalidOperation(format!("Serialize event: {}", e)))?;
-                    let encrypted = iface_key.encrypt(&plaintext)
-                        .map_err(|e| IndraError::InvalidOperation(format!("Encrypt event: {}", e)))?;
-
-                    let msg = InterfaceEventMessage::new(
+            match self.inner.join_interface(invite).await {
+                Ok(_) => {
+                    // Write the ConnectionRequest to the inbox via a document
+                    let doc: Document<HandshakeDocument> = Document::new(
                         inbox_id,
-                        encrypted.ciphertext,
-                        event_id,
-                        encrypted.nonce,
+                        "inbox".to_string(),
+                        Arc::clone(&self.inner),
+                    )
+                    .await?;
+
+                    doc.update(|inbox| {
+                        inbox.add_request(request.clone());
+                    })
+                    .await?;
+
+                    tracing::info!(
+                        inviter = %hex::encode(&code.member_id()[..8]),
+                        "Sent connection request via P2P inbox interface"
                     );
-                    let network_msg = NetworkMessage::InterfaceEvent(msg);
 
-                    let msg_bytes = network_msg.to_bytes()
-                        .map_err(|e| IndraError::InvalidOperation(format!("Serialize msg: {}", e)))?;
-                    let signature = self.inner.pq_identity().sign(&msg_bytes);
-
-                    let signed_msg = SignedNetworkMessage {
-                        version: SIGNED_MESSAGE_VERSION,
-                        message: network_msg,
-                        signature: signature.to_bytes().to_vec(),
-                        sender_verifying_key: self.inner.pq_identity().verifying_key_bytes(),
-                    };
-
-                    if let Ok(bytes) = signed_msg.to_bytes() {
-                        let _ = transport.send(&peer_id, bytes).await;
-                        tracing::info!(
-                            inviter = %hex::encode(&code.member_id()[..8]),
-                            "Sent connection request directly to bootstrap peer"
-                        );
-                    }
+                    return Ok(());
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        "P2P inbox join failed, falling back to contacts realm"
+                    );
+                    // Fall through to contacts realm path
                 }
             }
-        } else {
-            tracing::warn!("Contact invite has no transport info, contact added locally only");
         }
+
+        // Fallback: write to contacts realm inbox document
+        let inviter_hex = hex::encode(&code.member_id());
+        let inbox_name = format!("inbox:{}", inviter_hex);
+
+        let doc: Document<HandshakeDocument> = Document::new(
+            contacts.id(),
+            inbox_name,
+            Arc::clone(&self.inner),
+        )
+        .await?;
+
+        doc.update(|inbox| {
+            inbox.add_request(request);
+        })
+        .await?;
+
+        tracing::info!(
+            inviter = %hex::encode(&code.member_id()[..8]),
+            "Wrote connection request to inviter's inbox in contacts realm (fallback)"
+        );
 
         Ok(())
     }
@@ -970,75 +1020,149 @@ impl IndrasNetwork {
 
     /// Process pending connection requests from our inbox.
     ///
-    /// Reads new events from the deterministic inbox interface created
-    /// by `contact_invite_code()`. When someone accepts our invite, they
-    /// send a `ConnectionRequest` message to this interface. We process
-    /// those messages via `events_since()` and add senders as contacts.
+    /// Checks two sources:
+    /// 1. **P2P inbox interface** — the deterministic inbox interface created
+    ///    by `contact_invite_code()`. When someone accepts our invite with
+    ///    transport info, they join this interface and write a `ConnectionRequest`.
+    /// 2. **Contacts realm inbox** (fallback) — the per-user inbox document
+    ///    in the shared contacts realm for backward compatibility.
+    ///
+    /// For each pending request, adds the requester as a contact with
+    /// their display name, then removes the processed request.
     ///
     /// Returns the number of new contacts added.
     pub async fn process_handshake_inbox(&self) -> Result<usize> {
         let contacts = self.join_contacts_realm().await?;
         let my_id = self.id();
+        let mut total_added = 0;
+
+        // --- Source 1: P2P inbox interface ---
         let inbox_id = inbox_interface_id(my_id);
+        // Only check if we've created the inbox (i.e., the interface exists)
+        if self.inner.interface_key(&inbox_id).is_some() {
+            match Document::<HandshakeDocument>::new(
+                inbox_id,
+                "inbox".to_string(),
+                Arc::clone(&self.inner),
+            )
+            .await
+            {
+                Ok(doc) => {
+                    let added = self
+                        .process_inbox_document(&doc, &contacts)
+                        .await?;
+                    total_added += added;
+                }
+                Err(e) => {
+                    tracing::debug!(error = %e, "P2P inbox document read skipped");
+                }
+            }
+        }
 
-        // Only process if inbox interface exists
-        if self.inner.interface_key(&inbox_id).is_none() {
+        // --- Source 2: Contacts realm inbox (fallback) ---
+        let my_hex = hex::encode(&my_id);
+        let inbox_name = format!("inbox:{}", my_hex);
+
+        let doc: Document<HandshakeDocument> = Document::new(
+            contacts.id(),
+            inbox_name,
+            Arc::clone(&self.inner),
+        )
+        .await?;
+
+        let added = self.process_inbox_document(&doc, &contacts).await?;
+        total_added += added;
+
+        Ok(total_added)
+    }
+
+    /// Process a single inbox document: read pending requests, add contacts, remove processed.
+    async fn process_inbox_document(
+        &self,
+        doc: &Document<HandshakeDocument>,
+        contacts: &ContactsRealm,
+    ) -> Result<usize> {
+        // Prune expired requests first
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let _ = doc.update(|inbox| {
+            let pruned = inbox.prune_expired_default(now);
+            if pruned > 0 {
+                tracing::debug!(pruned, "Pruned expired inbox requests");
+            }
+        }).await;
+
+        let data = doc.read().await;
+        let pending: Vec<ConnectionRequest> = data.pending_requests().cloned().collect();
+        drop(data);
+
+        if pending.is_empty() {
             return Ok(0);
         }
 
-        // Read events since last processed sequence
-        let last_seq = self.inbox_last_seq.load(Ordering::Relaxed);
-        let events = self.inner.events_since(&inbox_id, last_seq).await
-            .map_err(|e| IndraError::InvalidOperation(format!("Read inbox events: {}", e)))?;
-
-        if events.is_empty() {
-            return Ok(0);
-        }
-
+        let my_id = self.id();
         let mut added = 0;
-        let mut max_seq = last_seq;
+        let mut processed_ids: Vec<MemberId> = Vec::new();
 
-        for event in &events {
-            // Track highest sequence seen
-            if let InterfaceEvent::Message { id, .. } = event {
-                if id.sequence > max_seq {
-                    max_seq = id.sequence;
-                }
+        for request in &pending {
+            // Skip self
+            if request.member_id == my_id {
+                processed_ids.push(request.member_id);
+                continue;
             }
 
-            // Only process Message events
-            if let InterfaceEvent::Message { content, .. } = event {
-                if let Ok(request) = postcard::from_bytes::<ConnectionRequest>(content) {
-                    if request.member_id == my_id {
-                        continue;
-                    }
+            // Add as contact with their display name
+            // Check if already a contact (confirms bidirectional connection)
+            let already_contact = contacts.is_contact(&request.member_id).await;
 
-                    match contacts
-                        .add_contact_with_name(request.member_id, request.display_name.clone())
-                        .await
-                    {
-                        Ok(()) => {
-                            tracing::info!(
-                                member = %hex::encode(&request.member_id[..8]),
-                                name = ?request.display_name,
-                                "Added contact from inbox message"
-                            );
-                            added += 1;
-                        }
-                        Err(e) => {
-                            tracing::debug!(
-                                member = %hex::encode(&request.member_id[..8]),
-                                error = %e,
-                                "Skipped inbox request"
-                            );
-                        }
+            if already_contact {
+                // Upgrade to Confirmed status
+                let _ = contacts.confirm_contact(&request.member_id).await;
+                tracing::info!(
+                    member = %hex::encode(&request.member_id[..8]),
+                    "Contact confirmed (bidirectional handshake complete)"
+                );
+                processed_ids.push(request.member_id);
+                added += 1;
+            } else {
+                match contacts
+                    .add_contact_with_name(request.member_id, request.display_name.clone())
+                    .await
+                {
+                    Ok(()) => {
+                        // New contact from inbox — mark as Confirmed since they initiated
+                        let _ = contacts.confirm_contact(&request.member_id).await;
+                        tracing::info!(
+                            member = %hex::encode(&request.member_id[..8]),
+                            name = ?request.display_name,
+                            "Added and confirmed contact from inbox"
+                        );
+                        added += 1;
+                        processed_ids.push(request.member_id);
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            member = %hex::encode(&request.member_id[..8]),
+                            error = %e,
+                            "Failed to add contact from inbox, will retry"
+                        );
+                        // Do NOT push to processed_ids — leave in inbox for retry
                     }
                 }
             }
         }
 
-        // Update watermark
-        self.inbox_last_seq.store(max_seq, Ordering::Relaxed);
+        // Remove processed requests
+        if !processed_ids.is_empty() {
+            doc.update(|inbox| {
+                for id in &processed_ids {
+                    inbox.remove_request(id);
+                }
+            })
+            .await?;
+        }
 
         Ok(added)
     }
