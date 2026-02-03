@@ -47,6 +47,10 @@ serde_json = "1.0"
 uuid = { version = "1.0", features = ["v4", "serde"] }
 base64 = "0.22"
 
+# Crypto helpers for pass story simulation bindings
+blake3 = "1.6"
+hex = "0.4"
+
 [[bin]]
 name = "lua_runner"
 path = "src/bin/lua_runner.rs"

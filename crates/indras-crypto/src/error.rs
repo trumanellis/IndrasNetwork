@@ -41,6 +41,29 @@ pub enum CryptoError {
 
     #[error("Invalid PQ ciphertext: {0}")]
     InvalidPQCiphertext(String),
+
+    // Pass story errors
+    #[error("Story slot count mismatch: expected {expected}, got {actual}")]
+    SlotCountMismatch { expected: usize, actual: usize },
+
+    #[error("Null byte found in story slot")]
+    NullByteInSlot,
+
+    #[error("Story entropy below threshold: {total:.1} bits (minimum {required:.1}), weak slots: {weak_slots:?}")]
+    EntropyBelowThreshold {
+        total: f64,
+        required: f64,
+        weak_slots: Vec<usize>,
+    },
+
+    #[error("Invalid story: {0}")]
+    InvalidStory(String),
+
+    #[error("Story authentication failed")]
+    StoryAuthFailed,
+
+    #[error("Key derivation failed: {0}")]
+    KeyDerivationFailed(String),
 }
 
 /// Result type for crypto operations

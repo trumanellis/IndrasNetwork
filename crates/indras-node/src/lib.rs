@@ -38,7 +38,7 @@ pub mod sync_task;
 
 pub use config::NodeConfig;
 pub use error::{NodeError, NodeResult};
-pub use keystore::Keystore;
+pub use keystore::{EncryptedKeystore, Keystore, StoryKeystore};
 pub use message_handler::{
     EventAckMessage, InterfaceEventMessage, InterfaceSyncRequest, InterfaceSyncResponse,
     NetworkMessage, SIGNED_MESSAGE_VERSION, SignedNetworkMessage,
@@ -232,17 +232,23 @@ impl IndrasNode {
         let storage = Arc::new(storage);
 
         // Load or generate all keys from keystore
-        let keystore = Keystore::new(&config.data_dir);
+        // Use encrypted keystore when passphrase is provided
+        let (secret_key, pq_identity, pq_kem_keypair) = if let Some(ref passphrase) = config.passphrase {
+            let mut keystore = EncryptedKeystore::new(&config.data_dir);
+            keystore.unlock(passphrase)?;
+            let sk = keystore.load_or_generate_iroh()?;
+            let pq = keystore.load_or_generate_pq_identity()?;
+            let kem = keystore.load_or_generate_pq_kem()?;
+            (sk, pq, kem)
+        } else {
+            let keystore = Keystore::new(&config.data_dir);
+            let sk = keystore.load_or_generate_iroh()?;
+            let pq = keystore.load_or_generate_pq_identity()?;
+            let kem = keystore.load_or_generate_pq_kem()?;
+            (sk, pq, kem)
+        };
 
-        // Iroh transport key (Ed25519)
-        let secret_key = keystore.load_or_generate_iroh()?;
         let identity = IrohIdentity::new(secret_key.public());
-
-        // Post-quantum identity (ML-DSA-65)
-        let pq_identity = keystore.load_or_generate_pq_identity()?;
-
-        // Post-quantum KEM key pair (ML-KEM-768)
-        let pq_kem_keypair = keystore.load_or_generate_pq_kem()?;
 
         let (shutdown_tx, _) = broadcast::channel(1);
 
@@ -285,15 +291,23 @@ impl IndrasNode {
         let storage = CompositeStorage::new(config.storage.clone()).await?;
         let storage = Arc::new(storage);
 
-        // Save the provided iroh key and load/generate PQ keys
-        let keystore = Keystore::new(&config.data_dir);
-        keystore.save_iroh(&secret_key)?;
+        // Save iroh key and load/generate PQ keys
+        let (pq_identity, pq_kem_keypair) = if let Some(ref passphrase) = config.passphrase {
+            let mut keystore = EncryptedKeystore::new(&config.data_dir);
+            keystore.unlock(passphrase)?;
+            keystore.save_iroh(&secret_key)?;
+            let pq = keystore.load_or_generate_pq_identity()?;
+            let kem = keystore.load_or_generate_pq_kem()?;
+            (pq, kem)
+        } else {
+            let keystore = Keystore::new(&config.data_dir);
+            keystore.save_iroh(&secret_key)?;
+            let pq = keystore.load_or_generate_pq_identity()?;
+            let kem = keystore.load_or_generate_pq_kem()?;
+            (pq, kem)
+        };
 
         let identity = IrohIdentity::new(secret_key.public());
-
-        // PQ keys - load existing or generate new
-        let pq_identity = keystore.load_or_generate_pq_identity()?;
-        let pq_kem_keypair = keystore.load_or_generate_pq_kem()?;
 
         let (shutdown_tx, _) = broadcast::channel(1);
 

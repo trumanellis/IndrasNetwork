@@ -50,6 +50,20 @@ pub struct IdentityBackup {
     pub pq_kem: Vec<u8>,
 }
 
+/// User profile persisted to disk.
+///
+/// Stores user preferences that should survive across restarts
+/// without needing to be re-entered.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct UserProfile {
+    /// Display name for this user.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    display_name: Option<String>,
+}
+
+/// Filename for the persisted user profile.
+const PROFILE_FILENAME: &str = "profile.json";
+
 /// The main entry point for the Indra SyncEngine.
 ///
 /// `IndrasNetwork` manages your identity, realms, and network connections.
@@ -142,7 +156,25 @@ impl IndrasNetwork {
     }
 
     /// Create a network instance with the given configuration.
-    pub async fn with_config(config: NetworkConfig) -> Result<Self> {
+    pub async fn with_config(mut config: NetworkConfig) -> Result<Self> {
+        // Load persisted profile (display name, etc.) if it exists
+        if config.display_name.is_none() {
+            if let Some(profile) = Self::load_profile(&config.data_dir) {
+                if profile.display_name.is_some() {
+                    config.display_name = profile.display_name;
+                }
+            }
+        }
+
+        // Persist display name if one was provided
+        if config.display_name.is_some() {
+            let profile = UserProfile {
+                display_name: config.display_name.clone(),
+            };
+            // Best-effort persistence — don't fail network creation if this fails
+            let _ = Self::save_profile(&config.data_dir, &profile);
+        }
+
         let node_config = config.to_node_config();
         let node = IndrasNode::new(node_config).await?;
 
@@ -183,11 +215,68 @@ impl IndrasNetwork {
         let name = name.into();
         self.config.display_name = Some(name.clone());
 
+        // Persist to disk
+        let profile = UserProfile {
+            display_name: Some(name.clone()),
+        };
+        Self::save_profile(&self.config.data_dir, &profile)?;
+
         // Broadcast to peers via discovery service if running
         if let Some(transport) = self.inner.transport().await {
             transport.discovery_service().set_display_name(name).await;
         }
 
+        Ok(())
+    }
+
+    /// Check if the given data directory contains an existing identity.
+    ///
+    /// Returns `true` if no identity keys exist yet (first run).
+    /// Returns `false` if keys already exist (returning user).
+    ///
+    /// Use this to decide whether to show a setup/genesis flow in your app.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// if IndrasNetwork::is_first_run("~/.myapp") {
+    ///     // Show setup screen, collect display name and passphrase
+    ///     let network = IndrasNetwork::builder()
+    ///         .data_dir("~/.myapp")
+    ///         .display_name("Zephyr")
+    ///         .passphrase("secure-passphrase")
+    ///         .build()
+    ///         .await?;
+    /// } else {
+    ///     // Returning user - just open
+    ///     let network = IndrasNetwork::new("~/.myapp").await?;
+    /// }
+    /// ```
+    pub fn is_first_run(data_dir: impl AsRef<Path>) -> bool {
+        let keystore = indras_node::Keystore::new(data_dir.as_ref());
+        !keystore.exists()
+    }
+
+    /// Load the user profile from disk, if it exists.
+    fn load_profile(data_dir: &Path) -> Option<UserProfile> {
+        let profile_path = data_dir.join(PROFILE_FILENAME);
+        if profile_path.exists() {
+            match std::fs::read_to_string(&profile_path) {
+                Ok(json) => serde_json::from_str(&json).ok(),
+                Err(_) => None,
+            }
+        } else {
+            None
+        }
+    }
+
+    /// Save the user profile to disk.
+    fn save_profile(data_dir: &Path, profile: &UserProfile) -> Result<()> {
+        let profile_path = data_dir.join(PROFILE_FILENAME);
+        let json = serde_json::to_string_pretty(profile)
+            .map_err(|e| IndraError::InvalidOperation(format!("Failed to serialize profile: {}", e)))?;
+        std::fs::write(&profile_path, json)
+            .map_err(|e| IndraError::InvalidOperation(format!("Failed to write profile: {}", e)))?;
         Ok(())
     }
 
@@ -758,6 +847,9 @@ impl IndrasNetwork {
         // Create the home realm wrapper
         let home = HomeRealm::new(realm_id, Arc::clone(&self.inner), self.id()).await?;
 
+        // Seed welcome quest on first creation (idempotent)
+        home.seed_welcome_quest_if_empty().await?;
+
         // Cache it
         {
             let mut guard = self.home_realm.write().await;
@@ -840,37 +932,54 @@ impl IndrasNetwork {
     /// std::fs::write("identity.backup", &backup)?;
     /// ```
     pub async fn export_identity(&self) -> Result<Vec<u8>> {
-        let keys_dir = self.config.data_dir.join("keys");
-
-        let mut backup = IdentityBackup {
-            iroh_key: Vec::new(),
-            pq_identity: Vec::new(),
-            pq_kem: Vec::new(),
-        };
+        let data_dir = &self.config.data_dir;
+        let keystore = indras_node::Keystore::new(data_dir);
 
         // Read iroh transport key
-        let iroh_path = keys_dir.join("iroh.key");
-        if iroh_path.exists() {
-            backup.iroh_key = tokio::fs::read(&iroh_path).await?;
-        }
+        let iroh_key = if keystore.exists() {
+            tokio::fs::read(keystore.iroh_key_path()).await
+                .map_err(|e| IndraError::Crypto(format!("Failed to read iroh key: {}", e)))?
+        } else {
+            return Err(IndraError::Crypto("No identity keys found to export".to_string()));
+        };
 
-        // Read PQ signing identity
-        let pq_path = keys_dir.join("pq_identity.key");
-        if pq_path.exists() {
-            backup.pq_identity = tokio::fs::read(&pq_path).await?;
-        }
+        // Read PQ signing identity (both private and public keys, concatenated)
+        let pq_identity = if keystore.pq_identity_exists() {
+            let sk = tokio::fs::read(keystore.pq_signing_key_path()).await
+                .map_err(|e| IndraError::Crypto(format!("Failed to read PQ signing key: {}", e)))?;
+            let pk = tokio::fs::read(keystore.pq_verifying_key_path()).await
+                .map_err(|e| IndraError::Crypto(format!("Failed to read PQ verifying key: {}", e)))?;
+            // Pack as length-prefixed: [sk_len(4 bytes)][sk][pk]
+            let mut combined = Vec::new();
+            combined.extend_from_slice(&(sk.len() as u32).to_le_bytes());
+            combined.extend_from_slice(&sk);
+            combined.extend_from_slice(&pk);
+            combined
+        } else {
+            Vec::new()
+        };
 
-        // Read PQ KEM keypair
-        let pq_kem_path = keys_dir.join("pq_kem.key");
-        if pq_kem_path.exists() {
-            backup.pq_kem = tokio::fs::read(&pq_kem_path).await?;
-        }
+        // Read PQ KEM keypair (both decapsulation and encapsulation keys, concatenated)
+        let pq_kem = if keystore.pq_kem_exists() {
+            let dk = tokio::fs::read(keystore.pq_kem_dk_path()).await
+                .map_err(|e| IndraError::Crypto(format!("Failed to read PQ KEM dk: {}", e)))?;
+            let ek = tokio::fs::read(keystore.pq_kem_ek_path()).await
+                .map_err(|e| IndraError::Crypto(format!("Failed to read PQ KEM ek: {}", e)))?;
+            // Pack as length-prefixed: [dk_len(4 bytes)][dk][ek]
+            let mut combined = Vec::new();
+            combined.extend_from_slice(&(dk.len() as u32).to_le_bytes());
+            combined.extend_from_slice(&dk);
+            combined.extend_from_slice(&ek);
+            combined
+        } else {
+            Vec::new()
+        };
 
-        if backup.iroh_key.is_empty() {
-            return Err(IndraError::Crypto(
-                "No identity keys found to export".to_string(),
-            ));
-        }
+        let backup = IdentityBackup {
+            iroh_key,
+            pq_identity,
+            pq_kem,
+        };
 
         let bytes = postcard::to_allocvec(&backup)?;
         Ok(bytes)
@@ -901,24 +1010,39 @@ impl IndrasNetwork {
         backup: &[u8],
     ) -> Result<()> {
         let backup: IdentityBackup = postcard::from_bytes(backup)?;
-        let keys_dir = data_dir.as_ref().join("keys");
+        let data_dir = data_dir.as_ref();
+        let keystore = indras_node::Keystore::new(data_dir);
 
-        // Ensure keys directory exists
-        tokio::fs::create_dir_all(&keys_dir).await?;
+        // Ensure data directory exists
+        tokio::fs::create_dir_all(data_dir).await?;
 
         // Write iroh transport key
         if !backup.iroh_key.is_empty() {
-            tokio::fs::write(keys_dir.join("iroh.key"), &backup.iroh_key).await?;
+            tokio::fs::write(keystore.iroh_key_path(), &backup.iroh_key).await?;
+            indras_node::Keystore::set_restrictive_permissions(&keystore.iroh_key_path())
+                .map_err(|e| IndraError::Crypto(format!("Failed to set permissions: {}", e)))?;
         }
 
-        // Write PQ signing identity
-        if !backup.pq_identity.is_empty() {
-            tokio::fs::write(keys_dir.join("pq_identity.key"), &backup.pq_identity).await?;
+        // Write PQ signing identity (unpack length-prefixed format)
+        if !backup.pq_identity.is_empty() && backup.pq_identity.len() > 4 {
+            let sk_len = u32::from_le_bytes(backup.pq_identity[..4].try_into().unwrap()) as usize;
+            let sk = &backup.pq_identity[4..4 + sk_len];
+            let pk = &backup.pq_identity[4 + sk_len..];
+            tokio::fs::write(keystore.pq_signing_key_path(), sk).await?;
+            tokio::fs::write(keystore.pq_verifying_key_path(), pk).await?;
+            indras_node::Keystore::set_restrictive_permissions(&keystore.pq_signing_key_path())
+                .map_err(|e| IndraError::Crypto(format!("Failed to set permissions: {}", e)))?;
         }
 
-        // Write PQ KEM keypair
-        if !backup.pq_kem.is_empty() {
-            tokio::fs::write(keys_dir.join("pq_kem.key"), &backup.pq_kem).await?;
+        // Write PQ KEM keypair (unpack length-prefixed format)
+        if !backup.pq_kem.is_empty() && backup.pq_kem.len() > 4 {
+            let dk_len = u32::from_le_bytes(backup.pq_kem[..4].try_into().unwrap()) as usize;
+            let dk = &backup.pq_kem[4..4 + dk_len];
+            let ek = &backup.pq_kem[4 + dk_len..];
+            tokio::fs::write(keystore.pq_kem_dk_path(), dk).await?;
+            tokio::fs::write(keystore.pq_kem_ek_path(), ek).await?;
+            indras_node::Keystore::set_restrictive_permissions(&keystore.pq_kem_dk_path())
+                .map_err(|e| IndraError::Crypto(format!("Failed to set permissions: {}", e)))?;
         }
 
         Ok(())

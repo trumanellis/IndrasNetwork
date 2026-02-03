@@ -103,6 +103,54 @@ impl HomeRealm {
         Ok(Self { id, node, self_id })
     }
 
+    /// Seed the home realm with a welcome quest on first creation.
+    ///
+    /// This is idempotent - if the quests document already has content
+    /// (e.g., from a CRDT merge on a second device), the welcome quest
+    /// won't be re-seeded.
+    pub(crate) async fn seed_welcome_quest_if_empty(&self) -> Result<()> {
+        let doc = self.quests().await?;
+        let data = doc.read().await;
+
+        // Only seed if the quests document is completely empty
+        if data.quest_count() > 0 {
+            debug!(
+                realm_id = %hex::encode(&self.id.as_bytes()[..8]),
+                "Home realm already has quests, skipping welcome quest seed"
+            );
+            return Ok(());
+        }
+        drop(data);
+
+        let welcome_quest = Quest::new(
+            "Explore your home realm",
+            "Your home realm is your private space on the network.\n\
+             \n\
+             Try these:\n\
+             - [ ] Create a personal note\n\
+             - [ ] Set your display name\n\
+             - [ ] Write your pass story (Settings > Identity)\n\
+             - [ ] Create a shared realm and generate an invite code\n\
+             - [ ] Back up your identity (Settings > Export Identity)\n\
+             \n\
+             Complete this quest when you feel at home.",
+            None,
+            self.self_id,
+        );
+
+        doc.update(|d| {
+            d.add(welcome_quest);
+        })
+        .await?;
+
+        debug!(
+            realm_id = %hex::encode(&self.id.as_bytes()[..8]),
+            "Seeded welcome quest in home realm"
+        );
+
+        Ok(())
+    }
+
     /// Get the home realm ID.
     pub fn id(&self) -> RealmId {
         self.id

@@ -104,6 +104,10 @@ pub enum IndraError {
     /// Artifact/blob error.
     #[error("Artifact error: {0}")]
     Artifact(String),
+
+    /// Story authentication error.
+    #[error("Story authentication error: {reason}")]
+    StoryAuth { reason: String },
 }
 
 impl From<NodeError> for IndraError {
@@ -119,6 +123,7 @@ impl From<NodeError> for IndraError {
             NodeError::Serialization(s) => IndraError::Serialization(s),
             NodeError::Config(s) => IndraError::Config(s),
             NodeError::Io(s) => IndraError::Io(io::Error::other(s)),
+            NodeError::StoryAuth(s) => IndraError::StoryAuth { reason: s },
             _ => IndraError::Network(e.to_string()),
         }
     }
