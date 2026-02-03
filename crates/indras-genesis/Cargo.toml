@@ -1,0 +1,30 @@
+[package]
+name = "indras-genesis"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Genesis flow - first-user onboarding for Indras Network"
+
+[[bin]]
+name = "indras-genesis"
+path = "src/main.rs"
+
+[lib]
+name = "indras_genesis"
+path = "src/lib.rs"
+
+[dependencies]
+# Internal crates
+indras-network = { path = "../indras-network" }
+indras-crypto = { path = "../indras-crypto" }
+indras-node = { path = "../indras-node" }
+
+# UI framework
+dioxus = { version = "0.7", features = ["desktop"] }
+
+# Async runtime
+tokio = { version = "1", features = ["full", "sync", "rt-multi-thread"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = "0.3"
