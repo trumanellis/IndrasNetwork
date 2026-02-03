@@ -22,6 +22,7 @@ use indras_realm_viewer::state::{clear_event_buffer, event_buffer, AppState};
 use indras_realm_viewer::theme::ThemedRoot;
 
 /// Embedded CSS styles
+const SHARED_CSS: &str = indras_ui::SHARED_CSS;
 const STYLES_CSS: &str = include_str!("../assets/styles.css");
 const OMNI_V2_STYLES_CSS: &str = include_str!("../assets/omni_v2_styles.css");
 
@@ -80,8 +81,8 @@ fn main() {
                         .with_maximized(true),
                 )
                 .with_custom_head(format!(
-                    r#"<style>{}</style><style>{}</style>"#,
-                    STYLES_CSS, OMNI_V2_STYLES_CSS
+                    r#"<style>{}</style><style>{}</style><style>{}</style>"#,
+                    SHARED_CSS, STYLES_CSS, OMNI_V2_STYLES_CSS
                 )),
         )
         .launch(RootApp);

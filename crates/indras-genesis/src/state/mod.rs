@@ -64,6 +64,16 @@ pub struct GenesisState {
     pub note_form_open: bool,
     /// Whether the nudge banner has been dismissed.
     pub nudge_dismissed: bool,
+    /// Whether the contact invite overlay is open.
+    pub contact_invite_open: bool,
+    /// Text input for pasting another user's invite URI.
+    pub contact_invite_input: String,
+    /// Connect status: None=idle, Some("error:...") or Some("success:...").
+    pub contact_invite_status: Option<String>,
+    /// Parsed inviter display name from pasted URI.
+    pub contact_parsed_name: Option<String>,
+    /// Brief "Copied!" feedback after copying invite link.
+    pub contact_copy_feedback: bool,
 }
 
 impl Default for GenesisState {
@@ -80,6 +90,11 @@ impl Default for GenesisState {
             note_draft_content: String::new(),
             note_form_open: false,
             nudge_dismissed: false,
+            contact_invite_open: false,
+            contact_invite_input: String::new(),
+            contact_invite_status: None,
+            contact_parsed_name: None,
+            contact_copy_feedback: false,
         }
     }
 }

@@ -758,31 +758,5 @@ fn format_duration(millis: u64) -> String {
     }
 }
 
-/// Convert a local file path to a data URL for display.
-pub(crate) fn load_image_as_data_url(path: &str) -> Option<String> {
-    use base64::{Engine as _, engine::general_purpose::STANDARD};
-
-    // Build absolute path
-    let full_path = if path.starts_with('/') {
-        std::path::PathBuf::from(path)
-    } else {
-        std::env::current_dir().ok()?.join(path)
-    };
-
-    // Read the file
-    let data = std::fs::read(&full_path).ok()?;
-
-    // Determine MIME type from extension
-    let mime = match full_path.extension().and_then(|e| e.to_str()) {
-        Some("png") => "image/png",
-        Some("jpg") | Some("jpeg") => "image/jpeg",
-        Some("gif") => "image/gif",
-        Some("webp") => "image/webp",
-        Some("svg") => "image/svg+xml",
-        _ => "application/octet-stream",
-    };
-
-    // Encode as data URL
-    let encoded = STANDARD.encode(&data);
-    Some(format!("data:{};base64,{}", mime, encoded))
-}
+// Re-export from indras-ui
+pub(crate) use indras_ui::load_image_as_data_url;

@@ -18,6 +18,7 @@ name = "omni-viewer-v2"
 path = "src/omni_v2_main.rs"
 
 [dependencies]
+indras-ui = { path = "../indras-ui" }
 dioxus = { version = "0.7", features = ["desktop"] }
 tokio = { version = "1", features = ["full", "sync", "rt-multi-thread", "io-std"] }
 serde = { version = "1.0", features = ["derive"] }

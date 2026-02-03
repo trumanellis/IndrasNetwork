@@ -18,6 +18,7 @@ use indras_realm_viewer::playback;
 use indras_realm_viewer::state::{event_buffer, AppState};
 
 /// Embedded CSS styles
+const SHARED_CSS: &str = indras_ui::SHARED_CSS;
 const STYLES_CSS: &str = include_str!("../assets/styles.css");
 const OMNI_STYLES_CSS: &str = include_str!("../assets/omni_styles.css");
 
@@ -68,8 +69,8 @@ fn main() {
                         .with_maximized(true),
                 )
                 .with_custom_head(format!(
-                    r#"<style>{}</style><style>{}</style>"#,
-                    STYLES_CSS, OMNI_STYLES_CSS
+                    r#"<style>{}</style><style>{}</style><style>{}</style>"#,
+                    SHARED_CSS, STYLES_CSS, OMNI_STYLES_CSS
                 )),
         )
         .launch(RootApp);

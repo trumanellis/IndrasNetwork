@@ -307,6 +307,20 @@ pub fn HomeRealmScreen(
                             }
                         }
                     }
+
+                    section {
+                        class: "home-panel sidebar-connect",
+
+                        h2 { class: "panel-title", "Connections" }
+
+                        button {
+                            class: "genesis-btn-primary",
+                            onclick: move |_| {
+                                state.write().contact_invite_open = true;
+                            },
+                            "Invite a Contact"
+                        }
+                    }
                 }
             }
         }

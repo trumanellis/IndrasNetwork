@@ -19,11 +19,17 @@ indras-network = { path = "../indras-network" }
 indras-crypto = { path = "../indras-crypto" }
 indras-node = { path = "../indras-node" }
 
+# Shared UI
+indras-ui = { path = "../indras-ui" }
+
 # UI framework
 dioxus = { version = "0.7", features = ["desktop"] }
 
 # Async runtime
 tokio = { version = "1", features = ["full", "sync", "rt-multi-thread"] }
+
+# Clipboard
+arboard = "3"
 
 # Logging
 tracing = "0.1"

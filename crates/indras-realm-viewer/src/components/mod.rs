@@ -15,34 +15,12 @@ pub mod omni;
 pub mod omni_v2;
 pub mod scenario_picker;
 
-/// File being previewed in overlay
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct PreviewFile {
-    pub name: String,
-    /// Content with artifact references resolved to data URLs (for rendered mode).
-    pub content: String,
-    /// Content with artifact references resolved to friendly filenames (for raw mode).
-    pub raw_content: String,
-    pub mime_type: String,
-    /// Data URL for image preview (set when previewing an image file).
-    pub data_url: Option<String>,
-}
-
-/// View mode for markdown preview
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub enum PreviewViewMode {
-    #[default]
-    Rendered,
-    Raw,
-}
-
-/// Context for markdown preview overlay
-#[derive(Clone, Copy)]
-pub struct PreviewContext {
-    pub is_open: Signal<bool>,
-    pub file: Signal<Option<PreviewFile>>,
-    pub view_mode: Signal<PreviewViewMode>,
-}
+pub use indras_ui::{
+    PreviewFile, PreviewViewMode, PreviewContext, MarkdownPreviewOverlay,
+    load_image_as_data_url, load_text_file_content,
+    render_markdown_to_html, is_markdown_file,
+    member_color_class, member_color_var,
+};
 
 /// Data for proof narrative overlay
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -855,142 +833,7 @@ fn SharedArtifactGalleryPanel(state: Signal<AppState>) -> Element {
     }
 }
 
-/// Convert a local file path to a data URL for display in webview
-fn load_image_as_data_url(path: &str) -> Option<String> {
-    use base64::{Engine as _, engine::general_purpose::STANDARD};
 
-    // Build absolute path
-    let full_path = if path.starts_with('/') {
-        std::path::PathBuf::from(path)
-    } else {
-        std::env::current_dir().ok()?.join(path)
-    };
-
-    // Read file
-    let data = std::fs::read(&full_path).ok()?;
-
-    // Determine mime type from extension
-    let mime = match full_path.extension().and_then(|e| e.to_str()) {
-        Some("png") => "image/png",
-        Some("jpg") | Some("jpeg") => "image/jpeg",
-        Some("gif") => "image/gif",
-        Some("webp") => "image/webp",
-        Some("svg") => "image/svg+xml",
-        _ => "application/octet-stream",
-    };
-
-    // Encode as data URL
-    let encoded = STANDARD.encode(&data);
-    Some(format!("data:{};base64,{}", mime, encoded))
-}
-
-/// Load a text file's full content from an asset path
-pub(crate) fn load_text_file_content(path: &str) -> Option<String> {
-    let full_path = if path.starts_with('/') {
-        std::path::PathBuf::from(path)
-    } else {
-        std::env::current_dir().ok()?.join(path)
-    };
-    std::fs::read_to_string(&full_path).ok()
-}
-
-/// Render markdown to HTML
-pub(crate) fn render_markdown_to_html(markdown: &str) -> String {
-    use pulldown_cmark::{html, Options, Parser};
-    let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
-    let parser = Parser::new_ext(markdown, options);
-    let mut html_output = String::new();
-    html::push_html(&mut html_output, parser);
-    html_output
-}
-
-/// Check if file is markdown
-fn is_markdown_file(name: &str, mime_type: &str) -> bool {
-    name.ends_with(".md")
-        || name.ends_with(".markdown")
-        || mime_type == "text/markdown"
-        || mime_type == "application/markdown"
-}
-
-/// File preview overlay — handles markdown (rendered/raw) and images.
-#[component]
-pub fn MarkdownPreviewOverlay(
-    is_open: Signal<bool>,
-    file: Signal<Option<PreviewFile>>,
-    view_mode: Signal<PreviewViewMode>,
-) -> Element {
-    if !is_open() {
-        return rsx! {};
-    }
-    let Some(file_data) = file() else {
-        return rsx! {};
-    };
-
-    let is_image = file_data.mime_type.starts_with("image/");
-    let is_md = !is_image && is_markdown_file(&file_data.name, &file_data.mime_type);
-    let mode = view_mode();
-
-    let rendered_html = if is_md && mode == PreviewViewMode::Rendered {
-        Some(render_markdown_to_html(&file_data.content))
-    } else {
-        None
-    };
-
-    rsx! {
-        div {
-            class: "markdown-preview-overlay",
-            onclick: move |_| is_open.set(false),
-            div {
-                class: "markdown-preview-dialog",
-                onclick: move |e| e.stop_propagation(),
-
-                // Header
-                div { class: "markdown-preview-header",
-                    span { class: "markdown-preview-filename", "{file_data.name}" }
-                    div { class: "markdown-preview-controls",
-                        if is_md {
-                            button {
-                                class: "markdown-preview-toggle",
-                                onclick: move |_| {
-                                    view_mode.set(if mode == PreviewViewMode::Rendered {
-                                        PreviewViewMode::Raw
-                                    } else {
-                                        PreviewViewMode::Rendered
-                                    });
-                                },
-                                if mode == PreviewViewMode::Rendered { "View Raw" } else { "View Rendered" }
-                            }
-                        }
-                        button {
-                            class: "markdown-preview-close",
-                            onclick: move |_| is_open.set(false),
-                            "×"
-                        }
-                    }
-                }
-
-                // Content
-                div { class: "markdown-preview-content",
-                    if is_image {
-                        if let Some(ref url) = file_data.data_url {
-                            div { class: "image-preview",
-                                img {
-                                    class: "image-preview-img",
-                                    src: "{url}",
-                                    alt: "{file_data.name}",
-                                }
-                            }
-                        }
-                    } else if let Some(ref html) = rendered_html {
-                        div { class: "markdown-rendered", dangerous_inner_html: "{html}" }
-                    } else {
-                        pre { class: "markdown-raw", "{file_data.raw_content}" }
-                    }
-                }
-            }
-        }
-    }
-}
 
 /// Render markdown narrative with artifact image references replaced by data URLs.
 ///
@@ -3185,38 +3028,3 @@ fn TokenCard(token: TokenOfGratitude, max_value: u64) -> Element {
 // HELPER FUNCTIONS
 // ============================================================================
 
-pub fn member_color_class(member: &str) -> &'static str {
-    let name = member_name(member).to_lowercase();
-    match name.as_str() {
-        "love" => "member-love",
-        "joy" => "member-joy",
-        "peace" => "member-peace",
-        "grace" => "member-grace",
-        "hope" => "member-hope",
-        "faith" => "member-faith",
-        "light" => "member-light",
-        "truth" => "member-truth",
-        "wisdom" => "member-wisdom",
-        "mercy" => "member-mercy",
-        "valor" => "member-valor",
-        "honor" => "member-honor",
-        "glory" => "member-glory",
-        "spirit" => "member-spirit",
-        "unity" => "member-unity",
-        "bliss" => "member-bliss",
-        _ => "member-default",
-    }
-}
-
-pub fn member_color_var(member: &str) -> &'static str {
-    let name = member_name(member).to_lowercase();
-    match name.as_str() {
-        "love" => "var(--color-love)",
-        "joy" => "var(--color-joy)",
-        "peace" => "var(--color-peace)",
-        "grace" => "var(--color-grace)",
-        "hope" => "var(--color-hope)",
-        "faith" => "var(--color-faith)",
-        _ => "var(--accent-primary)",
-    }
-}
