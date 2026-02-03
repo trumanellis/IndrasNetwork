@@ -57,6 +57,8 @@ pub struct TokenOfGratitude {
     pub id: TokenOfGratitudeId,
     /// Current owner/controller of this token.
     pub steward: MemberId,
+    /// Chain of custody — every steward who has held this token, in order.
+    pub steward_chain: Vec<MemberId>,
 
     // Immutable provenance (set at mint, never changes)
     /// The blessing that produced this token.
@@ -93,6 +95,7 @@ pub enum TokenEvent {
         original_steward: MemberId,
         event_indices: Vec<usize>,
         created_at_millis: i64,
+        steward_chain: Vec<MemberId>,
     },
     /// A token was pledged to a quest as bounty.
     Pledged {
@@ -104,6 +107,7 @@ pub enum TokenEvent {
     Released {
         token_id: TokenOfGratitudeId,
         new_steward: MemberId,
+        previous_steward: MemberId,
     },
     /// A pledge was withdrawn (token returned to steward's wallet).
     Withdrawn {
@@ -189,6 +193,8 @@ impl TokenOfGratitudeDocument {
         let token_id = generate_token_id();
         let created_at_millis = chrono::Utc::now().timestamp_millis();
 
+        let steward_chain = vec![steward];
+
         let event = TokenEvent::Minted {
             token_id,
             steward,
@@ -198,6 +204,7 @@ impl TokenOfGratitudeDocument {
             original_steward: steward,
             event_indices: event_indices.clone(),
             created_at_millis,
+            steward_chain: steward_chain.clone(),
         };
         self.events.push(event);
 
@@ -207,6 +214,7 @@ impl TokenOfGratitudeDocument {
             TokenOfGratitude {
                 id: token_id,
                 steward,
+                steward_chain,
                 blessing_id,
                 blesser,
                 source_quest_id,
@@ -267,15 +275,19 @@ impl TokenOfGratitudeDocument {
             return Err(TokenError::NotPledged);
         }
 
+        let previous_steward = token.steward;
+
         let event = TokenEvent::Released {
             token_id,
             new_steward,
+            previous_steward,
         };
         self.events.push(event);
 
         // Update derived state
         if let Some(token) = self.tokens.get_mut(&token_id) {
             token.steward = new_steward;
+            token.steward_chain.push(new_steward);
             token.pledged_to = None;
             token.pledged_at_millis = None;
         }
@@ -377,12 +389,14 @@ impl TokenOfGratitudeDocument {
                     original_steward,
                     event_indices,
                     created_at_millis,
+                    steward_chain,
                 } => {
                     self.tokens.insert(
                         *token_id,
                         TokenOfGratitude {
                             id: *token_id,
                             steward: *steward,
+                            steward_chain: steward_chain.clone(),
                             blessing_id: *blessing_id,
                             blesser: *blesser,
                             source_quest_id: *source_quest_id,
@@ -407,9 +421,11 @@ impl TokenOfGratitudeDocument {
                 TokenEvent::Released {
                     token_id,
                     new_steward,
+                    ..
                 } => {
                     if let Some(token) = self.tokens.get_mut(token_id) {
                         token.steward = *new_steward;
+                        token.steward_chain.push(*new_steward);
                         token.pledged_to = None;
                         token.pledged_at_millis = None;
                     }
@@ -739,5 +755,79 @@ mod tests {
         let token = doc.find(&token_id).unwrap();
         assert_eq!(token.steward, steward);
         assert_eq!(token.pledged_to, Some(target));
+    }
+
+    #[test]
+    fn test_steward_chain_grows_on_release() {
+        let mut doc = TokenOfGratitudeDocument::new();
+        let steward_a = test_member_id(1);
+        let steward_b = test_member_id(3);
+        let steward_c = test_member_id(4);
+
+        let token_id = doc
+            .mint(steward_a, test_blessing_id(1), test_member_id(2), test_quest_id(1), vec![0, 1])
+            .unwrap();
+
+        // Chain starts with original steward
+        let token = doc.find(&token_id).unwrap();
+        assert_eq!(token.steward_chain, vec![steward_a]);
+
+        // Release to B
+        doc.pledge(token_id, test_quest_id(2)).unwrap();
+        doc.release(token_id, steward_b).unwrap();
+
+        let token = doc.find(&token_id).unwrap();
+        assert_eq!(token.steward_chain, vec![steward_a, steward_b]);
+
+        // Release to C
+        doc.pledge(token_id, test_quest_id(3)).unwrap();
+        doc.release(token_id, steward_c).unwrap();
+
+        let token = doc.find(&token_id).unwrap();
+        assert_eq!(token.steward_chain, vec![steward_a, steward_b, steward_c]);
+    }
+
+    #[test]
+    fn test_steward_chain_preserved_across_rebuild() {
+        let mut doc = TokenOfGratitudeDocument::new();
+        let steward_a = test_member_id(1);
+        let steward_b = test_member_id(3);
+
+        let token_id = doc
+            .mint(steward_a, test_blessing_id(1), test_member_id(2), test_quest_id(1), vec![0])
+            .unwrap();
+
+        doc.pledge(token_id, test_quest_id(2)).unwrap();
+        doc.release(token_id, steward_b).unwrap();
+
+        // Clear and rebuild
+        doc.tokens.clear();
+        doc.rebuild_derived_state();
+
+        let token = doc.find(&token_id).unwrap();
+        assert_eq!(token.steward_chain, vec![steward_a, steward_b]);
+        assert_eq!(token.steward, steward_b);
+    }
+
+    #[test]
+    fn test_steward_chain_preserved_across_merge() {
+        let mut doc1 = TokenOfGratitudeDocument::new();
+        let steward_a = test_member_id(1);
+        let steward_b = test_member_id(3);
+
+        let token_id = doc1
+            .mint(steward_a, test_blessing_id(1), test_member_id(2), test_quest_id(1), vec![0])
+            .unwrap();
+
+        doc1.pledge(token_id, test_quest_id(2)).unwrap();
+        doc1.release(token_id, steward_b).unwrap();
+
+        let doc2 = doc1.clone();
+        let mut doc3 = TokenOfGratitudeDocument::new();
+        doc3.merge(&doc1);
+        doc3.merge(&doc2);
+
+        let token = doc3.find(&token_id).unwrap();
+        assert_eq!(token.steward_chain, vec![steward_a, steward_b]);
     }
 }

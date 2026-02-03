@@ -372,6 +372,8 @@ impl HomeRealm {
             shared_at: chrono::Utc::now(),
             is_encrypted: false,
             sharing_status: crate::artifact_sharing::SharingStatus::Shared,
+            parent: None,
+            children: Vec::new(),
         })
     }
 
@@ -454,6 +456,8 @@ impl HomeRealm {
                 status: crate::access::ArtifactStatus::Active,
                 grants: Vec::new(),
                 provenance: None,
+                parent: None,
+                children: Vec::new(),
             };
             index.store(entry);
         })
@@ -546,6 +550,91 @@ impl HomeRealm {
         let doc = self.artifact_index().await?;
         let data = doc.read().await;
         Ok(data.accessible_by(member, 0).into_iter().cloned().collect())
+    }
+
+    // ============================================================
+    // Holonic composition
+    // ============================================================
+
+    /// Compose existing artifacts under a parent holon.
+    ///
+    /// Groups the given child artifacts under the specified parent.
+    /// All children must exist, be active, and have no existing parent.
+    pub async fn compose_artifact(
+        &self,
+        parent_id: &ArtifactId,
+        child_ids: &[ArtifactId],
+    ) -> Result<()> {
+        let doc = self.artifact_index().await?;
+        let parent_id = *parent_id;
+        let child_ids = child_ids.to_vec();
+        let mut result = Ok(());
+        doc.update(|index| {
+            if let Err(e) = index.compose(&parent_id, &child_ids) {
+                result = Err(IndraError::Artifact(format!("Compose failed: {}", e)));
+            }
+        })
+        .await?;
+        result
+    }
+
+    /// Decompose a holon — detach all children, making them top-level.
+    ///
+    /// Inherited grants from the parent are materialized as explicit
+    /// grants on each detached child.
+    pub async fn decompose_artifact(
+        &self,
+        parent_id: &ArtifactId,
+    ) -> Result<Vec<ArtifactId>> {
+        let doc = self.artifact_index().await?;
+        let parent_id = *parent_id;
+        let mut decompose_result: std::result::Result<Vec<ArtifactId>, crate::access::HolonicError> =
+            Err(crate::access::HolonicError::NotFound);
+        doc.update(|index| {
+            decompose_result = index.decompose(&parent_id);
+        })
+        .await?;
+        decompose_result.map_err(|e| IndraError::Artifact(format!("Decompose failed: {}", e)))
+    }
+
+    /// Attach a single artifact as child of an existing holon.
+    pub async fn attach_child(
+        &self,
+        parent_id: &ArtifactId,
+        child_id: &ArtifactId,
+    ) -> Result<()> {
+        let doc = self.artifact_index().await?;
+        let parent_id = *parent_id;
+        let child_id = *child_id;
+        let mut result = Ok(());
+        doc.update(|index| {
+            if let Err(e) = index.attach_child(&parent_id, &child_id) {
+                result = Err(IndraError::Artifact(format!("Attach failed: {}", e)));
+            }
+        })
+        .await?;
+        result
+    }
+
+    /// Detach a child from a holon, making it top-level.
+    ///
+    /// Inherited grants are materialized onto the detached child.
+    pub async fn detach_child(
+        &self,
+        parent_id: &ArtifactId,
+        child_id: &ArtifactId,
+    ) -> Result<()> {
+        let doc = self.artifact_index().await?;
+        let parent_id = *parent_id;
+        let child_id = *child_id;
+        let mut result = Ok(());
+        doc.update(|index| {
+            if let Err(e) = index.detach_child(&parent_id, &child_id) {
+                result = Err(IndraError::Artifact(format!("Detach failed: {}", e)));
+            }
+        })
+        .await?;
+        result
     }
 
     // ============================================================
