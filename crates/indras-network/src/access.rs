@@ -195,6 +195,21 @@ pub enum TransferError {
     NotActive,
 }
 
+/// Errors when performing holonic operations (compose, attach, detach).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HolonicError {
+    /// Artifact not found in the index.
+    NotFound,
+    /// Artifact is not in Active status.
+    NotActive,
+    /// Operation would create a cycle in the parent chain.
+    CycleDetected,
+    /// Artifact already has a parent (single-parent invariant).
+    AlreadyHasParent,
+    /// Child is not attached to the specified parent.
+    NotAChild,
+}
+
 impl std::fmt::Display for TransferError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -205,6 +220,20 @@ impl std::fmt::Display for TransferError {
 }
 
 impl std::error::Error for TransferError {}
+
+impl std::fmt::Display for HolonicError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotFound => write!(f, "artifact not found"),
+            Self::NotActive => write!(f, "artifact is not active"),
+            Self::CycleDetected => write!(f, "operation would create a cycle"),
+            Self::AlreadyHasParent => write!(f, "artifact already has a parent"),
+            Self::NotAChild => write!(f, "artifact is not a child of the specified parent"),
+        }
+    }
+}
+
+impl std::error::Error for HolonicError {}
 
 #[cfg(test)]
 mod tests {
@@ -297,5 +326,14 @@ mod tests {
     fn test_transfer_error_display() {
         assert_eq!(TransferError::NotFound.to_string(), "artifact not found");
         assert_eq!(TransferError::NotActive.to_string(), "artifact is not active");
+    }
+
+    #[test]
+    fn test_holonic_error_display() {
+        assert_eq!(HolonicError::NotFound.to_string(), "artifact not found");
+        assert_eq!(HolonicError::NotActive.to_string(), "artifact is not active");
+        assert_eq!(HolonicError::CycleDetected.to_string(), "operation would create a cycle");
+        assert_eq!(HolonicError::AlreadyHasParent.to_string(), "artifact already has a parent");
+        assert_eq!(HolonicError::NotAChild.to_string(), "artifact is not a child of the specified parent");
     }
 }

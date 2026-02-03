@@ -26,6 +26,8 @@ pub struct TokenOfGratitude {
     pub source_quest_id: String,
     /// Who submitted the proof (original recipient).
     pub original_steward: String,
+    /// Chain of custody — every steward who has held this token, in order.
+    pub steward_chain: Vec<String>,
     /// Tick when the token was minted.
     pub created_at_tick: u32,
     /// If pledged, which quest it is pledged to (None if free).
@@ -79,6 +81,7 @@ impl TokenState {
                         blesser: blesser.clone(),
                         source_quest_id: source_quest_id.clone(),
                         original_steward: steward.clone(),
+                        steward_chain: vec![steward.clone()],
                         created_at_tick: *tick,
                         pledged_to: None,
                     },
@@ -108,6 +111,7 @@ impl TokenState {
             } => {
                 if let Some(token) = self.tokens.get_mut(token_id) {
                     token.steward = to_steward.clone();
+                    token.steward_chain.push(to_steward.clone());
                     token.pledged_to = None;
                 }
                 // Remove from quest bounties
@@ -168,6 +172,63 @@ impl TokenState {
                     .sum()
             })
             .unwrap_or(0)
+    }
+
+    /// Get subjective bounty for a quest — value weighted by observer's trust.
+    ///
+    /// Each pledged token's value is scaled by:
+    /// - The observer's sentiment toward members in the token's steward chain
+    /// - Trust decay per hop (0.7^hops)
+    /// - Humanness freshness of the blesser
+    ///
+    /// `sentiment_fn` returns Some(score) where score is -1.0..1.0, or None for unknown.
+    /// `humanness_fn` returns freshness 0.0..1.0.
+    pub fn quest_bounty_subjective(
+        &self,
+        quest_id: &str,
+        sentiment_fn: impl Fn(&str) -> Option<f64>,
+        humanness_fn: impl Fn(&str) -> f64,
+    ) -> f64 {
+        const DECAY: f64 = 0.7;
+
+        self.quest_bounties
+            .get(quest_id)
+            .map(|ids| {
+                ids.iter()
+                    .filter_map(|id| self.tokens.get(id))
+                    .map(|token| {
+                        let chain = &token.steward_chain;
+                        let chain_len = chain.len();
+                        let mut best_weight: f64 = 0.0;
+
+                        // Check blesser
+                        if let Some(score) = sentiment_fn(&token.blesser) {
+                            let positive = score.max(0.0);
+                            if positive > 0.0 {
+                                let hops = chain_len.saturating_sub(1) as f64;
+                                let weight = positive * DECAY.powf(hops);
+                                best_weight = best_weight.max(weight);
+                            }
+                        }
+
+                        // Check each steward in chain
+                        for (i, member) in chain.iter().enumerate() {
+                            if let Some(score) = sentiment_fn(member) {
+                                let positive = score.max(0.0);
+                                if positive > 0.0 {
+                                    let hops = (chain_len - 1 - i) as f64;
+                                    let weight = positive * DECAY.powf(hops);
+                                    best_weight = best_weight.max(weight);
+                                }
+                            }
+                        }
+
+                        let freshness = humanness_fn(&token.blesser);
+                        token.value_millis as f64 * best_weight * freshness
+                    })
+                    .sum()
+            })
+            .unwrap_or(0.0)
     }
 
     /// Get all tokens pledged to a quest.

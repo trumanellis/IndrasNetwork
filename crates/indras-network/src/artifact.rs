@@ -67,6 +67,10 @@ pub struct Artifact {
     pub is_encrypted: bool,
     /// Current sharing status (Shared or Recalled).
     pub sharing_status: SharingStatus,
+    /// Parent artifact this is a part of (None if top-level).
+    pub parent: Option<ArtifactId>,
+    /// Child artifact IDs composing this holon.
+    pub children: Vec<ArtifactId>,
 }
 
 impl Artifact {
@@ -294,6 +298,8 @@ mod tests {
             shared_at: Utc::now(),
             is_encrypted: false,
             sharing_status: SharingStatus::Shared,
+            parent: None,
+            children: Vec::new(),
         };
 
         assert!(!artifact.ticket().is_empty());
@@ -320,6 +326,8 @@ mod tests {
                 recalled_at: 12345,
                 recalled_by: "abc123".to_string(),
             },
+            parent: None,
+            children: Vec::new(),
         };
 
         assert!(!artifact.is_accessible());

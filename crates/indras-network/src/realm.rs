@@ -1774,6 +1774,48 @@ impl Realm {
     }
 
     // ============================================================
+    // Humanness & Proof of Life
+    // ============================================================
+
+    /// Get the humanness document for this realm.
+    pub async fn humanness(&self) -> Result<Document<crate::humanness::HumannessDocument>> {
+        self.document("_humanness").await
+    }
+
+    /// Record a proof of life celebration.
+    ///
+    /// Attests all participants as human at the current timestamp.
+    /// This is automatically called when a Memory (artifact) is saved
+    /// to a shared realm.
+    pub async fn record_proof_of_life(
+        &self,
+        participants: Vec<MemberId>,
+    ) -> Result<()> {
+        let humanness_doc = self.humanness().await?;
+        let attester: MemberId = self.node.identity().as_bytes().try_into().expect("identity bytes");
+        let timestamp = chrono::Utc::now().timestamp_millis();
+
+        humanness_doc
+            .update(|d| {
+                d.record_proof_of_life(participants.clone(), attester, timestamp);
+            })
+            .await?;
+
+        Ok(())
+    }
+
+    /// Get the humanness freshness for a specific member.
+    ///
+    /// Returns 1.0 if recently attested, decaying exponentially after 7 days.
+    /// Returns 0.0 if never attested.
+    pub async fn humanness_freshness_for(&self, member: &MemberId) -> Result<f64> {
+        let humanness_doc = self.humanness().await?;
+        let guard = humanness_doc.read().await;
+        let now = chrono::Utc::now().timestamp_millis();
+        Ok(guard.freshness_at(member, now))
+    }
+
+    // ============================================================
     // Artifacts
     // ============================================================
 
@@ -1889,6 +1931,8 @@ impl Realm {
             shared_at: Utc::now(),
             is_encrypted: false,
             sharing_status: crate::artifact_sharing::SharingStatus::Shared,
+            parent: None,
+            children: Vec::new(),
         };
 
         Ok(artifact)
@@ -1947,6 +1991,8 @@ impl Realm {
             shared_at: Utc::now(),
             is_encrypted: matches!(mode, AccessMode::Revocable),
             sharing_status: crate::artifact_sharing::SharingStatus::Shared,
+            parent: None,
+            children: Vec::new(),
         })
     }
 
@@ -2001,6 +2047,8 @@ impl Realm {
             shared_at: Utc::now(),
             is_encrypted: false,
             sharing_status: crate::artifact_sharing::SharingStatus::Shared,
+            parent: None,
+            children: Vec::new(),
         })
     }
 
