@@ -226,6 +226,11 @@ impl<I: PeerIdentity> CompositeStorage<I> {
         self.blobs.store(data).await
     }
 
+    /// Delete a blob by its content reference
+    pub async fn delete_blob(&self, content_ref: &ContentRef) -> Result<bool, StorageError> {
+        self.blobs.delete(content_ref).await
+    }
+
     /// Get the peer registry
     pub fn peer_registry(&self) -> &PeerRegistry {
         &self.peer_registry

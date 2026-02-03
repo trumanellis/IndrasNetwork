@@ -518,9 +518,8 @@ impl HomeRealm {
         .await?;
 
         if recalled {
-            // TODO: Delete the blob locally once storage API supports delete_blob
-            // let content_ref = indras_storage::ContentRef::new(*id, 0);
-            // let _ = self.node.storage().delete_blob(&content_ref).await;
+            let content_ref = indras_storage::ContentRef::new(*id, 0);
+            let _ = self.node.storage().delete_blob(&content_ref).await;
         }
 
         Ok(recalled)

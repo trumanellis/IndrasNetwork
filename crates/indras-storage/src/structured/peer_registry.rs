@@ -27,6 +27,10 @@ pub struct PeerRecord {
     pub message_count: u64,
     /// Whether this peer is trusted
     pub trusted: bool,
+    /// ML-KEM-768 encapsulation key (for sending encrypted keys to this peer)
+    pub pq_encapsulation_key: Option<Vec<u8>>,
+    /// ML-DSA-65 verifying key (for verifying this peer's signatures)
+    pub pq_verifying_key: Option<Vec<u8>>,
     /// Custom metadata (application-specific)
     pub metadata: Vec<u8>,
 }
@@ -42,6 +46,8 @@ impl PeerRecord {
             first_seen_millis: now,
             message_count: 0,
             trusted: false,
+            pq_encapsulation_key: None,
+            pq_verifying_key: None,
             metadata: Vec::new(),
         }
     }

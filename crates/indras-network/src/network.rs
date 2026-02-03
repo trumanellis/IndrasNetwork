@@ -180,8 +180,14 @@ impl IndrasNetwork {
 
     /// Set the display name for this network instance.
     pub async fn set_display_name(&mut self, name: impl Into<String>) -> Result<()> {
-        self.config.display_name = Some(name.into());
-        // TODO: Persist to storage and broadcast to realms
+        let name = name.into();
+        self.config.display_name = Some(name.clone());
+
+        // Broadcast to peers via discovery service if running
+        if let Some(transport) = self.inner.transport().await {
+            transport.discovery_service().set_display_name(name).await;
+        }
+
         Ok(())
     }
 
