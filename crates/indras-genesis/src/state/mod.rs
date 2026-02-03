@@ -1,5 +1,7 @@
 //! State management for the Genesis flow.
 
+use indras_ui::ArtifactDisplayInfo;
+
 /// The current step in the genesis flow.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GenesisStep {
@@ -39,6 +41,36 @@ pub struct NoteView {
     pub content_preview: String,
 }
 
+/// View model for a contact in the connections panel.
+#[derive(Debug, Clone)]
+pub struct ContactView {
+    pub member_id_short: String,
+    pub display_name: Option<String>,
+    pub status: String,  // "pending" or "confirmed"
+}
+
+/// Direction of a network event.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EventDirection {
+    /// We sent/initiated this.
+    Sent,
+    /// We received this from the network.
+    Received,
+    /// Local system event.
+    System,
+}
+
+/// A single entry in the event log.
+#[derive(Debug, Clone)]
+pub struct EventLogEntry {
+    /// Timestamp string (HH:MM:SS).
+    pub timestamp: String,
+    /// Direction arrow.
+    pub direction: EventDirection,
+    /// Short description of what happened.
+    pub message: String,
+}
+
 /// Main state for the genesis flow.
 #[derive(Debug, Clone)]
 pub struct GenesisState {
@@ -54,6 +86,10 @@ pub struct GenesisState {
     pub quests: Vec<QuestView>,
     /// Notes loaded from home realm.
     pub notes: Vec<NoteView>,
+    /// Contacts loaded from contacts realm.
+    pub contacts: Vec<ContactView>,
+    /// Artifacts loaded from home realm artifact index.
+    pub artifacts: Vec<ArtifactDisplayInfo>,
     /// Whether the pass story flow overlay is active.
     pub pass_story_active: bool,
     /// Draft note title for the create-note form.
@@ -74,6 +110,16 @@ pub struct GenesisState {
     pub contact_parsed_name: Option<String>,
     /// Brief "Copied!" feedback after copying invite link.
     pub contact_copy_feedback: bool,
+    /// Pre-computed contact invite URI (async, includes transport info).
+    pub invite_code_uri: Option<String>,
+    /// Whether a contact connect operation is in progress.
+    pub contact_connecting: bool,
+    /// Filter text for the contacts list.
+    pub contact_filter: String,
+    /// Toast message for new connections (auto-cleared after 5s).
+    pub new_contact_toast: Option<String>,
+    /// Network event log (newest first).
+    pub event_log: Vec<EventLogEntry>,
 }
 
 impl Default for GenesisState {
@@ -85,6 +131,8 @@ impl Default for GenesisState {
             member_id_short: None,
             quests: Vec::new(),
             notes: Vec::new(),
+            contacts: Vec::new(),
+            artifacts: Vec::new(),
             pass_story_active: false,
             note_draft_title: String::new(),
             note_draft_content: String::new(),
@@ -95,6 +143,11 @@ impl Default for GenesisState {
             contact_invite_status: None,
             contact_parsed_name: None,
             contact_copy_feedback: false,
+            invite_code_uri: None,
+            contact_connecting: false,
+            contact_filter: String::new(),
+            new_contact_toast: None,
+            event_log: Vec::new(),
         }
     }
 }

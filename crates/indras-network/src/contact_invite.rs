@@ -18,6 +18,15 @@ const CONTACT_INVITE_PREFIX: &str = "syncengine:contact:";
 struct ContactInviteInner {
     member_id: MemberId,
     display_name: Option<String>,
+    /// Inbox interface ID for connection requests.
+    #[serde(default)]
+    inbox_id: Option<[u8; 32]>,
+    /// Serialized EndpointAddr for P2P bootstrap.
+    #[serde(default)]
+    bootstrap: Option<Vec<u8>>,
+    /// Interface encryption key for the inbox.
+    #[serde(default)]
+    inbox_key: Option<[u8; 32]>,
 }
 
 /// A human-shareable invite code for adding a contact.
@@ -46,14 +55,57 @@ pub struct ContactInviteCode {
 }
 
 impl ContactInviteCode {
+    /// Maximum display name length in a contact invite.
+    const MAX_DISPLAY_NAME_LEN: usize = 64;
+
     /// Create a new contact invite code.
+    ///
+    /// Display names are sanitized: control characters are removed and
+    /// the length is capped at 64 characters.
     pub fn new(member_id: MemberId, display_name: Option<String>) -> Self {
+        let display_name = display_name.map(|n| {
+            n.chars()
+                .take(Self::MAX_DISPLAY_NAME_LEN)
+                .filter(|c| !c.is_control())
+                .collect::<String>()
+        });
         Self {
             inner: ContactInviteInner {
                 member_id,
                 display_name,
+                inbox_id: None,
+                bootstrap: None,
+                inbox_key: None,
             },
         }
+    }
+
+    /// Attach inbox transport info for P2P bootstrap.
+    pub fn with_inbox(
+        mut self,
+        inbox_id: [u8; 32],
+        bootstrap: Vec<u8>,
+        inbox_key: [u8; 32],
+    ) -> Self {
+        self.inner.inbox_id = Some(inbox_id);
+        self.inner.bootstrap = Some(bootstrap);
+        self.inner.inbox_key = Some(inbox_key);
+        self
+    }
+
+    /// Get the inbox interface ID, if present.
+    pub fn inbox_id(&self) -> Option<&[u8; 32]> {
+        self.inner.inbox_id.as_ref()
+    }
+
+    /// Get the bootstrap address bytes, if present.
+    pub fn bootstrap(&self) -> Option<&[u8]> {
+        self.inner.bootstrap.as_deref()
+    }
+
+    /// Get the inbox interface encryption key, if present.
+    pub fn inbox_key(&self) -> Option<&[u8; 32]> {
+        self.inner.inbox_key.as_ref()
     }
 
     /// Parse a contact invite code from a string.
@@ -201,5 +253,26 @@ mod tests {
         let uri = code.to_uri();
         let parsed: ContactInviteCode = uri.parse().unwrap();
         assert_eq!(parsed.member_id(), [5u8; 32]);
+    }
+
+    #[test]
+    fn test_display_name_truncated_at_64_chars() {
+        let long_name = "A".repeat(100);
+        let code = ContactInviteCode::new([1u8; 32], Some(long_name));
+        assert_eq!(code.display_name().unwrap().len(), 64);
+    }
+
+    #[test]
+    fn test_display_name_control_chars_removed() {
+        let name_with_controls = "Zephyr\x00\x07\nOrion".to_string();
+        let code = ContactInviteCode::new([2u8; 32], Some(name_with_controls));
+        assert_eq!(code.display_name(), Some("ZephyrOrion"));
+    }
+
+    #[test]
+    fn test_display_name_empty_after_sanitization() {
+        let only_controls = "\x00\x01\x02\x03".to_string();
+        let code = ContactInviteCode::new([3u8; 32], Some(only_controls));
+        assert_eq!(code.display_name(), Some(""));
     }
 }

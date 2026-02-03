@@ -5,7 +5,10 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 use indras_network::IndrasNetwork;
 
-use crate::state::{GenesisState, NoteView, QuestView};
+use indras_ui::{ArtifactDisplayInfo, ArtifactDisplayStatus, ArtifactGallery};
+
+use crate::state::{ContactView, EventDirection, GenesisState, NoteView, QuestView};
+use super::app::log_event;
 
 /// Helper to hex-encode a 16-byte ID.
 fn hex_id(id: &[u8; 16]) -> String {
@@ -46,6 +49,45 @@ async fn refresh_home_realm_data(
             drop(data);
             state.write().notes = notes;
         }
+
+        // Load artifacts
+        if let Ok(doc) = home.artifact_index().await {
+            let data = doc.read().await;
+            let artifacts: Vec<ArtifactDisplayInfo> = data.active_artifacts().map(|a| {
+                ArtifactDisplayInfo {
+                    id: a.id.iter().map(|b| format!("{:02x}", b)).collect(),
+                    name: a.name.clone(),
+                    size: a.size,
+                    mime_type: a.mime_type.clone(),
+                    status: ArtifactDisplayStatus::Active,
+                    data_url: None,
+                    grant_count: a.grants.len(),
+                    owner_label: if a.grants.is_empty() {
+                        Some("Private".to_string())
+                    } else {
+                        Some(format!("Shared with {}", a.grants.len()))
+                    },
+                }
+            }).collect();
+            drop(data);
+            state.write().artifacts = artifacts;
+        }
+    }
+
+    // Load contacts (use async read to avoid blocking in async context)
+    if let Some(contacts_realm) = network.contacts_realm().await {
+        if let Ok(doc) = contacts_realm.contacts().await {
+            let data = doc.read().await;
+            let contacts: Vec<ContactView> = data.contacts.iter().map(|(mid, entry)| {
+                ContactView {
+                    member_id_short: mid.iter().take(8).map(|b| format!("{:02x}", b)).collect(),
+                    display_name: entry.display_name.clone(),
+                    status: "confirmed".to_string(),
+                }
+            }).collect();
+            drop(data);
+            state.write().contacts = contacts;
+        }
     }
 }
 
@@ -65,8 +107,13 @@ pub fn HomeRealmScreen(
     let note_count = s.notes.len();
     let quests = s.quests.clone();
     let notes = s.notes.clone();
+    let contacts = s.contacts.clone();
+    let contact_count = s.contacts.len();
+    let artifacts = s.artifacts.clone();
+    let artifact_count = s.artifacts.len();
     let note_form_open = s.note_form_open;
     let nudge_dismissed = s.nudge_dismissed;
+    let event_log = s.event_log.clone();
     let has_content = !notes.is_empty() || quest_count > 1;
     drop(s);
 
@@ -76,6 +123,45 @@ pub fn HomeRealmScreen(
         indras_node::StoryKeystore::new(&data_dir).is_initialized()
     };
     let show_nudge = !story_initialized && has_content && !nudge_dismissed;
+
+    // Periodic inbox polling (every 5 seconds)
+    use_effect(move || {
+        spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                let net = {
+                    let guard = network.read();
+                    guard.as_ref().cloned()
+                };
+                if let Some(net) = net {
+                    match net.process_handshake_inbox().await {
+                        Ok(count) if count > 0 => {
+                            log_event(&mut state, EventDirection::Received, format!("Inbox: {} new connection(s)", count));
+                            // Reload contacts
+                            if let Some(contacts_realm) = net.contacts_realm().await {
+                                if let Ok(doc) = contacts_realm.contacts().await {
+                                    let data = doc.read().await;
+                                    let contacts: Vec<ContactView> = data.contacts.iter().map(|(mid, entry)| {
+                                        ContactView {
+                                            member_id_short: mid.iter().take(8).map(|b| format!("{:02x}", b)).collect(),
+                                            display_name: entry.display_name.clone(),
+                                            status: "confirmed".to_string(),
+                                        }
+                                    }).collect();
+                                    let ct = contacts.len();
+                                    drop(data);
+                                    state.write().contacts = contacts;
+                                    log_event(&mut state, EventDirection::System, format!("Contacts: {} connection(s)", ct));
+                                }
+                            }
+                        }
+                        Ok(_) => {} // no new requests, silent
+                        Err(_) => {} // silent on error during polling
+                    }
+                }
+            }
+        });
+    });
 
     rsx! {
         div {
@@ -263,6 +349,27 @@ pub fn HomeRealmScreen(
                             }
                         }
                     }
+
+                    // Artifacts panel
+                    section {
+                        class: "home-panel home-artifacts",
+
+                        div {
+                            class: "panel-header",
+                            h2 { class: "panel-title", "Artifacts" }
+                            span { class: "panel-count", "{artifact_count}" }
+                        }
+
+                        if artifacts.is_empty() {
+                            div {
+                                class: "panel-empty",
+                                p { "No artifacts yet." }
+                                p { class: "panel-empty-hint", "Share files in a realm to see them here." }
+                            }
+                        } else {
+                            ArtifactGallery { artifacts: artifacts.clone() }
+                        }
+                    }
                 }
 
                 // Sidebar
@@ -311,14 +418,82 @@ pub fn HomeRealmScreen(
                     section {
                         class: "home-panel sidebar-connect",
 
-                        h2 { class: "panel-title", "Connections" }
+                        div {
+                            class: "panel-header",
+                            h2 { class: "panel-title", "Connections" }
+                            span { class: "panel-count", "{contact_count}" }
+                        }
+
+                        if contacts.is_empty() {
+                            div {
+                                class: "contacts-empty",
+                                "No connections yet. Share your invite link to get started."
+                            }
+                        } else {
+                            div {
+                                class: "contacts-list",
+                                for contact in contacts.iter() {
+                                    div {
+                                        key: "{contact.member_id_short}",
+                                        class: if contact.status == "pending" { "contact-item contact-pending" } else { "contact-item" },
+                                        if let Some(ref name) = contact.display_name {
+                                            span { class: "contact-name", "{name}" }
+                                            span { class: "contact-id contact-id-secondary", "{contact.member_id_short}" }
+                                        } else {
+                                            span { class: "contact-id", "{contact.member_id_short}" }
+                                        }
+                                        if contact.status == "pending" {
+                                            span { class: "contact-status-badge", "(pending)" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
 
                         button {
                             class: "genesis-btn-primary",
                             onclick: move |_| {
                                 state.write().contact_invite_open = true;
                             },
-                            "Invite a Contact"
+                            "Make Contact"
+                        }
+                    }
+                }
+            }
+
+            // Event Log
+            section {
+                class: "event-log",
+
+                div {
+                    class: "event-log-header",
+                    span { class: "event-log-title", "Network Log" }
+                }
+
+                div {
+                    class: "event-log-list",
+
+                    if event_log.is_empty() {
+                        span { class: "event-log-msg", "No events yet." }
+                    }
+
+                    for entry in event_log.iter() {
+                        div {
+                            class: "event-log-entry",
+                            span { class: "event-log-time", "{entry.timestamp}" }
+                            span {
+                                class: match entry.direction {
+                                    EventDirection::Sent => "event-log-arrow event-log-arrow-sent",
+                                    EventDirection::Received => "event-log-arrow event-log-arrow-received",
+                                    EventDirection::System => "event-log-arrow event-log-arrow-system",
+                                },
+                                match entry.direction {
+                                    EventDirection::Sent => "\u{2192}",
+                                    EventDirection::Received => "\u{2190}",
+                                    EventDirection::System => "\u{00b7}",
+                                }
+                            }
+                            span { class: "event-log-msg", "{entry.message}" }
                         }
                     }
                 }
