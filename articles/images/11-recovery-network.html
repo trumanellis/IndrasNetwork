@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Recovery Network Visualization</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #0a0a1a;
+            color: #e0e0e0;
+            padding: 20px;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 900px;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 24px;
+            font-weight: 600;
+            color: #ffffff;
+        }
+
+        .subtitle {
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 14px;
+            color: #8b8b9a;
+        }
+
+        #visualization {
+            width: 100%;
+            height: 500px;
+            background: radial-gradient(circle at center, #0f0f1f 0%, #0a0a1a 100%);
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .controls {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 12px 24px;
+            font-size: 14px;
+            font-weight: 600;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        #loseDevice {
+            background: linear-gradient(135deg, #ff4757 0%, #e84118 100%);
+            color: white;
+        }
+
+        #loseDevice:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(255, 71, 87, 0.4);
+        }
+
+        #requestRecovery {
+            background: linear-gradient(135deg, #4a9eff 0%, #357abd 100%);
+            color: white;
+        }
+
+        #requestRecovery:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(74, 158, 255, 0.4);
+        }
+
+        #recover {
+            background: linear-gradient(135deg, #00d4aa 0%, #00a884 100%);
+            color: white;
+        }
+
+        #recover:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 212, 170, 0.4);
+        }
+
+        #reset {
+            background: linear-gradient(135deg, #555566 0%, #3a3a44 100%);
+            color: white;
+        }
+
+        #reset:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(85, 85, 102, 0.4);
+        }
+
+        .insight {
+            text-align: center;
+            margin-top: 30px;
+            padding: 20px;
+            background: rgba(245, 166, 35, 0.1);
+            border-left: 4px solid #f5a623;
+            border-radius: 8px;
+            font-size: 14px;
+            line-height: 1.6;
+            color: #d0d0d8;
+        }
+
+        .insight strong {
+            color: #f5a623;
+        }
+
+        .manifest-panel {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(15, 15, 31, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 16px;
+            min-width: 240px;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+            backdrop-filter: blur(10px);
+        }
+
+        .manifest-panel.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .manifest-title {
+            font-weight: 600;
+            font-size: 13px;
+            margin-bottom: 12px;
+            color: #ffffff;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .manifest-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 10px;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+
+        .manifest-item .icon {
+            flex-shrink: 0;
+            font-size: 16px;
+        }
+
+        .manifest-item.recoverable {
+            color: #00d4aa;
+        }
+
+        .manifest-item.best-effort {
+            color: #8b8b9a;
+        }
+
+        .tooltip {
+            position: absolute;
+            background: rgba(15, 15, 31, 0.98);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 6px;
+            padding: 10px 12px;
+            font-size: 12px;
+            line-height: 1.5;
+            color: #e0e0e0;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+            z-index: 1000;
+            max-width: 200px;
+            backdrop-filter: blur(10px);
+        }
+
+        .tooltip.visible {
+            opacity: 1;
+        }
+
+        .tooltip-title {
+            font-weight: 600;
+            margin-bottom: 4px;
+            color: #ffffff;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.6; transform: scale(1.05); }
+        }
+
+        @keyframes crack {
+            0% { opacity: 0; stroke-dashoffset: 100; }
+            100% { opacity: 1; stroke-dashoffset: 0; }
+        }
+
+        @keyframes glow {
+            0%, 100% { filter: drop-shadow(0 0 8px currentColor); }
+            50% { filter: drop-shadow(0 0 16px currentColor); }
+        }
+
+        @keyframes flow {
+            0% { stroke-dashoffset: 20; }
+            100% { stroke-dashoffset: 0; }
+        }
+
+        @keyframes ripple {
+            0% { r: 0; opacity: 0.8; }
+            100% { r: 300; opacity: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Recovery Network Simulation</h1>
+        <p class="subtitle">Watch how different access modes affect data recovery after device loss</p>
+
+        <div id="visualization">
+            <svg width="100%" height="100%" id="svg"></svg>
+            <div class="manifest-panel" id="manifest">
+                <div class="manifest-title">Recovery Manifest</div>
+                <div id="manifestContent"></div>
+            </div>
+            <div class="tooltip" id="tooltip"></div>
+        </div>
+
+        <div class="controls">
+            <button id="loseDevice">1. Lose Device</button>
+            <button id="requestRecovery" disabled>2. Request Recovery</button>
+            <button id="recover" disabled>3. Recover</button>
+            <button id="reset">Reset</button>
+        </div>
+
+        <div class="insight">
+            <strong>Permanent co-owners are your distributed backup.</strong> Trust makes your data safer.
+            The more you extend permanent access, the more resilient your network becomes.
+        </div>
+    </div>
+
+    <script>
+        const svg = document.getElementById('svg');
+        const tooltip = document.getElementById('tooltip');
+        const manifest = document.getElementById('manifest');
+        const manifestContent = document.getElementById('manifestContent');
+
+        let state = 'normal'; // normal, lost, requested, recovered
+        let width, height, centerX, centerY;
+
+        const artifacts = [
+            { id: 'brand', name: 'Brand Guide', holder: 'Caspian', mode: 'Permanent', recoverable: true },
+            { id: 'mood', name: 'Mood Board', holder: 'Soren', mode: 'Revocable', recoverable: false },
+            { id: 'assets', name: 'Final Assets', holder: 'Juniper', mode: 'Transfer', recoverable: true },
+            { id: 'draft', name: 'Draft v3', holder: 'Wren', mode: 'Timed', recoverable: false }
+        ];
+
+        const contacts = [
+            { name: 'Caspian', artifacts: ['brand'], mode: 'Permanent', color: '#f5a623' },
+            { name: 'Soren', artifacts: ['mood'], mode: 'Revocable', color: '#4a9eff' },
+            { name: 'Juniper', artifacts: ['assets'], mode: 'Transfer', color: '#4ecdc4' },
+            { name: 'Wren', artifacts: ['draft'], mode: 'Timed', color: '#ff8c42' }
+        ];
+
+        function resize() {
+            const rect = svg.getBoundingClientRect();
+            width = rect.width;
+            height = rect.height;
+            centerX = width / 2;
+            centerY = height / 2;
+            render();
+        }
+
+        function render() {
+            svg.innerHTML = '';
+
+            // Render connections first (so they're behind nodes)
+            renderConnections();
+
+            // Render artifacts around Ember
+            const artifactRadius = Math.min(width, height) * 0.2;
+            artifacts.forEach((artifact, i) => {
+                const angle = (i / artifacts.length) * 2 * Math.PI - Math.PI / 2;
+                const x = centerX + Math.cos(angle) * artifactRadius;
+                const y = centerY + Math.sin(angle) * artifactRadius;
+                renderArtifact(artifact, x, y);
+            });
+
+            // Render contacts in outer ring
+            const contactRadius = Math.min(width, height) * 0.38;
+            contacts.forEach((contact, i) => {
+                const angle = (i / contacts.length) * 2 * Math.PI - Math.PI / 2;
+                const x = centerX + Math.cos(angle) * contactRadius;
+                const y = centerY + Math.sin(angle) * contactRadius;
+                renderContact(contact, x, y);
+            });
+
+            // Render Ember in center
+            renderEmber();
+        }
+
+        function renderEmber() {
+            const g = createSVGElement('g', { id: 'ember' });
+
+            // Device circle
+            const deviceCircle = createSVGElement('circle', {
+                cx: centerX,
+                cy: centerY,
+                r: 40,
+                fill: state === 'lost' ? '#ff4757' : '#f5a623',
+                stroke: '#ffffff',
+                'stroke-width': 3
+            });
+
+            if (state === 'lost') {
+                deviceCircle.style.animation = 'pulse 1.5s ease-in-out infinite';
+            }
+
+            g.appendChild(deviceCircle);
+
+            // Device icon
+            const icon = createSVGElement('text', {
+                x: centerX,
+                y: centerY + 6,
+                'text-anchor': 'middle',
+                'font-size': '28',
+                fill: '#ffffff'
+            });
+            icon.textContent = state === 'lost' ? '✗' : '📱';
+            g.appendChild(icon);
+
+            // Label
+            const label = createSVGElement('text', {
+                x: centerX,
+                y: centerY + 60,
+                'text-anchor': 'middle',
+                'font-size': '14',
+                'font-weight': '600',
+                fill: state === 'lost' ? '#ff4757' : '#f5a623'
+            });
+            label.textContent = state === 'lost' ? 'Device Lost' : 'Ember';
+            g.appendChild(label);
+
+            // Crack effect when lost
+            if (state === 'lost') {
+                const crack1 = createSVGElement('line', {
+                    x1: centerX - 30,
+                    y1: centerY - 30,
+                    x2: centerX + 30,
+                    y2: centerY + 30,
+                    stroke: '#ffffff',
+                    'stroke-width': 2,
+                    'stroke-dasharray': '100',
+                    'stroke-dashoffset': '100',
+                    opacity: 0.6
+                });
+                crack1.style.animation = 'crack 0.5s ease-out forwards';
+                g.appendChild(crack1);
+
+                const crack2 = createSVGElement('line', {
+                    x1: centerX - 20,
+                    y1: centerY + 30,
+                    x2: centerX + 20,
+                    y2: centerY - 30,
+                    stroke: '#ffffff',
+                    'stroke-width': 2,
+                    'stroke-dasharray': '100',
+                    'stroke-dashoffset': '100',
+                    opacity: 0.6
+                });
+                crack2.style.animation = 'crack 0.5s 0.1s ease-out forwards';
+                g.appendChild(crack2);
+            }
+
+            svg.appendChild(g);
+        }
+
+        function renderArtifact(artifact, x, y) {
+            const g = createSVGElement('g', { class: 'artifact', 'data-id': artifact.id });
+
+            const recoverable = artifacts.find(a => a.id === artifact.id).recoverable;
+            const opacity = (state === 'requested' && !recoverable) ? 0.4 : 1;
+
+            // File icon
+            const rect = createSVGElement('rect', {
+                x: x - 15,
+                y: y - 15,
+                width: 30,
+                height: 30,
+                fill: '#2a2a3a',
+                stroke: '#4a4a5a',
+                'stroke-width': 2,
+                rx: 4,
+                opacity: opacity
+            });
+            g.appendChild(rect);
+
+            const fileIcon = createSVGElement('text', {
+                x: x,
+                y: y + 6,
+                'text-anchor': 'middle',
+                'font-size': '18',
+                opacity: opacity
+            });
+            fileIcon.textContent = '📄';
+            g.appendChild(fileIcon);
+
+            // Recovery indicator
+            if (state === 'recovered') {
+                const checkmark = createSVGElement('circle', {
+                    cx: x + 12,
+                    cy: y - 12,
+                    r: 8,
+                    fill: recoverable ? '#00d4aa' : '#8b8b9a'
+                });
+                g.appendChild(checkmark);
+
+                const check = createSVGElement('text', {
+                    x: x + 12,
+                    y: y - 7,
+                    'text-anchor': 'middle',
+                    'font-size': '10',
+                    fill: '#ffffff',
+                    'font-weight': 'bold'
+                });
+                check.textContent = recoverable ? '✓' : '?';
+                g.appendChild(check);
+            }
+
+            // Tooltip
+            g.addEventListener('mouseenter', (e) => showTooltip(e, artifact.name, `Holder: ${artifact.holder}<br>Mode: ${artifact.mode}<br>Recovery: ${recoverable ? 'Fully Recoverable' : 'Best Effort'}`));
+            g.addEventListener('mouseleave', hideTooltip);
+
+            svg.appendChild(g);
+        }
+
+        function renderContact(contact, x, y) {
+            const g = createSVGElement('g', { class: 'contact', 'data-name': contact.name });
+
+            const recoverable = artifacts.find(a => a.holder === contact.name).recoverable;
+            const opacity = (state === 'requested' && !recoverable) ? 0.4 : 1;
+            const baseColor = contact.color;
+
+            // Contact circle
+            const circle = createSVGElement('circle', {
+                cx: x,
+                cy: y,
+                r: 35,
+                fill: baseColor,
+                opacity: opacity,
+                stroke: '#ffffff',
+                'stroke-width': 2
+            });
+
+            if (state === 'requested' && recoverable) {
+                circle.style.animation = 'glow 2s ease-in-out infinite';
+            }
+
+            g.appendChild(circle);
+
+            // Initial
+            const initial = createSVGElement('text', {
+                x: x,
+                y: y + 6,
+                'text-anchor': 'middle',
+                'font-size': '20',
+                'font-weight': '600',
+                fill: '#ffffff',
+                opacity: opacity
+            });
+            initial.textContent = contact.name[0];
+            g.appendChild(initial);
+
+            // Name label
+            const label = createSVGElement('text', {
+                x: x,
+                y: y + 55,
+                'text-anchor': 'middle',
+                'font-size': '12',
+                'font-weight': '600',
+                fill: baseColor,
+                opacity: opacity
+            });
+            label.textContent = contact.name;
+            g.appendChild(label);
+
+            // Status label
+            if (state === 'requested') {
+                const statusLabel = createSVGElement('text', {
+                    x: x,
+                    y: y + 70,
+                    'text-anchor': 'middle',
+                    'font-size': '10',
+                    fill: recoverable ? '#00d4aa' : '#8b8b9a'
+                });
+                statusLabel.textContent = recoverable ? '✓ Recoverable' : '? Best Effort';
+                g.appendChild(statusLabel);
+            }
+
+            // Tooltip
+            const artifactNames = artifacts.filter(a => a.holder === contact.name).map(a => a.name).join(', ');
+            g.addEventListener('mouseenter', (e) => showTooltip(e, contact.name, `Holds: ${artifactNames}<br>Mode: ${contact.mode}<br>Recovery: ${recoverable ? 'Fully Recoverable' : 'Best Effort'}`));
+            g.addEventListener('mouseleave', hideTooltip);
+
+            svg.appendChild(g);
+        }
+
+        function renderConnections() {
+            if (state === 'normal') {
+                // Normal connections
+                contacts.forEach((contact, i) => {
+                    const angle = (i / contacts.length) * 2 * Math.PI - Math.PI / 2;
+                    const contactRadius = Math.min(width, height) * 0.38;
+                    const x = centerX + Math.cos(angle) * contactRadius;
+                    const y = centerY + Math.sin(angle) * contactRadius;
+
+                    const line = createSVGElement('line', {
+                        x1: centerX,
+                        y1: centerY,
+                        x2: x,
+                        y2: y,
+                        stroke: contact.color,
+                        'stroke-width': 2,
+                        opacity: 0.3
+                    });
+                    svg.appendChild(line);
+                });
+            } else if (state === 'lost') {
+                // Broken connections
+                contacts.forEach((contact, i) => {
+                    const angle = (i / contacts.length) * 2 * Math.PI - Math.PI / 2;
+                    const contactRadius = Math.min(width, height) * 0.38;
+                    const x = centerX + Math.cos(angle) * contactRadius;
+                    const y = centerY + Math.sin(angle) * contactRadius;
+
+                    const line = createSVGElement('line', {
+                        x1: centerX,
+                        y1: centerY,
+                        x2: x,
+                        y2: y,
+                        stroke: '#ff4757',
+                        'stroke-width': 2,
+                        'stroke-dasharray': '5,5',
+                        opacity: 0.3
+                    });
+                    svg.appendChild(line);
+
+                    // Question mark in middle
+                    const midX = (centerX + x) / 2;
+                    const midY = (centerY + y) / 2;
+                    const questionMark = createSVGElement('text', {
+                        x: midX,
+                        y: midY + 4,
+                        'text-anchor': 'middle',
+                        'font-size': '16',
+                        fill: '#ff4757',
+                        opacity: 0.6
+                    });
+                    questionMark.textContent = '?';
+                    svg.appendChild(questionMark);
+                });
+            } else if (state === 'requested' || state === 'recovered') {
+                // Recovery flow arrows (only from recoverable contacts)
+                contacts.forEach((contact, i) => {
+                    const artifact = artifacts.find(a => a.holder === contact.name);
+                    const recoverable = artifact.recoverable;
+
+                    const angle = (i / contacts.length) * 2 * Math.PI - Math.PI / 2;
+                    const contactRadius = Math.min(width, height) * 0.38;
+                    const x = centerX + Math.cos(angle) * contactRadius;
+                    const y = centerY + Math.sin(angle) * contactRadius;
+
+                    if (state === 'recovered' && recoverable) {
+                        const line = createSVGElement('line', {
+                            x1: x,
+                            y1: y,
+                            x2: centerX,
+                            y2: centerY,
+                            stroke: '#00d4aa',
+                            'stroke-width': 3,
+                            'stroke-dasharray': '10,10'
+                        });
+                        line.style.animation = 'flow 1s linear infinite';
+                        svg.appendChild(line);
+
+                        // Arrowhead
+                        const arrowSize = 8;
+                        const arrowAngle = Math.atan2(centerY - y, centerX - x);
+                        const arrow = createSVGElement('polygon', {
+                            points: `0,-${arrowSize} ${arrowSize * 1.5},0 0,${arrowSize}`,
+                            fill: '#00d4aa',
+                            transform: `translate(${centerX},${centerY}) rotate(${arrowAngle * 180 / Math.PI + 90})`
+                        });
+                        svg.appendChild(arrow);
+                    }
+                });
+            }
+        }
+
+        function createSVGElement(tag, attrs) {
+            const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+            Object.entries(attrs).forEach(([key, value]) => {
+                el.setAttribute(key, value);
+            });
+            return el;
+        }
+
+        function showTooltip(e, title, content) {
+            const tooltipTitle = document.createElement('div');
+            tooltipTitle.className = 'tooltip-title';
+            tooltipTitle.textContent = title;
+
+            const tooltipContent = document.createElement('div');
+            tooltipContent.innerHTML = content;
+
+            tooltip.innerHTML = '';
+            tooltip.appendChild(tooltipTitle);
+            tooltip.appendChild(tooltipContent);
+
+            const rect = svg.getBoundingClientRect();
+            tooltip.style.left = (e.clientX - rect.left + 15) + 'px';
+            tooltip.style.top = (e.clientY - rect.top + 15) + 'px';
+            tooltip.classList.add('visible');
+        }
+
+        function hideTooltip() {
+            tooltip.classList.remove('visible');
+        }
+
+        function updateManifest() {
+            if (state !== 'requested') {
+                manifest.classList.remove('visible');
+                return;
+            }
+
+            let html = '';
+            artifacts.forEach(artifact => {
+                const icon = artifact.recoverable ? '✓' : '?';
+                const className = artifact.recoverable ? 'recoverable' : 'best-effort';
+                const status = artifact.recoverable ?
+                    `Recoverable via ${artifact.holder} (${artifact.mode})` :
+                    `Best effort via ${artifact.holder} (${artifact.mode})`;
+
+                html += `<div class="manifest-item ${className}">
+                    <span class="icon">${icon}</span>
+                    <div>
+                        <strong>${artifact.name}</strong><br>
+                        ${status}
+                    </div>
+                </div>`;
+            });
+
+            manifestContent.innerHTML = html;
+            manifest.classList.add('visible');
+        }
+
+        // Button handlers
+        document.getElementById('loseDevice').addEventListener('click', () => {
+            if (state === 'normal') {
+                state = 'lost';
+                render();
+                document.getElementById('loseDevice').disabled = true;
+                document.getElementById('requestRecovery').disabled = false;
+            }
+        });
+
+        document.getElementById('requestRecovery').addEventListener('click', () => {
+            if (state === 'lost') {
+                // Animate ripple
+                const ripple = createSVGElement('circle', {
+                    cx: centerX,
+                    cy: centerY,
+                    r: 0,
+                    fill: 'none',
+                    stroke: '#4a9eff',
+                    'stroke-width': 2,
+                    opacity: 0.8
+                });
+                ripple.style.animation = 'ripple 1.5s ease-out forwards';
+                svg.appendChild(ripple);
+
+                setTimeout(() => {
+                    state = 'requested';
+                    render();
+                    updateManifest();
+                    document.getElementById('requestRecovery').disabled = true;
+                    document.getElementById('recover').disabled = false;
+                }, 1000);
+            }
+        });
+
+        document.getElementById('recover').addEventListener('click', () => {
+            if (state === 'requested') {
+                state = 'recovered';
+                render();
+                document.getElementById('recover').disabled = true;
+                manifest.classList.remove('visible');
+            }
+        });
+
+        document.getElementById('reset').addEventListener('click', () => {
+            state = 'normal';
+            render();
+            document.getElementById('loseDevice').disabled = false;
+            document.getElementById('requestRecovery').disabled = true;
+            document.getElementById('recover').disabled = true;
+            manifest.classList.remove('visible');
+        });
+
+        // Initialize
+        window.addEventListener('resize', resize);
+        resize();
+    </script>
+</body>
+</html>

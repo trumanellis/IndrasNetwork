@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trust Radius Visualization</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #0a0a1a;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            color: #e0e0e0;
+            padding: 20px;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1000px;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            font-weight: 400;
+            margin-bottom: 10px;
+            color: #f0f0f0;
+            letter-spacing: 0.5px;
+        }
+
+        .subtitle {
+            font-size: 0.9rem;
+            color: #888;
+            margin-bottom: 20px;
+        }
+
+        #visualization {
+            width: 100%;
+            height: 600px;
+            background: linear-gradient(135deg, #0a0a1a 0%, #151525 100%);
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            position: relative;
+        }
+
+        svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        .connection {
+            stroke-width: 2;
+            opacity: 0.7;
+            transition: opacity 0.3s ease, stroke-width 0.3s ease;
+            filter: url(#glow);
+        }
+
+        .connection:hover {
+            opacity: 1;
+            stroke-width: 3;
+        }
+
+        .connection.permanent {
+            stroke: #f5a623;
+        }
+
+        .connection.revocable {
+            stroke: #4a9eff;
+        }
+
+        .connection.timed {
+            stroke: #ff8c42;
+        }
+
+        .connection.transfer {
+            stroke: #4ecdc4;
+        }
+
+        .connection.recalled {
+            opacity: 0.1;
+            stroke-width: 1;
+        }
+
+        .connection.recalled.permanent {
+            opacity: 1;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; stroke-width: 2; }
+            50% { opacity: 0.6; stroke-width: 3; }
+        }
+
+        .node-center {
+            fill: #f0f0f0;
+            filter: drop-shadow(0 0 12px rgba(240, 240, 240, 0.5));
+            transition: transform 0.3s ease;
+        }
+
+        .node-artifact {
+            fill: #d0d0d0;
+            stroke: #888;
+            stroke-width: 1.5;
+            transition: transform 0.3s ease, fill 0.3s ease;
+        }
+
+        .node-artifact:hover {
+            fill: #e8e8e8;
+            transform: scale(1.1);
+        }
+
+        .node-contact {
+            fill: #c0c0c0;
+            stroke: #666;
+            stroke-width: 1.5;
+            transition: transform 0.3s ease, fill 0.3s ease;
+        }
+
+        .node-contact:hover {
+            fill: #d8d8d8;
+            transform: scale(1.1);
+        }
+
+        .label {
+            font-size: 12px;
+            fill: #e0e0e0;
+            text-anchor: middle;
+            pointer-events: none;
+            font-weight: 500;
+        }
+
+        .label-center {
+            font-size: 14px;
+            font-weight: 600;
+            fill: #ffffff;
+        }
+
+        .label-artifact {
+            font-size: 10px;
+            fill: #b0b0b0;
+        }
+
+        .tooltip {
+            position: absolute;
+            background: rgba(20, 20, 30, 0.95);
+            border: 1px solid #444;
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 12px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+            z-index: 1000;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+        }
+
+        .tooltip.visible {
+            opacity: 1;
+        }
+
+        .tooltip-title {
+            font-weight: 600;
+            margin-bottom: 4px;
+            color: #fff;
+        }
+
+        .tooltip-mode {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 10px;
+            font-weight: 500;
+            margin-top: 4px;
+        }
+
+        .tooltip-mode.permanent { background: #f5a623; color: #000; }
+        .tooltip-mode.revocable { background: #4a9eff; color: #000; }
+        .tooltip-mode.timed { background: #ff8c42; color: #000; }
+        .tooltip-mode.transfer { background: #4ecdc4; color: #000; }
+
+        .controls {
+            display: flex;
+            gap: 12px;
+            margin-top: 20px;
+            justify-content: center;
+        }
+
+        button {
+            background: #1a1a2e;
+            border: 1px solid #444;
+            color: #e0e0e0;
+            padding: 10px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+
+        button:hover {
+            background: #252540;
+            border-color: #666;
+            transform: translateY(-1px);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .legend {
+            display: flex;
+            gap: 20px;
+            margin-top: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+            font-size: 12px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .legend-color {
+            width: 24px;
+            height: 3px;
+            border-radius: 2px;
+        }
+
+        .legend-color.permanent { background: #f5a623; }
+        .legend-color.revocable { background: #4a9eff; }
+        .legend-color.timed { background: #ff8c42; }
+        .legend-color.transfer { background: #4ecdc4; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Trust Radius</h1>
+        <p class="subtitle">Hover to explore, click Recall to see revocation in action</p>
+
+        <div id="visualization">
+            <svg id="svg">
+                <defs>
+                    <filter id="glow">
+                        <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+                        <feMerge>
+                            <feMergeNode in="coloredBlur"/>
+                            <feMergeNode in="SourceGraphic"/>
+                        </feMerge>
+                    </filter>
+                </defs>
+            </svg>
+            <div id="tooltip" class="tooltip"></div>
+        </div>
+
+        <div class="controls">
+            <button id="recallBtn">Recall Revocable & Timed</button>
+            <button id="resetBtn">Reset</button>
+        </div>
+
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-color permanent"></div>
+                <span>Permanent</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color revocable"></div>
+                <span>Revocable</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color timed"></div>
+                <span>Timed</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color transfer"></div>
+                <span>Transfer</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Data structure
+        const data = {
+            center: { name: 'Ember', x: 0, y: 0 },
+            artifacts: [
+                { name: 'Brand Guidelines.pdf', angle: 0 },
+                { name: 'Mood Board.png', angle: Math.PI / 2 },
+                { name: 'Final Assets.zip', angle: Math.PI },
+                { name: 'Draft v3.sketch', angle: (3 * Math.PI) / 2 }
+            ],
+            contacts: [
+                { name: 'Caspian', angle: 0 },
+                { name: 'Soren', angle: Math.PI / 2 },
+                { name: 'Wren', angle: Math.PI },
+                { name: 'Juniper', angle: (3 * Math.PI) / 2 }
+            ],
+            grants: [
+                { artifact: 'Brand Guidelines.pdf', contact: 'Caspian', mode: 'permanent' },
+                { artifact: 'Brand Guidelines.pdf', contact: 'Soren', mode: 'revocable' },
+                { artifact: 'Mood Board.png', contact: 'Soren', mode: 'revocable' },
+                { artifact: 'Mood Board.png', contact: 'Wren', mode: 'timed' },
+                { artifact: 'Final Assets.zip', contact: 'Juniper', mode: 'transfer' },
+                { artifact: 'Draft v3.sketch', contact: 'Wren', mode: 'timed' }
+            ]
+        };
+
+        // SVG setup
+        const svg = document.getElementById('svg');
+        const tooltip = document.getElementById('tooltip');
+        const recallBtn = document.getElementById('recallBtn');
+        const resetBtn = document.getElementById('resetBtn');
+
+        let recalled = false;
+
+        function updateLayout() {
+            const rect = svg.getBoundingClientRect();
+            const centerX = rect.width / 2;
+            const centerY = rect.height / 2;
+            const artifactRadius = Math.min(rect.width, rect.height) * 0.15;
+            const contactRadius = Math.min(rect.width, rect.height) * 0.35;
+
+            // Clear SVG
+            while (svg.firstChild && svg.firstChild.tagName !== 'defs') {
+                svg.removeChild(svg.firstChild);
+            }
+
+            // Calculate positions
+            data.center.x = centerX;
+            data.center.y = centerY;
+
+            data.artifacts.forEach(artifact => {
+                artifact.x = centerX + artifactRadius * Math.cos(artifact.angle);
+                artifact.y = centerY + artifactRadius * Math.sin(artifact.angle);
+            });
+
+            data.contacts.forEach(contact => {
+                contact.x = centerX + contactRadius * Math.cos(contact.angle);
+                contact.y = centerY + contactRadius * Math.sin(contact.angle);
+            });
+
+            // Draw connections
+            const connectionsGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            data.grants.forEach(grant => {
+                const artifact = data.artifacts.find(a => a.name === grant.artifact);
+                const contact = data.contacts.find(c => c.name === grant.contact);
+
+                const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                line.setAttribute('x1', artifact.x);
+                line.setAttribute('y1', artifact.y);
+                line.setAttribute('x2', contact.x);
+                line.setAttribute('y2', contact.y);
+                line.classList.add('connection', grant.mode);
+
+                line.addEventListener('mouseenter', (e) => showTooltip(e, grant));
+                line.addEventListener('mouseleave', hideTooltip);
+
+                connectionsGroup.appendChild(line);
+            });
+            svg.appendChild(connectionsGroup);
+
+            // Draw artifacts
+            data.artifacts.forEach(artifact => {
+                const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                circle.setAttribute('cx', artifact.x);
+                circle.setAttribute('cy', artifact.y);
+                circle.setAttribute('r', 8);
+                circle.classList.add('node-artifact');
+
+                circle.addEventListener('mouseenter', (e) => showArtifactTooltip(e, artifact));
+                circle.addEventListener('mouseleave', hideTooltip);
+
+                svg.appendChild(circle);
+
+                const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                text.setAttribute('x', artifact.x);
+                text.setAttribute('y', artifact.y + 20);
+                text.classList.add('label', 'label-artifact');
+                text.textContent = artifact.name.split('.')[0];
+                svg.appendChild(text);
+            });
+
+            // Draw contacts
+            data.contacts.forEach(contact => {
+                const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                circle.setAttribute('cx', contact.x);
+                circle.setAttribute('cy', contact.y);
+                circle.setAttribute('r', 12);
+                circle.classList.add('node-contact');
+                svg.appendChild(circle);
+
+                const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                text.setAttribute('x', contact.x);
+                text.setAttribute('y', contact.y + 25);
+                text.classList.add('label');
+                text.textContent = contact.name;
+                svg.appendChild(text);
+            });
+
+            // Draw center node
+            const centerCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            centerCircle.setAttribute('cx', centerX);
+            centerCircle.setAttribute('cy', centerY);
+            centerCircle.setAttribute('r', 16);
+            centerCircle.classList.add('node-center');
+            svg.appendChild(centerCircle);
+
+            const centerText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            centerText.setAttribute('x', centerX);
+            centerText.setAttribute('y', centerY + 5);
+            centerText.classList.add('label', 'label-center');
+            centerText.textContent = data.center.name;
+            svg.appendChild(centerText);
+        }
+
+        function showTooltip(e, grant) {
+            const modeLabel = grant.mode.charAt(0).toUpperCase() + grant.mode.slice(1);
+            tooltip.innerHTML = `
+                <div class="tooltip-title">${grant.artifact}</div>
+                <div>Granted to: ${grant.contact}</div>
+                <div class="tooltip-mode ${grant.mode}">${modeLabel}</div>
+            `;
+            tooltip.classList.add('visible');
+            updateTooltipPosition(e);
+        }
+
+        function showArtifactTooltip(e, artifact) {
+            const grants = data.grants.filter(g => g.artifact === artifact.name);
+            const grantText = grants.map(g => `${g.contact} (${g.mode})`).join(', ');
+
+            tooltip.innerHTML = `
+                <div class="tooltip-title">${artifact.name}</div>
+                <div style="font-size: 10px; color: #888;">Shared with: ${grantText}</div>
+            `;
+            tooltip.classList.add('visible');
+            updateTooltipPosition(e);
+        }
+
+        function hideTooltip() {
+            tooltip.classList.remove('visible');
+        }
+
+        function updateTooltipPosition(e) {
+            const rect = svg.getBoundingClientRect();
+            tooltip.style.left = (e.clientX - rect.left + 10) + 'px';
+            tooltip.style.top = (e.clientY - rect.top - 10) + 'px';
+        }
+
+        function recall() {
+            recalled = true;
+            const connections = document.querySelectorAll('.connection');
+            connections.forEach(conn => {
+                if (conn.classList.contains('revocable') || conn.classList.contains('timed')) {
+                    conn.classList.add('recalled');
+                } else if (conn.classList.contains('permanent')) {
+                    conn.classList.add('recalled');
+                }
+            });
+        }
+
+        function reset() {
+            recalled = false;
+            const connections = document.querySelectorAll('.connection');
+            connections.forEach(conn => {
+                conn.classList.remove('recalled');
+            });
+        }
+
+        recallBtn.addEventListener('click', recall);
+        resetBtn.addEventListener('click', reset);
+
+        // Initial render
+        updateLayout();
+
+        // Responsive resize
+        window.addEventListener('resize', updateLayout);
+    </script>
+</body>
+</html>
