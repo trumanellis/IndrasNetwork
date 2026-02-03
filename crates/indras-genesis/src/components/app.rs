@@ -4,10 +4,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use dioxus::prelude::*;
-use indras_network::IndrasNetwork;
+use indras_network::{ContactInviteCode, IndrasNetwork};
 
 use crate::state::{AsyncStatus, GenesisState, GenesisStep, NoteView, QuestView};
-use crate::theme::ThemedRoot;
+use indras_ui::{ContactInviteOverlay, ThemedRoot};
 
 use super::display_name::DisplayNameScreen;
 use super::home_realm::HomeRealmScreen;
@@ -125,6 +125,52 @@ pub fn App() -> Element {
 
     let current_step = state.read().step.clone();
     let pass_story_active = state.read().pass_story_active;
+    let contact_invite_open = state.read().contact_invite_open;
+
+    // Contact invite signals
+    let invite_uri = use_memo(move || {
+        let net = network.read();
+        match net.as_ref() {
+            Some(n) => n.contact_invite_code().to_uri(),
+            None => String::new(),
+        }
+    });
+
+    let ci_display_name = use_memo(move || {
+        state.read().display_name.clone()
+    });
+
+    let ci_member_id_short = use_memo(move || {
+        state.read().member_id_short.clone().unwrap_or_default()
+    });
+
+    let ci_input = use_signal(|| state.read().contact_invite_input.clone());
+    let mut ci_open = use_signal(|| state.read().contact_invite_open);
+
+    // Keep signals in sync with state
+    use_effect(move || {
+        ci_open.set(state.read().contact_invite_open);
+    });
+
+    let ci_status = use_memo(move || {
+        state.read().contact_invite_status.clone()
+    });
+
+    let ci_parsed_name = use_memo(move || {
+        state.read().contact_parsed_name.clone()
+    });
+
+    let ci_copy_feedback = use_memo(move || {
+        state.read().contact_copy_feedback
+    });
+
+    // Close handler: sync is_open signal back to state
+    use_effect(move || {
+        if !ci_open() && state.read().contact_invite_open {
+            state.write().contact_invite_open = false;
+            state.write().contact_invite_status = None;
+        }
+    });
 
     rsx! {
         ThemedRoot {
@@ -145,6 +191,69 @@ pub fn App() -> Element {
 
                 if pass_story_active {
                     PassStoryFlow { state, network }
+                }
+
+                if contact_invite_open {
+                    ContactInviteOverlay {
+                        is_open: ci_open,
+                        invite_uri,
+                        display_name: ci_display_name,
+                        member_id_short: ci_member_id_short,
+                        connect_input: ci_input,
+                        connect_status: ci_status,
+                        parsed_inviter_name: ci_parsed_name,
+                        on_connect: move |uri: String| {
+                            let mut state = state;
+                            let network = network;
+                            spawn(async move {
+                                match ContactInviteCode::parse(&uri) {
+                                    Ok(code) => {
+                                        let net = network.read();
+                                        if let Some(ref net) = *net {
+                                            match net.accept_contact_invite(&code).await {
+                                                Ok(()) => {
+                                                    let name = code.display_name().unwrap_or("unknown").to_string();
+                                                    let mut s = state.write();
+                                                    s.contact_invite_status = Some(format!("success:Connected with {}", name));
+                                                    s.contact_invite_input.clear();
+                                                    s.contact_parsed_name = None;
+                                                }
+                                                Err(e) => {
+                                                    state.write().contact_invite_status = Some(format!("error:{}", e));
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        state.write().contact_invite_status = Some(format!("error:Invalid invite: {}", e));
+                                    }
+                                }
+                            });
+                        },
+                        on_parse_input: move |input: String| {
+                            state.write().contact_invite_input = input.clone();
+                            match ContactInviteCode::parse(&input) {
+                                Ok(code) => {
+                                    state.write().contact_parsed_name = code.display_name().map(|s| s.to_string());
+                                }
+                                Err(_) => {
+                                    state.write().contact_parsed_name = None;
+                                }
+                            }
+                        },
+                        copy_feedback: ci_copy_feedback,
+                        on_copy: move |_| {
+                            if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                                let uri = invite_uri();
+                                let _ = clipboard.set_text(uri);
+                                state.write().contact_copy_feedback = true;
+                                spawn(async move {
+                                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                                    state.write().contact_copy_feedback = false;
+                                });
+                            }
+                        },
+                    }
                 }
             }
         }

@@ -6,6 +6,7 @@ use dioxus::desktop::{Config, LogicalSize, WindowBuilder};
 
 use indras_genesis::components::App;
 
+const SHARED_CSS: &str = indras_ui::SHARED_CSS;
 const STYLES_CSS: &str = include_str!("../assets/styles.css");
 
 /// Get the default data directory (mirrors app.rs logic).
@@ -59,6 +60,9 @@ fn main() {
 
     tracing::info!("Starting Genesis Flow");
 
+    // Default to MinimalTerminal theme for genesis
+    *indras_ui::CURRENT_THEME.write() = indras_ui::Theme::MinimalTerminal;
+
     dioxus::LaunchBuilder::desktop()
         .with_cfg(
             Config::new()
@@ -74,8 +78,9 @@ fn main() {
                     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
                     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
                     <style>{}</style>
+                    <style>{}</style>
                     "#,
-                    STYLES_CSS
+                    SHARED_CSS, STYLES_CSS
                 )),
         )
         .launch(App);

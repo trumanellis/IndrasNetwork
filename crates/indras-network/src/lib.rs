@@ -108,6 +108,7 @@ pub mod attention;
 pub mod blessing;
 pub mod chat_message;
 pub mod config;
+pub mod contact_invite;
 pub mod contacts;
 pub mod document;
 pub mod document_registry;
@@ -152,6 +153,7 @@ pub use chat_message::{
     ChatMessageId, ChatMessageVersion, EditableChatMessage, EditableMessageType, RealmChatDocument,
 };
 pub use config::{NetworkBuilder, NetworkConfig, Preset};
+pub use contact_invite::ContactInviteCode;
 pub use contacts::{ContactEntry, ContactsDocument, ContactsRealm};
 pub use document::{Document, DocumentChange, DocumentSchema};
 pub use error::{IndraError, Result};
@@ -195,7 +197,7 @@ pub use token_valuation::{SubjectiveTokenValue, STEWARD_CHAIN_DECAY, subjective_
 /// ```
 pub mod prelude {
     pub use crate::{
-        Artifact, ArtifactDownload, ArtifactIndex, HomeArtifactEntry, Blessing, BlessingDocument, ClaimId, ContactsRealm, Content,
+        Artifact, ArtifactDownload, ArtifactIndex, HomeArtifactEntry, Blessing, BlessingDocument, ClaimId, ContactInviteCode, ContactsRealm, Content,
         Document, DocumentSchema, EditableChatMessage, GlobalEvent, HomeRealm, IdentityBackup,
         IndraError, IndrasNetwork, InviteCode, Member, MemberEvent, MemberInfo, Message, Note,
         NoteDocument, Preset, ProofFolder, ProofFolderArtifact, ProofFolderDocument, Quest,

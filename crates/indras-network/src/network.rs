@@ -707,6 +707,34 @@ impl IndrasNetwork {
     }
 
     // ============================================================
+    // Contact invites
+    // ============================================================
+
+    /// Generate a contact invite code for this network identity.
+    ///
+    /// The invite code contains your member ID and display name,
+    /// encoded as a shareable `syncengine:contact:...` URI.
+    pub fn contact_invite_code(&self) -> crate::contact_invite::ContactInviteCode {
+        crate::contact_invite::ContactInviteCode::new(
+            self.id(),
+            self.display_name().map(|s| s.to_string()),
+        )
+    }
+
+    /// Accept a contact invite code, adding the inviter as a contact.
+    ///
+    /// This joins the contacts realm (if not already joined) and adds
+    /// the invite's member ID to your contact list.
+    pub async fn accept_contact_invite(
+        &self,
+        code: &crate::contact_invite::ContactInviteCode,
+    ) -> Result<()> {
+        let contacts = self.join_contacts_realm().await?;
+        contacts.add_contact(code.member_id()).await?;
+        Ok(())
+    }
+
+    // ============================================================
     // Contacts realm
     // ============================================================
 

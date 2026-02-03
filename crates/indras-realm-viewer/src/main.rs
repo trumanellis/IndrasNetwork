@@ -18,6 +18,7 @@ use indras_realm_viewer::playback;
 use indras_realm_viewer::state::{event_buffer, AppState};
 
 /// Embedded CSS styles
+const SHARED_CSS: &str = indras_ui::SHARED_CSS;
 const STYLES_CSS: &str = include_str!("../assets/styles.css");
 
 /// Global file path for stream config
@@ -66,7 +67,7 @@ fn main() {
                         .with_resizable(true)
                         .with_maximized(true),
                 )
-                .with_custom_head(format!(r#"<style>{}</style>"#, STYLES_CSS)),
+                .with_custom_head(format!(r#"<style>{}</style><style>{}</style>"#, SHARED_CSS, STYLES_CSS)),
         )
         .launch(RootApp);
 }
