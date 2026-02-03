@@ -18,6 +18,15 @@ const CONTACT_INVITE_PREFIX: &str = "syncengine:contact:";
 struct ContactInviteInner {
     member_id: MemberId,
     display_name: Option<String>,
+    /// Inbox interface ID for connection requests.
+    #[serde(default)]
+    inbox_id: Option<[u8; 32]>,
+    /// Serialized EndpointAddr for P2P bootstrap.
+    #[serde(default)]
+    bootstrap: Option<Vec<u8>>,
+    /// Interface encryption key for the inbox.
+    #[serde(default)]
+    inbox_key: Option<[u8; 32]>,
 }
 
 /// A human-shareable invite code for adding a contact.
@@ -52,8 +61,39 @@ impl ContactInviteCode {
             inner: ContactInviteInner {
                 member_id,
                 display_name,
+                inbox_id: None,
+                bootstrap: None,
+                inbox_key: None,
             },
         }
+    }
+
+    /// Attach inbox transport info for P2P bootstrap.
+    pub fn with_inbox(
+        mut self,
+        inbox_id: [u8; 32],
+        bootstrap: Vec<u8>,
+        inbox_key: [u8; 32],
+    ) -> Self {
+        self.inner.inbox_id = Some(inbox_id);
+        self.inner.bootstrap = Some(bootstrap);
+        self.inner.inbox_key = Some(inbox_key);
+        self
+    }
+
+    /// Get the inbox interface ID, if present.
+    pub fn inbox_id(&self) -> Option<&[u8; 32]> {
+        self.inner.inbox_id.as_ref()
+    }
+
+    /// Get the bootstrap address bytes, if present.
+    pub fn bootstrap(&self) -> Option<&[u8]> {
+        self.inner.bootstrap.as_deref()
+    }
+
+    /// Get the inbox interface encryption key, if present.
+    pub fn inbox_key(&self) -> Option<&[u8; 32]> {
+        self.inner.inbox_key.as_ref()
     }
 
     /// Parse a contact invite code from a string.

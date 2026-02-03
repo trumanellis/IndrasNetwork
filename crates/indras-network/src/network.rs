@@ -5,19 +5,26 @@
 use crate::config::{NetworkBuilder, NetworkConfig, Preset};
 use crate::contacts::{contacts_realm_id, ContactsRealm};
 use crate::error::{IndraError, Result};
+use crate::handshake::{inbox_interface_id, ConnectionRequest};
 use crate::home_realm::{home_realm_id, HomeRealm};
 use crate::invite::InviteCode;
 use crate::member::{Member, MemberId};
 use crate::realm::Realm;
 
 use dashmap::DashMap;
-use indras_core::InterfaceId;
-use indras_node::{IndrasNode, ReceivedEvent};
+use indras_core::transport::Transport;
+use indras_core::{InterfaceEvent, InterfaceId};
+use indras_crypto::InterfaceKey;
+use indras_node::{
+    IndrasNode, InterfaceEventMessage, InviteKey, NetworkMessage, ReceivedEvent,
+    SIGNED_MESSAGE_VERSION, SignedNetworkMessage,
+};
 use indras_storage::CompositeStorage;
 use indras_transport::IrohIdentity;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -101,6 +108,8 @@ pub struct IndrasNetwork {
     config: NetworkConfig,
     /// Our identity.
     identity: Member,
+    /// Last processed inbox event sequence (avoids reprocessing).
+    inbox_last_seq: AtomicU64,
 }
 
 /// Internal realm state.
@@ -188,6 +197,7 @@ impl IndrasNetwork {
             home_realm: RwLock::new(None),
             config,
             identity,
+            inbox_last_seq: AtomicU64::new(0),
         })
     }
 
@@ -712,25 +722,172 @@ impl IndrasNetwork {
 
     /// Generate a contact invite code for this network identity.
     ///
-    /// The invite code contains your member ID and display name,
-    /// encoded as a shareable `syncengine:contact:...` URI.
-    pub fn contact_invite_code(&self) -> crate::contact_invite::ContactInviteCode {
-        crate::contact_invite::ContactInviteCode::new(
-            self.id(),
+    /// The invite code contains your member ID, display name, and
+    /// transport bootstrap info so the acceptor can establish a P2P
+    /// connection to deliver the connection request.
+    ///
+    /// Creates a personal inbox interface (deterministic from member ID)
+    /// and embeds its ID, bootstrap address, and encryption key in the
+    /// invite code.
+    pub async fn contact_invite_code(&self) -> Result<crate::contact_invite::ContactInviteCode> {
+        // Ensure network is started
+        if !self.is_running() {
+            self.start().await?;
+        }
+
+        let my_id = self.id();
+        let inbox_id = inbox_interface_id(my_id);
+
+        // Create (or get existing) inbox interface
+        let (_iface_id, invite_key) = self
+            .inner
+            .create_interface_with_id(inbox_id, Some("Inbox"))
+            .await?;
+
+        // Get the interface encryption key
+        let iface_key = self.inner.interface_key(&inbox_id);
+
+        // Build the contact invite code with transport info
+        let mut code = crate::contact_invite::ContactInviteCode::new(
+            my_id,
             self.display_name().map(|s| s.to_string()),
-        )
+        );
+
+        // Attach inbox transport info if we have everything
+        if let Some(ref key) = iface_key {
+            // Get bootstrap address from the invite key
+            let bootstrap = invite_key
+                .bootstrap_peers
+                .first()
+                .cloned()
+                .unwrap_or_default();
+
+            if !bootstrap.is_empty() {
+                code = code.with_inbox(
+                    *inbox_id.as_bytes(),
+                    bootstrap,
+                    *key.as_bytes(),
+                );
+            }
+        }
+
+        Ok(code)
     }
 
     /// Accept a contact invite code, adding the inviter as a contact.
     ///
-    /// This joins the contacts realm (if not already joined) and adds
-    /// the invite's member ID to your contact list.
+    /// This adds the inviter to your contact list, then uses the transport
+    /// bootstrap info embedded in the invite to join the inviter's inbox
+    /// interface and send a `ConnectionRequest` message. The inviter's node
+    /// picks it up via `process_handshake_inbox()`, completing the
+    /// bidirectional connection.
     pub async fn accept_contact_invite(
         &self,
         code: &crate::contact_invite::ContactInviteCode,
     ) -> Result<()> {
+        // Ensure network is started
+        if !self.is_running() {
+            self.start().await?;
+        }
+
+        // 1. Add inviter as contact with their display name
         let contacts = self.join_contacts_realm().await?;
-        contacts.add_contact(code.member_id()).await?;
+        contacts
+            .add_contact_with_name(
+                code.member_id(),
+                code.display_name().map(|s| s.to_string()),
+            )
+            .await?;
+
+        // 2. Join inviter's inbox interface and send ConnectionRequest as a message
+        if let (Some(inbox_id_bytes), Some(bootstrap), Some(key_bytes)) =
+            (code.inbox_id(), code.bootstrap(), code.inbox_key())
+        {
+            let inbox_id = InterfaceId::new(*inbox_id_bytes);
+
+            // Insert the inviter's inbox key so we can encrypt messages to it
+            let iface_key = InterfaceKey::from_bytes(*key_bytes, inbox_id);
+            self.inner.set_interface_key(inbox_id, iface_key.clone());
+
+            // Build an InviteKey with the bootstrap address to join the interface
+            let invite = InviteKey::new(inbox_id)
+                .with_bootstrap(bootstrap.to_vec());
+
+            // Join the inviter's inbox interface (connects via P2P transport)
+            self.inner.join_interface(invite).await
+                .map_err(|e| IndraError::InvalidOperation(format!("Join inbox: {}", e)))?;
+
+            // Build and send the connection request as a plain message
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+
+            let request = ConnectionRequest {
+                member_id: self.id(),
+                display_name: self.display_name().map(|s| s.to_string()),
+                timestamp_millis: now,
+            };
+
+            let payload = postcard::to_allocvec(&request)
+                .map_err(|e| IndraError::InvalidOperation(format!("Serialize request: {}", e)))?;
+
+            // send_message stores the event locally and tries to send to known
+            // interface members. After join_interface the only member is us,
+            // so the event won't reach the inviter through that path alone.
+            let event_id = self.inner.send_message(&inbox_id, payload.clone()).await
+                .map_err(|e| IndraError::InvalidOperation(format!("Send request: {}", e)))?;
+
+            // Deliver the message directly to the bootstrap peer.
+            // join_interface connected us to this peer but didn't add them
+            // as an interface member yet (that happens after CRDT sync).
+            if let Ok(addr) = postcard::from_bytes::<iroh::EndpointAddr>(bootstrap) {
+                let peer_id = IrohIdentity::new(addr.id);
+
+                if let Some(transport) = self.inner.transport().await {
+                    // Build the encrypted+signed envelope
+                    let event = InterfaceEvent::<IrohIdentity>::message(
+                        *self.inner.identity(),
+                        event_id.sequence,
+                        payload,
+                    );
+                    let plaintext = postcard::to_allocvec(&event)
+                        .map_err(|e| IndraError::InvalidOperation(format!("Serialize event: {}", e)))?;
+                    let encrypted = iface_key.encrypt(&plaintext)
+                        .map_err(|e| IndraError::InvalidOperation(format!("Encrypt event: {}", e)))?;
+
+                    let msg = InterfaceEventMessage::new(
+                        inbox_id,
+                        encrypted.ciphertext,
+                        event_id,
+                        encrypted.nonce,
+                    );
+                    let network_msg = NetworkMessage::InterfaceEvent(msg);
+
+                    let msg_bytes = network_msg.to_bytes()
+                        .map_err(|e| IndraError::InvalidOperation(format!("Serialize msg: {}", e)))?;
+                    let signature = self.inner.pq_identity().sign(&msg_bytes);
+
+                    let signed_msg = SignedNetworkMessage {
+                        version: SIGNED_MESSAGE_VERSION,
+                        message: network_msg,
+                        signature: signature.to_bytes().to_vec(),
+                        sender_verifying_key: self.inner.pq_identity().verifying_key_bytes(),
+                    };
+
+                    if let Ok(bytes) = signed_msg.to_bytes() {
+                        let _ = transport.send(&peer_id, bytes).await;
+                        tracing::info!(
+                            inviter = %hex::encode(&code.member_id()[..8]),
+                            "Sent connection request directly to bootstrap peer"
+                        );
+                    }
+                }
+            }
+        } else {
+            tracing::warn!("Contact invite has no transport info, contact added locally only");
+        }
+
         Ok(())
     }
 
@@ -805,6 +962,85 @@ impl IndrasNetwork {
     pub async fn contacts_realm(&self) -> Option<ContactsRealm> {
         let guard = self.contacts_realm.read().await;
         guard.clone()
+    }
+
+    // ============================================================
+    // Connection inbox (store-and-forward via contacts realm)
+    // ============================================================
+
+    /// Process pending connection requests from our inbox.
+    ///
+    /// Reads new events from the deterministic inbox interface created
+    /// by `contact_invite_code()`. When someone accepts our invite, they
+    /// send a `ConnectionRequest` message to this interface. We process
+    /// those messages via `events_since()` and add senders as contacts.
+    ///
+    /// Returns the number of new contacts added.
+    pub async fn process_handshake_inbox(&self) -> Result<usize> {
+        let contacts = self.join_contacts_realm().await?;
+        let my_id = self.id();
+        let inbox_id = inbox_interface_id(my_id);
+
+        // Only process if inbox interface exists
+        if self.inner.interface_key(&inbox_id).is_none() {
+            return Ok(0);
+        }
+
+        // Read events since last processed sequence
+        let last_seq = self.inbox_last_seq.load(Ordering::Relaxed);
+        let events = self.inner.events_since(&inbox_id, last_seq).await
+            .map_err(|e| IndraError::InvalidOperation(format!("Read inbox events: {}", e)))?;
+
+        if events.is_empty() {
+            return Ok(0);
+        }
+
+        let mut added = 0;
+        let mut max_seq = last_seq;
+
+        for event in &events {
+            // Track highest sequence seen
+            if let InterfaceEvent::Message { id, .. } = event {
+                if id.sequence > max_seq {
+                    max_seq = id.sequence;
+                }
+            }
+
+            // Only process Message events
+            if let InterfaceEvent::Message { content, .. } = event {
+                if let Ok(request) = postcard::from_bytes::<ConnectionRequest>(content) {
+                    if request.member_id == my_id {
+                        continue;
+                    }
+
+                    match contacts
+                        .add_contact_with_name(request.member_id, request.display_name.clone())
+                        .await
+                    {
+                        Ok(()) => {
+                            tracing::info!(
+                                member = %hex::encode(&request.member_id[..8]),
+                                name = ?request.display_name,
+                                "Added contact from inbox message"
+                            );
+                            added += 1;
+                        }
+                        Err(e) => {
+                            tracing::debug!(
+                                member = %hex::encode(&request.member_id[..8]),
+                                error = %e,
+                                "Skipped inbox request"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        // Update watermark
+        self.inbox_last_seq.store(max_seq, Ordering::Relaxed);
+
+        Ok(added)
     }
 
     // ============================================================
