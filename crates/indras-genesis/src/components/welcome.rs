@@ -24,7 +24,7 @@ pub fn WelcomeScreen(mut state: Signal<GenesisState>) -> Element {
 
             h1 {
                 class: "genesis-brand-title",
-                "Indras Network"
+                "Synchronicity Engine"
             }
             p {
                 class: "genesis-brand-subtitle",

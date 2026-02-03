@@ -21,6 +21,16 @@ pub fn contacts_realm_id() -> RealmId {
     indras_core::InterfaceId::new(*hash.as_bytes())
 }
 
+/// Connection status for a contact.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum ContactStatus {
+    /// We sent an invite, waiting for them to accept.
+    #[default]
+    Pending,
+    /// Both sides have confirmed the connection.
+    Confirmed,
+}
+
 /// Metadata stored per contact.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContactEntry {
@@ -28,6 +38,12 @@ pub struct ContactEntry {
     pub sentiment: i8,
     /// Whether this sentiment rating can be relayed to second-degree contacts.
     pub relayable: bool,
+    /// Display name for this contact (from their invite or handshake).
+    #[serde(default)]
+    pub display_name: Option<String>,
+    /// Connection status: pending (invite sent) or confirmed (bidirectional).
+    #[serde(default)]
+    pub status: ContactStatus,
 }
 
 impl Default for ContactEntry {
@@ -35,6 +51,8 @@ impl Default for ContactEntry {
         Self {
             sentiment: 0,
             relayable: true,
+            display_name: None,
+            status: ContactStatus::default(),
         }
     }
 }
@@ -59,6 +77,23 @@ impl ContactsDocument {
         self.contacts
             .entry(member_id)
             .or_insert_with(ContactEntry::default);
+    }
+
+    /// Add a contact with an optional display name.
+    pub fn add_with_name(&mut self, member_id: MemberId, display_name: Option<String>) {
+        let entry = self.contacts
+            .entry(member_id)
+            .or_insert_with(ContactEntry::default);
+        if display_name.is_some() {
+            entry.display_name = display_name;
+        }
+    }
+
+    /// Get the display name for a contact.
+    pub fn get_display_name(&self, member_id: &MemberId) -> Option<&str> {
+        self.contacts
+            .get(member_id)
+            .and_then(|e| e.display_name.as_deref())
     }
 
     /// Remove a contact.
@@ -131,6 +166,21 @@ impl ContactsDocument {
             .filter(|(_, entry)| entry.relayable)
             .map(|(id, entry)| (*id, entry.sentiment))
             .collect()
+    }
+
+    /// Set the connection status for a contact.
+    pub fn set_status(&mut self, member_id: &MemberId, status: ContactStatus) -> bool {
+        if let Some(entry) = self.contacts.get_mut(member_id) {
+            entry.status = status;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Get the connection status for a contact.
+    pub fn get_status(&self, member_id: &MemberId) -> Option<ContactStatus> {
+        self.contacts.get(member_id).map(|e| e.status)
     }
 }
 
@@ -208,6 +258,30 @@ impl ContactsRealm {
         self.document
             .update(|doc| {
                 doc.add(member_id);
+            })
+            .await?;
+
+        Ok(())
+    }
+
+    /// Add a contact with an optional display name.
+    ///
+    /// Like `add_contact` but also stores the display name from
+    /// an invite code or handshake request.
+    pub async fn add_contact_with_name(
+        &self,
+        member_id: MemberId,
+        display_name: Option<String>,
+    ) -> Result<()> {
+        if member_id == self.self_id {
+            return Err(IndraError::InvalidOperation(
+                "Cannot add yourself as a contact".to_string(),
+            ));
+        }
+
+        self.document
+            .update(|doc| {
+                doc.add_with_name(member_id, display_name);
             })
             .await?;
 
@@ -293,6 +367,31 @@ impl ContactsRealm {
     /// Get relayable sentiments only (for publishing to second-degree contacts).
     pub fn relayable_sentiments(&self) -> Vec<(MemberId, i8)> {
         self.document.read_blocking().relayable_sentiments()
+    }
+
+    /// Confirm a contact (transition from Pending to Confirmed).
+    ///
+    /// Called when we receive a connection request from someone we already
+    /// invited, completing the bidirectional handshake.
+    pub async fn confirm_contact(&self, member_id: &MemberId) -> Result<()> {
+        let mid = *member_id;
+        let mut updated = false;
+        self.document
+            .update(|doc| {
+                updated = doc.set_status(&mid, ContactStatus::Confirmed);
+            })
+            .await?;
+        if !updated {
+            return Err(IndraError::InvalidOperation(
+                "Cannot confirm: member is not a contact".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Get the connection status for a contact.
+    pub fn get_status(&self, member_id: &MemberId) -> Option<ContactStatus> {
+        self.document.read_blocking().get_status(member_id)
     }
 
     /// Access the underlying node.
@@ -414,5 +513,44 @@ mod tests {
         let id1 = contacts_realm_id();
         let id2 = contacts_realm_id();
         assert_eq!(id1, id2);
+    }
+
+    #[test]
+    fn test_contact_status_default_is_pending() {
+        let entry = ContactEntry::default();
+        assert_eq!(entry.status, ContactStatus::Pending);
+    }
+
+    #[test]
+    fn test_contact_status_transitions() {
+        let mut doc = ContactsDocument::new();
+        let member1 = [1u8; 32];
+
+        doc.add(member1);
+        assert_eq!(doc.get_status(&member1), Some(ContactStatus::Pending));
+
+        // Transition to confirmed
+        assert!(doc.set_status(&member1, ContactStatus::Confirmed));
+        assert_eq!(doc.get_status(&member1), Some(ContactStatus::Confirmed));
+    }
+
+    #[test]
+    fn test_contact_status_nonexistent() {
+        let doc = ContactsDocument::new();
+        let unknown = [99u8; 32];
+        assert_eq!(doc.get_status(&unknown), None);
+    }
+
+    #[test]
+    fn test_contact_status_serialization_roundtrip() {
+        let mut doc = ContactsDocument::new();
+        let member1 = [1u8; 32];
+        doc.add(member1);
+        doc.set_status(&member1, ContactStatus::Confirmed);
+
+        let bytes = postcard::to_allocvec(&doc).unwrap();
+        let deserialized: ContactsDocument = postcard::from_bytes(&bytes).unwrap();
+
+        assert_eq!(deserialized.get_status(&member1), Some(ContactStatus::Confirmed));
     }
 }

@@ -155,10 +155,10 @@ pub use chat_message::{
 };
 pub use config::{NetworkBuilder, NetworkConfig, Preset};
 pub use contact_invite::ContactInviteCode;
-pub use contacts::{ContactEntry, ContactsDocument, ContactsRealm};
+pub use contacts::{ContactEntry, ContactStatus, ContactsDocument, ContactsRealm};
 pub use document::{Document, DocumentChange, DocumentSchema};
 pub use error::{IndraError, Result};
-pub use handshake::{handshake_realm_id, inbox_interface_id, ConnectionRequest};
+pub use handshake::{inbox_interface_id, ConnectionRequest, HandshakeDocument};
 pub use home_realm::{home_realm_id, HomeArtifactMetadata, HomeRealm};
 pub use invite::InviteCode;
 pub use member::{Member, MemberEvent, MemberId, MemberInfo};

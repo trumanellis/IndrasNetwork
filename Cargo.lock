@@ -3334,8 +3334,10 @@ name = "indras-genesis"
 version = "1.0.0"
 dependencies = [
  "arboard",
+ "chrono",
  "dioxus",
  "indras-crypto",
+ "indras-logging",
  "indras-network",
  "indras-node",
  "indras-ui",
