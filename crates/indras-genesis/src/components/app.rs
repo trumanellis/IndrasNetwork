@@ -1,0 +1,232 @@
+//! Root application component with state machine routing.
+
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use dioxus::prelude::*;
+use indras_network::IndrasNetwork;
+
+use crate::state::{AsyncStatus, GenesisState, GenesisStep, NoteView, QuestView};
+use crate::theme::ThemedRoot;
+
+use super::display_name::DisplayNameScreen;
+use super::home_realm::HomeRealmScreen;
+use super::pass_story_flow::PassStoryFlow;
+use super::welcome::WelcomeScreen;
+
+/// Get the default data directory for Indras Network.
+pub fn default_data_dir() -> PathBuf {
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(home) = std::env::var("HOME") {
+            return PathBuf::from(home)
+                .join("Library/Application Support/indras-network");
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
+            return PathBuf::from(xdg).join("indras-network");
+        }
+        if let Ok(home) = std::env::var("HOME") {
+            return PathBuf::from(home).join(".local/share/indras-network");
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            return PathBuf::from(appdata).join("indras-network");
+        }
+    }
+    PathBuf::from(".").join("indras-network")
+}
+
+/// Helper to hex-encode a 16-byte ID.
+fn hex_id(id: &[u8; 16]) -> String {
+    id.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+/// Root application component.
+#[component]
+pub fn App() -> Element {
+    let mut state = use_signal(GenesisState::new);
+    let mut network: Signal<Option<Arc<IndrasNetwork>>> = use_signal(|| None);
+
+    // On mount: check if returning user
+    use_effect(move || {
+        spawn(async move {
+            let data_dir = default_data_dir();
+
+            if !IndrasNetwork::is_first_run(&data_dir) {
+                // Returning user: load existing network
+                tracing::info!("Returning user detected, loading network");
+                state.write().status = AsyncStatus::Loading;
+
+                match IndrasNetwork::new(&data_dir).await {
+                    Ok(net) => {
+                        let id = net.id();
+                        let id_short = id.iter()
+                            .take(8)
+                            .map(|b| format!("{:02x}", b))
+                            .collect::<String>();
+                        let name = net.display_name().unwrap_or("").to_string();
+
+                        let net = Arc::new(net);
+
+                        // Load home realm
+                        if let Ok(home) = net.home_realm().await {
+                            // Load quests
+                            if let Ok(doc) = home.quests().await {
+                                let data = doc.read().await;
+                                let quests: Vec<QuestView> = data.quests.iter().map(|q| {
+                                    QuestView {
+                                        id: hex_id(&q.id),
+                                        title: q.title.clone(),
+                                        description: q.description.clone(),
+                                        is_complete: q.completed_at_millis.is_some(),
+                                    }
+                                }).collect();
+                                drop(data);
+                                state.write().quests = quests;
+                            }
+
+                            // Load notes
+                            if let Ok(doc) = home.notes().await {
+                                let data = doc.read().await;
+                                let notes: Vec<NoteView> = data.notes.iter().map(|n| {
+                                    NoteView {
+                                        id: hex_id(&n.id),
+                                        title: n.title.clone(),
+                                        content_preview: n.content.chars().take(100).collect(),
+                                    }
+                                }).collect();
+                                drop(data);
+                                state.write().notes = notes;
+                            }
+                        }
+
+                        network.set(Some(net));
+
+                        let mut s = state.write();
+                        s.display_name = name;
+                        s.member_id_short = Some(id_short);
+                        s.status = AsyncStatus::Idle;
+                        s.step = GenesisStep::HomeRealm;
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to load network: {}", e);
+                        state.write().status = AsyncStatus::Error(e.to_string());
+                        // Fall through to genesis flow
+                    }
+                }
+            }
+        });
+    });
+
+    let current_step = state.read().step.clone();
+    let pass_story_active = state.read().pass_story_active;
+
+    rsx! {
+        ThemedRoot {
+            div {
+                class: "genesis-app",
+
+                match current_step {
+                    GenesisStep::Welcome => rsx! {
+                        WelcomeScreen { state }
+                    },
+                    GenesisStep::DisplayName => rsx! {
+                        DisplayNameScreen { state, network }
+                    },
+                    GenesisStep::HomeRealm => rsx! {
+                        HomeRealmScreen { state, network }
+                    },
+                }
+
+                if pass_story_active {
+                    PassStoryFlow { state, network }
+                }
+            }
+        }
+    }
+}
+
+/// Create identity and load home realm after display name entry.
+pub async fn create_identity_and_load(
+    name: Option<String>,
+    state: &mut Signal<GenesisState>,
+    network: &mut Signal<Option<Arc<IndrasNetwork>>>,
+) {
+    let data_dir = default_data_dir();
+
+    // Ensure data dir exists before building (profile save needs it)
+    let _ = std::fs::create_dir_all(&data_dir);
+
+    state.write().status = AsyncStatus::Loading;
+
+    // Build network with display name
+    let mut builder = IndrasNetwork::builder().data_dir(&data_dir);
+    if let Some(ref n) = name {
+        if !n.is_empty() {
+            builder = builder.display_name(n.as_str());
+        }
+    }
+
+    match builder.build().await {
+        Ok(net) => {
+            let id = net.id();
+            let id_short = id.iter()
+                .take(8)
+                .map(|b| format!("{:02x}", b))
+                .collect::<String>();
+            let display = net.display_name().unwrap_or("").to_string();
+
+            let net = Arc::new(net);
+
+            // Load home realm - quests and notes
+            if let Ok(home) = net.home_realm().await {
+                if let Ok(doc) = home.quests().await {
+                    let data = doc.read().await;
+                    let quests: Vec<QuestView> = data.quests.iter().map(|q| {
+                        QuestView {
+                            id: hex_id(&q.id),
+                            title: q.title.clone(),
+                            description: q.description.clone(),
+                            is_complete: q.completed_at_millis.is_some(),
+                        }
+                    }).collect();
+                    drop(data);
+                    state.write().quests = quests;
+                }
+
+                if let Ok(doc) = home.notes().await {
+                    let data = doc.read().await;
+                    let notes: Vec<NoteView> = data.notes.iter().map(|n| {
+                        NoteView {
+                            id: hex_id(&n.id),
+                            title: n.title.clone(),
+                            content_preview: n.content.chars().take(100).collect(),
+                        }
+                    }).collect();
+                    drop(data);
+                    state.write().notes = notes;
+                }
+            }
+
+            network.set(Some(net));
+
+            let mut s = state.write();
+            s.display_name = display;
+            let id_log = id_short.clone();
+            s.member_id_short = Some(id_short);
+            s.status = AsyncStatus::Idle;
+            s.step = GenesisStep::HomeRealm;
+
+            tracing::info!("Identity created, member ID: {}", id_log);
+        }
+        Err(e) => {
+            tracing::error!("Failed to create identity: {}", e);
+            state.write().status = AsyncStatus::Error(format!("Failed to create identity: {}", e));
+        }
+    }
+}
