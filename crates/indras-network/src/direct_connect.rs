@@ -11,6 +11,75 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// Derive a deterministic inbox realm ID for a peer.
+///
+/// Anyone who knows the MemberId can compute this, enabling
+/// them to send connection notifications to the peer's inbox.
+pub fn inbox_realm_id(member_id: MemberId) -> RealmId {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"inbox-v1:");
+    hasher.update(&member_id);
+    InterfaceId::new(*hasher.finalize().as_bytes())
+}
+
+/// Derive a deterministic interface key seed for a peer's inbox realm.
+///
+/// This is used to derive the symmetric encryption key for the inbox.
+/// Anyone who knows the MemberId can compute this.
+pub fn inbox_key_seed(member_id: &MemberId) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"inbox-key-v1:");
+    hasher.update(member_id);
+    *hasher.finalize().as_bytes()
+}
+
+/// A notification sent to a peer's inbox when someone connects to them.
+///
+/// Serialized as the payload of a message on the inbox realm.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConnectionNotify {
+    /// The sender's member ID.
+    pub sender_id: MemberId,
+    /// Optional display name.
+    pub display_name: Option<String>,
+    /// The DM realm ID for this connection.
+    pub dm_realm_id: InterfaceId,
+    /// Timestamp (millis since epoch).
+    pub timestamp_millis: u64,
+}
+
+impl ConnectionNotify {
+    /// Create a new connection notification.
+    pub fn new(sender_id: MemberId, dm_realm_id: InterfaceId) -> Self {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        Self {
+            sender_id,
+            dm_realm_id,
+            display_name: None,
+            timestamp_millis: now,
+        }
+    }
+
+    /// Set the display name.
+    pub fn with_name(mut self, name: impl Into<String>) -> Self {
+        self.display_name = Some(name.into());
+        self
+    }
+
+    /// Serialize to bytes for sending as an interface message.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, postcard::Error> {
+        postcard::to_allocvec(self)
+    }
+
+    /// Deserialize from bytes received on the inbox realm.
+    pub fn from_bytes(data: &[u8]) -> Result<Self, postcard::Error> {
+        postcard::from_bytes(data)
+    }
+}
+
 /// Default key exchange expiry: 7 days in milliseconds.
 const KEY_EXCHANGE_EXPIRY_MS: u64 = 7 * 24 * 60 * 60 * 1000;
 
@@ -277,5 +346,62 @@ mod tests {
         assert_eq!(deserialized.peer_id, nova_id());
         assert_eq!(deserialized.realm_id, realm_id);
         assert_eq!(deserialized.status, KeyExchangeStatus::AwaitingPeer);
+    }
+
+    #[test]
+    fn test_inbox_realm_id_deterministic() {
+        let id1 = inbox_realm_id(zephyr_id());
+        let id2 = inbox_realm_id(zephyr_id());
+        assert_eq!(id1, id2);
+    }
+
+    #[test]
+    fn test_inbox_realm_id_unique_per_member() {
+        let id1 = inbox_realm_id(zephyr_id());
+        let id2 = inbox_realm_id(nova_id());
+        assert_ne!(id1, id2);
+    }
+
+    #[test]
+    fn test_inbox_realm_id_differs_from_dm() {
+        let inbox = inbox_realm_id(zephyr_id());
+        let dm = dm_realm_id(zephyr_id(), nova_id());
+        assert_ne!(inbox, dm);
+    }
+
+    #[test]
+    fn test_inbox_realm_id_differs_from_home() {
+        let inbox = inbox_realm_id(zephyr_id());
+        let home = crate::home_realm::home_realm_id(zephyr_id());
+        assert_ne!(inbox, home);
+    }
+
+    #[test]
+    fn test_inbox_key_seed_deterministic() {
+        let k1 = inbox_key_seed(&zephyr_id());
+        let k2 = inbox_key_seed(&zephyr_id());
+        assert_eq!(k1, k2);
+    }
+
+    #[test]
+    fn test_inbox_key_seed_unique_per_member() {
+        let k1 = inbox_key_seed(&zephyr_id());
+        let k2 = inbox_key_seed(&nova_id());
+        assert_ne!(k1, k2);
+    }
+
+    #[test]
+    fn test_connection_notify_serialization() {
+        let dm_id = dm_realm_id(zephyr_id(), nova_id());
+        let notify = ConnectionNotify::new(zephyr_id(), dm_id)
+            .with_name("Zephyr");
+
+        let bytes = notify.to_bytes().unwrap();
+        let deserialized = ConnectionNotify::from_bytes(&bytes).unwrap();
+
+        assert_eq!(deserialized.sender_id, zephyr_id());
+        assert_eq!(deserialized.dm_realm_id, dm_id);
+        assert_eq!(deserialized.display_name, Some("Zephyr".to_string()));
+        assert!(deserialized.timestamp_millis > 0);
     }
 }

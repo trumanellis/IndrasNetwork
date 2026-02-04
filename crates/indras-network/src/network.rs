@@ -4,7 +4,7 @@
 
 use crate::config::{NetworkBuilder, NetworkConfig, Preset};
 use crate::contacts::{contacts_realm_id, ContactsRealm};
-use crate::direct_connect::{dm_realm_id, is_initiator};
+use crate::direct_connect::{dm_realm_id, inbox_realm_id, is_initiator, ConnectionNotify};
 use crate::encounter;
 use crate::error::{IndraError, Result};
 use crate::home_realm::{home_realm_id, HomeRealm};
@@ -295,7 +295,165 @@ impl IndrasNetwork {
         // IndrasNode::start is idempotent, so this is safe to call multiple times
         self.inner.start().await?;
 
+        // Join our inbox realm to receive connection notifications
+        self.join_inbox().await?;
+
         Ok(())
+    }
+
+    /// Join our own inbox realm and spawn a listener for connection notifications.
+    ///
+    /// The inbox realm is a deterministic gossip topic derived from our MemberId.
+    /// When another peer calls `connect(our_id)`, they send a `ConnectionNotify`
+    /// message to our inbox. The listener auto-reciprocates by calling `connect()`.
+    async fn join_inbox(&self) -> Result<()> {
+        let my_id = self.id();
+        let realm_id = inbox_realm_id(my_id);
+
+        // Check if already joined (idempotent)
+        if self.realms.contains_key(&realm_id) {
+            return Ok(());
+        }
+
+        // Create the inbox interface with deterministic ID
+        let (_interface_id, _invite_key) = self
+            .inner
+            .create_interface_with_id(realm_id, Some("Inbox"))
+            .await?;
+
+        // Cache the realm state
+        self.realms.insert(
+            realm_id,
+            RealmState {
+                name: Some("Inbox".to_string()),
+            },
+        );
+
+        // Subscribe to events on our inbox realm.
+        // Use Weak references so the listener doesn't prevent node cleanup on drop.
+        let event_rx = self.inner.events(&realm_id)?;
+        let inner_weak = Arc::downgrade(&self.inner);
+        let realms = Arc::clone(&self.realms);
+        let peer_realms = Arc::clone(&self.peer_realms);
+
+        tokio::spawn(async move {
+            Self::inbox_listener(my_id, event_rx, inner_weak, realms, peer_realms).await;
+        });
+
+        tracing::info!(
+            inbox = %hex::encode(&realm_id.as_bytes()[..8]),
+            "Joined inbox realm"
+        );
+
+        Ok(())
+    }
+
+    /// Background task that listens for ConnectionNotify messages on our inbox.
+    ///
+    /// Creates DM realms and caches peer mappings. Contact management is
+    /// deferred — contacts are added when `connect()` is called explicitly
+    /// or when the contacts realm is queried.
+    ///
+    /// Uses `Weak<IndrasNode>` so this task doesn't prevent node cleanup on drop.
+    async fn inbox_listener(
+        my_id: MemberId,
+        mut event_rx: tokio::sync::broadcast::Receiver<indras_node::ReceivedEvent>,
+        inner_weak: std::sync::Weak<IndrasNode>,
+        realms: Arc<DashMap<RealmId, RealmState>>,
+        peer_realms: Arc<DashMap<Vec<MemberId>, RealmId>>,
+    ) {
+        use indras_core::InterfaceEvent;
+
+        loop {
+            match event_rx.recv().await {
+                Ok(received) => {
+                    // Extract the payload from the event
+                    let payload = match &received.event {
+                        InterfaceEvent::Message { content, .. } => content.clone(),
+                        _ => continue,
+                    };
+
+                    // Try to deserialize as ConnectionNotify
+                    let notify = match ConnectionNotify::from_bytes(&payload) {
+                        Ok(n) => n,
+                        Err(_) => continue, // Not a connection notify, skip
+                    };
+
+                    // Don't process notifications from ourselves
+                    if notify.sender_id == my_id {
+                        continue;
+                    }
+
+                    // Upgrade the weak reference — if the node is gone, exit
+                    let inner = match inner_weak.upgrade() {
+                        Some(arc) => arc,
+                        None => {
+                            tracing::debug!("Inbox: node dropped, listener stopping");
+                            break;
+                        }
+                    };
+
+                    let peer_id = notify.sender_id;
+                    let dm_realm_id = dm_realm_id(my_id, peer_id);
+
+                    // Check if we already have this DM realm (idempotent)
+                    if realms.contains_key(&dm_realm_id) {
+                        tracing::debug!(
+                            peer = %hex::encode(&peer_id[..8]),
+                            "Inbox: DM realm already exists, skipping"
+                        );
+                        continue;
+                    }
+
+                    tracing::info!(
+                        peer = %hex::encode(&peer_id[..8]),
+                        name = ?notify.display_name,
+                        "Inbox: received connection notification, reciprocating"
+                    );
+
+                    // Create the DM realm (reciprocate the connection)
+                    match inner
+                        .create_interface_with_id(dm_realm_id, Some("DM"))
+                        .await
+                    {
+                        Ok((interface_id, _invite_key)) => {
+                            // Cache realm state
+                            realms.insert(
+                                interface_id,
+                                RealmState {
+                                    name: Some("DM".to_string()),
+                                },
+                            );
+
+                            // Cache peer mapping
+                            let mut peers = vec![my_id, peer_id];
+                            peers.sort();
+                            peer_realms.insert(peers, interface_id);
+
+                            tracing::info!(
+                                peer = %hex::encode(&peer_id[..8]),
+                                realm = %hex::encode(&dm_realm_id.as_bytes()[..8]),
+                                "Inbox: reciprocated connection successfully"
+                            );
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                peer = %hex::encode(&peer_id[..8]),
+                                error = %e,
+                                "Inbox: failed to reciprocate connection"
+                            );
+                        }
+                    }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    tracing::warn!(missed = n, "Inbox listener lagged, some notifications may be missed");
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                    tracing::debug!("Inbox event channel closed, listener stopping");
+                    break;
+                }
+            }
+        }
     }
 
     /// Stop the network.
@@ -510,12 +668,76 @@ impl IndrasNetwork {
             "Direct connection established"
         );
 
+        // 7. Send connection notification to peer's inbox
+        self.notify_peer_inbox(peer_id, realm_id).await;
+
         Ok(Realm::new(
             interface_id,
             Some("DM".to_string()),
             InviteCode::new(invite_key),
             Arc::clone(&self.inner),
         ))
+    }
+
+    /// Send a ConnectionNotify to the peer's inbox realm.
+    ///
+    /// Best-effort: if this fails, the connection still works — the peer
+    /// just won't auto-discover it until they independently connect back.
+    async fn notify_peer_inbox(&self, peer_id: MemberId, dm_realm_id: RealmId) {
+        let my_id = self.id();
+        let peer_inbox_id = inbox_realm_id(peer_id);
+
+        // Join the peer's inbox realm temporarily
+        let join_result = self
+            .inner
+            .create_interface_with_id(peer_inbox_id, Some("PeerInbox"))
+            .await;
+
+        if let Err(e) = join_result {
+            tracing::debug!(
+                peer = %hex::encode(&peer_id[..8]),
+                error = %e,
+                "Failed to join peer inbox (non-fatal)"
+            );
+            return;
+        }
+
+        // Build the notification
+        let mut notify = ConnectionNotify::new(my_id, dm_realm_id);
+        if let Some(name) = self.display_name() {
+            notify = notify.with_name(name);
+        }
+
+        // Serialize and send as a message on the peer's inbox
+        match notify.to_bytes() {
+            Ok(payload) => {
+                if let Err(e) = self.inner.send_message(&peer_inbox_id, payload).await {
+                    tracing::debug!(
+                        peer = %hex::encode(&peer_id[..8]),
+                        error = %e,
+                        "Failed to send inbox notification (non-fatal)"
+                    );
+                } else {
+                    tracing::info!(
+                        peer = %hex::encode(&peer_id[..8]),
+                        "Sent connection notification to peer inbox"
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::debug!(
+                    error = %e,
+                    "Failed to serialize inbox notification (non-fatal)"
+                );
+            }
+        }
+
+        // Schedule leaving the peer's inbox after a short delay (cleanup)
+        let inner = Arc::clone(&self.inner);
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            let _ = inner.leave_interface(&peer_inbox_id).await;
+        });
     }
 
     /// Connect to a peer using a compact identity code (bech32m).
