@@ -127,7 +127,7 @@ pub enum ConnectionStatus {
 }
 
 /// Tracks an active outgoing connection invite on the inviter's side.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PendingConnection {
     /// The connection realm ID.
     pub realm_id: RealmId,

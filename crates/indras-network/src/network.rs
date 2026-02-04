@@ -300,6 +300,12 @@ impl IndrasNetwork {
     pub async fn start(&self) -> Result<()> {
         // IndrasNode::start is idempotent, so this is safe to call multiple times
         self.inner.start().await?;
+
+        // Restore persisted pending connections (best-effort)
+        if let Err(e) = self.restore_pending_connections() {
+            tracing::warn!(error = %e, "Failed to restore pending connections");
+        }
+
         Ok(())
     }
 
@@ -745,6 +751,11 @@ impl IndrasNetwork {
             },
         );
 
+        // Persist to disk so invites survive restarts
+        if let Err(e) = self.persist_pending_connections() {
+            tracing::warn!(error = %e, "Failed to persist pending connections");
+        }
+
         // 7. Build and return ContactInviteCode
         let bootstrap = invite_key
             .bootstrap_peers
@@ -811,16 +822,20 @@ impl IndrasNetwork {
         .await?;
 
         let mut offer = None;
-        for attempt in 0..3 {
+        for attempt in 0..6 {
             if attempt > 0 {
+                // Exponential backoff: 500ms, 1s, 2s, 4s, 8s
                 tokio::time::sleep(std::time::Duration::from_millis(500 * (1 << attempt))).await;
             }
+            // Re-check the realm's event log for new messages from the inviter
+            let _ = doc.refresh().await;
             let data = doc.read().await;
             if let Some(o) = data.get_offer() {
                 offer = Some(o.clone());
                 break;
             }
             drop(data);
+            tracing::debug!(attempt = attempt + 1, "Connection offer not found yet, retrying...");
         }
 
         let offer = offer.ok_or_else(|| {
@@ -922,10 +937,8 @@ impl IndrasNetwork {
                             continue;
                         }
 
-                        // Wait for CRDT sync
-                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-
-                        // Read ConnectionDocument and extract accepts (scoped to drop doc before awaits)
+                        // Read ConnectionDocument with retries (acceptor needs time
+                        // to read our offer and write their accept back)
                         let accepts = {
                             let doc: std::result::Result<Document<ConnectionDocument>, _> =
                                 Document::new(
@@ -940,14 +953,30 @@ impl IndrasNetwork {
                                 continue;
                             };
 
-                            let data = doc.read().await;
-                            let accepts = data.all_accepts().clone();
-                            drop(data);
+                            let mut found = std::collections::BTreeMap::new();
+                            for attempt in 0..6 {
+                                // Backoff: 2s, 3s, 4s, 6s, 8s, 12s
+                                let delay = if attempt == 0 { 2000 } else { 1000 * (1 << attempt) };
+                                tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                                let _ = doc.refresh().await;
+                                let data = doc.read().await;
+                                let accepts = data.all_accepts().clone();
+                                drop(data);
+                                if !accepts.is_empty() {
+                                    found = accepts;
+                                    break;
+                                }
+                                tracing::debug!(
+                                    attempt = attempt + 1,
+                                    "No connection accepts yet, retrying..."
+                                );
+                            }
                             drop(doc);
-                            accepts
+                            found
                         };
 
                         if accepts.is_empty() {
+                            tracing::debug!("No accepts received after retries, giving up");
                             continue;
                         }
 
@@ -990,6 +1019,11 @@ impl IndrasNetwork {
                             entry.status = ConnectionStatus::AcceptReceived;
                         }
 
+                        // Persist updated status
+                        if let Err(e) = IndrasNetwork::persist_pending_connections_inner(&inner, &pending) {
+                            tracing::warn!(error = %e, "Failed to persist pending connections after accept");
+                        }
+
                         // Schedule deferred cleanup
                         let cleanup_inner = Arc::clone(&inner);
                         let cleanup_pending = Arc::clone(&pending);
@@ -1000,6 +1034,10 @@ impl IndrasNetwork {
                                 tracing::debug!(error = %e, "Connection realm cleanup");
                             }
                             cleanup_pending.remove(&cleanup_id);
+                            // Persist after cleanup removal
+                            if let Err(e) = IndrasNetwork::persist_pending_connections_inner(&cleanup_inner, &cleanup_pending) {
+                                tracing::warn!(error = %e, "Failed to persist pending connections after cleanup");
+                            }
                         });
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
@@ -1074,6 +1112,13 @@ impl IndrasNetwork {
             // Mark complete
             if let Some(mut entry) = self.pending_connections.get_mut(&realm_id) {
                 entry.status = ConnectionStatus::Complete;
+            }
+        }
+
+        // Persist updated statuses
+        if processed > 0 {
+            if let Err(e) = self.persist_pending_connections() {
+                tracing::warn!(error = %e, "Failed to persist pending connections after processing accepts");
             }
         }
 
@@ -1408,6 +1453,65 @@ impl IndrasNetwork {
                 .map_err(|e| IndraError::Crypto(format!("Failed to set permissions: {}", e)))?;
         }
 
+        Ok(())
+    }
+
+    // ============================================================
+    // Connection persistence
+    // ============================================================
+
+    /// Key for persisting pending connections in redb.
+    const PENDING_CONNECTIONS_KEY: &'static [u8] = b"pending_connections:v1";
+
+    /// Persist all pending connections to redb storage.
+    fn persist_pending_connections(&self) -> Result<()> {
+        Self::persist_pending_connections_inner(&self.inner, &self.pending_connections)
+    }
+
+    /// Inner persist helper that works with Arc references (for use in spawned tasks).
+    fn persist_pending_connections_inner(
+        node: &IndrasNode,
+        pending: &DashMap<RealmId, PendingConnection>,
+    ) -> Result<()> {
+        let map: Vec<(RealmId, PendingConnection)> = pending
+            .iter()
+            .map(|e| (*e.key(), e.value().clone()))
+            .collect();
+        let data = postcard::to_allocvec(&map)?;
+        node.storage()
+            .interface_store()
+            .set_document_data(Self::PENDING_CONNECTIONS_KEY, &data)?;
+        Ok(())
+    }
+
+    /// Restore pending connections from redb storage on startup.
+    ///
+    /// Skips expired (>7 days) and completed connections.
+    fn restore_pending_connections(&self) -> Result<()> {
+        if let Ok(Some(data)) = self
+            .inner
+            .storage()
+            .interface_store()
+            .get_document_data(Self::PENDING_CONNECTIONS_KEY)
+        {
+            if let Ok(entries) = postcard::from_bytes::<Vec<(RealmId, PendingConnection)>>(&data) {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
+                let seven_days_ms = 7 * 24 * 60 * 60 * 1000u64;
+                for (id, conn) in entries {
+                    // Skip expired or completed
+                    if now.saturating_sub(conn.created_at) > seven_days_ms {
+                        continue;
+                    }
+                    if conn.status == ConnectionStatus::Complete {
+                        continue;
+                    }
+                    self.pending_connections.insert(id, conn);
+                }
+            }
+        }
         Ok(())
     }
 
