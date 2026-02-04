@@ -46,6 +46,18 @@ pub fn home_realm_id(member_id: MemberId) -> RealmId {
     InterfaceId::new(*hasher.finalize().as_bytes())
 }
 
+/// Deterministic key seed for a member's home realm.
+///
+/// Used to derive the symmetric encryption key so that all devices
+/// belonging to the same user compute the same `InterfaceKey`.
+/// Anyone who knows the MemberId can derive this.
+pub fn home_key_seed(member_id: &MemberId) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"home-key-v1:");
+    hasher.update(member_id);
+    *hasher.finalize().as_bytes()
+}
+
 /// Metadata for artifacts stored in the home realm.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HomeArtifactMetadata {
@@ -606,6 +618,27 @@ mod tests {
 
         let realm_id = home_realm_id(member_id);
         assert_eq!(realm_id.as_bytes(), expected_hash.as_bytes());
+    }
+
+    #[test]
+    fn test_home_key_seed_deterministic() {
+        let k1 = home_key_seed(&test_member_id());
+        let k2 = home_key_seed(&test_member_id());
+        assert_eq!(k1, k2);
+    }
+
+    #[test]
+    fn test_home_key_seed_unique_per_member() {
+        let k1 = home_key_seed(&test_member_id());
+        let k2 = home_key_seed(&another_member_id());
+        assert_ne!(k1, k2);
+    }
+
+    #[test]
+    fn test_home_key_seed_differs_from_realm_id() {
+        let seed = home_key_seed(&test_member_id());
+        let realm = home_realm_id(test_member_id());
+        assert_ne!(seed, *realm.as_bytes(), "Key seed must differ from realm ID");
     }
 
     #[test]

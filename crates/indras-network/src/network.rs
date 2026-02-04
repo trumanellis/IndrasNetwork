@@ -477,10 +477,11 @@ impl IndrasNetwork {
             return Ok(Realm::from_id(realm_id, state.name.clone(), Arc::clone(&self.inner)));
         }
 
-        // 3. Create the interface with deterministic ID
+        // 3. Create the interface with deterministic ID and seed
+        let seed = dm_key_seed(&my_id, &peer_id);
         let (interface_id, invite_key) = self
             .inner
-            .create_interface_with_id(realm_id, Some("DM"))
+            .create_interface_with_seed(realm_id, &seed, Some("DM"))
             .await?;
 
         // 4. Cache realm state
@@ -1042,10 +1043,11 @@ impl IndrasNetwork {
         // Get the deterministic home realm ID
         let realm_id = home_realm_id(self.id());
 
-        // Create the home realm interface
+        // Create the home realm interface with deterministic key
+        let seed = home_key_seed(&self.id());
         let (_interface_id, _invite_key) = self
             .inner
-            .create_interface_with_id(realm_id, Some("Home"))
+            .create_interface_with_seed(realm_id, &seed, Some("Home"))
             .await?;
 
         // Cache the realm state
