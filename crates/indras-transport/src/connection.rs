@@ -88,9 +88,10 @@ impl ConnectionManager {
         secret_key: SecretKey,
         config: ConnectionConfig,
     ) -> Result<Self, ConnectionError> {
+        // Note: ALPNs are registered by the Router, not the Endpoint directly.
+        // The Router calls .accept(ALPN, handler) which registers ALPNs on the endpoint.
         let builder = Endpoint::builder()
-            .secret_key(secret_key.clone())
-            .alpns(vec![ALPN_INDRAS.to_vec()]);
+            .secret_key(secret_key.clone());
 
         let endpoint = builder
             .bind()
@@ -225,6 +226,14 @@ impl ConnectionManager {
         self.connections.insert(peer_id, conn.clone());
 
         Ok((peer_id, conn))
+    }
+
+    /// Store a connection received from the Router's protocol handler
+    ///
+    /// This is used when the Router dispatches an incoming connection
+    /// to our IndrasProtocolHandler, which forwards it via channel.
+    pub fn store_connection(&self, peer: IrohIdentity, conn: Connection) {
+        self.connections.insert(peer, conn);
     }
 
     /// Get an existing connection to a peer, if any

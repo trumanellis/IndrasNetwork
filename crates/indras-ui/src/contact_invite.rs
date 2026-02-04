@@ -12,7 +12,7 @@ use dioxus::prelude::*;
 #[component]
 pub fn ContactInviteOverlay(
     mut is_open: Signal<bool>,
-    /// The full `syncengine:contact:...` URI for this user.
+    /// The identity code URI (indra1...?name=...) for this user.
     invite_uri: ReadSignal<String>,
     /// This user's display name.
     display_name: ReadSignal<String>,
@@ -112,7 +112,7 @@ pub fn ContactInviteOverlay(
                         input {
                             class: "contact-invite-input",
                             r#type: "text",
-                            placeholder: "Paste a syncengine:contact:... link",
+                            placeholder: "Paste an indra1... identity code",
                             "aria-label": "Paste invite link",
                             value: "{input_val}",
                             oninput: move |evt| {

@@ -9,7 +9,6 @@ use indras_sync_engine::{HomeRealmQuests, HomeRealmNotes};
 use indras_ui::{ArtifactDisplayInfo, ArtifactDisplayStatus, ArtifactGallery};
 
 use crate::state::{ContactView, EventDirection, GenesisState, GenesisStep, NoteView, QuestView};
-use super::app::log_event;
 
 /// Helper to hex-encode a 16-byte ID.
 fn hex_id(id: &[u8; 16]) -> String {
@@ -125,46 +124,6 @@ pub fn HomeRealmScreen(
         indras_node::StoryKeystore::new(&data_dir).is_initialized()
     };
     let show_nudge = !story_initialized && has_content && !nudge_dismissed;
-
-    // Periodic inbox polling (every 5 seconds)
-    use_effect(move || {
-        spawn(async move {
-            loop {
-                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                let net = {
-                    let guard = network.read();
-                    guard.as_ref().cloned()
-                };
-                if let Some(net) = net {
-                    match net.process_pending_accepts().await {
-                        Ok(count) if count > 0 => {
-                            log_event(&mut state, EventDirection::Received, format!("Inbox: {} new connection(s)", count));
-                            // Reload contacts
-                            if let Some(contacts_realm) = net.contacts_realm().await {
-                                if let Ok(doc) = contacts_realm.contacts().await {
-                                    let data = doc.read().await;
-                                    let contacts: Vec<ContactView> = data.contacts.iter().map(|(mid, entry)| {
-                                        ContactView {
-                                            member_id: *mid,
-                                            member_id_short: mid.iter().take(8).map(|b| format!("{:02x}", b)).collect(),
-                                            display_name: entry.display_name.clone(),
-                                            status: "confirmed".to_string(),
-                                        }
-                                    }).collect();
-                                    let ct = contacts.len();
-                                    drop(data);
-                                    state.write().contacts = contacts;
-                                    log_event(&mut state, EventDirection::System, format!("Contacts: {} connection(s)", ct));
-                                }
-                            }
-                        }
-                        Ok(_) => {} // no new requests, silent
-                        Err(_) => {} // silent on error during polling
-                    }
-                }
-            }
-        });
-    });
 
     rsx! {
         div {

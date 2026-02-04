@@ -1123,6 +1123,27 @@ impl IndrasNode {
         Ok(interface.events_since(since))
     }
 
+    /// Get all events from the Automerge document for an interface.
+    ///
+    /// Unlike `events_since()` which reads from the EventStore (local events only),
+    /// this reads from the Automerge document which includes events received via
+    /// CRDT sync from remote peers.
+    pub async fn document_events(
+        &self,
+        interface_id: &InterfaceId,
+    ) -> NodeResult<Vec<InterfaceEvent<IrohIdentity>>> {
+        let state = self
+            .interfaces
+            .get(interface_id)
+            .ok_or_else(|| NodeError::InterfaceNotFound(hex::encode(interface_id.as_bytes())))?;
+
+        let interface = state.interface.read().await;
+        let doc = interface
+            .document()
+            .map_err(|e| NodeError::Sync(format!("Document lock: {}", e)))?;
+        Ok(doc.events())
+    }
+
     /// Get all members of an interface
     ///
     /// Returns members from both the CRDT state and discovered peers via gossip.

@@ -12,12 +12,54 @@
 //! - `InterfaceLeave`: Announce leaving an interface
 
 use bytes::Bytes;
+use iroh::endpoint::Connection;
+use iroh::protocol::{AcceptError, ProtocolHandler};
 use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc;
 
 use indras_core::packet::{DeliveryConfirmation, PacketId};
 use indras_core::{EventId, InterfaceId, PresenceStatus};
 
 use crate::identity::IrohIdentity;
+
+// ============================================================================
+// Protocol Handler for Router-based ALPN dispatch
+// ============================================================================
+
+/// Handler for incoming connections using the indras/1 ALPN protocol.
+///
+/// The Router dispatches incoming connections to this handler based on ALPN.
+/// It forwards accepted connections to the adapter via an mpsc channel.
+#[derive(Debug, Clone)]
+pub struct IndrasProtocolHandler {
+    sender: mpsc::Sender<(IrohIdentity, Connection)>,
+}
+
+impl IndrasProtocolHandler {
+    /// Create a new protocol handler that forwards connections to the given channel.
+    pub fn new(sender: mpsc::Sender<(IrohIdentity, Connection)>) -> Self {
+        Self { sender }
+    }
+}
+
+impl ProtocolHandler for IndrasProtocolHandler {
+    async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
+        let peer_key = connection.remote_id();
+        let peer_id = IrohIdentity::new(peer_key);
+        self.sender
+            .send((peer_id, connection))
+            .await
+            .map_err(|_| {
+                AcceptError::from(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "Connection forwarding channel closed",
+                ))
+            })?;
+        Ok(())
+    }
+}
+
+// ============================================================================
 
 /// Application-Level Protocol Negotiation identifier for Indras
 pub const ALPN_INDRAS: &[u8] = b"indras/1";
@@ -83,6 +125,13 @@ pub enum WireMessage {
 
     /// Response with known realm members
     IntroductionResponse(IntroductionResponseMessage),
+
+    // ========== Direct Connection Messages ==========
+    /// ML-KEM key exchange for establishing DM interface keys
+    KeyExchange(KeyExchangeMessage),
+
+    /// Encounter code exchange for in-person peer discovery
+    EncounterExchange(EncounterExchangeMessage),
 }
 
 /// Serialized packet for wire transmission
@@ -533,6 +582,72 @@ impl IntroductionResponseMessage {
             members,
             timestamp_millis: chrono::Utc::now().timestamp_millis(),
         }
+    }
+}
+
+// ============================================================================
+// Direct Connection Message Types
+// ============================================================================
+
+/// ML-KEM key exchange message for establishing DM interface keys.
+///
+/// Sent on the DM gossip topic when the initiator (lower MemberId)
+/// encapsulates a shared secret to the peer's PQ encapsulation key.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KeyExchangeMessage {
+    /// The DM interface/realm this key exchange is for.
+    pub interface_id: InterfaceId,
+    /// The sender's member ID (32-byte public key).
+    pub sender_id: [u8; 32],
+    /// ML-KEM ciphertext (encapsulated shared secret).
+    pub kem_ciphertext: Vec<u8>,
+    /// Timestamp (Unix millis).
+    pub timestamp_millis: i64,
+}
+
+impl KeyExchangeMessage {
+    /// Create a new key exchange message.
+    pub fn new(interface_id: InterfaceId, sender_id: [u8; 32], kem_ciphertext: Vec<u8>) -> Self {
+        Self {
+            interface_id,
+            sender_id,
+            kem_ciphertext,
+            timestamp_millis: chrono::Utc::now().timestamp_millis(),
+        }
+    }
+}
+
+/// Encounter code exchange message for in-person peer discovery.
+///
+/// Sent on an encounter gossip topic (derived from a 6-digit code + time window).
+/// Contains the sender's MemberId so the other party can call `connect()`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EncounterExchangeMessage {
+    /// The encounter topic this exchange is for.
+    pub interface_id: InterfaceId,
+    /// The sender's member ID (32-byte public key).
+    pub member_id: [u8; 32],
+    /// Optional display name.
+    pub display_name: Option<String>,
+    /// Timestamp (Unix millis).
+    pub timestamp_millis: i64,
+}
+
+impl EncounterExchangeMessage {
+    /// Create a new encounter exchange message.
+    pub fn new(interface_id: InterfaceId, member_id: [u8; 32]) -> Self {
+        Self {
+            interface_id,
+            member_id,
+            display_name: None,
+            timestamp_millis: chrono::Utc::now().timestamp_millis(),
+        }
+    }
+
+    /// Set the display name.
+    pub fn with_name(mut self, name: impl Into<String>) -> Self {
+        self.display_name = Some(name.into());
+        self
     }
 }
 

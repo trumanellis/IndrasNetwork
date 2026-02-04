@@ -30,7 +30,9 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use dashmap::DashMap;
 use iroh::endpoint::Connection;
+use iroh::protocol::Router;
 use iroh::{EndpointAddr, PublicKey, SecretKey};
+use iroh_gossip::net::GOSSIP_ALPN;
 use iroh_gossip::Gossip;
 use tokio::sync::{RwLock, broadcast, mpsc};
 use tracing::{debug, error, info, instrument, warn};
@@ -43,6 +45,7 @@ use indras_core::transport::Transport;
 use crate::connection::{ConnectionConfig, ConnectionError, ConnectionManager};
 use crate::discovery::{DiscoveryConfig, DiscoveryError, DiscoveryService, PeerEvent, PeerInfo};
 use crate::identity::IrohIdentity;
+use crate::protocol::{ALPN_INDRAS, IndrasProtocolHandler};
 
 /// Configuration for the network adapter
 #[derive(Debug, Clone)]
@@ -82,6 +85,9 @@ struct IncomingMessage {
 ///
 /// This adapter provides a unified interface for sending and receiving messages
 /// while handling connection management and peer discovery automatically.
+///
+/// Uses iroh's `Router` for multi-protocol ALPN dispatch, registering both
+/// the indras/1 protocol and iroh-gossip protocol handlers.
 pub struct IrohNetworkAdapter {
     /// Connection manager for QUIC connections
     connection_manager: Arc<ConnectionManager>,
@@ -89,6 +95,10 @@ pub struct IrohNetworkAdapter {
     discovery_service: Arc<DiscoveryService>,
     /// Gossip handle for topic-based messaging
     gossip: Arc<Gossip>,
+    /// Router for multi-ALPN protocol dispatch (gossip + indras)
+    router: Router,
+    /// Receiver for incoming indras-protocol connections from the Router
+    conn_rx: Arc<RwLock<mpsc::Receiver<(IrohIdentity, Connection)>>>,
     /// Our local identity
     local_identity: IrohIdentity,
     /// Configuration
@@ -111,7 +121,7 @@ impl IrohNetworkAdapter {
     /// This initializes the iroh endpoint, connection manager, gossip, and
     /// discovery service.
     pub async fn new(secret_key: SecretKey, config: AdapterConfig) -> Result<Self, AdapterError> {
-        // Create connection manager
+        // Create connection manager (endpoint created without ALPNs — Router registers them)
         let connection_manager =
             ConnectionManager::new(secret_key.clone(), config.connection.clone())
                 .await
@@ -121,7 +131,19 @@ impl IrohNetworkAdapter {
         let endpoint = connection_manager.endpoint().clone();
 
         // Create gossip service using the builder pattern
-        let gossip = Gossip::builder().spawn(endpoint);
+        let gossip = Gossip::builder().spawn(endpoint.clone());
+
+        // Create the indras protocol handler channel
+        let (conn_tx, conn_rx) = mpsc::channel(64);
+        let indras_handler = IndrasProtocolHandler::new(conn_tx);
+
+        // Create Router for multi-ALPN dispatch:
+        // - indras/1: our custom protocol for direct peer messaging
+        // - /iroh-gossip/1: gossip protocol for topic-based pub/sub
+        let router = Router::builder(endpoint)
+            .accept(ALPN_INDRAS, indras_handler)
+            .accept(GOSSIP_ALPN, gossip.clone())
+            .spawn();
 
         // Create discovery service
         let discovery_service =
@@ -133,13 +155,15 @@ impl IrohNetworkAdapter {
 
         info!(
             identity = %local_identity.short_id(),
-            "IrohNetworkAdapter created"
+            "IrohNetworkAdapter created with Router (indras/1 + gossip ALPNs)"
         );
 
         Ok(Self {
             connection_manager: Arc::new(connection_manager),
             discovery_service: Arc::new(discovery_service),
             gossip: Arc::new(gossip),
+            router,
+            conn_rx: Arc::new(RwLock::new(conn_rx)),
             local_identity,
             config,
             peer_addresses: DashMap::new(),
@@ -172,7 +196,8 @@ impl IrohNetworkAdapter {
         *running = true;
 
         // Start background tasks
-        self.spawn_accept_loop();
+        // Note: spawn_accept_loop is replaced by the Router-based connection receiver
+        self.spawn_router_connection_handler();
         self.spawn_discovery_handler();
 
         Ok(())
@@ -195,6 +220,11 @@ impl IrohNetworkAdapter {
 
         // Close all connections
         self.connection_manager.close().await;
+
+        // Shut down the Router (stops accepting new connections, closes endpoint)
+        if let Err(e) = self.router.shutdown().await {
+            warn!(error = %e, "Router shutdown error");
+        }
 
         *running = false;
     }
@@ -241,35 +271,41 @@ impl IrohNetworkAdapter {
         &self.gossip
     }
 
-    /// Spawn the connection accept loop
-    fn spawn_accept_loop(&self) {
+    /// Spawn the Router-based connection handler
+    ///
+    /// Reads incoming indras-protocol connections from the channel fed by
+    /// `IndrasProtocolHandler` (registered with the Router) and spawns
+    /// per-connection message handlers.
+    fn spawn_router_connection_handler(&self) {
+        let conn_rx = self.conn_rx.clone();
         let connection_manager = self.connection_manager.clone();
         let message_tx = self.message_tx.clone();
         let mut shutdown_rx = self.shutdown.subscribe();
 
         tokio::spawn(async move {
             loop {
+                let mut rx = conn_rx.write().await;
                 tokio::select! {
                     _ = shutdown_rx.recv() => {
-                        debug!("Accept loop shutting down");
+                        debug!("Router connection handler shutting down");
                         break;
                     }
-                    result = connection_manager.accept() => {
+                    result = rx.recv() => {
                         match result {
-                            Ok((peer_id, conn)) => {
-                                debug!(peer = %peer_id.short_id(), "Accepted connection");
+                            Some((peer_id, conn)) => {
+                                debug!(peer = %peer_id.short_id(), "Router dispatched indras connection");
+                                // Store the connection in the connection manager
+                                connection_manager.store_connection(peer_id, conn.clone());
                                 Self::spawn_connection_handler(
                                     peer_id,
                                     conn,
                                     message_tx.clone(),
                                 );
                             }
-                            Err(ConnectionError::NoIncomingConnection) => {
-                                // Endpoint closed, exit loop
+                            None => {
+                                // Channel closed (Router shut down)
+                                debug!("Router connection channel closed");
                                 break;
-                            }
-                            Err(e) => {
-                                warn!(error = %e, "Failed to accept connection");
                             }
                         }
                     }

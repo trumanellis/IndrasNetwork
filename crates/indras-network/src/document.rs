@@ -262,23 +262,20 @@ impl<T: DocumentSchema> Document<T> {
         key.extend_from_slice(realm_id.as_bytes());
         key.extend_from_slice(name.as_bytes());
 
-        // 1. Check event log FIRST (authoritative source).
-        // When a peer joins a realm, their local storage may be empty but the
-        // event log contains state sent by other peers via send_message().
-        // Walk events in reverse to find the latest state.
-        if let Ok(events) = node.events_since(realm_id, 0).await {
+        // 1. Automerge document events (includes CRDT-synced remote events).
+        // When a peer joins a realm, their EventStore may be empty but the
+        // Automerge document contains events received via CRDT sync.
+        if let Ok(events) = node.document_events(realm_id).await {
             for event in events.iter().rev() {
                 if let InterfaceEvent::Message { content, .. } = event {
-                    // Try envelope format first
                     if let Ok(env) = postcard::from_bytes::<DocumentEnvelope>(content) {
                         if env.doc_name == name {
                             if let Ok(state) = postcard::from_bytes::<T>(&env.payload) {
                                 return Ok(state);
                             }
                         }
-                        continue; // Envelope for a different doc
+                        continue;
                     }
-                    // Fallback: raw format (backward compat)
                     if let Ok(state) = postcard::from_bytes::<T>(content) {
                         return Ok(state);
                     }
@@ -286,7 +283,26 @@ impl<T: DocumentSchema> Document<T> {
             }
         }
 
-        // 2. Fall back to redb snapshot.
+        // 2. EventStore events (local events only, fallback).
+        if let Ok(events) = node.events_since(realm_id, 0).await {
+            for event in events.iter().rev() {
+                if let InterfaceEvent::Message { content, .. } = event {
+                    if let Ok(env) = postcard::from_bytes::<DocumentEnvelope>(content) {
+                        if env.doc_name == name {
+                            if let Ok(state) = postcard::from_bytes::<T>(&env.payload) {
+                                return Ok(state);
+                            }
+                        }
+                        continue;
+                    }
+                    if let Ok(state) = postcard::from_bytes::<T>(content) {
+                        return Ok(state);
+                    }
+                }
+            }
+        }
+
+        // 3. Fall back to redb snapshot.
         let storage = node.storage();
         if let Ok(Some(value)) = storage.interface_store().get_document_data(&key) {
             match postcard::from_bytes::<T>(&value) {
@@ -302,7 +318,7 @@ impl<T: DocumentSchema> Document<T> {
             }
         }
 
-        // 3. No existing state found, return default
+        // 4. No existing state found, return default
         Ok(T::default())
     }
 
@@ -358,13 +374,16 @@ impl<T: DocumentSchema> Document<T> {
     /// Refresh document state from the realm's event log.
     ///
     /// When a peer first joins a realm, events may arrive after the initial
-    /// `Document::new()`. Call this to re-check the event log for newer state.
+    /// `Document::new()`. Call this to re-check for newer state.
+    ///
+    /// Checks the Automerge document first (includes CRDT-synced remote events),
+    /// then falls back to the EventStore (local events only).
     /// Returns `true` if the state was updated.
     pub async fn refresh(&self) -> Result<bool> {
-        if let Ok(events) = self.node.events_since(&self.realm_id, 0).await {
+        // 1. Automerge document events (includes events received via CRDT sync)
+        if let Ok(events) = self.node.document_events(&self.realm_id).await {
             for event in events.iter().rev() {
                 if let InterfaceEvent::Message { content, .. } = event {
-                    // Try envelope format first (new)
                     if let Ok(env) = postcard::from_bytes::<DocumentEnvelope>(content) {
                         if env.doc_name == self.name {
                             if let Ok(new_state) = postcard::from_bytes::<T>(&env.payload) {
@@ -375,9 +394,8 @@ impl<T: DocumentSchema> Document<T> {
                                 return Ok(true);
                             }
                         }
-                        continue; // Envelope for a different doc
+                        continue;
                     }
-                    // Fallback: try raw format (backward compat)
                     if let Ok(new_state) = postcard::from_bytes::<T>(content) {
                         let mut state = self.state.write().await;
                         *state = new_state.clone();
@@ -388,6 +406,34 @@ impl<T: DocumentSchema> Document<T> {
                 }
             }
         }
+
+        // 2. Fallback: EventStore (local events only)
+        if let Ok(events) = self.node.events_since(&self.realm_id, 0).await {
+            for event in events.iter().rev() {
+                if let InterfaceEvent::Message { content, .. } = event {
+                    if let Ok(env) = postcard::from_bytes::<DocumentEnvelope>(content) {
+                        if env.doc_name == self.name {
+                            if let Ok(new_state) = postcard::from_bytes::<T>(&env.payload) {
+                                let mut state = self.state.write().await;
+                                *state = new_state.clone();
+                                drop(state);
+                                self.persist(&new_state).await?;
+                                return Ok(true);
+                            }
+                        }
+                        continue;
+                    }
+                    if let Ok(new_state) = postcard::from_bytes::<T>(content) {
+                        let mut state = self.state.write().await;
+                        *state = new_state.clone();
+                        drop(state);
+                        self.persist(&new_state).await?;
+                        return Ok(true);
+                    }
+                }
+            }
+        }
+
         Ok(false)
     }
 

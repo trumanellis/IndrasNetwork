@@ -329,7 +329,7 @@ pub fn App() -> Element {
                                 };
 
                                 // Parse identity code (indra1...)
-                                let (code, name) = match IdentityCode::parse_uri(&uri) {
+                                let (_code, name) = match IdentityCode::parse_uri(&uri) {
                                     Ok(parsed) => parsed,
                                     Err(e) => {
                                         log_event(&mut state, EventDirection::System, format!("ERROR: Invalid identity code: {}", e));
