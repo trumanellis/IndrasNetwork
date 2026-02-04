@@ -4,10 +4,13 @@
 //! - Is deterministically derived from the user's member ID
 //! - Supports multi-device sync (same user can access from multiple devices)
 //! - Is eagerly created when the network initializes
-//! - Contains personal documents like notes and quests
+//! - Contains stored artifacts (images, files, etc.)
 //!
 //! Unlike shared realms, the home realm is unique to each user and doesn't
 //! require invite codes to access from other devices.
+//!
+//! Domain-specific document types (quests, notes, etc.) are managed by
+//! the sync-engine layer, not here.
 
 use crate::access::AccessMode;
 use crate::artifact::{Artifact, ArtifactId};
@@ -16,9 +19,6 @@ use crate::document::Document;
 use crate::error::{IndraError, Result};
 use crate::member::{Member, MemberId};
 use crate::network::RealmId;
-use crate::note::{Note, NoteDocument, NoteId};
-use crate::quest::{Quest, QuestDocument, QuestId};
-
 use indras_core::{InterfaceId, PeerIdentity};
 use indras_node::IndrasNode;
 use indras_storage::ContentRef;
@@ -60,12 +60,14 @@ pub struct HomeArtifactMetadata {
 /// Type alias for backward compatibility.
 pub type LegacyHomeArtifactMetadata = HomeArtifactMetadata;
 
-/// A wrapper around the home realm providing personal document management.
+/// A wrapper around the home realm providing artifact management.
 ///
 /// The HomeRealm is a personal realm unique to each user, containing:
-/// - Personal quests and tasks
-/// - Notes and documents
 /// - Stored artifacts (images, files, etc.)
+/// - An artifact index with access control and holonic composition
+///
+/// Domain-specific document types (quests, notes, etc.) are managed by
+/// the sync-engine layer.
 ///
 /// # Example
 ///
@@ -73,14 +75,11 @@ pub type LegacyHomeArtifactMetadata = HomeArtifactMetadata;
 /// // Get the home realm (eagerly created on network init)
 /// let home = network.home_realm().await?;
 ///
-/// // Create a personal note
-/// let notes = home.notes().await?;
-/// notes.update(|doc| {
-///     doc.create_note("My Note", "# Hello\n\nContent here", my_id, vec![]);
-/// }).await?;
+/// // Upload a file
+/// let artifact_id = home.upload("photo.png").await?;
 ///
-/// // Create a personal quest
-/// let quest_id = home.create_quest("Personal Task", "Do something", None).await?;
+/// // Grant access to another member
+/// home.grant_access(&artifact_id, peer_id, AccessMode::Read).await?;
 /// ```
 pub struct HomeRealm {
     /// The realm ID (deterministically derived from member ID).
@@ -103,54 +102,6 @@ impl HomeRealm {
         Ok(Self { id, node, self_id })
     }
 
-    /// Seed the home realm with a welcome quest on first creation.
-    ///
-    /// This is idempotent - if the quests document already has content
-    /// (e.g., from a CRDT merge on a second device), the welcome quest
-    /// won't be re-seeded.
-    pub(crate) async fn seed_welcome_quest_if_empty(&self) -> Result<()> {
-        let doc = self.quests().await?;
-        let data = doc.read().await;
-
-        // Only seed if the quests document is completely empty
-        if data.quest_count() > 0 {
-            debug!(
-                realm_id = %hex::encode(&self.id.as_bytes()[..8]),
-                "Home realm already has quests, skipping welcome quest seed"
-            );
-            return Ok(());
-        }
-        drop(data);
-
-        let welcome_quest = Quest::new(
-            "Explore your home realm",
-            "Your home realm is your private space on the network.\n\
-             \n\
-             Try these:\n\
-             - [ ] Create a personal note\n\
-             - [ ] Set your display name\n\
-             - [ ] Write your pass story (Settings > Identity)\n\
-             - [ ] Create a shared realm and generate an invite code\n\
-             - [ ] Back up your identity (Settings > Export Identity)\n\
-             \n\
-             Complete this quest when you feel at home.",
-            None,
-            self.self_id,
-        );
-
-        doc.update(|d| {
-            d.add(welcome_quest);
-        })
-        .await?;
-
-        debug!(
-            realm_id = %hex::encode(&self.id.as_bytes()[..8]),
-            "Seeded welcome quest in home realm"
-        );
-
-        Ok(())
-    }
-
     /// Get the home realm ID.
     pub fn id(&self) -> RealmId {
         self.id
@@ -159,162 +110,6 @@ impl HomeRealm {
     /// Get our member ID.
     pub fn member_id(&self) -> MemberId {
         self.self_id
-    }
-
-    // ============================================================
-    // Documents
-    // ============================================================
-
-    /// Get the quests document for this home realm.
-    ///
-    /// Personal quests are private and not shared with others.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let quests = home.quests().await?;
-    /// let open = quests.read().await.open_quests();
-    /// println!("Open personal quests: {}", open.len());
-    /// ```
-    pub async fn quests(&self) -> Result<Document<QuestDocument>> {
-        Document::new(self.id, "quests".to_string(), Arc::clone(&self.node)).await
-    }
-
-    /// Get the notes document for this home realm.
-    ///
-    /// Personal notes with markdown content.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let notes = home.notes().await?;
-    /// notes.update(|doc| {
-    ///     doc.create_note("Meeting Notes", "# Project Update\n\n- Item 1", my_id, vec!["work".into()]);
-    /// }).await?;
-    /// ```
-    pub async fn notes(&self) -> Result<Document<NoteDocument>> {
-        Document::new(self.id, "notes".to_string(), Arc::clone(&self.node)).await
-    }
-
-    // ============================================================
-    // Quest convenience methods
-    // ============================================================
-
-    /// Create a new personal quest.
-    ///
-    /// # Arguments
-    ///
-    /// * `title` - Short title describing the quest
-    /// * `description` - Detailed description
-    /// * `image` - Optional artifact ID for an image
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let quest_id = home.create_quest(
-    ///     "Read book",
-    ///     "Finish reading 'The Pragmatic Programmer'",
-    ///     None,
-    /// ).await?;
-    /// ```
-    pub async fn create_quest(
-        &self,
-        title: impl Into<String>,
-        description: impl Into<String>,
-        image: Option<ArtifactId>,
-    ) -> Result<QuestId> {
-        let quest = Quest::new(title, description, image, self.self_id);
-        let quest_id = quest.id;
-
-        let doc = self.quests().await?;
-        doc.update(|d| {
-            d.add(quest);
-        })
-        .await?;
-
-        Ok(quest_id)
-    }
-
-    /// Complete a personal quest.
-    pub async fn complete_quest(&self, quest_id: QuestId) -> Result<()> {
-        let doc = self.quests().await?;
-        doc.update(|d| {
-            if let Some(quest) = d.find_mut(&quest_id) {
-                let _ = quest.complete();
-            }
-        })
-        .await?;
-
-        Ok(())
-    }
-
-    // ============================================================
-    // Note convenience methods
-    // ============================================================
-
-    /// Create a new personal note.
-    ///
-    /// # Arguments
-    ///
-    /// * `title` - Title of the note
-    /// * `content` - Markdown content
-    /// * `tags` - Optional tags for organization
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let note_id = home.create_note(
-    ///     "Meeting Notes",
-    ///     "# Project Update\n\n- Item 1\n- Item 2",
-    ///     vec!["work".into(), "meeting".into()],
-    /// ).await?;
-    /// ```
-    pub async fn create_note(
-        &self,
-        title: impl Into<String>,
-        content: impl Into<String>,
-        tags: Vec<String>,
-    ) -> Result<NoteId> {
-        let note = Note::with_tags(title, content, self.self_id, tags);
-        let note_id = note.id;
-
-        let doc = self.notes().await?;
-        doc.update(|d| {
-            d.add(note);
-        })
-        .await?;
-
-        Ok(note_id)
-    }
-
-    /// Update an existing note's content.
-    pub async fn update_note(
-        &self,
-        note_id: NoteId,
-        content: impl Into<String>,
-    ) -> Result<()> {
-        let content = content.into();
-        let doc = self.notes().await?;
-        doc.update(|d| {
-            if let Some(note) = d.find_mut(&note_id) {
-                note.update_content(content);
-            }
-        })
-        .await?;
-
-        Ok(())
-    }
-
-    /// Delete a note.
-    pub async fn delete_note(&self, note_id: NoteId) -> Result<Option<Note>> {
-        let mut removed = None;
-        let doc = self.notes().await?;
-        doc.update(|d| {
-            removed = d.remove(&note_id);
-        })
-        .await?;
-
-        Ok(removed)
     }
 
     // ============================================================
@@ -685,12 +480,43 @@ impl HomeRealm {
     }
 
     // ============================================================
+    // Documents (generic)
+    // ============================================================
+
+    /// Get a typed document by name.
+    ///
+    /// This is the generic document accessor for HomeRealm, analogous to
+    /// `Realm::document()`. Extension traits in the sync-engine layer use
+    /// this to create domain-specific documents (quests, notes, etc.).
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let doc = home.document::<MyDocument>("my-doc").await?;
+    /// doc.update(|d| d.items.push(item)).await?;
+    /// ```
+    pub async fn document<T: crate::document::DocumentSchema>(
+        &self,
+        name: &str,
+    ) -> Result<Document<T>> {
+        Document::new(self.id, name.to_string(), Arc::clone(&self.node)).await
+    }
+
+    // ============================================================
     // Escape hatches
     // ============================================================
 
     /// Access the underlying node.
     pub fn node(&self) -> &IndrasNode {
         &self.node
+    }
+
+    /// Get a cloned Arc to the underlying node.
+    ///
+    /// Useful for extension traits that need ownership of the Arc
+    /// to create Document instances.
+    pub fn node_arc(&self) -> Arc<IndrasNode> {
+        Arc::clone(&self.node)
     }
 }
 

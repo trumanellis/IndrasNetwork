@@ -17,7 +17,7 @@
 //! - **Realm-scoped**: Tokens live within the realm where they were minted
 
 use crate::blessing::BlessingId;
-use crate::member::MemberId;
+use indras_network::member::MemberId;
 use crate::quest::QuestId;
 
 use serde::{Deserialize, Serialize};

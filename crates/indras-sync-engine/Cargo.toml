@@ -1,0 +1,43 @@
+[package]
+name = "indras-sync-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "SyncEngine app layer for Indra's Network — quests, blessings, tokens, attention, and proof-of-service"
+keywords = ["p2p", "sync", "quest", "collaboration"]
+categories = ["network-programming"]
+
+[dependencies]
+# The network SDK
+indras-network = { path = "../indras-network" }
+
+# Internal crates needed by domain modules
+indras-core.workspace = true
+indras-node = { path = "../indras-node" }
+indras-storage = { path = "../indras-storage" }
+indras-transport = { path = "../indras-transport" }
+indras-crypto = { path = "../indras-crypto" }
+
+# Async runtime
+tokio = { workspace = true, features = ["sync"] }
+futures = "0.3"
+async-stream = "0.3"
+
+# Serialization
+serde.workspace = true
+serde_json = "1"
+postcard.workspace = true
+
+# Utilities
+blake3 = "1"
+hex = "0.4"
+thiserror.workspace = true
+tracing.workspace = true
+derive_more.workspace = true
+chrono.workspace = true
+rand.workspace = true
+
+[dev-dependencies]
+tokio-test.workspace = true
+tempfile = "3"

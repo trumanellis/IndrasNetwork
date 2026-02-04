@@ -11,8 +11,8 @@
 //!
 //! Quests are CRDT-synchronized across all realm members.
 
-use crate::artifact::ArtifactId;
-use crate::member::MemberId;
+use indras_network::artifact::ArtifactId;
+use indras_network::member::MemberId;
 use crate::proof_folder::ProofFolderId;
 
 use serde::{Deserialize, Serialize};

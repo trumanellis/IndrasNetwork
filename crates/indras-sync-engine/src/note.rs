@@ -5,7 +5,7 @@
 //!
 //! Notes are CRDT-synchronized across all realm members.
 
-use crate::member::MemberId;
+use indras_network::member::MemberId;
 
 use serde::{Deserialize, Serialize};
 

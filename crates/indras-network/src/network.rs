@@ -3,10 +3,13 @@
 //! Provides a high-level API for building P2P applications on Indra's Network.
 
 use crate::config::{NetworkBuilder, NetworkConfig, Preset};
+use crate::connection::{
+    connection_realm_id, ConnectionDocument, ConnectionOffer, ConnectionAccept,
+    ConnectionStatus, PendingConnection,
+};
 use crate::contacts::{contacts_realm_id, ContactsRealm};
 use crate::document::Document;
 use crate::error::{IndraError, Result};
-use crate::handshake::{inbox_interface_id, ConnectionRequest, HandshakeDocument};
 use crate::home_realm::{home_realm_id, HomeRealm};
 use crate::invite::InviteCode;
 use crate::member::{Member, MemberId};
@@ -17,7 +20,7 @@ use indras_core::InterfaceId;
 use indras_crypto::InterfaceKey;
 use indras_node::{IndrasNode, InviteKey, ReceivedEvent};
 use indras_storage::CompositeStorage;
-use indras_transport::IrohIdentity;
+use indras_transport::{IrohIdentity, PeerEvent};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -100,6 +103,8 @@ pub struct IndrasNetwork {
     contacts_realm: RwLock<Option<ContactsRealm>>,
     /// The home realm (lazily initialized).
     home_realm: RwLock<Option<HomeRealm>>,
+    /// Active outgoing connection invites, keyed by connection realm ID.
+    pending_connections: Arc<DashMap<RealmId, PendingConnection>>,
     /// Configuration.
     config: NetworkConfig,
     /// Our identity.
@@ -189,6 +194,7 @@ impl IndrasNetwork {
             peer_realms: Arc::new(DashMap::new()),
             contacts_realm: RwLock::new(None),
             home_realm: RwLock::new(None),
+            pending_connections: Arc::new(DashMap::new()),
             config,
             identity,
         })
@@ -616,31 +622,27 @@ impl IndrasNetwork {
             ));
         }
 
-        // Clean up any pending connection request from the blocked member in our inbox
-        let my_hex = hex::encode(&self.id());
-        let inbox_name = format!("inbox:{}", my_hex);
+        // Clean up any pending connection realms involving the blocked member
         let blocked_id = *member_id;
-        if let Ok(doc) = Document::<HandshakeDocument>::new(
-            contacts.id(),
-            inbox_name,
-            Arc::clone(&self.inner),
-        ).await {
-            let _ = doc.update(|inbox| {
-                inbox.remove_request(&blocked_id);
-            }).await;
-        }
-
-        // Also clean from P2P inbox if it exists
-        let p2p_inbox_id = inbox_interface_id(self.id());
-        if self.inner.interface_key(&p2p_inbox_id).is_some() {
-            if let Ok(doc) = Document::<HandshakeDocument>::new(
-                p2p_inbox_id,
-                "inbox".to_string(),
+        let connection_realms_to_clean: Vec<RealmId> = self
+            .pending_connections
+            .iter()
+            .map(|entry| *entry.key())
+            .collect();
+        for conn_realm_id in connection_realms_to_clean {
+            if let Ok(doc) = Document::<ConnectionDocument>::new(
+                conn_realm_id,
+                "connection".to_string(),
                 Arc::clone(&self.inner),
             ).await {
-                let _ = doc.update(|inbox| {
-                    inbox.remove_request(&blocked_id);
-                }).await;
+                let data = doc.read().await;
+                let involves_blocked = data.get_offer().map_or(false, |o| o.member_id == blocked_id)
+                    || data.all_accepts().contains_key(&blocked_id);
+                drop(data);
+                if involves_blocked {
+                    let _ = self.inner.leave_interface(&conn_realm_id).await;
+                    self.pending_connections.remove(&conn_realm_id);
+                }
             }
         }
 
@@ -666,146 +668,112 @@ impl IndrasNetwork {
     }
 
     // ============================================================
-    // Sentiment queries
+    // Connection invites (realm-based bidirectional handshake)
     // ============================================================
 
-    /// Query the aggregate sentiment view about a member.
+    /// Create a connection invite for this network identity.
     ///
-    /// Returns direct sentiment from your own contacts who know the target,
-    /// plus second-degree relayed sentiment from contacts' contacts.
-    /// Only contacts with `relayable: true` contribute to relayed signals.
-    ///
-    /// This is scoped to your local view — you never see sentiment from
-    /// people outside your contact graph. A thousand fake nodes rating
-    /// someone negatively are invisible if none of them are your contacts.
-    pub async fn query_sentiment(
-        &self,
-        about: &MemberId,
-        relay_documents: &std::collections::HashMap<MemberId, crate::sentiment::SentimentRelayDocument>,
-    ) -> Result<crate::sentiment::SentimentView> {
-        let contacts_realm = {
-            let guard = self.contacts_realm.read().await;
-            guard.clone()
-        };
-
-        let contacts = contacts_realm.ok_or_else(|| {
-            IndraError::InvalidOperation(
-                "Must join contacts realm before querying sentiment.".to_string(),
-            )
-        })?;
-
-        let mut view = crate::sentiment::SentimentView::default();
-
-        // Collect direct sentiment from our contacts
-        let doc = contacts.contacts_with_sentiment();
-        for (contact_id, _sentiment) in &doc {
-            if contact_id == about {
-                // This IS the person we're asking about — skip (they're in our contacts)
-                continue;
-            }
-            // Check if this contact knows the target by looking at their relay doc
-            if let Some(relay_doc) = relay_documents.get(contact_id) {
-                if let Some(relayed_sentiment) = relay_doc.get(about) {
-                    // This contact has an opinion about the target — that's a direct signal
-                    view.direct.push((*contact_id, relayed_sentiment));
-                }
-            }
-        }
-
-        // Collect second-degree relayed sentiment
-        for (contact_id, _sentiment) in &doc {
-            if contact_id == about {
-                continue;
-            }
-            if let Some(relay_doc) = relay_documents.get(contact_id) {
-                // Look at this contact's other ratings for second-degree signals
-                for (rated_id, rated_sentiment) in relay_doc.iter() {
-                    if rated_id == about {
-                        // Already captured as direct above
-                        continue;
-                    }
-                    // This is a second-degree signal: our contact rates someone,
-                    // and that someone also rates the target. For now, we only
-                    // do one level of relay (our contacts' direct opinions).
-                    // The direct signals above already capture contacts' opinions
-                    // about the target.
-                    let _ = (rated_id, rated_sentiment);
-                }
-            }
-        }
-
-        Ok(view)
-    }
-
-    // ============================================================
-    // Contact invites
-    // ============================================================
-
-    /// Generate a contact invite code for this network identity.
-    ///
-    /// The invite code contains your member ID, display name, and
-    /// transport bootstrap info so the acceptor can establish a P2P
-    /// connection to deliver the connection request.
-    ///
-    /// Creates a personal inbox interface (deterministic from member ID)
-    /// and embeds its ID, bootstrap address, and encryption key in the
-    /// invite code.
-    pub async fn contact_invite_code(&self) -> Result<crate::contact_invite::ContactInviteCode> {
+    /// Generates a random nonce, derives a connection realm, seeds it with
+    /// a `ConnectionOffer` containing our identity and PQ keys, and returns
+    /// an invite code that can be shared out-of-band.
+    pub async fn create_connection_invite(&self) -> Result<crate::contact_invite::ContactInviteCode> {
         // Ensure network is started
         if !self.is_running() {
             self.start().await?;
         }
 
         let my_id = self.id();
-        let inbox_id = inbox_interface_id(my_id);
 
-        // Create (or get existing) inbox interface
+        // 1. Generate random 16-byte nonce
+        let nonce: [u8; 16] = rand::random();
+
+        // 2. Derive connection realm ID
+        let realm_id = connection_realm_id(my_id, nonce);
+
+        // 3. Create the connection realm interface
         let (_iface_id, invite_key) = self
             .inner
-            .create_interface_with_id(inbox_id, Some("Inbox"))
+            .create_interface_with_id(realm_id, Some("Connection"))
             .await?;
 
-        // Get the interface encryption key
-        let iface_key = self.inner.interface_key(&inbox_id);
+        // 4. Get the interface encryption key
+        let iface_key = self.inner.interface_key(&realm_id).ok_or_else(|| {
+            IndraError::InvalidOperation("Connection realm key not found after creation".to_string())
+        })?;
 
-        // Build the contact invite code with transport info
-        let mut code = crate::contact_invite::ContactInviteCode::new(
-            my_id,
-            self.display_name().map(|s| s.to_string()),
+        // 5. Seed ConnectionOffer
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
+        let endpoint_addr = if let Some(addr) = self.inner.endpoint_addr().await {
+            postcard::to_allocvec(&addr).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+
+        let offer = ConnectionOffer {
+            member_id: my_id,
+            display_name: self.display_name().map(|s| s.to_string()),
+            pq_encapsulation_key: self.inner.pq_kem_keypair().encapsulation_key_bytes(),
+            pq_verifying_key: self.inner.pq_identity().verifying_key_bytes(),
+            endpoint_addr,
+            timestamp_millis: now,
+        };
+
+        let doc: Document<ConnectionDocument> = Document::new(
+            realm_id,
+            "connection".to_string(),
+            Arc::clone(&self.inner),
+        )
+        .await?;
+
+        doc.update(|conn| {
+            conn.set_offer(offer);
+        })
+        .await?;
+
+        // 6. Register in pending_connections
+        self.pending_connections.insert(
+            realm_id,
+            PendingConnection {
+                realm_id,
+                nonce,
+                created_at: now,
+                status: ConnectionStatus::AwaitingAccept,
+            },
         );
 
-        // Attach inbox transport info if we have everything
-        if let Some(ref key) = iface_key {
-            // Get bootstrap address from the invite key
-            let bootstrap = invite_key
-                .bootstrap_peers
-                .first()
-                .cloned()
-                .unwrap_or_default();
+        // 7. Build and return ContactInviteCode
+        let bootstrap = invite_key
+            .bootstrap_peers
+            .first()
+            .cloned()
+            .unwrap_or_default();
 
-            if !bootstrap.is_empty() {
-                code = code.with_inbox(
-                    *inbox_id.as_bytes(),
-                    bootstrap,
-                    *key.as_bytes(),
-                );
-            }
-        }
+        let code = crate::contact_invite::ContactInviteCode::new(
+            my_id,
+            self.display_name().map(|s| s.to_string()),
+            nonce,
+            bootstrap,
+            *iface_key.as_bytes(),
+        );
+
+        tracing::info!(
+            realm = %hex::encode(&realm_id.as_bytes()[..8]),
+            "Created connection invite"
+        );
 
         Ok(code)
     }
 
-    /// Accept a contact invite code, adding the inviter as a contact.
+    /// Accept a connection invite code, completing the bidirectional handshake.
     ///
-    /// This adds the inviter to your contact list, then uses the transport
-    /// bootstrap info embedded in the invite to join the inviter's inbox
-    /// interface and write a `ConnectionRequest` there. The inviter's node
-    /// picks it up via `process_handshake_inbox()`, completing the
-    /// bidirectional connection.
-    ///
-    /// Falls back to the contacts realm inbox if the invite doesn't
-    /// contain transport info (backward compatibility).
-    pub async fn accept_contact_invite(
+    /// Derives the connection realm from the invite, joins it, reads the
+    /// inviter's `ConnectionOffer`, writes a `ConnectionAccept` with our info,
+    /// adds the inviter as a Confirmed contact, and connects transport.
+    pub async fn accept_connection_invite(
         &self,
         code: &crate::contact_invite::ContactInviteCode,
     ) -> Result<()> {
@@ -814,11 +782,87 @@ impl IndrasNetwork {
             self.start().await?;
         }
 
-        // 1. Add inviter as contact with their display name
-        let contacts = self.join_contacts_realm().await?;
-        let already_contact = contacts.is_contact(&code.member_id()).await;
+        // 1. Derive connection realm ID from inviter's member_id + nonce
+        let realm_id = connection_realm_id(code.member_id(), *code.connection_nonce());
 
-        if !already_contact {
+        // 2. Set the interface encryption key from the invite
+        let iface_key = InterfaceKey::from_bytes(*code.realm_key(), realm_id);
+        self.inner.set_interface_key(realm_id, iface_key);
+
+        // 3. Join the connection realm
+        let invite = InviteKey::new(realm_id)
+            .with_bootstrap(code.bootstrap().to_vec());
+
+        self.inner.join_interface(invite).await?;
+
+        // 4. Connect to bootstrap for transport
+        if !code.bootstrap().is_empty() {
+            if let Err(e) = self.inner.connect_to_bootstrap(code.bootstrap()).await {
+                tracing::debug!(error = %e, "Bootstrap connectivity with inviter (non-fatal)");
+            }
+        }
+
+        // 5. Read ConnectionOffer with retry (wait for CRDT sync)
+        let doc: Document<ConnectionDocument> = Document::new(
+            realm_id,
+            "connection".to_string(),
+            Arc::clone(&self.inner),
+        )
+        .await?;
+
+        let mut offer = None;
+        for attempt in 0..3 {
+            if attempt > 0 {
+                tokio::time::sleep(std::time::Duration::from_millis(500 * (1 << attempt))).await;
+            }
+            let data = doc.read().await;
+            if let Some(o) = data.get_offer() {
+                offer = Some(o.clone());
+                break;
+            }
+            drop(data);
+        }
+
+        let offer = offer.ok_or_else(|| {
+            IndraError::InvalidOperation("Connection offer not found in realm after retries".to_string())
+        })?;
+
+        // 6. Validate offer's member_id matches invite
+        if offer.member_id != code.member_id() {
+            return Err(IndraError::InvalidOperation(
+                "Connection offer member_id does not match invite".to_string(),
+            ));
+        }
+
+        // 7. Write ConnectionAccept with our info
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
+        let endpoint_addr = if let Some(addr) = self.inner.endpoint_addr().await {
+            postcard::to_allocvec(&addr).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+
+        let accept = ConnectionAccept {
+            member_id: self.id(),
+            display_name: self.display_name().map(|s| s.to_string()),
+            pq_encapsulation_key: self.inner.pq_kem_keypair().encapsulation_key_bytes(),
+            pq_verifying_key: self.inner.pq_identity().verifying_key_bytes(),
+            endpoint_addr,
+            timestamp_millis: now,
+        };
+
+        doc.update(|conn| {
+            conn.add_accept(accept);
+        })
+        .await?;
+
+        // 8. Add inviter as Confirmed contact
+        let contacts = self.join_contacts_realm().await?;
+        if !contacts.is_contact(&code.member_id()).await {
             contacts
                 .add_contact_with_name(
                     code.member_id(),
@@ -826,119 +870,214 @@ impl IndrasNetwork {
                 )
                 .await?;
         }
+        let _ = contacts.confirm_contact(&code.member_id()).await;
 
-        // 2. Build the connection request
-        let my_id = self.id();
-        let my_name = self.display_name().map(|s| s.to_string());
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-
-        let request = ConnectionRequest {
-            member_id: my_id,
-            display_name: my_name,
-            timestamp_millis: now,
-        };
-
-        // 3. Try to write connection request; roll back contact on failure
-        let write_result = self.write_connection_request(&contacts, code, request).await;
-
-        match write_result {
-            Ok(()) => Ok(()),
-            Err(e) => {
-                // Roll back contact addition if this was a new contact
-                if !already_contact {
-                    let _ = contacts.remove_contact(&code.member_id()).await;
-                    tracing::warn!(
-                        inviter = %hex::encode(&code.member_id()[..8]),
-                        error = %e,
-                        "Rolled back contact addition after connection request failure"
-                    );
-                }
-                Err(e)
-            }
-        }
-    }
-
-    /// Write a connection request to the inviter's inbox.
-    ///
-    /// Tries P2P inbox first, falls back to contacts realm inbox.
-    async fn write_connection_request(
-        &self,
-        contacts: &ContactsRealm,
-        code: &crate::contact_invite::ContactInviteCode,
-        request: ConnectionRequest,
-    ) -> Result<()> {
-        // Try P2P path: join inviter's inbox interface and send request
-        if let (Some(inbox_id_bytes), Some(bootstrap), Some(key_bytes)) =
-            (code.inbox_id(), code.bootstrap(), code.inbox_key())
-        {
-            let inbox_id = InterfaceId::new(*inbox_id_bytes);
-
-            // Insert the inviter's inbox key so we can encrypt messages to it
-            let iface_key = InterfaceKey::from_bytes(*key_bytes, inbox_id);
-            self.inner.set_interface_key(inbox_id, iface_key);
-
-            // Build an InviteKey with the bootstrap address to join the interface
-            let invite = InviteKey::new(inbox_id)
-                .with_bootstrap(bootstrap.to_vec());
-
-            // Join the inviter's inbox interface (connects via P2P transport)
-            match self.inner.join_interface(invite).await {
-                Ok(_) => {
-                    // Write the ConnectionRequest to the inbox via a document
-                    let doc: Document<HandshakeDocument> = Document::new(
-                        inbox_id,
-                        "inbox".to_string(),
-                        Arc::clone(&self.inner),
-                    )
-                    .await?;
-
-                    doc.update(|inbox| {
-                        inbox.add_request(request.clone());
-                    })
-                    .await?;
-
-                    tracing::info!(
-                        inviter = %hex::encode(&code.member_id()[..8]),
-                        "Sent connection request via P2P inbox interface"
-                    );
-
-                    return Ok(());
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        error = %e,
-                        "P2P inbox join failed, falling back to contacts realm"
-                    );
-                    // Fall through to contacts realm path
-                }
+        // 9. Connect transport to inviter via their offer's endpoint
+        if !offer.endpoint_addr.is_empty() {
+            if let Err(e) = self.inner.connect_to_bootstrap(&offer.endpoint_addr).await {
+                tracing::debug!(error = %e, "Transport connect to inviter (non-fatal)");
             }
         }
 
-        // Fallback: write to contacts realm inbox document
-        let inviter_hex = hex::encode(&code.member_id());
-        let inbox_name = format!("inbox:{}", inviter_hex);
-
-        let doc: Document<HandshakeDocument> = Document::new(
-            contacts.id(),
-            inbox_name,
-            Arc::clone(&self.inner),
-        )
-        .await?;
-
-        doc.update(|inbox| {
-            inbox.add_request(request);
-        })
-        .await?;
+        // 10. Schedule deferred cleanup of connection realm
+        let inner = Arc::clone(&self.inner);
+        let cleanup_realm_id = realm_id;
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            if let Err(e) = inner.leave_interface(&cleanup_realm_id).await {
+                tracing::debug!(error = %e, "Connection realm cleanup (non-fatal)");
+            }
+        });
 
         tracing::info!(
             inviter = %hex::encode(&code.member_id()[..8]),
-            "Wrote connection request to inviter's inbox in contacts realm (fallback)"
+            "Accepted connection invite"
         );
 
         Ok(())
+    }
+
+    /// Spawn a background listener for incoming connection accepts.
+    ///
+    /// Subscribes to `PeerEvent::RealmPeerJoined` and checks if the
+    /// joined realm is a pending connection. When found, reads the
+    /// `ConnectionDocument` for accepts, adds contacts, and cleans up.
+    pub async fn spawn_connection_listener(&self) -> Result<()> {
+        let peer_events = self.inner.subscribe_peer_events().await;
+        let Some(mut peer_rx) = peer_events else {
+            tracing::debug!("No transport available for connection listener");
+            return Ok(());
+        };
+
+        let inner = Arc::clone(&self.inner);
+        let pending = Arc::clone(&self.pending_connections);
+        let my_id = self.id();
+
+        tokio::spawn(async move {
+            loop {
+                match peer_rx.recv().await {
+                    Ok(PeerEvent::RealmPeerJoined { interface_id, .. }) => {
+                        // Check if this is a pending connection realm
+                        if !pending.contains_key(&interface_id) {
+                            continue;
+                        }
+
+                        // Wait for CRDT sync
+                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+                        // Read ConnectionDocument and extract accepts (scoped to drop doc before awaits)
+                        let accepts = {
+                            let doc: std::result::Result<Document<ConnectionDocument>, _> =
+                                Document::new(
+                                    interface_id,
+                                    "connection".to_string(),
+                                    Arc::clone(&inner),
+                                )
+                                .await;
+
+                            let Ok(doc) = doc else {
+                                tracing::debug!("Failed to read connection document");
+                                continue;
+                            };
+
+                            let data = doc.read().await;
+                            let accepts = data.all_accepts().clone();
+                            drop(data);
+                            drop(doc);
+                            accepts
+                        };
+
+                        if accepts.is_empty() {
+                            continue;
+                        }
+
+                        // Collect accept info for processing (avoid holding Document across awaits)
+                        let mut new_contacts: Vec<(MemberId, Option<String>, Vec<u8>)> = Vec::new();
+                        for (acceptor_id, accept) in &accepts {
+                            if *acceptor_id == my_id {
+                                continue;
+                            }
+                            new_contacts.push((
+                                *acceptor_id,
+                                accept.display_name.clone(),
+                                accept.endpoint_addr.clone(),
+                            ));
+                        }
+
+                        // Process contacts and transport connections
+                        for (acceptor_id, display_name, endpoint_addr) in &new_contacts {
+                            // Connect transport to acceptor
+                            if !endpoint_addr.is_empty() {
+                                if let Err(e) =
+                                    inner.connect_to_bootstrap(endpoint_addr).await
+                                {
+                                    tracing::debug!(
+                                        error = %e,
+                                        "Transport connect to acceptor (non-fatal)"
+                                    );
+                                }
+                            }
+
+                            tracing::info!(
+                                acceptor = %hex::encode(&acceptor_id[..8]),
+                                name = ?display_name,
+                                "Connection accept received"
+                            );
+                        }
+
+                        // Store accepts for later contact processing via process_pending_accepts()
+                        if let Some(mut entry) = pending.get_mut(&interface_id) {
+                            entry.status = ConnectionStatus::AcceptReceived;
+                        }
+
+                        // Schedule deferred cleanup
+                        let cleanup_inner = Arc::clone(&inner);
+                        let cleanup_pending = Arc::clone(&pending);
+                        let cleanup_id = interface_id;
+                        tokio::spawn(async move {
+                            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                            if let Err(e) = cleanup_inner.leave_interface(&cleanup_id).await {
+                                tracing::debug!(error = %e, "Connection realm cleanup");
+                            }
+                            cleanup_pending.remove(&cleanup_id);
+                        });
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::debug!(lagged = n, "Connection listener lagged, continuing");
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        tracing::debug!("Connection listener channel closed");
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        });
+
+        Ok(())
+    }
+
+    /// Process pending connection accepts — add acceptors as confirmed contacts.
+    ///
+    /// Called periodically or after receiving a connection accept notification.
+    /// This is separated from the listener to avoid holding non-Send types
+    /// across await points in the spawned task.
+    pub async fn process_pending_accepts(&self) -> Result<usize> {
+        let contacts = self.join_contacts_realm().await?;
+        let mut processed = 0;
+
+        // Collect realms with AcceptReceived status
+        let received: Vec<RealmId> = self
+            .pending_connections
+            .iter()
+            .filter(|e| e.status == ConnectionStatus::AcceptReceived)
+            .map(|e| *e.key())
+            .collect();
+
+        for realm_id in received {
+            let doc: Document<ConnectionDocument> = match Document::new(
+                realm_id,
+                "connection".to_string(),
+                Arc::clone(&self.inner),
+            )
+            .await
+            {
+                Ok(d) => d,
+                Err(_) => continue,
+            };
+
+            let data = doc.read().await;
+            let accepts = data.all_accepts().clone();
+            drop(data);
+
+            let my_id = self.id();
+            for (acceptor_id, accept) in &accepts {
+                if *acceptor_id == my_id {
+                    continue;
+                }
+
+                if !contacts.is_contact(acceptor_id).await {
+                    let _ = contacts
+                        .add_contact_with_name(*acceptor_id, accept.display_name.clone())
+                        .await;
+                }
+                let _ = contacts.confirm_contact(acceptor_id).await;
+                processed += 1;
+
+                tracing::info!(
+                    acceptor = %hex::encode(&acceptor_id[..8]),
+                    name = ?accept.display_name,
+                    "Contact confirmed from connection accept"
+                );
+            }
+
+            // Mark complete
+            if let Some(mut entry) = self.pending_connections.get_mut(&realm_id) {
+                entry.status = ConnectionStatus::Complete;
+            }
+        }
+
+        Ok(processed)
     }
 
     // ============================================================
@@ -1015,159 +1154,6 @@ impl IndrasNetwork {
     }
 
     // ============================================================
-    // Connection inbox (store-and-forward via contacts realm)
-    // ============================================================
-
-    /// Process pending connection requests from our inbox.
-    ///
-    /// Checks two sources:
-    /// 1. **P2P inbox interface** — the deterministic inbox interface created
-    ///    by `contact_invite_code()`. When someone accepts our invite with
-    ///    transport info, they join this interface and write a `ConnectionRequest`.
-    /// 2. **Contacts realm inbox** (fallback) — the per-user inbox document
-    ///    in the shared contacts realm for backward compatibility.
-    ///
-    /// For each pending request, adds the requester as a contact with
-    /// their display name, then removes the processed request.
-    ///
-    /// Returns the number of new contacts added.
-    pub async fn process_handshake_inbox(&self) -> Result<usize> {
-        let contacts = self.join_contacts_realm().await?;
-        let my_id = self.id();
-        let mut total_added = 0;
-
-        // --- Source 1: P2P inbox interface ---
-        let inbox_id = inbox_interface_id(my_id);
-        // Only check if we've created the inbox (i.e., the interface exists)
-        if self.inner.interface_key(&inbox_id).is_some() {
-            match Document::<HandshakeDocument>::new(
-                inbox_id,
-                "inbox".to_string(),
-                Arc::clone(&self.inner),
-            )
-            .await
-            {
-                Ok(doc) => {
-                    let added = self
-                        .process_inbox_document(&doc, &contacts)
-                        .await?;
-                    total_added += added;
-                }
-                Err(e) => {
-                    tracing::debug!(error = %e, "P2P inbox document read skipped");
-                }
-            }
-        }
-
-        // --- Source 2: Contacts realm inbox (fallback) ---
-        let my_hex = hex::encode(&my_id);
-        let inbox_name = format!("inbox:{}", my_hex);
-
-        let doc: Document<HandshakeDocument> = Document::new(
-            contacts.id(),
-            inbox_name,
-            Arc::clone(&self.inner),
-        )
-        .await?;
-
-        let added = self.process_inbox_document(&doc, &contacts).await?;
-        total_added += added;
-
-        Ok(total_added)
-    }
-
-    /// Process a single inbox document: read pending requests, add contacts, remove processed.
-    async fn process_inbox_document(
-        &self,
-        doc: &Document<HandshakeDocument>,
-        contacts: &ContactsRealm,
-    ) -> Result<usize> {
-        // Prune expired requests first
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-        let _ = doc.update(|inbox| {
-            let pruned = inbox.prune_expired_default(now);
-            if pruned > 0 {
-                tracing::debug!(pruned, "Pruned expired inbox requests");
-            }
-        }).await;
-
-        let data = doc.read().await;
-        let pending: Vec<ConnectionRequest> = data.pending_requests().cloned().collect();
-        drop(data);
-
-        if pending.is_empty() {
-            return Ok(0);
-        }
-
-        let my_id = self.id();
-        let mut added = 0;
-        let mut processed_ids: Vec<MemberId> = Vec::new();
-
-        for request in &pending {
-            // Skip self
-            if request.member_id == my_id {
-                processed_ids.push(request.member_id);
-                continue;
-            }
-
-            // Add as contact with their display name
-            // Check if already a contact (confirms bidirectional connection)
-            let already_contact = contacts.is_contact(&request.member_id).await;
-
-            if already_contact {
-                // Upgrade to Confirmed status
-                let _ = contacts.confirm_contact(&request.member_id).await;
-                tracing::info!(
-                    member = %hex::encode(&request.member_id[..8]),
-                    "Contact confirmed (bidirectional handshake complete)"
-                );
-                processed_ids.push(request.member_id);
-                added += 1;
-            } else {
-                match contacts
-                    .add_contact_with_name(request.member_id, request.display_name.clone())
-                    .await
-                {
-                    Ok(()) => {
-                        // New contact from inbox — mark as Confirmed since they initiated
-                        let _ = contacts.confirm_contact(&request.member_id).await;
-                        tracing::info!(
-                            member = %hex::encode(&request.member_id[..8]),
-                            name = ?request.display_name,
-                            "Added and confirmed contact from inbox"
-                        );
-                        added += 1;
-                        processed_ids.push(request.member_id);
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            member = %hex::encode(&request.member_id[..8]),
-                            error = %e,
-                            "Failed to add contact from inbox, will retry"
-                        );
-                        // Do NOT push to processed_ids — leave in inbox for retry
-                    }
-                }
-            }
-        }
-
-        // Remove processed requests
-        if !processed_ids.is_empty() {
-            doc.update(|inbox| {
-                for id in &processed_ids {
-                    inbox.remove_request(id);
-                }
-            })
-            .await?;
-        }
-
-        Ok(added)
-    }
-
-    // ============================================================
     // Home realm
     // ============================================================
 
@@ -1187,19 +1173,11 @@ impl IndrasNetwork {
     /// ```ignore
     /// let home = network.home_realm().await?;
     ///
-    /// // Create a personal note
-    /// let note_id = home.create_note(
-    ///     "My Note",
-    ///     "# Hello\n\nContent here",
-    ///     vec!["personal".into()],
-    /// ).await?;
+    /// // Upload a file
+    /// let artifact_id = home.upload("photo.png").await?;
     ///
-    /// // Create a personal quest
-    /// let quest_id = home.create_quest(
-    ///     "Personal Task",
-    ///     "Do something productive",
-    ///     None,
-    /// ).await?;
+    /// // Grant access to another member
+    /// home.grant_access(&artifact_id, peer_id, AccessMode::Read).await?;
     /// ```
     pub async fn home_realm(&self) -> Result<HomeRealm> {
         // Check if already initialized
@@ -1234,9 +1212,6 @@ impl IndrasNetwork {
 
         // Create the home realm wrapper
         let home = HomeRealm::new(realm_id, Arc::clone(&self.inner), self.id()).await?;
-
-        // Seed welcome quest on first creation (idempotent)
-        home.seed_welcome_quest_if_empty().await?;
 
         // Cache it
         {

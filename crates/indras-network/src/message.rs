@@ -4,9 +4,6 @@
 //! messaging infrastructure.
 
 use crate::member::{Member, MemberId};
-use crate::proof_folder::ProofFolderId;
-use crate::quest::QuestId;
-use crate::token_of_gratitude::TokenOfGratitudeId;
 use chrono::{DateTime, Utc};
 use indras_core::{EventId, InterfaceId};
 use serde::{Deserialize, Serialize};
@@ -141,49 +138,15 @@ pub enum Content {
     /// System message (join, leave, etc.).
     System(String),
 
-    /// Proof submitted for a quest claim.
+    /// Extension content from app layers.
     ///
-    /// Posted automatically when a member submits a quest claim with proof.
-    ProofSubmitted {
-        /// The quest being claimed.
-        quest_id: QuestId,
-        /// The member submitting the proof.
-        claimant: MemberId,
-        /// The artifact serving as proof.
-        artifact: ArtifactRef,
-    },
-
-    /// Blessing given to a quest proof.
-    ///
-    /// Posted automatically when a member blesses a proof submission
-    /// by releasing their accumulated attention.
-    BlessingGiven {
-        /// The quest being blessed.
-        quest_id: QuestId,
-        /// The member who submitted the proof.
-        claimant: MemberId,
-        /// The member giving the blessing.
-        blesser: MemberId,
-        /// Indices into AttentionDocument.events being released.
-        event_indices: Vec<usize>,
-    },
-
-    /// Proof folder submitted for review.
-    ///
-    /// Posted automatically when a member submits a proof folder for a quest.
-    /// This notification is only sent when the claimant explicitly submits
-    /// the folder (not during draft editing).
-    ProofFolderSubmitted {
-        /// The quest this proof is for.
-        quest_id: QuestId,
-        /// The member submitting the proof.
-        claimant: MemberId,
-        /// The proof folder ID.
-        folder_id: ProofFolderId,
-        /// Preview of the narrative (first ~100 chars).
-        narrative_preview: String,
-        /// Number of artifacts in the folder.
-        artifact_count: usize,
+    /// Apps built on Indra's Network (like SyncEngine) serialize their
+    /// domain-specific content types into this variant for transport.
+    Extension {
+        /// Type identifier for the extension (e.g., "indras-sync-engine/v1").
+        type_id: String,
+        /// Serialized payload (typically postcard-encoded).
+        payload: Vec<u8>,
     },
 
     /// Artifact was recalled/unshared.
@@ -243,44 +206,6 @@ pub enum Content {
         title: Option<String>,
         /// Items in the gallery with thumbnails.
         items: Vec<GalleryItemRef>,
-    },
-
-    /// Gratitude pledged to a quest as a bounty.
-    ///
-    /// Posted automatically when a steward pledges a Token of Gratitude to a quest.
-    GratitudePledged {
-        /// The token being pledged.
-        token_id: TokenOfGratitudeId,
-        /// The steward pledging the token.
-        pledger: MemberId,
-        /// The quest the token is pledged to.
-        target_quest_id: QuestId,
-    },
-
-    /// Gratitude released to a proof submitter (steward transfer).
-    ///
-    /// Posted automatically when a pledged token is released to a new steward.
-    GratitudeReleased {
-        /// The token being released.
-        token_id: TokenOfGratitudeId,
-        /// Who is releasing the token.
-        from_steward: MemberId,
-        /// Who is receiving the token.
-        to_steward: MemberId,
-        /// The quest the token was pledged to.
-        target_quest_id: QuestId,
-    },
-
-    /// Gratitude pledge withdrawn by the steward.
-    ///
-    /// Posted automatically when a steward withdraws a token pledge from a quest.
-    GratitudeWithdrawn {
-        /// The token being withdrawn.
-        token_id: TokenOfGratitudeId,
-        /// The steward withdrawing the pledge.
-        steward: MemberId,
-        /// The quest the token was pledged to.
-        target_quest_id: QuestId,
     },
 
     /// Access granted to an artifact.
@@ -358,19 +283,17 @@ impl Content {
         matches!(self, Content::System(_))
     }
 
-    /// Check if this is a proof submission message.
-    pub fn is_proof_submitted(&self) -> bool {
-        matches!(self, Content::ProofSubmitted { .. })
+    /// Check if this is an extension message.
+    pub fn is_extension(&self) -> bool {
+        matches!(self, Content::Extension { .. })
     }
 
-    /// Check if this is a blessing message.
-    pub fn is_blessing_given(&self) -> bool {
-        matches!(self, Content::BlessingGiven { .. })
-    }
-
-    /// Check if this is a proof folder submitted message.
-    pub fn is_proof_folder_submitted(&self) -> bool {
-        matches!(self, Content::ProofFolderSubmitted { .. })
+    /// Get the extension type_id if this is an Extension message.
+    pub fn extension_type_id(&self) -> Option<&str> {
+        match self {
+            Content::Extension { type_id, .. } => Some(type_id),
+            _ => None,
+        }
     }
 
     /// Check if this is an artifact recalled (tombstone) message.
@@ -386,21 +309,6 @@ impl Content {
         }
     }
 
-    /// Check if this is a gratitude pledged message.
-    pub fn is_gratitude_pledged(&self) -> bool {
-        matches!(self, Content::GratitudePledged { .. })
-    }
-
-    /// Check if this is a gratitude released message.
-    pub fn is_gratitude_released(&self) -> bool {
-        matches!(self, Content::GratitudeReleased { .. })
-    }
-
-    /// Check if this is a gratitude withdrawn message.
-    pub fn is_gratitude_withdrawn(&self) -> bool {
-        matches!(self, Content::GratitudeWithdrawn { .. })
-    }
-
     /// Check if this is an artifact granted message.
     pub fn is_artifact_granted(&self) -> bool {
         matches!(self, Content::ArtifactGranted { .. })
@@ -414,19 +322,6 @@ impl Content {
     /// Check if this is a recovery manifest message.
     pub fn is_recovery_manifest(&self) -> bool {
         matches!(self, Content::RecoveryManifest { .. })
-    }
-
-    /// Get the quest ID if this is a proof, blessing, or gratitude message.
-    pub fn quest_id(&self) -> Option<&QuestId> {
-        match self {
-            Content::ProofSubmitted { quest_id, .. } => Some(quest_id),
-            Content::BlessingGiven { quest_id, .. } => Some(quest_id),
-            Content::ProofFolderSubmitted { quest_id, .. } => Some(quest_id),
-            Content::GratitudePledged { target_quest_id, .. } => Some(target_quest_id),
-            Content::GratitudeReleased { target_quest_id, .. } => Some(target_quest_id),
-            Content::GratitudeWithdrawn { target_quest_id, .. } => Some(target_quest_id),
-            _ => None,
-        }
     }
 
     /// Check if this is an inline image message.

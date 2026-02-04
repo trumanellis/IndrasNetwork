@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use dioxus::prelude::*;
 use indras_network::{ContactInviteCode, IndrasNetwork};
+use indras_sync_engine::{HomeRealmQuests, HomeRealmNotes};
 
 use crate::state::{AsyncStatus, ContactView, EventDirection, EventLogEntry, GenesisState, GenesisStep, NoteView, QuestView};
 use indras_ui::{ArtifactDisplayInfo, ArtifactDisplayStatus, ContactInviteOverlay, ThemedRoot};
@@ -12,6 +13,7 @@ use indras_ui::{ArtifactDisplayInfo, ArtifactDisplayStatus, ContactInviteOverlay
 use super::display_name::DisplayNameScreen;
 use super::home_realm::HomeRealmScreen;
 use super::pass_story_flow::PassStoryFlow;
+use super::peer_realm::PeerRealmScreen;
 use super::welcome::WelcomeScreen;
 
 /// Get the default data directory for Indras Network.
@@ -157,7 +159,7 @@ pub fn App() -> Element {
 
                         // Pre-compute contact invite code (async, includes transport info)
                         log_event(&mut state, EventDirection::System, "Generating invite code...");
-                        match net.contact_invite_code().await {
+                        match net.create_connection_invite().await {
                             Ok(code) => {
                                 state.write().invite_code_uri = Some(code.to_uri());
                                 log_event(&mut state, EventDirection::System, "Invite code ready");
@@ -168,9 +170,9 @@ pub fn App() -> Element {
                             }
                         }
 
-                        // Process handshake inbox (picks up connection requests from others)
+                        // Process connection accepts (picks up connection requests from others)
                         log_event(&mut state, EventDirection::Received, "Checking inbox for connection requests...");
-                        match net.process_handshake_inbox().await {
+                        match net.process_pending_accepts().await {
                             Ok(count) => {
                                 if count > 0 {
                                     log_event(&mut state, EventDirection::Received, format!("Inbox: processed {} connection request(s)", count));
@@ -191,6 +193,7 @@ pub fn App() -> Element {
                                 let data = doc.read().await;
                                 let contacts: Vec<ContactView> = data.contacts.iter().map(|(mid, entry)| {
                                     ContactView {
+                                        member_id: *mid,
                                         member_id_short: mid.iter().take(8).map(|b| format!("{:02x}", b)).collect(),
                                         display_name: entry.display_name.clone(),
                                         status: "confirmed".to_string(),
@@ -290,6 +293,9 @@ pub fn App() -> Element {
                     GenesisStep::HomeRealm => rsx! {
                         HomeRealmScreen { state, network }
                     },
+                    GenesisStep::PeerRealm(peer_id) => rsx! {
+                        PeerRealmScreen { state, network, peer_id }
+                    },
                 }
 
                 if pass_story_active {
@@ -322,21 +328,21 @@ pub fn App() -> Element {
                                             guard.as_ref().cloned()
                                         };
                                         if let Some(net) = net {
-                                            tracing::info!("on_connect: calling accept_contact_invite");
+                                            tracing::info!("on_connect: calling accept_connection_invite");
                                             log_event(&mut state, EventDirection::Sent, format!("Accepting invite from {}...", inviter_name));
-                                            match net.accept_contact_invite(&code).await {
+                                            match net.accept_connection_invite(&code).await {
                                                 Ok(()) => {
-                                                    tracing::info!("on_connect: accept_contact_invite succeeded, processing handshake inbox");
+                                                    tracing::info!("on_connect: accept_connection_invite succeeded, processing connection accepts");
                                                     log_event(&mut state, EventDirection::Sent, format!("Connection request sent to {}", inviter_name));
-                                                    // Process handshake inbox (in case the inviter already connected)
-                                                    match net.process_handshake_inbox().await {
+                                                    // Process connection accepts (in case the inviter already connected)
+                                                    match net.process_pending_accepts().await {
                                                         Ok(count) => {
                                                             if count > 0 {
                                                                 log_event(&mut state, EventDirection::Received, format!("Inbox: processed {} request(s)", count));
                                                             }
                                                         }
                                                         Err(e) => {
-                                                            tracing::debug!("on_connect: handshake inbox: {}", e);
+                                                            tracing::debug!("on_connect: connection accepts: {}", e);
                                                         }
                                                     }
                                                     // Reload contacts
@@ -348,6 +354,7 @@ pub fn App() -> Element {
                                                                 tracing::info!(count = data.contacts.len(), "on_connect: loaded contacts");
                                                                 let contacts: Vec<ContactView> = data.contacts.iter().map(|(mid, entry)| {
                                                                     ContactView {
+                                                                        member_id: *mid,
                                                                         member_id_short: mid.iter().take(8).map(|b| format!("{:02x}", b)).collect(),
                                                                         display_name: entry.display_name.clone(),
                                                                         status: "confirmed".to_string(),
@@ -373,7 +380,7 @@ pub fn App() -> Element {
                                                     tracing::info!("on_connect: done");
                                                 }
                                                 Err(e) => {
-                                                    tracing::error!(error = %e, "on_connect: accept_contact_invite failed");
+                                                    tracing::error!(error = %e, "on_connect: accept_connection_invite failed");
                                                     log_event(&mut state, EventDirection::System, format!("ERROR: Accept failed: {}", e));
                                                     let mut s = state.write();
                                                     s.contact_invite_status = Some(format!("error:{}", e));
@@ -524,7 +531,7 @@ pub async fn create_identity_and_load(
 
             // Pre-compute contact invite code (async, includes transport info)
             log_event(state, EventDirection::System, "Generating invite code...");
-            match net.contact_invite_code().await {
+            match net.create_connection_invite().await {
                 Ok(code) => {
                     state.write().invite_code_uri = Some(code.to_uri());
                     log_event(state, EventDirection::System, "Invite code ready");
@@ -535,9 +542,9 @@ pub async fn create_identity_and_load(
                 }
             }
 
-            // Process handshake inbox (picks up connection requests from others)
+            // Process connection accepts (picks up connection requests from others)
             log_event(state, EventDirection::Received, "Checking inbox...");
-            match net.process_handshake_inbox().await {
+            match net.process_pending_accepts().await {
                 Ok(count) => {
                     if count > 0 {
                         log_event(state, EventDirection::Received, format!("Inbox: processed {} connection request(s)", count));
@@ -558,6 +565,7 @@ pub async fn create_identity_and_load(
                     let data = doc.read().await;
                     let contacts: Vec<ContactView> = data.contacts.iter().map(|(mid, entry)| {
                         ContactView {
+                            member_id: *mid,
                             member_id_short: mid.iter().take(8).map(|b| format!("{:02x}", b)).collect(),
                             display_name: entry.display_name.clone(),
                             status: "confirmed".to_string(),

@@ -8,7 +8,8 @@ use std::sync::Arc;
 
 use dioxus::prelude::*;
 use indras_crypto::{CryptoError, PassStory, StoryTemplate, entropy};
-use indras_network::{IndrasNetwork, StoryAuth};
+use indras_network::IndrasNetwork;
+use indras_sync_engine::{StoryAuth, HomeRealmQuests};
 
 use crate::state::{AsyncStatus, GenesisState, PassStoryState};
 

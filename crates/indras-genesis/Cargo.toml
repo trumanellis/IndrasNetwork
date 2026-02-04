@@ -18,6 +18,7 @@ path = "src/lib.rs"
 indras-network = { path = "../indras-network" }
 indras-crypto = { path = "../indras-crypto" }
 indras-node = { path = "../indras-node" }
+indras-sync-engine = { path = "../indras-sync-engine" }
 
 # Shared UI
 indras-ui = { path = "../indras-ui" }

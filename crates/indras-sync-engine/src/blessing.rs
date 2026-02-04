@@ -16,7 +16,7 @@
 //! - Merge strategy: union + dedupe by blessing_id
 //! - Each attention event can only be blessed once per quest claim
 
-use crate::member::MemberId;
+use indras_network::member::MemberId;
 use crate::quest::QuestId;
 
 use serde::{Deserialize, Serialize};

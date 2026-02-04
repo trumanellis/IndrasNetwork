@@ -43,6 +43,9 @@ base64.workspace = true
 # Blob handling
 blake3 = "1.6"
 
+# Random nonce generation
+rand = { workspace = true }
+
 # Optional features
 qrcode = { version = "0.14", optional = true }
 image = { version = "0.25", optional = true, default-features = false, features = ["png"] }
