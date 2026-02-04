@@ -14,6 +14,21 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// Default key exchange expiry: 7 days in milliseconds.
 const KEY_EXCHANGE_EXPIRY_MS: u64 = 7 * 24 * 60 * 60 * 1000;
 
+/// Deterministic key seed for a DM realm between two members.
+///
+/// Both peers independently compute the same seed (and thus the same
+/// `InterfaceKey`) because the inputs are sorted. Anyone who knows both
+/// MemberIds can derive this — content confidentiality for DMs should
+/// eventually use a higher-level protocol (e.g., Double Ratchet).
+pub fn dm_key_seed(a: &MemberId, b: &MemberId) -> [u8; 32] {
+    let (first, second) = if a <= b { (a, b) } else { (b, a) };
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"dm-key-v1:");
+    hasher.update(first);
+    hasher.update(second);
+    *hasher.finalize().as_bytes()
+}
+
 /// Derive a deterministic DM realm ID from two member IDs.
 ///
 /// The same pair of members always produces the same realm ID,
