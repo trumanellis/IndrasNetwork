@@ -43,6 +43,9 @@ base64.workspace = true
 # Blob handling
 blake3 = "1.6"
 
+# Compact identity codes (bech32m encoding)
+bech32 = "0.11"
+
 # Random nonce generation
 rand = { workspace = true }
 

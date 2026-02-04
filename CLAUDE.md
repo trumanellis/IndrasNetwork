@@ -56,6 +56,45 @@ When using names in examples, discussions, or documentation, **never use generic
 
 Pick names that are distinct from each other and easy to tell apart in context.
 
+## Large Features Use Git Worktrees
+
+**Always build large new features in a dedicated git worktree**, not on the main working tree.
+
+A feature is "large" if it touches 3+ files, adds a new crate/module, or could take multiple iterations to stabilize.
+
+```bash
+# Create a worktree for the feature branch
+git worktree add ../IndrasNetwork-<feature-name> -b feature/<feature-name>
+
+# Work inside the worktree
+# (the worktree is a full checkout — cargo, tests, etc. all work normally)
+
+# When done, merge back and clean up
+git checkout main
+git merge feature/<feature-name>
+git worktree remove ../IndrasNetwork-<feature-name>
+git branch -d feature/<feature-name>
+```
+
+### Why Worktrees
+
+- Main working tree stays clean and buildable at all times
+- Easy to compare behavior between main and the feature branch side-by-side
+- No risk of half-finished work blocking other tasks
+- Multiple features can be developed in parallel without stashing
+
+### Worktree Guidelines
+
+1. **Naming**: Place worktrees as siblings to the repo root — `../IndrasNetwork-<feature-name>`
+2. **Branch naming**: Use `feature/<feature-name>` for the branch
+3. **Keep worktrees short-lived**: Merge or rebase frequently, remove when done
+4. **Run commands from worktree root**: The same "always run from root" rule applies inside the worktree
+
+## Greenfield Project
+
+This entire project is greenfield. Do not maintain backward compatibility unless explicitly told
+to. Feel free to delete, replace, and rewrite modules without preserving old interfaces.
+
 ## Cargo Commands Reference
 
 ```bash
