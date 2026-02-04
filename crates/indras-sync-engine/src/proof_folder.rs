@@ -12,8 +12,8 @@
 //! A single claimant can submit multiple proof folders over the life of a quest,
 //! documenting different sub-parts of the work.
 
-use crate::artifact::ArtifactId;
-use crate::member::MemberId;
+use indras_network::artifact::ArtifactId;
+use indras_network::member::MemberId;
 use crate::quest::QuestId;
 use serde::{Deserialize, Serialize};
 

@@ -11,6 +11,8 @@ pub enum GenesisStep {
     DisplayName,
     /// Home realm view (genesis complete).
     HomeRealm,
+    /// Peer realm chat view with a specific contact.
+    PeerRealm([u8; 32]),
 }
 
 /// Status of an async operation.
@@ -44,9 +46,34 @@ pub struct NoteView {
 /// View model for a contact in the connections panel.
 #[derive(Debug, Clone)]
 pub struct ContactView {
+    pub member_id: [u8; 32],
     pub member_id_short: String,
     pub display_name: Option<String>,
     pub status: String,  // "pending" or "confirmed"
+}
+
+/// View model for a message in a peer realm chat.
+#[derive(Debug, Clone)]
+pub struct PeerMessageView {
+    pub sender_name: String,
+    pub sender_id_short: String,
+    pub is_me: bool,
+    pub timestamp: String,
+    pub message_type: PeerMessageType,
+}
+
+/// Type of message content for peer realm chat rendering.
+#[derive(Debug, Clone)]
+pub enum PeerMessageType {
+    Text { content: String },
+    Image { data_url: Option<String>, filename: Option<String>, alt_text: Option<String> },
+    System { content: String },
+    Artifact { name: String, size: u64, mime_type: Option<String> },
+    ProofSubmitted { quest_id_short: String, claimant_name: String },
+    BlessingGiven { claimant_name: String, duration: String },
+    ProofFolderSubmitted { narrative_preview: String, artifact_count: usize },
+    Gallery { title: Option<String>, item_count: usize },
+    Reaction { emoji: String },
 }
 
 /// Direction of a network event.
@@ -120,6 +147,18 @@ pub struct GenesisState {
     pub new_contact_toast: Option<String>,
     /// Network event log (newest first).
     pub event_log: Vec<EventLogEntry>,
+    /// Messages in the active peer realm chat.
+    pub peer_realm_messages: Vec<PeerMessageView>,
+    /// Draft text in the peer realm chat input.
+    pub peer_realm_draft: String,
+    /// Number of messages in the peer realm chat.
+    pub peer_realm_message_count: usize,
+    /// Last message sequence number for polling.
+    pub peer_realm_last_seq: u64,
+    /// Display name of the contact in the active peer realm.
+    pub peer_realm_contact_name: Option<String>,
+    /// Whether the action menu is open in the peer realm chat.
+    pub peer_realm_action_menu_open: bool,
 }
 
 impl Default for GenesisState {
@@ -148,6 +187,12 @@ impl Default for GenesisState {
             contact_filter: String::new(),
             new_contact_toast: None,
             event_log: Vec::new(),
+            peer_realm_messages: Vec::new(),
+            peer_realm_draft: String::new(),
+            peer_realm_message_count: 0,
+            peer_realm_last_seq: 0,
+            peer_realm_contact_name: None,
+            peer_realm_action_menu_open: false,
         }
     }
 }

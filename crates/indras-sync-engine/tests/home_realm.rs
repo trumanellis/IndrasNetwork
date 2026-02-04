@@ -7,7 +7,8 @@
 //! - Markdown note creation and updates
 //! - Persistence across restarts
 
-use indras_network::{IndrasNetwork, NoteDocument};
+use indras_network::{HomeArtifactMetadata, IndrasNetwork};
+use indras_sync_engine::{HomeRealmNotes, HomeRealmQuests, NoteDocument};
 use tempfile::TempDir;
 
 /// Helper to generate test PNG data (minimal valid PNG).
@@ -82,8 +83,8 @@ async fn test_create_quest_in_home_realm() {
     // Verify quest exists
     let quests = home.quests().await.unwrap();
     let doc = quests.read().await;
-    // Welcome quest + our quest = 2
-    assert_eq!(doc.quests.len(), 2);
+    // Just our quest (welcome quest is seeded by SyncEngine, not by the SDK)
+    assert_eq!(doc.quests.len(), 1);
     let quest = doc.find(&quest_id).unwrap();
     assert_eq!(quest.title, "Personal Task");
     assert_eq!(quest.description, "Do something productive");
@@ -129,7 +130,7 @@ async fn test_upload_image_to_home_realm() {
     let artifact_id = home
         .share_artifact(
             image_data.clone(),
-            indras_network::HomeArtifactMetadata {
+            HomeArtifactMetadata {
                 name: "test_image.png".to_string(),
                 mime_type: Some("image/png".to_string()),
                 size: image_size,
@@ -157,7 +158,7 @@ async fn test_create_quest_with_image() {
     let artifact_id = home
         .share_artifact(
             image_data,
-            indras_network::HomeArtifactMetadata {
+            HomeArtifactMetadata {
                 name: "task_image.png".to_string(),
                 mime_type: Some("image/png".to_string()),
                 size: 100,
@@ -330,7 +331,7 @@ async fn test_home_realm_persistence() {
         let artifact_id = home
             .share_artifact(
                 image_data,
-                indras_network::HomeArtifactMetadata {
+                HomeArtifactMetadata {
                     name: "persistent_image.png".to_string(),
                     mime_type: Some("image/png".to_string()),
                     size: 100,
@@ -366,8 +367,8 @@ async fn test_home_realm_persistence() {
         // Verify quest persisted
         let quests = home.quests().await.unwrap();
         let doc = quests.read().await;
-        // Welcome quest + our quest = 2
-        assert_eq!(doc.quests.len(), 2);
+        // Just our quest (welcome quest is seeded by SyncEngine, not by the SDK)
+        assert_eq!(doc.quests.len(), 1);
         let quest = doc.find(&quest_id).unwrap();
         assert_eq!(quest.title, "Persistent Quest");
 
@@ -412,7 +413,7 @@ async fn test_home_realm_id_persists_across_sessions() {
 
 #[test]
 fn test_note_id_uniqueness() {
-    use indras_network::note::generate_note_id;
+    use indras_sync_engine::note::generate_note_id;
 
     let id1 = generate_note_id();
     let id2 = generate_note_id();

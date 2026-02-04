@@ -3340,6 +3340,7 @@ dependencies = [
  "indras-logging",
  "indras-network",
  "indras-node",
+ "indras-sync-engine",
  "indras-ui",
  "tokio",
  "tracing",
@@ -3458,6 +3459,7 @@ dependencies = [
  "iroh",
  "postcard",
  "qrcode",
+ "rand 0.9.2",
  "serde",
  "serde_json",
  "tempfile",
@@ -3661,6 +3663,33 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+]
+
+[[package]]
+name = "indras-sync-engine"
+version = "1.0.0"
+dependencies = [
+ "async-stream",
+ "blake3",
+ "chrono",
+ "derive_more 2.1.1",
+ "futures",
+ "hex",
+ "indras-core",
+ "indras-crypto",
+ "indras-network",
+ "indras-node",
+ "indras-storage",
+ "indras-transport",
+ "postcard",
+ "rand 0.9.2",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-test",
+ "tracing",
 ]
 
 [[package]]

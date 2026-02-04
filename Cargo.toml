@@ -14,6 +14,7 @@ members = [
     "crates/indras-logging",
     "crates/indras-node",
     "crates/indras-network",
+    "crates/indras-sync-engine",
     "crates/indras-dashboard",
     "crates/indras-collaboration-viewer",
     "crates/indras-realm-viewer",
@@ -47,6 +48,7 @@ indras-iot = { path = "crates/indras-iot" }
 indras-logging = { path = "crates/indras-logging" }
 indras-node = { path = "crates/indras-node" }
 indras-network = { path = "crates/indras-network" }
+indras-sync-engine = { path = "crates/indras-sync-engine" }
 
 # Core iroh stack
 iroh = "0.95"

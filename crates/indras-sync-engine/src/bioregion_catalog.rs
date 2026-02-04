@@ -9,7 +9,7 @@
 //! # Usage
 //!
 //! ```
-//! use indras_network::bioregion_catalog::BioregionalCatalog;
+//! use indras_sync_engine::bioregion_catalog::BioregionalCatalog;
 //!
 //! let catalog = BioregionalCatalog::global();
 //! let entry = catalog.get("AT1").unwrap();

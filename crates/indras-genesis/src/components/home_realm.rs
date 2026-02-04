@@ -4,10 +4,11 @@ use std::sync::Arc;
 
 use dioxus::prelude::*;
 use indras_network::IndrasNetwork;
+use indras_sync_engine::{HomeRealmQuests, HomeRealmNotes};
 
 use indras_ui::{ArtifactDisplayInfo, ArtifactDisplayStatus, ArtifactGallery};
 
-use crate::state::{ContactView, EventDirection, GenesisState, NoteView, QuestView};
+use crate::state::{ContactView, EventDirection, GenesisState, GenesisStep, NoteView, QuestView};
 use super::app::log_event;
 
 /// Helper to hex-encode a 16-byte ID.
@@ -80,6 +81,7 @@ async fn refresh_home_realm_data(
             let data = doc.read().await;
             let contacts: Vec<ContactView> = data.contacts.iter().map(|(mid, entry)| {
                 ContactView {
+                    member_id: *mid,
                     member_id_short: mid.iter().take(8).map(|b| format!("{:02x}", b)).collect(),
                     display_name: entry.display_name.clone(),
                     status: "confirmed".to_string(),
@@ -134,7 +136,7 @@ pub fn HomeRealmScreen(
                     guard.as_ref().cloned()
                 };
                 if let Some(net) = net {
-                    match net.process_handshake_inbox().await {
+                    match net.process_pending_accepts().await {
                         Ok(count) if count > 0 => {
                             log_event(&mut state, EventDirection::Received, format!("Inbox: {} new connection(s)", count));
                             // Reload contacts
@@ -143,6 +145,7 @@ pub fn HomeRealmScreen(
                                     let data = doc.read().await;
                                     let contacts: Vec<ContactView> = data.contacts.iter().map(|(mid, entry)| {
                                         ContactView {
+                                            member_id: *mid,
                                             member_id_short: mid.iter().take(8).map(|b| format!("{:02x}", b)).collect(),
                                             display_name: entry.display_name.clone(),
                                             status: "confirmed".to_string(),
@@ -433,17 +436,37 @@ pub fn HomeRealmScreen(
                             div {
                                 class: "contacts-list",
                                 for contact in contacts.iter() {
-                                    div {
-                                        key: "{contact.member_id_short}",
-                                        class: if contact.status == "pending" { "contact-item contact-pending" } else { "contact-item" },
-                                        if let Some(ref name) = contact.display_name {
-                                            span { class: "contact-name", "{name}" }
-                                            span { class: "contact-id contact-id-secondary", "{contact.member_id_short}" }
-                                        } else {
-                                            span { class: "contact-id", "{contact.member_id_short}" }
-                                        }
-                                        if contact.status == "pending" {
-                                            span { class: "contact-status-badge", "(pending)" }
+                                    {
+                                        let mid = contact.member_id;
+                                        let contact_name = contact.display_name.clone();
+                                        let is_pending = contact.status == "pending";
+                                        let id_short = contact.member_id_short.clone();
+                                        rsx! {
+                                            div {
+                                                key: "{id_short}",
+                                                class: if is_pending { "contact-item contact-pending" } else { "contact-item contact-clickable" },
+                                                onclick: move |_| {
+                                                    if !is_pending {
+                                                        let mut s = state.write();
+                                                        s.peer_realm_messages.clear();
+                                                        s.peer_realm_draft.clear();
+                                                        s.peer_realm_last_seq = 0;
+                                                        s.peer_realm_message_count = 0;
+                                                        s.peer_realm_action_menu_open = false;
+                                                        s.peer_realm_contact_name = contact_name.clone();
+                                                        s.step = GenesisStep::PeerRealm(mid);
+                                                    }
+                                                },
+                                                if let Some(ref name) = contact_name {
+                                                    span { class: "contact-name", "{name}" }
+                                                    span { class: "contact-id contact-id-secondary", "{id_short}" }
+                                                } else {
+                                                    span { class: "contact-id", "{id_short}" }
+                                                }
+                                                if is_pending {
+                                                    span { class: "contact-status-badge", "(pending)" }
+                                                }
+                                            }
                                         }
                                     }
                                 }

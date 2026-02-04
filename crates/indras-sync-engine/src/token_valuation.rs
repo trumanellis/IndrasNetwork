@@ -16,7 +16,7 @@
 //! a weight of zero. This means sybil-minted tokens are invisible to
 //! observers who don't trust the sybil accounts.
 
-use crate::member::MemberId;
+use indras_network::member::MemberId;
 use crate::token_of_gratitude::TokenOfGratitude;
 
 /// Trust decay factor per hop in the steward chain.

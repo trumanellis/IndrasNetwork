@@ -98,14 +98,12 @@
 //! let storage = network.storage();
 //! ```
 
-// Modules
+// Modules — generic P2P platform SDK
 pub mod artifact;
 pub mod artifact_sharing;
 pub mod access;
 pub mod artifact_index;
 pub mod artifact_recovery;
-pub mod attention;
-pub mod blessing;
 pub mod chat_message;
 pub mod config;
 pub mod contact_invite;
@@ -114,25 +112,16 @@ pub mod document;
 pub mod document_registry;
 pub mod error;
 pub mod escape;
-pub mod handshake;
+pub mod connection;
 pub mod home_realm;
-pub mod humanness;
 pub mod invite;
 pub mod member;
 pub mod message;
 pub mod network;
-pub mod note;
-pub mod proof_folder;
-pub mod quest;
 pub mod read_tracker;
 pub mod realm;
 pub mod realm_alias;
-pub mod rehearsal;
-pub mod sentiment;
-pub mod story_auth;
 pub mod stream;
-pub mod token_of_gratitude;
-pub mod token_valuation;
 
 // Re-export main types at crate root
 pub use artifact::{Artifact, ArtifactDownload, ArtifactId, DownloadProgress};
@@ -146,10 +135,6 @@ pub use access::{
 };
 pub use artifact_index::{ArtifactIndex, HomeArtifactEntry};
 pub use artifact_recovery::{ArtifactRecoveryRequest, ArtifactRecoveryResponse, RecoverableArtifact, RecoveryManifest};
-pub use attention::{
-    AttentionDocument, AttentionError, AttentionEventId, AttentionSwitchEvent, QuestAttention,
-};
-pub use blessing::{Blessing, BlessingDocument, BlessingError, BlessingId, ClaimId};
 pub use chat_message::{
     ChatMessageId, ChatMessageVersion, EditableChatMessage, EditableMessageType, RealmChatDocument,
 };
@@ -158,37 +143,20 @@ pub use contact_invite::ContactInviteCode;
 pub use contacts::{ContactEntry, ContactStatus, ContactsDocument, ContactsRealm};
 pub use document::{Document, DocumentChange, DocumentSchema};
 pub use error::{IndraError, Result};
-pub use handshake::{inbox_interface_id, ConnectionRequest, HandshakeDocument};
+pub use connection::{
+    connection_realm_id, ConnectionAccept, ConnectionDocument, ConnectionOffer,
+    ConnectionStatus, PendingConnection,
+};
 pub use home_realm::{home_realm_id, HomeArtifactMetadata, HomeRealm};
 pub use invite::InviteCode;
 pub use member::{Member, MemberEvent, MemberId, MemberInfo};
 pub use message::{Content, Message, MessageId};
 pub use network::{IndrasNetwork, RealmId};
-pub use note::{Note, NoteDocument, NoteId};
-pub use proof_folder::{
-    ProofFolder, ProofFolderArtifact, ProofFolderDocument, ProofFolderError, ProofFolderId,
-    ProofFolderStatus,
-};
-pub use quest::{Quest, QuestClaim, QuestDocument, QuestError, QuestId, QuestPriority};
 pub use read_tracker::ReadTrackerDocument;
 pub use document_registry::DocumentRegistryDocument;
 pub use network::{GlobalEvent, IdentityBackup};
 pub use realm::Realm;
 pub use realm_alias::{RealmAlias, RealmAliasDocument, MAX_ALIAS_LENGTH};
-pub use sentiment::{
-    RelayedSentiment, SentimentRelayDocument, SentimentView, DEFAULT_RELAY_ATTENUATION,
-};
-pub use token_of_gratitude::{
-    TokenError, TokenEvent, TokenOfGratitude, TokenOfGratitudeDocument, TokenOfGratitudeId,
-};
-pub use humanness::{
-    BioregionalLevel, Delegation, DelegationError, HumannessAttestation, HumannessDocument,
-    HumannessEvent, humanness_freshness, validate_delegation_chain, FRESHNESS_DECAY_RATE,
-    FRESHNESS_GRACE_DAYS,
-};
-pub use rehearsal::RehearsalState;
-pub use story_auth::{AuthResult, StoryAuth};
-pub use token_valuation::{SubjectiveTokenValue, STEWARD_CHAIN_DECAY, subjective_value};
 
 /// Prelude module for convenient imports.
 ///
@@ -199,12 +167,11 @@ pub use token_valuation::{SubjectiveTokenValue, STEWARD_CHAIN_DECAY, subjective_
 /// ```
 pub mod prelude {
     pub use crate::{
-        Artifact, ArtifactDownload, ArtifactIndex, HomeArtifactEntry, Blessing, BlessingDocument, ClaimId, ContactInviteCode, ContactsRealm, Content,
-        Document, DocumentSchema, EditableChatMessage, GlobalEvent, HomeRealm, IdentityBackup,
-        IndraError, IndrasNetwork, InviteCode, Member, MemberEvent, MemberInfo, Message, Note,
-        NoteDocument, Preset, ProofFolder, ProofFolderArtifact, ProofFolderDocument, Quest,
-        QuestDocument, QuestPriority, Realm, RealmAlias, RealmAliasDocument, RealmChatDocument,
-        RealmId, Result, TokenOfGratitude, TokenOfGratitudeDocument,
+        Artifact, ArtifactDownload, ArtifactIndex, HomeArtifactEntry, ContactInviteCode,
+        ContactsRealm, Content, Document, DocumentSchema, EditableChatMessage, GlobalEvent,
+        HomeRealm, IdentityBackup, IndraError, IndrasNetwork, InviteCode, Member, MemberEvent,
+        MemberInfo, Message, Preset, Realm, RealmAlias, RealmAliasDocument, RealmChatDocument,
+        RealmId, Result,
     };
 
     // Re-export futures StreamExt for convenient stream iteration

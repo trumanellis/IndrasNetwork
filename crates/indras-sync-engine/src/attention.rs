@@ -21,7 +21,7 @@
 //! - Concurrent events from same member: last-writer-wins by timestamp
 //! - Derived state (current_focus) is rebuilt after merge
 
-use crate::member::MemberId;
+use indras_network::member::MemberId;
 use crate::quest::QuestId;
 
 use serde::{Deserialize, Serialize};

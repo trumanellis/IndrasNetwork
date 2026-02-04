@@ -13,7 +13,7 @@ use indras_crypto::story_template::PassStory;
 use indras_crypto::SecureBytes;
 use indras_node::StoryKeystore;
 
-use crate::error::{IndraError, Result};
+use indras_network::error::{IndraError, Result};
 use crate::rehearsal::RehearsalState;
 
 /// Filename for rehearsal state persistence.

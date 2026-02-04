@@ -392,19 +392,21 @@ impl IndrasNode {
             }
         });
 
-        // Spawn message handler
+        // Spawn message handler and sync task (both need PQ identity for signing)
+        let pq_identity_arc = Arc::new(self.pq_identity.clone());
         let handler_task = MessageHandler::spawn(
             self.identity,
             self.interface_keys.clone(),
             self.interfaces.clone(),
             self.storage.clone(),
+            adapter.clone(),
+            pq_identity_arc.clone(),
             self.config.allow_legacy_unsigned,
             self.shutdown_tx.subscribe(),
             message_rx,
         );
 
-        // Spawn sync task with PQ identity for signing
-        let pq_identity_arc = Arc::new(self.pq_identity.clone());
+        // Spawn sync task
         let sync_task = SyncTask::spawn(
             self.identity,
             pq_identity_arc,
@@ -693,6 +695,24 @@ impl IndrasNode {
     /// Get the transport adapter (if started)
     pub async fn transport(&self) -> Option<Arc<IrohNetworkAdapter>> {
         self.transport.read().await.clone()
+    }
+
+    /// Connect to a peer using their serialized endpoint address.
+    ///
+    /// Establishes transport-level connectivity, enabling gossip discovery
+    /// and CRDT sync for all shared interfaces. This is useful when you
+    /// know a peer's address (e.g., from an invite code) but aren't
+    /// joining a new interface.
+    pub async fn connect_to_bootstrap(&self, bootstrap_bytes: &[u8]) -> NodeResult<()> {
+        let addr: iroh::EndpointAddr = postcard::from_bytes(bootstrap_bytes)?;
+        let guard = self.transport.read().await;
+        let transport = guard.as_ref().ok_or(NodeError::NotStarted)?;
+        transport
+            .connection_manager()
+            .connect(addr)
+            .await
+            .map_err(|e| NodeError::Transport(e.to_string()))?;
+        Ok(())
     }
 
     /// Get our endpoint address for sharing with peers
@@ -1148,13 +1168,13 @@ impl IndrasNode {
         }
     }
 
-    /// Subscribe to realm peer discovery events
+    /// Subscribe to realm peer discovery events.
     ///
     /// Returns a receiver for peer events (joins, leaves).
-    pub fn subscribe_peer_events(&self) -> Option<broadcast::Receiver<PeerEvent>> {
-        // We need to return a future here since transport requires async access
-        // For now, this is called after transport is available
-        None // Will be set up differently
+    /// Returns `None` if the node has not been started yet.
+    pub async fn subscribe_peer_events(&self) -> Option<broadcast::Receiver<PeerEvent>> {
+        let guard = self.transport.read().await;
+        guard.as_ref().map(|t| t.discovery_service().subscribe())
     }
 
     /// Add a member to an interface

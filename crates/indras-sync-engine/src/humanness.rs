@@ -26,7 +26,7 @@
 //! Each level delegates to the next via signed delegations. Trust in the chain
 //! is subjective — each observer evaluates each link through their own sentiment.
 
-use crate::member::MemberId;
+use indras_network::member::MemberId;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

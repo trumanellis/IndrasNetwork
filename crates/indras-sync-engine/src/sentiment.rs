@@ -7,7 +7,7 @@
 //! The relay is scoped: you only see sentiment from your own contacts, and
 //! relayed sentiment from your contacts' contacts. No global reputation scores.
 
-use crate::member::MemberId;
+use indras_network::member::MemberId;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
