@@ -106,14 +106,15 @@ pub mod artifact_index;
 pub mod artifact_recovery;
 pub mod chat_message;
 pub mod config;
-pub mod contact_invite;
 pub mod contacts;
+pub mod direct_connect;
 pub mod document;
 pub mod document_registry;
+pub mod encounter;
 pub mod error;
 pub mod escape;
-pub mod connection;
 pub mod home_realm;
+pub mod identity_code;
 pub mod invite;
 pub mod member;
 pub mod message;
@@ -122,6 +123,7 @@ pub mod read_tracker;
 pub mod realm;
 pub mod realm_alias;
 pub mod stream;
+pub mod world_view;
 
 // Re-export main types at crate root
 pub use artifact::{Artifact, ArtifactDownload, ArtifactId, DownloadProgress};
@@ -139,14 +141,12 @@ pub use chat_message::{
     ChatMessageId, ChatMessageVersion, EditableChatMessage, EditableMessageType, RealmChatDocument,
 };
 pub use config::{NetworkBuilder, NetworkConfig, Preset};
-pub use contact_invite::ContactInviteCode;
 pub use contacts::{ContactEntry, ContactStatus, ContactsDocument, ContactsRealm};
+pub use direct_connect::{dm_realm_id, KeyExchangeStatus, PendingKeyExchange};
+pub use encounter::{EncounterExchangePayload, EncounterHandle};
+pub use identity_code::IdentityCode;
 pub use document::{Document, DocumentChange, DocumentSchema};
 pub use error::{IndraError, Result};
-pub use connection::{
-    connection_realm_id, ConnectionAccept, ConnectionDocument, ConnectionOffer,
-    ConnectionStatus, PendingConnection,
-};
 pub use home_realm::{home_realm_id, HomeArtifactMetadata, HomeRealm};
 pub use invite::InviteCode;
 pub use member::{Member, MemberEvent, MemberId, MemberInfo};
@@ -157,6 +157,7 @@ pub use document_registry::DocumentRegistryDocument;
 pub use network::{GlobalEvent, IdentityBackup};
 pub use realm::Realm;
 pub use realm_alias::{RealmAlias, RealmAliasDocument, MAX_ALIAS_LENGTH};
+pub use world_view::WorldView;
 
 /// Prelude module for convenient imports.
 ///
@@ -167,11 +168,11 @@ pub use realm_alias::{RealmAlias, RealmAliasDocument, MAX_ALIAS_LENGTH};
 /// ```
 pub mod prelude {
     pub use crate::{
-        Artifact, ArtifactDownload, ArtifactIndex, HomeArtifactEntry, ContactInviteCode,
+        Artifact, ArtifactDownload, ArtifactIndex, HomeArtifactEntry,
         ContactsRealm, Content, Document, DocumentSchema, EditableChatMessage, GlobalEvent,
-        HomeRealm, IdentityBackup, IndraError, IndrasNetwork, InviteCode, Member, MemberEvent,
-        MemberInfo, Message, Preset, Realm, RealmAlias, RealmAliasDocument, RealmChatDocument,
-        RealmId, Result,
+        HomeRealm, IdentityBackup, IdentityCode, IndraError, IndrasNetwork, InviteCode, Member,
+        MemberEvent, MemberInfo, Message, Preset, Realm, RealmAlias, RealmAliasDocument,
+        RealmChatDocument, RealmId, Result,
     };
 
     // Re-export futures StreamExt for convenient stream iteration

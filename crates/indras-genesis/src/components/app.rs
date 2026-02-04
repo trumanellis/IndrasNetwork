@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use dioxus::prelude::*;
-use indras_network::{ContactInviteCode, IndrasNetwork};
+use indras_network::{IdentityCode, IndrasNetwork};
 use indras_sync_engine::{HomeRealmQuests, HomeRealmNotes};
 
 use crate::state::{AsyncStatus, ContactView, EventDirection, EventLogEntry, GenesisState, GenesisStep, NoteView, QuestView};
@@ -77,6 +77,27 @@ pub fn App() -> Element {
 
     let mut state = use_signal(GenesisState::new);
     let mut network: Signal<Option<Arc<IndrasNetwork>>> = use_signal(|| None);
+
+    // On shutdown: save world view and stop network
+    let network_for_cleanup = network;
+    use_drop(move || {
+        if let Some(net) = network_for_cleanup.read().as_ref() {
+            let net = net.clone();
+            std::thread::spawn(move || {
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                rt.block_on(async {
+                    if let Err(e) = net.save_world_view().await {
+                        tracing::error!(error = %e, "Failed to save world view on shutdown");
+                    }
+                    if let Err(e) = net.stop().await {
+                        tracing::error!(error = %e, "Failed to stop network on shutdown");
+                    }
+                });
+            })
+            .join()
+            .ok();
+        }
+    });
 
     // On mount: check if returning user
     use_effect(move || {
@@ -157,34 +178,10 @@ pub fn App() -> Element {
                             }
                         }
 
-                        // Pre-compute contact invite code (async, includes transport info)
-                        log_event(&mut state, EventDirection::System, "Generating invite code...");
-                        match net.create_connection_invite().await {
-                            Ok(code) => {
-                                state.write().invite_code_uri = Some(code.to_uri());
-                                log_event(&mut state, EventDirection::System, "Invite code ready");
-                            }
-                            Err(e) => {
-                                tracing::warn!("Failed to generate invite code: {}", e);
-                                log_event(&mut state, EventDirection::System, format!("Invite code: {}", e));
-                            }
-                        }
-
-                        // Process connection accepts (picks up connection requests from others)
-                        log_event(&mut state, EventDirection::Received, "Checking inbox for connection requests...");
-                        match net.process_pending_accepts().await {
-                            Ok(count) => {
-                                if count > 0 {
-                                    log_event(&mut state, EventDirection::Received, format!("Inbox: processed {} connection request(s)", count));
-                                } else {
-                                    log_event(&mut state, EventDirection::System, "Inbox: no pending requests");
-                                }
-                            }
-                            Err(e) => {
-                                tracing::debug!("Handshake inbox processing: {}", e);
-                                log_event(&mut state, EventDirection::System, format!("Inbox check: {}", e));
-                            }
-                        }
+                        // Generate identity code (compact bech32m — no async needed)
+                        let identity_uri = net.identity_uri();
+                        state.write().invite_code_uri = Some(identity_uri.clone());
+                        log_event(&mut state, EventDirection::System, format!("Identity code ready ({})", &identity_uri[..20.min(identity_uri.len())]));
 
                         // Load contacts (use async read to avoid blocking in async context)
                         log_event(&mut state, EventDirection::System, "Loading contacts...");
@@ -270,9 +267,11 @@ pub fn App() -> Element {
         state.read().contact_copy_feedback
     });
 
-    // Close handler: sync is_open signal back to state
+    // Close handler: sync is_open signal back to state.
+    // Use peek() so this effect only triggers when ci_open changes,
+    // NOT when state changes (which would race with the forward sync).
     use_effect(move || {
-        if !ci_open() && state.read().contact_invite_open {
+        if !ci_open() && state.peek().contact_invite_open {
             state.write().contact_invite_open = false;
             state.write().contact_invite_status = None;
         }
@@ -315,86 +314,70 @@ pub fn App() -> Element {
                             let mut state = state;
                             let network = network;
                             spawn(async move {
-                                tracing::info!(uri = %uri, "on_connect: parsing invite URI");
-                                match ContactInviteCode::parse(&uri) {
-                                    Ok(code) => {
-                                        tracing::info!("on_connect: parsed invite code OK");
-                                        state.write().contact_connecting = true;
-                                        let inviter_name = code.display_name().map(|s| s.to_string()).unwrap_or_else(|| "unknown".to_string());
-                                        log_event(&mut state, EventDirection::System, format!("Parsed invite from {}", inviter_name));
-                                        // Clone the Arc to avoid holding Signal read guard across awaits
-                                        let net = {
-                                            let guard = network.read();
-                                            guard.as_ref().cloned()
-                                        };
-                                        if let Some(net) = net {
-                                            tracing::info!("on_connect: calling accept_connection_invite");
-                                            log_event(&mut state, EventDirection::Sent, format!("Accepting invite from {}...", inviter_name));
-                                            match net.accept_connection_invite(&code).await {
-                                                Ok(()) => {
-                                                    tracing::info!("on_connect: accept_connection_invite succeeded, processing connection accepts");
-                                                    log_event(&mut state, EventDirection::Sent, format!("Connection request sent to {}", inviter_name));
-                                                    // Process connection accepts (in case the inviter already connected)
-                                                    match net.process_pending_accepts().await {
-                                                        Ok(count) => {
-                                                            if count > 0 {
-                                                                log_event(&mut state, EventDirection::Received, format!("Inbox: processed {} request(s)", count));
-                                                            }
-                                                        }
-                                                        Err(e) => {
-                                                            tracing::debug!("on_connect: connection accepts: {}", e);
-                                                        }
+                                tracing::info!(uri = %uri, "on_connect: parsing identity/invite code");
+                                state.write().contact_connecting = true;
+
+                                // Clone the Arc to avoid holding Signal read guard across awaits
+                                let net = {
+                                    let guard = network.read();
+                                    guard.as_ref().cloned()
+                                };
+                                let Some(net) = net else {
+                                    tracing::error!("on_connect: network is None");
+                                    state.write().contact_connecting = false;
+                                    return;
+                                };
+
+                                // Parse identity code (indra1...)
+                                let (code, name) = match IdentityCode::parse_uri(&uri) {
+                                    Ok(parsed) => parsed,
+                                    Err(e) => {
+                                        log_event(&mut state, EventDirection::System, format!("ERROR: Invalid identity code: {}", e));
+                                        let mut s = state.write();
+                                        s.contact_invite_status = Some("error:Invalid identity code. Paste an indra1... code.".to_string());
+                                        s.contact_connecting = false;
+                                        return;
+                                    }
+                                };
+                                let peer_name = name.unwrap_or_else(|| "peer".to_string());
+                                log_event(&mut state, EventDirection::System, format!("Connecting to {}...", peer_name));
+                                let connect_result = net.connect_by_code(&uri).await.map(|_| peer_name);
+
+                                match connect_result {
+                                    Ok(peer_name) => {
+                                        tracing::info!("on_connect: connection established");
+                                        log_event(&mut state, EventDirection::Sent, format!("Connected to {}", peer_name));
+                                        // Reload contacts
+                                        if let Some(contacts_realm) = net.contacts_realm().await {
+                                            if let Ok(doc) = contacts_realm.contacts().await {
+                                                let data = doc.read().await;
+                                                let contacts: Vec<ContactView> = data.contacts.iter().map(|(mid, entry)| {
+                                                    ContactView {
+                                                        member_id: *mid,
+                                                        member_id_short: mid.iter().take(8).map(|b| format!("{:02x}", b)).collect(),
+                                                        display_name: entry.display_name.clone(),
+                                                        status: "confirmed".to_string(),
                                                     }
-                                                    // Reload contacts
-                                                    match net.contacts_realm().await {
-                                                        Some(contacts_realm) => {
-                                                            tracing::info!("on_connect: got contacts realm, reading list");
-                                                            if let Ok(doc) = contacts_realm.contacts().await {
-                                                                let data = doc.read().await;
-                                                                tracing::info!(count = data.contacts.len(), "on_connect: loaded contacts");
-                                                                let contacts: Vec<ContactView> = data.contacts.iter().map(|(mid, entry)| {
-                                                                    ContactView {
-                                                                        member_id: *mid,
-                                                                        member_id_short: mid.iter().take(8).map(|b| format!("{:02x}", b)).collect(),
-                                                                        display_name: entry.display_name.clone(),
-                                                                        status: "confirmed".to_string(),
-                                                                    }
-                                                                }).collect();
-                                                                let count = contacts.len();
-                                                                drop(data);
-                                                                state.write().contacts = contacts;
-                                                                log_event(&mut state, EventDirection::System, format!("Contacts: {} connection(s)", count));
-                                                            }
-                                                        }
-                                                        None => {
-                                                            tracing::warn!("on_connect: contacts_realm() returned None after accept");
-                                                        }
-                                                    }
-                                                    tracing::info!("on_connect: closing overlay");
-                                                    let mut s = state.write();
-                                                    s.contact_invite_input.clear();
-                                                    s.contact_parsed_name = None;
-                                                    s.contact_invite_status = None;
-                                                    s.contact_connecting = false;
-                                                    s.contact_invite_open = false;
-                                                    tracing::info!("on_connect: done");
-                                                }
-                                                Err(e) => {
-                                                    tracing::error!(error = %e, "on_connect: accept_connection_invite failed");
-                                                    log_event(&mut state, EventDirection::System, format!("ERROR: Accept failed: {}", e));
-                                                    let mut s = state.write();
-                                                    s.contact_invite_status = Some(format!("error:{}", e));
-                                                    s.contact_connecting = false;
-                                                }
+                                                }).collect();
+                                                let count = contacts.len();
+                                                drop(data);
+                                                state.write().contacts = contacts;
+                                                log_event(&mut state, EventDirection::System, format!("Contacts: {} connection(s)", count));
                                             }
-                                        } else {
-                                            tracing::error!("on_connect: network is None");
                                         }
+                                        let mut s = state.write();
+                                        s.contact_invite_input.clear();
+                                        s.contact_parsed_name = None;
+                                        s.contact_invite_status = None;
+                                        s.contact_connecting = false;
+                                        s.contact_invite_open = false;
                                     }
                                     Err(e) => {
-                                        log_event(&mut state, EventDirection::System, format!("ERROR: Invalid invite: {}", e));
+                                        let err_str = e.to_string();
+                                        tracing::error!(error = %err_str, "on_connect: connect failed");
+                                        log_event(&mut state, EventDirection::System, format!("ERROR: {}", err_str));
                                         let mut s = state.write();
-                                        s.contact_invite_status = Some(format!("error:Invalid invite: {}", e));
+                                        s.contact_invite_status = Some(format!("error:Connection failed: {}", err_str));
                                         s.contact_connecting = false;
                                     }
                                 }
@@ -402,9 +385,10 @@ pub fn App() -> Element {
                         },
                         on_parse_input: move |input: String| {
                             state.write().contact_invite_input = input.clone();
-                            match ContactInviteCode::parse(&input) {
-                                Ok(code) => {
-                                    state.write().contact_parsed_name = code.display_name().map(|s| s.to_string());
+                            // Parse identity code to extract display name
+                            match IdentityCode::parse_uri(&input) {
+                                Ok((_code, name)) => {
+                                    state.write().contact_parsed_name = name;
                                 }
                                 Err(_) => {
                                     state.write().contact_parsed_name = None;
@@ -417,6 +401,8 @@ pub fn App() -> Element {
                                 let uri = invite_uri();
                                 let _ = clipboard.set_text(uri);
                                 state.write().contact_copy_feedback = true;
+                                // Close modal immediately after copying
+                                state.write().contact_invite_open = false;
                                 // Reset feedback after 2 seconds
                                 spawn(async move {
                                     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -529,34 +515,11 @@ pub async fn create_identity_and_load(
                 }
             }
 
-            // Pre-compute contact invite code (async, includes transport info)
-            log_event(state, EventDirection::System, "Generating invite code...");
-            match net.create_connection_invite().await {
-                Ok(code) => {
-                    state.write().invite_code_uri = Some(code.to_uri());
-                    log_event(state, EventDirection::System, "Invite code ready");
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to generate invite code: {}", e);
-                    log_event(state, EventDirection::System, format!("Invite code: {}", e));
-                }
-            }
-
-            // Process connection accepts (picks up connection requests from others)
-            log_event(state, EventDirection::Received, "Checking inbox...");
-            match net.process_pending_accepts().await {
-                Ok(count) => {
-                    if count > 0 {
-                        log_event(state, EventDirection::Received, format!("Inbox: processed {} connection request(s)", count));
-                    } else {
-                        log_event(state, EventDirection::System, "Inbox: no pending requests");
-                    }
-                }
-                Err(e) => {
-                    tracing::debug!("Handshake inbox processing: {}", e);
-                    log_event(state, EventDirection::System, format!("Inbox check: {}", e));
-                }
-            }
+            // Generate compact identity code for sharing
+            log_event(state, EventDirection::System, "Generating identity code...");
+            let identity_uri = net.identity_uri();
+            state.write().invite_code_uri = Some(identity_uri);
+            log_event(state, EventDirection::System, "Identity code ready");
 
             // Load contacts
             log_event(state, EventDirection::System, "Loading contacts...");

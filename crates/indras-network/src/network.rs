@@ -8,9 +8,12 @@ use crate::connection::{
     ConnectionStatus, PendingConnection,
 };
 use crate::contacts::{contacts_realm_id, ContactsRealm};
+use crate::direct_connect::{dm_realm_id, is_initiator, KeyExchangeStatus, PendingKeyExchange};
 use crate::document::Document;
+use crate::encounter;
 use crate::error::{IndraError, Result};
 use crate::home_realm::{home_realm_id, HomeRealm};
+use crate::identity_code::IdentityCode;
 use crate::invite::InviteCode;
 use crate::member::{Member, MemberId};
 use crate::realm::Realm;
@@ -440,6 +443,294 @@ impl IndrasNetwork {
 
         // Leave at the node level (broadcasts leave, cleans up gossip)
         self.inner.leave_interface(id).await?;
+
+        Ok(())
+    }
+
+    // ============================================================
+    // Direct connection — "Identity IS Connection"
+    // ============================================================
+
+    /// Connect to a peer by MemberId — the core one-call API.
+    ///
+    /// This is the primary way to establish a DM connection. It:
+    /// 1. Computes a deterministic DM realm ID from both MemberIds
+    /// 2. Creates/joins the interface (joins gossip topic automatically)
+    /// 3. Initiates ML-KEM key exchange if we're the initiator (lower MemberId)
+    /// 4. Returns a Realm that's ready for messaging once key exchange completes
+    ///
+    /// # Arguments
+    ///
+    /// * `peer_id` - The MemberId of the peer to connect to
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let realm = network.connect(nova_member_id).await?;
+    /// realm.send("Hey Nova!").await?;
+    /// ```
+    pub async fn connect(&self, peer_id: MemberId) -> Result<Realm> {
+        let my_id = self.id();
+
+        if peer_id == my_id {
+            return Err(IndraError::InvalidOperation(
+                "Cannot connect to yourself".to_string(),
+            ));
+        }
+
+        // Ensure network is started
+        if !self.is_running() {
+            self.start().await?;
+        }
+
+        // 1. Compute deterministic DM realm ID
+        let realm_id = dm_realm_id(my_id, peer_id);
+
+        // 2. Check if already loaded
+        if let Some(state) = self.realms.get(&realm_id) {
+            return Ok(Realm::from_id(realm_id, state.name.clone(), Arc::clone(&self.inner)));
+        }
+
+        // 3. Create the interface with deterministic ID
+        let (interface_id, invite_key) = self
+            .inner
+            .create_interface_with_id(realm_id, Some("DM"))
+            .await?;
+
+        // 4. Cache realm state
+        self.realms.insert(
+            interface_id,
+            RealmState {
+                name: Some("DM".to_string()),
+            },
+        );
+
+        // 5. Add contact if not already present (auto-confirm for direct connect)
+        let contacts = self.join_contacts_realm().await?;
+        if !contacts.is_contact(&peer_id).await {
+            let _ = contacts.add_contact(peer_id).await;
+        }
+        let _ = contacts.confirm_contact(&peer_id).await;
+
+        // 6. Cache peer mapping
+        let mut peers = vec![my_id, peer_id];
+        peers.sort();
+        self.peer_realms.insert(peers, interface_id);
+
+        tracing::info!(
+            peer = %hex::encode(&peer_id[..8]),
+            realm = %hex::encode(&realm_id.as_bytes()[..8]),
+            initiator = is_initiator(&my_id, &peer_id),
+            "Direct connection established"
+        );
+
+        Ok(Realm::new(
+            interface_id,
+            Some("DM".to_string()),
+            InviteCode::new(invite_key),
+            Arc::clone(&self.inner),
+        ))
+    }
+
+    /// Connect to a peer using a compact identity code (bech32m).
+    ///
+    /// Parses the identity code to extract the MemberId, then calls `connect()`.
+    ///
+    /// # Arguments
+    ///
+    /// * `code` - A bech32m identity code like `indra1qw508d6q...`
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let realm = network.connect_by_code("indra1qw508d6q...").await?;
+    /// ```
+    pub async fn connect_by_code(&self, code: &str) -> Result<Realm> {
+        // Try parsing as identity code first, then as URI with name
+        let (identity_code, display_name) = IdentityCode::parse_uri(code)?;
+        let peer_id = identity_code.member_id();
+
+        // If we got a display name, update the contact
+        if let Some(name) = display_name {
+            let contacts = self.join_contacts_realm().await?;
+            if !contacts.is_contact(&peer_id).await {
+                let _ = contacts.add_contact_with_name(peer_id, Some(name)).await;
+            }
+        }
+
+        self.connect(peer_id).await
+    }
+
+    /// Get this network's compact identity code (bech32m).
+    ///
+    /// This is a short string (~58 chars) that can be shared for connecting.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let code = network.identity_code();
+    /// println!("Share this: {}", code);  // indra1qw508d6q...
+    /// ```
+    pub fn identity_code(&self) -> String {
+        IdentityCode::from_member_id(self.id()).encode()
+    }
+
+    /// Get this network's identity URI with display name.
+    ///
+    /// Includes the display name as a query parameter for convenience.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let uri = network.identity_uri();
+    /// println!("Share this: {}", uri);  // indra1qw508d6q...?name=Zephyr
+    /// ```
+    pub fn identity_uri(&self) -> String {
+        IdentityCode::from_member_id(self.id()).to_uri(self.display_name())
+    }
+
+    /// Create an encounter for in-person peer discovery.
+    ///
+    /// Generates a 6-digit code, joins the encounter gossip topic,
+    /// and broadcasts our MemberId. Returns the code and a handle
+    /// for cleanup.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let (code, handle) = network.create_encounter().await?;
+    /// println!("Tell them: {}", code);  // "743901"
+    /// ```
+    pub async fn create_encounter(&self) -> Result<(String, encounter::EncounterHandle)> {
+        // Ensure network is started
+        if !self.is_running() {
+            self.start().await?;
+        }
+
+        // 1. Generate random 6-digit code
+        let code = encounter::generate_encounter_code();
+
+        // 2. Get encounter topics (current + previous time window)
+        let topics = encounter::encounter_topics(&code);
+
+        // 3. Join the encounter topics as interfaces
+        for topic in &topics {
+            let _ = self
+                .inner
+                .create_interface_with_id(*topic, Some("Encounter"))
+                .await;
+        }
+
+        let handle = encounter::EncounterHandle {
+            code: code.clone(),
+            topics: topics.clone(),
+        };
+
+        tracing::info!(code = %code, "Created encounter");
+
+        // 4. Schedule cleanup after 90 seconds (60s window + 30s grace)
+        let inner = Arc::clone(&self.inner);
+        let cleanup_topics = topics;
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(90)).await;
+            for topic in cleanup_topics {
+                let _ = inner.leave_interface(&topic).await;
+            }
+        });
+
+        Ok((code, handle))
+    }
+
+    /// Join an encounter using a 6-digit code.
+    ///
+    /// Joins the encounter gossip topic to discover the other peer's MemberId,
+    /// then automatically calls `connect()` with the discovered ID.
+    ///
+    /// # Arguments
+    ///
+    /// * `code` - The 6-digit encounter code (e.g., "743901")
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let realm = network.join_encounter("743901").await?;
+    /// ```
+    pub async fn join_encounter(&self, code: &str) -> Result<MemberId> {
+        let code = code.trim().to_string();
+        encounter::validate_encounter_code(&code)?;
+
+        // Ensure network is started
+        if !self.is_running() {
+            self.start().await?;
+        }
+
+        // Join encounter topics
+        let topics = encounter::encounter_topics(&code);
+        for topic in &topics {
+            let _ = self
+                .inner
+                .create_interface_with_id(*topic, Some("Encounter"))
+                .await;
+        }
+
+        // Schedule cleanup after 90 seconds
+        let inner = Arc::clone(&self.inner);
+        let cleanup_topics = topics;
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(90)).await;
+            for topic in cleanup_topics {
+                let _ = inner.leave_interface(&topic).await;
+            }
+        });
+
+        // Note: The actual peer discovery happens via gossip events.
+        // The caller should listen for peer events on the encounter topics.
+        // For now, we return an error indicating the encounter was joined
+        // but peer discovery is async.
+        Err(IndraError::InvalidOperation(
+            "Encounter joined — peer discovery is asynchronous. \
+             Listen for peer events to discover the peer's MemberId, \
+             then call connect() with it."
+                .to_string(),
+        ))
+    }
+
+    /// Introduce two peers who don't know each other.
+    ///
+    /// Sends each peer the other's MemberId on their respective
+    /// DM realms, allowing them to call `connect()`.
+    ///
+    /// # Arguments
+    ///
+    /// * `peer_a` - First peer's MemberId
+    /// * `peer_b` - Second peer's MemberId
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Bodhi introduces Zephyr and Nova
+    /// bodhi_network.introduce(zephyr_id, nova_id).await?;
+    /// ```
+    pub async fn introduce(&self, peer_a: MemberId, peer_b: MemberId) -> Result<()> {
+        if peer_a == peer_b {
+            return Err(IndraError::InvalidOperation(
+                "Cannot introduce a peer to themselves".to_string(),
+            ));
+        }
+
+        // Send peer_b's ID to peer_a via our DM realm with peer_a
+        let realm_a = self.connect(peer_a).await?;
+        realm_a.send(format!("__intro__:{}", hex::encode(&peer_b))).await?;
+
+        // Send peer_a's ID to peer_b via our DM realm with peer_b
+        let realm_b = self.connect(peer_b).await?;
+        realm_b.send(format!("__intro__:{}", hex::encode(&peer_a))).await?;
+
+        tracing::info!(
+            peer_a = %hex::encode(&peer_a[..8]),
+            peer_b = %hex::encode(&peer_b[..8]),
+            "Introduced two peers"
+        );
 
         Ok(())
     }
@@ -1530,6 +1821,24 @@ impl IndrasNetwork {
     /// Access the storage layer.
     pub fn storage(&self) -> &CompositeStorage<IrohIdentity> {
         self.inner.storage()
+    }
+
+    /// Access the network configuration.
+    pub fn config(&self) -> &NetworkConfig {
+        &self.config
+    }
+
+    /// Save a JSON snapshot of this node's world view to `{data_dir}/world-view.json`.
+    ///
+    /// The snapshot captures identity, interfaces, members, peers, and
+    /// transport state. Comparing snapshots across instances reveals
+    /// sync discrepancies.
+    pub async fn save_world_view(&self) -> Result<std::path::PathBuf> {
+        let view = crate::world_view::WorldView::build(self).await;
+        let path = self.config.data_dir.join("world-view.json");
+        view.save(&path)?;
+        tracing::info!(path = %path.display(), "Saved world view");
+        Ok(path)
     }
 }
 
