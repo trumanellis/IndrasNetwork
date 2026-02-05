@@ -310,6 +310,11 @@ impl ContactsRealm {
         self.document.read_blocking().list()
     }
 
+    /// Get the list of contacts (async-safe).
+    pub async fn contacts_list_async(&self) -> Vec<MemberId> {
+        self.document.read().await.list()
+    }
+
     /// Get the number of contacts.
     pub fn contact_count(&self) -> usize {
         self.document.read_blocking().len()
