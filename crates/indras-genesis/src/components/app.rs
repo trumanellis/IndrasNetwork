@@ -183,7 +183,17 @@ pub fn App() -> Element {
                         state.write().invite_code_uri = Some(identity_uri.clone());
                         log_event(&mut state, EventDirection::System, format!("Identity code ready ({})", &identity_uri[..20.min(identity_uri.len())]));
 
-                        // Load contacts (use async read to avoid blocking in async context)
+                        // Join contacts realm (must be joined, not just read from cache)
+                        log_event(&mut state, EventDirection::System, "Joining contacts realm...");
+                        match net.join_contacts_realm().await {
+                            Ok(_) => log_event(&mut state, EventDirection::System, "Contacts realm joined"),
+                            Err(e) => {
+                                tracing::debug!("Contacts realm join: {}", e);
+                                log_event(&mut state, EventDirection::System, format!("Contacts realm: {}", e));
+                            }
+                        }
+
+                        // Load contacts
                         log_event(&mut state, EventDirection::System, "Loading contacts...");
                         if let Some(contacts_realm) = net.contacts_realm().await {
                             if let Ok(doc) = contacts_realm.contacts().await {
