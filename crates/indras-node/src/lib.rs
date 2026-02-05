@@ -715,6 +715,24 @@ impl IndrasNode {
         Ok(())
     }
 
+    /// Connect to a peer by their raw 32-byte public key.
+    ///
+    /// Creates an `EndpointAddr` from the key and connects via iroh relay.
+    /// This establishes transport-level connectivity so that gossip messages
+    /// and CRDT sync can flow between the two nodes.
+    pub async fn connect_to_peer(&self, peer_key_bytes: &[u8; 32]) -> NodeResult<()> {
+        let public_key = iroh::PublicKey::from_bytes(peer_key_bytes)
+            .map_err(|e| NodeError::Crypto(e.to_string()))?;
+        let guard = self.transport.read().await;
+        let transport = guard.as_ref().ok_or(NodeError::NotStarted)?;
+        transport
+            .connection_manager()
+            .connect_by_key(public_key)
+            .await
+            .map_err(|e| NodeError::Transport(e.to_string()))?;
+        Ok(())
+    }
+
     /// Get our endpoint address for sharing with peers
     pub async fn endpoint_addr(&self) -> Option<iroh::EndpointAddr> {
         self.transport
