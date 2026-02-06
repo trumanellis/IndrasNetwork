@@ -8,7 +8,7 @@ use indras_sync_engine::{HomeRealmQuests, HomeRealmNotes};
 
 use indras_ui::{ArtifactDisplayInfo, ArtifactDisplayStatus, ArtifactGallery};
 
-use crate::state::{ContactView, ContactSentiment, EventDirection, GenesisState, GenesisStep, NoteView, QuestAttentionView, QuestClaimView, QuestStatus, QuestView, TokenView};
+use crate::state::{ContactView, ContactSentiment, EventDirection, GenesisState, GenesisStep, NoteView, QuestAttentionView, QuestClaimView, QuestStatus, QuestView};
 
 /// Helper to hex-encode a 16-byte ID.
 fn hex_id(id: &[u8; 16]) -> String {
@@ -21,7 +21,7 @@ async fn refresh_home_realm_data(
     state: &mut Signal<GenesisState>,
 ) {
     let my_id = network.id();
-    let my_id_short: String = my_id.iter().take(8).map(|b| format!("{:02x}", b)).collect();
+    let _my_id_short: String = my_id.iter().take(8).map(|b| format!("{:02x}", b)).collect();
 
     if let Ok(home) = network.home_realm().await {
         // Load quests with full claim information
@@ -888,11 +888,20 @@ fn render_contact_item(
                     if !is_pending && !is_blocked {
                         let mut s = state.write();
                         s.peer_realm_messages.clear();
+                        s.peer_realm_messages.clear();
                         s.peer_realm_draft.clear();
                         s.peer_realm_last_seq = 0;
                         s.peer_realm_message_count = 0;
                         s.peer_realm_action_menu_open = false;
                         s.peer_realm_contact_name = contact_name.clone();
+                        s.peer_realm_quests.clear();
+                        s.peer_realm_notes.clear();
+                        s.peer_realm_artifacts.clear();
+                        s.peer_realm_note_form_open = false;
+                        s.peer_realm_note_draft_title.clear();
+                        s.peer_realm_note_draft_content.clear();
+                        s.peer_realm_claiming_quest_id = None;
+                        s.peer_realm_claim_proof_text.clear();
                         s.step = GenesisStep::PeerRealm(mid);
                     }
                 },
