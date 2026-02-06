@@ -395,39 +395,7 @@ pub fn HomeRealmScreen(
                             div {
                                 class: "contacts-list",
                                 for contact in contacts.iter() {
-                                    {
-                                        let mid = contact.member_id;
-                                        let contact_name = contact.display_name.clone();
-                                        let is_pending = contact.status == "pending";
-                                        let id_short = contact.member_id_short.clone();
-                                        rsx! {
-                                            div {
-                                                key: "{id_short}",
-                                                class: if is_pending { "contact-item contact-pending" } else { "contact-item contact-clickable" },
-                                                onclick: move |_| {
-                                                    if !is_pending {
-                                                        let mut s = state.write();
-                                                        s.peer_realm_messages.clear();
-                                                        s.peer_realm_draft.clear();
-                                                        s.peer_realm_last_seq = 0;
-                                                        s.peer_realm_message_count = 0;
-                                                        s.peer_realm_action_menu_open = false;
-                                                        s.peer_realm_contact_name = contact_name.clone();
-                                                        s.step = GenesisStep::PeerRealm(mid);
-                                                    }
-                                                },
-                                                if let Some(ref name) = contact_name {
-                                                    span { class: "contact-name", "{name}" }
-                                                    span { class: "contact-id contact-id-secondary", "{id_short}" }
-                                                } else {
-                                                    span { class: "contact-id", "{id_short}" }
-                                                }
-                                                if is_pending {
-                                                    span { class: "contact-status-badge", "(pending)" }
-                                                }
-                                            }
-                                        }
-                                    }
+                                    {render_contact_item(contact, state, network)}
                                 }
                             }
                         }
