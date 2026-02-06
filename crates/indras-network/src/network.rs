@@ -97,7 +97,7 @@ pub struct IndrasNetwork {
     /// Mapping from peer sets to realm IDs (for peer-based realm lookup).
     peer_realms: Arc<DashMap<Vec<MemberId>, RealmId>>,
     /// The contacts realm (lazily initialized).
-    contacts_realm: RwLock<Option<ContactsRealm>>,
+    contacts_realm: Arc<RwLock<Option<ContactsRealm>>>,
     /// The home realm (lazily initialized).
     home_realm: RwLock<Option<HomeRealm>>,
     /// Configuration.
@@ -187,7 +187,7 @@ impl IndrasNetwork {
             inner: Arc::new(node),
             realms: Arc::new(DashMap::new()),
             peer_realms: Arc::new(DashMap::new()),
-            contacts_realm: RwLock::new(None),
+            contacts_realm: Arc::new(RwLock::new(None)),
             home_realm: RwLock::new(None),
             config,
             identity,
