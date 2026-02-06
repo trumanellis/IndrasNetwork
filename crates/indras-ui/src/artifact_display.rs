@@ -121,13 +121,33 @@ impl ArtifactDisplayInfo {
 }
 
 /// A responsive grid gallery of artifact cards.
+///
+/// # Props
+/// - `artifacts`: List of artifacts to display
+/// - `show_actions`: Whether to show action buttons (recall, transfer)
+/// - `on_recall`: Callback when recall button is clicked (artifact ID)
+/// - `on_transfer`: Callback when transfer button is clicked (artifact ID)
 #[component]
-pub fn ArtifactGallery(artifacts: Vec<ArtifactDisplayInfo>) -> Element {
+pub fn ArtifactGallery(
+    artifacts: Vec<ArtifactDisplayInfo>,
+    #[props(default = false)]
+    show_actions: bool,
+    #[props(default)]
+    on_recall: Option<EventHandler<String>>,
+    #[props(default)]
+    on_transfer: Option<EventHandler<String>>,
+) -> Element {
     rsx! {
         div {
             class: "artifact-gallery-grid",
             for artifact in artifacts.iter() {
-                ArtifactCard { key: "{artifact.id}", artifact: artifact.clone() }
+                ArtifactCard {
+                    key: "{artifact.id}",
+                    artifact: artifact.clone(),
+                    show_actions,
+                    on_recall: on_recall.clone(),
+                    on_transfer: on_transfer.clone(),
+                }
             }
         }
     }
@@ -135,13 +155,30 @@ pub fn ArtifactGallery(artifacts: Vec<ArtifactDisplayInfo>) -> Element {
 
 /// A single artifact card in the gallery grid.
 #[component]
-fn ArtifactCard(artifact: ArtifactDisplayInfo) -> Element {
+fn ArtifactCard(
+    artifact: ArtifactDisplayInfo,
+    #[props(default = false)]
+    show_actions: bool,
+    #[props(default)]
+    on_recall: Option<EventHandler<String>>,
+    #[props(default)]
+    on_transfer: Option<EventHandler<String>>,
+) -> Element {
     let icon = artifact.icon();
     let size_str = artifact.formatted_size();
     let status_class = artifact.status.css_class();
     let status_label = artifact.status.label();
     let owner_label = artifact.owner_label.clone().unwrap_or_default();
     let has_image = artifact.has_displayable_image() && artifact.data_url.is_some();
+    let artifact_id = artifact.id.clone();
+    let artifact_id_for_transfer = artifact.id.clone();
+
+    // Only show actions for active, shared artifacts
+    let can_recall = show_actions
+        && artifact.status == ArtifactDisplayStatus::Active
+        && artifact.grant_count > 0;
+    let can_transfer = show_actions
+        && artifact.status == ArtifactDisplayStatus::Active;
 
     rsx! {
         div {
@@ -177,6 +214,43 @@ fn ArtifactCard(artifact: ArtifactDisplayInfo) -> Element {
                 span {
                     class: "artifact-gallery-status {status_class}",
                     "{status_label}"
+                }
+            }
+
+            // Action buttons
+            if show_actions && (can_recall || can_transfer) {
+                div {
+                    class: "artifact-gallery-actions",
+
+                    if can_recall {
+                        if let Some(ref handler) = on_recall {
+                            button {
+                                class: "artifact-action-btn artifact-recall-btn",
+                                title: "Recall artifact",
+                                onclick: {
+                                    let handler = handler.clone();
+                                    let id = artifact_id.clone();
+                                    move |_| handler.call(id.clone())
+                                },
+                                "\u{21a9}" // Return arrow
+                            }
+                        }
+                    }
+
+                    if can_transfer {
+                        if let Some(ref handler) = on_transfer {
+                            button {
+                                class: "artifact-action-btn artifact-transfer-btn",
+                                title: "Transfer artifact",
+                                onclick: {
+                                    let handler = handler.clone();
+                                    let id = artifact_id_for_transfer.clone();
+                                    move |_| handler.call(id.clone())
+                                },
+                                "\u{2192}" // Right arrow
+                            }
+                        }
+                    }
                 }
             }
         }
