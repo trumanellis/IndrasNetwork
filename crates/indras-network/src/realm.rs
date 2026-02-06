@@ -227,6 +227,27 @@ impl Realm {
             .collect())
     }
 
+    /// Get all messages from the CRDT document, including synced messages from peers.
+    ///
+    /// Unlike `messages_since()` which only returns locally-stored events,
+    /// this reads from the Automerge document which includes events received
+    /// via CRDT sync from remote peers.
+    pub async fn all_messages(&self) -> Result<Vec<Message>> {
+        let events = self.node.document_events(&self.id).await?;
+        let realm_id = self.id;
+
+        Ok(events
+            .into_iter()
+            .filter_map(|event| {
+                let received = ReceivedEvent {
+                    interface_id: realm_id,
+                    event,
+                };
+                convert_event_to_message(received, realm_id)
+            })
+            .collect())
+    }
+
     /// Search messages by text content.
     ///
     /// Performs case-insensitive full-text search across all messages
