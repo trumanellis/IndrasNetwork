@@ -263,6 +263,22 @@ pub struct GenesisState {
     pub peer_realm_contact_name: Option<String>,
     /// Whether the action menu is open in the peer realm chat.
     pub peer_realm_action_menu_open: bool,
+    /// Quests in the active peer realm (shared quests with contact).
+    pub peer_realm_quests: Vec<QuestView>,
+    /// Notes in the active peer realm (shared notes with contact).
+    pub peer_realm_notes: Vec<NoteView>,
+    /// Artifacts in the active peer realm (shared artifacts with contact).
+    pub peer_realm_artifacts: Vec<ArtifactDisplayInfo>,
+    /// Whether the note form is open in the peer realm.
+    pub peer_realm_note_form_open: bool,
+    /// Draft note title for peer realm.
+    pub peer_realm_note_draft_title: String,
+    /// Draft note content for peer realm.
+    pub peer_realm_note_draft_content: String,
+    /// Quest ID being claimed in peer realm.
+    pub peer_realm_claiming_quest_id: Option<String>,
+    /// Draft proof text for peer realm quest claim.
+    pub peer_realm_claim_proof_text: String,
     /// Tokens of gratitude owned by the user.
     pub tokens: Vec<TokenView>,
     /// Quest ID currently being claimed (for claim form).
@@ -307,6 +323,14 @@ impl Default for GenesisState {
             peer_realm_last_seq: 0,
             peer_realm_contact_name: None,
             peer_realm_action_menu_open: false,
+            peer_realm_quests: Vec::new(),
+            peer_realm_notes: Vec::new(),
+            peer_realm_artifacts: Vec::new(),
+            peer_realm_note_form_open: false,
+            peer_realm_note_draft_title: String::new(),
+            peer_realm_note_draft_content: String::new(),
+            peer_realm_claiming_quest_id: None,
+            peer_realm_claim_proof_text: String::new(),
             tokens: Vec::new(),
             claiming_quest_id: None,
             claim_proof_text: String::new(),
