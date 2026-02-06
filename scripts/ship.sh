@@ -5,7 +5,7 @@
 # A branch is "completed" if it has 1+ commits and merges cleanly.
 
 set -euo pipefail
-cd "$(git rev-parse --toplevel)"
+cd "$(git rev-parse --show-toplevel)"
 
 DRY_RUN=false
 EXCLUDE=""
