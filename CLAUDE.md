@@ -56,39 +56,51 @@ When using names in examples, discussions, or documentation, **never use generic
 
 Pick names that are distinct from each other and easy to tell apart in context.
 
-## Large Features Use Git Worktrees
+## Git Workflow (GitButler)
 
-**Always build large new features in a dedicated git worktree**, not on the main working tree.
+This repo uses **GitButler virtual branches**. The workspace branch (`gitbutler/workspace`) is a synthetic merge of all active virtual branches. Follow these rules:
 
-A feature is "large" if it touches 3+ files, adds a new crate/module, or could take multiple iterations to stabilize.
+1. **Never use `git commit`** — it will be blocked by the pre-commit hook. Use `but commit <branch> -m "msg"` instead
+2. **Check `but status`** before committing to understand which branch owns which files
+3. **Stage files explicitly** with `but stage -b <branch> <file>` when changes span multiple branches
+4. **Use `-o` flag** (`but commit -o`) to commit only staged changes, not everything
+5. **Don't touch `gitbutler/workspace`** — it's managed by GitButler
+
+### Key Commands
+
+| Task | Command |
+|------|---------|
+| Commit to a branch | `but commit <branch-name> -m "message"` |
+| Commit only staged changes | `but commit -o <branch-name> -m "message"` |
+| Stage file to a branch | `but stage -b <branch-name> <file>` |
+| View status | `but status` |
+| View diff | `but diff` |
+| List branches | `but branch list` |
+
+### Workflow: Changes Spanning Multiple Branches
 
 ```bash
-# Create a worktree for the feature branch
-git worktree add ../IndrasNetwork-<feature-name> -b feature/<feature-name>
-
-# Work inside the worktree
-# (the worktree is a full checkout — cargo, tests, etc. all work normally)
-
-# When done, merge back and clean up
-git checkout main
-git merge feature/<feature-name>
-git worktree remove ../IndrasNetwork-<feature-name>
-git branch -d feature/<feature-name>
+# Check what's staged where
+but status
+# Stage specific files to the right branch
+but stage -b feature-a src/module_a.rs
+but stage -b feature-b src/module_b.rs
+# Commit each branch separately
+but commit -o feature-a -m "feat: update module A"
+but commit -o feature-b -m "feat: update module B"
 ```
 
-### Why Worktrees
+### Gotchas
 
-- Main working tree stays clean and buildable at all times
-- Easy to compare behavior between main and the feature branch side-by-side
-- No risk of half-finished work blocking other tasks
-- Multiple features can be developed in parallel without stashing
+| Issue | Cause | Fix |
+|-------|-------|-----|
+| `git commit` fails with GITBUTLER_ERROR | Pre-commit hook blocks direct commits | Use `but commit` instead |
+| Wrong files in commit | `but commit` without `-o` grabs everything | Use `but commit -o` for staged-only |
+| File locked to another branch | GitButler assigned the file to a different branch | Use `but stage -b <target> <file>` to reassign |
 
-### Worktree Guidelines
+### When to Use Git Worktrees Instead
 
-1. **Naming**: Place worktrees as siblings to the repo root — `../IndrasNetwork-<feature-name>`
-2. **Branch naming**: Use `feature/<feature-name>` for the branch
-3. **Keep worktrees short-lived**: Merge or rebase frequently, remove when done
-4. **Run commands from worktree root**: The same "always run from root" rule applies inside the worktree
+Virtual branches handle most parallel development. Only use worktrees for major architectural isolation that requires a **separate build directory** (e.g., incompatible dependency changes that would break the main workspace build).
 
 ## Greenfield Project
 
