@@ -19,18 +19,18 @@ LOGFILE="$(cd "$(dirname "$0")" && pwd)/LOGS.jsonl"
 CLEAN=""
 NAMES=()
 for arg in "$@"; do
-    if [ "$arg" = "--clean" ]; then
-        CLEAN="--clean"
-    else
-        NAMES+=("$arg")
-    fi
+  if [ "$arg" = "--clean" ]; then
+    CLEAN="--clean"
+  else
+    NAMES+=("$arg")
+  fi
 done
 
 if [ ${#NAMES[@]} -eq 0 ]; then
-    # No names: single instance, normal flow
-    echo "Logging stdout to $LOGFILE"
-    cargo run -p indras-genesis -- $CLEAN 2>&1 | tee -a "$LOGFILE"
-    exit 0
+  # No names: single instance, normal flow
+  echo "Logging stdout to $LOGFILE"
+  cargo run -p indras-genesis -- $CLEAN 2>&1 | tee -a "$LOGFILE"
+  exit 0
 fi
 
 # Build once before launching instances
@@ -44,24 +44,24 @@ SCREEN_BOUNDS=$(osascript -e 'tell application "Finder" to get bounds of window 
 SCREEN_W=$(echo "$SCREEN_BOUNDS" | awk -F', ' '{print $3}')
 SCREEN_H=$(echo "$SCREEN_BOUNDS" | awk -F', ' '{print $4}')
 TILE_W=$((SCREEN_W / NUM))
-TILE_H=$((SCREEN_H - 25))  # leave room for menu bar
+TILE_H=$((SCREEN_H - 25)) # leave room for menu bar
 
 echo "Screen: ${SCREEN_W}x${SCREEN_H}, tiling $NUM windows at ${TILE_W}x${TILE_H}"
 [ -n "$CLEAN" ] && echo "Clean mode: wiping data directories"
 
 IDX=0
 for NAME in "${NAMES[@]}"; do
-    LOWER_NAME=$(echo "$NAME" | tr '[:upper:]' '[:lower:]')
-    DATA_DIR="/tmp/indras-${LOWER_NAME}"
-    WIN_X=$((IDX * TILE_W))
-    echo "Launching $NAME at x=$WIN_X (data: $DATA_DIR)"
-    INDRAS_NAME="$NAME" INDRAS_DATA_DIR="$DATA_DIR" \
-        INDRAS_WIN_X="$WIN_X" INDRAS_WIN_Y=25 \
-        INDRAS_WIN_W="$TILE_W" INDRAS_WIN_H="$TILE_H" \
-        cargo run -p indras-genesis -- $CLEAN 2>&1 | tee -a "$LOGFILE" &
-    PIDS+=($!)
-    IDX=$((IDX + 1))
-    sleep 0.5  # stagger window creation
+  LOWER_NAME=$(echo "$NAME" | tr '[:upper:]' '[:lower:]')
+  DATA_DIR="/tmp/indras-${LOWER_NAME}"
+  WIN_X=$((IDX * TILE_W))
+  echo "Launching $NAME at x=$WIN_X (data: $DATA_DIR)"
+  INDRAS_NAME="$NAME" INDRAS_DATA_DIR="$DATA_DIR" \
+    INDRAS_WIN_X="$WIN_X" INDRAS_WIN_Y=25 \
+    INDRAS_WIN_W="$TILE_W" INDRAS_WIN_H="$TILE_H" \
+    cargo run -p indras-genesis -- $CLEAN 2>&1 | tee -a "$LOGFILE" &
+  PIDS+=($!)
+  IDX=$((IDX + 1))
+  sleep 0.5 # stagger window creation
 done
 
 echo ""
@@ -69,58 +69,88 @@ echo "Running: ${NAMES[*]}${CLEAN:+ (clean)}"
 echo "PIDs: ${PIDS[*]}"
 echo "Press Ctrl+C to stop all instances."
 
+# Bring all indras-genesis windows to front after they finish rendering
+bring_windows_to_front() {
+    osascript -e '
+        tell application "System Events"
+            set genesisProcs to every process whose name is "indras-genesis"
+            if (count of genesisProcs) > 0 then
+                repeat with proc in genesisProcs
+                    set frontmost of proc to true
+                end repeat
+            else
+                set allProcs to every process whose visible is true
+                repeat with proc in allProcs
+                    try
+                        set wins to every window of proc whose name contains "Synchronicity Engine"
+                        if (count of wins) > 0 then
+                            set frontmost of proc to true
+                        end if
+                    end try
+                end repeat
+            end if
+        end tell
+    '
+}
+
+# Wait for windows to finish creating, then bring them all to front
+(
+    sleep 3
+    bring_windows_to_front
+) &
+
 # Clean up on exit and consolidate world views
 cleanup_and_consolidate() {
-    kill "${PIDS[@]}" 2>/dev/null
-    # Give instances a moment to write their world-view.json on shutdown
-    sleep 2
-    consolidate_world_views
-    exit
+  kill "${PIDS[@]}" 2>/dev/null
+  # Give instances a moment to write their world-view.json on shutdown
+  sleep 2
+  consolidate_world_views
+  exit
 }
 
 consolidate_world_views() {
-    local OUTPUT="$HOME/WORLD_VIEW.json"
-    local FOUND=0
+  local OUTPUT="./WORLD_VIEW.json"
+  local FOUND=0
 
-    # Build a JSON object: { "timestamp": "...", "instances": { "Name": {...}, ... } }
-    local INSTANCES="{"
-    local FIRST=true
+  # Build a JSON object: { "timestamp": "...", "instances": { "Name": {...}, ... } }
+  local INSTANCES="{"
+  local FIRST=true
 
-    for NAME in "${NAMES[@]}"; do
-        LOWER_NAME=$(echo "$NAME" | tr '[:upper:]' '[:lower:]')
-        WV="/tmp/indras-${LOWER_NAME}/world-view.json"
-        if [ -f "$WV" ]; then
-            FOUND=$((FOUND + 1))
-            if [ "$FIRST" = true ]; then
-                FIRST=false
-            else
-                INSTANCES+=","
-            fi
-            INSTANCES+="\"$NAME\":$(cat "$WV")"
-        else
-            echo "  Warning: no world-view.json for $NAME ($WV)"
-        fi
-    done
-    INSTANCES+="}"
-
-    if [ $FOUND -eq 0 ]; then
-        echo "No world-view files found to consolidate."
-        return
+  for NAME in "${NAMES[@]}"; do
+    LOWER_NAME=$(echo "$NAME" | tr '[:upper:]' '[:lower:]')
+    WV="/tmp/indras-${LOWER_NAME}/world-view.json"
+    if [ -f "$WV" ]; then
+      FOUND=$((FOUND + 1))
+      if [ "$FIRST" = true ]; then
+        FIRST=false
+      else
+        INSTANCES+=","
+      fi
+      INSTANCES+="\"$NAME\":$(cat "$WV")"
+    else
+      echo "  Warning: no world-view.json for $NAME ($WV)"
     fi
+  done
+  INSTANCES+="}"
 
-    # Wrap in top-level object with timestamp
-    local NOW
-    NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    printf '{\n  "consolidated_at": "%s",\n  "instance_count": %d,\n  "instances": %s\n}\n' \
-        "$NOW" "$FOUND" "$INSTANCES" > "$OUTPUT"
+  if [ $FOUND -eq 0 ]; then
+    echo "No world-view files found to consolidate."
+    return
+  fi
 
-    # Pretty-print if python3 is available
-    if command -v python3 &>/dev/null; then
-        python3 -m json.tool "$OUTPUT" > "${OUTPUT}.tmp" 2>/dev/null && mv "${OUTPUT}.tmp" "$OUTPUT"
-    fi
+  # Wrap in top-level object with timestamp
+  local NOW
+  NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  printf '{\n  "consolidated_at": "%s",\n  "instance_count": %d,\n  "instances": %s\n}\n' \
+    "$NOW" "$FOUND" "$INSTANCES" >"$OUTPUT"
 
-    echo ""
-    echo "Consolidated $FOUND world view(s) → $OUTPUT"
+  # Pretty-print if python3 is available
+  if command -v python3 &>/dev/null; then
+    python3 -m json.tool "$OUTPUT" >"${OUTPUT}.tmp" 2>/dev/null && mv "${OUTPUT}.tmp" "$OUTPUT"
+  fi
+
+  echo ""
+  echo "Consolidated $FOUND world view(s) → $OUTPUT"
 }
 
 trap cleanup_and_consolidate INT TERM
