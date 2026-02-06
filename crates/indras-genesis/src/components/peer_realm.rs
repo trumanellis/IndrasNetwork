@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use dioxus::prelude::*;
-use indras_network::{Content, IndrasNetwork, Message};
+use indras_network::{Content, IndrasNetwork, Message, direct_connect::dm_realm_id};
 use indras_sync_engine::{RealmQuests, RealmNotes, SyncContent};
 use indras_ui::{member_color_class, ArtifactDisplayInfo, ArtifactDisplayStatus, ArtifactGallery};
 
@@ -134,22 +134,21 @@ fn convert_message(msg: &Message, my_id: &[u8; 32], seq: u64) -> PeerMessageView
     }
 }
 
-/// Join or get a peer realm, safely handling the blocking_read() inside realm().
-async fn get_peer_realm(
+/// Get the DM realm for a peer using the correct dm_realm_id.
+///
+/// This uses the deterministic DM realm ID (with "dm-v1:" prefix) that matches
+/// how DM realms are created during contact connection, ensuring both peers
+/// read/write to the same realm.
+fn get_peer_realm(
     net: &Arc<IndrasNetwork>,
-    peers: Vec<[u8; 32]>,
+    my_id: [u8; 32],
+    peer_id: [u8; 32],
 ) -> Result<indras_network::Realm, indras_network::IndraError> {
-    let net = Arc::clone(net);
-    let handle = tokio::runtime::Handle::current();
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    std::thread::spawn(move || {
-        let result = handle.block_on(net.realm(peers));
-        let _ = tx.send(result);
-    });
-    rx.await.unwrap_or_else(|_| {
-        Err(indras_network::IndraError::InvalidOperation(
-            "realm join thread failed".to_string(),
-        ))
+    let dm_id = dm_realm_id(my_id, peer_id);
+    net.get_realm_by_id(&dm_id).ok_or_else(|| {
+        indras_network::IndraError::InvalidOperation(
+            format!("DM realm not found for peer {:?}", &peer_id[..4])
+        )
     })
 }
 
@@ -160,9 +159,8 @@ async fn load_shared_realm_data(
     state: &mut Signal<GenesisState>,
 ) {
     let my_id = net.id();
-    let peers = vec![my_id, peer_id];
 
-    match get_peer_realm(net, peers).await {
+    match get_peer_realm(net, my_id, peer_id) {
         Ok(realm) => {
             // Load messages
             match realm.messages_since(0).await {
@@ -183,8 +181,10 @@ async fn load_shared_realm_data(
                 }
             }
 
-            // Load quests
+            // Load quests (refresh to get CRDT-synced state from peers)
             if let Ok(doc) = realm.quests().await {
+                // Refresh to pull latest synced state from peers
+                let _ = doc.refresh().await;
                 let data = doc.read().await;
                 let quests: Vec<QuestView> = data.quests.iter().map(|q| {
                     let creator_id_short: String = q.creator.iter().take(8).map(|b| format!("{:02x}", b)).collect();
@@ -235,8 +235,10 @@ async fn load_shared_realm_data(
                 state.write().peer_realm_quests = quests;
             }
 
-            // Load notes
+            // Load notes (refresh to get CRDT-synced state from peers)
             if let Ok(doc) = realm.notes().await {
+                // Refresh to pull latest synced state from peers
+                let _ = doc.refresh().await;
                 let data = doc.read().await;
                 let notes: Vec<NoteView> = data.notes.iter().map(|n| {
                     NoteView {
@@ -251,6 +253,8 @@ async fn load_shared_realm_data(
 
             // Load artifacts from artifact key registry if available
             if let Ok(doc) = realm.artifact_key_registry().await {
+                // Refresh to pull latest synced state from peers
+                let _ = doc.refresh().await;
                 let data = doc.read().await;
                 let artifacts: Vec<ArtifactDisplayInfo> = data.artifacts.values().map(|a| {
                     ArtifactDisplayInfo {
@@ -472,8 +476,7 @@ pub fn PeerRealmScreen(
                                             let net = network.read();
                                             if let Some(ref net) = *net {
                                                 let my_id = net.id();
-                                                let peers = vec![my_id, peer_id];
-                                                if let Ok(realm) = get_peer_realm(net, peers).await {
+                                                if let Ok(realm) = get_peer_realm(net, my_id, peer_id) {
                                                     if let Ok(_note_id) = realm.create_note(
                                                         title,
                                                         content,
@@ -695,8 +698,7 @@ fn render_shared_quest_item(
                             let net = network.read();
                             if let Some(ref net) = *net {
                                 let my_id = net.id();
-                                let peers = vec![my_id, peer_id];
-                                if let Ok(realm) = get_peer_realm(net, peers).await {
+                                if let Ok(realm) = get_peer_realm(net, my_id, peer_id) {
                                     if let Some(id_bytes) = hex_to_quest_id(&qid) {
                                         if let Ok(()) = realm.complete_quest(id_bytes).await {
                                             load_shared_realm_data(net, peer_id, &mut state).await;
@@ -779,8 +781,7 @@ fn render_shared_quest_item(
                                         let net = network.read();
                                         if let Some(ref net) = *net {
                                             let my_id = net.id();
-                                            let peers = vec![my_id, peer_id];
-                                            if let Ok(realm) = get_peer_realm(net, peers).await {
+                                            if let Ok(realm) = get_peer_realm(net, my_id, peer_id) {
                                                 if let Some(id_bytes) = hex_to_quest_id(&qid) {
                                                     if let Ok(_idx) = realm.submit_quest_claim(id_bytes, my_id, None).await {
                                                         state.write().peer_realm_claiming_quest_id = None;
@@ -851,8 +852,7 @@ fn render_shared_quest_claim(
                             let net = network.read();
                             if let Some(ref net) = *net {
                                 let my_id = net.id();
-                                let peers = vec![my_id, peer_id];
-                                if let Ok(realm) = get_peer_realm(net, peers).await {
+                                if let Ok(realm) = get_peer_realm(net, my_id, peer_id) {
                                     if let Some(id_bytes) = hex_to_quest_id(&qid) {
                                         if let Ok(()) = realm.verify_quest_claim(id_bytes, idx).await {
                                             load_shared_realm_data(net, peer_id, &mut state).await;
@@ -886,8 +886,7 @@ fn send_message(
         };
         if let Some(net) = net {
             let my_id = net.id();
-            let peers = vec![my_id, peer_id];
-            if let Ok(realm) = get_peer_realm(&net, peers).await {
+            if let Ok(realm) = get_peer_realm(&net, my_id, peer_id) {
                 if realm.send(draft.as_str()).await.is_ok() {
                     state.write().peer_realm_draft.clear();
                     load_shared_realm_data(&net, peer_id, &mut state).await;
