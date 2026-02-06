@@ -12,7 +12,7 @@ use crate::state::{
 };
 
 /// Convert a network Message to a PeerMessageView for rendering.
-fn convert_message(msg: &Message, my_id: &[u8; 32]) -> PeerMessageView {
+fn convert_message(msg: &Message, my_id: &[u8; 32], seq: u64) -> PeerMessageView {
     let sender_id = msg.sender.id();
     let sender_id_short: String = sender_id
         .iter()
@@ -20,6 +20,10 @@ fn convert_message(msg: &Message, my_id: &[u8; 32]) -> PeerMessageView {
         .map(|b| format!("{:02x}", b))
         .collect();
     let is_me = sender_id == *my_id;
+
+    // Edit tracking not yet supported at the network layer
+    let is_edited = false;
+    let edited_at: Option<String> = None;
 
     let message_type = match &msg.content {
         Content::Text(s) => PeerMessageType::Text {
@@ -104,6 +108,9 @@ fn convert_message(msg: &Message, my_id: &[u8; 32]) -> PeerMessageView {
         is_me,
         timestamp: msg.timestamp.format("%H:%M").to_string(),
         message_type,
+        seq,
+        is_edited,
+        edited_at,
     }
 }
 
@@ -147,7 +154,8 @@ async fn load_messages(
                     let count = messages.len();
                     let views: Vec<PeerMessageView> = messages
                         .iter()
-                        .map(|m| convert_message(m, &my_id))
+                        .enumerate()
+                        .map(|(i, m)| convert_message(m, &my_id, i as u64))
                         .collect();
                     let mut s = state.write();
                     s.peer_realm_messages = views;
@@ -258,7 +266,7 @@ pub fn PeerRealmScreen(
                 }
 
                 for (i, msg) in messages.iter().enumerate() {
-                    {render_chat_message(msg, i)}
+                    {render_chat_message(msg, i, state)}
                 }
             }
 
@@ -368,15 +376,26 @@ fn send_message(
 }
 
 /// Render a single chat message based on its type.
-fn render_chat_message(msg: &PeerMessageView, index: usize) -> Element {
+fn render_chat_message(
+    msg: &PeerMessageView,
+    index: usize,
+    mut state: Signal<GenesisState>,
+) -> Element {
     let color_class = member_color_class(&msg.sender_id_short);
     let sender = msg.sender_name.clone();
     let timestamp = msg.timestamp.clone();
     let is_me = msg.is_me;
+    let is_edited = msg.is_edited;
+    let edited_at = msg.edited_at.clone();
+    let msg_seq = msg.seq;
+
+    // Check if this message is being edited
+    let is_editing = state.read().editing_message_seq == Some(msg_seq);
 
     match &msg.message_type {
         PeerMessageType::Text { content } => {
             let content = content.clone();
+            let content_for_edit = content.clone();
             rsx! {
                 div {
                     key: "{index}",
@@ -389,7 +408,59 @@ fn render_chat_message(msg: &PeerMessageView, index: usize) -> Element {
                             class: "chat-sender {color_class}",
                             if is_me { "You" } else { "{sender}" }
                         }
-                        span { class: "chat-content", "{content}" }
+
+                        if is_editing {
+                            // Edit mode
+                            input {
+                                class: "chat-edit-input",
+                                r#type: "text",
+                                value: "{state.read().edit_message_draft}",
+                                oninput: move |evt| {
+                                    state.write().edit_message_draft = evt.value();
+                                },
+                                onkeypress: move |evt| {
+                                    if evt.key() == Key::Enter {
+                                        // Save edit (for now just cancel - editing requires backend support)
+                                        state.write().editing_message_seq = None;
+                                        state.write().edit_message_draft.clear();
+                                    } else if evt.key() == Key::Escape {
+                                        state.write().editing_message_seq = None;
+                                        state.write().edit_message_draft.clear();
+                                    }
+                                },
+                            }
+                            button {
+                                class: "chat-edit-cancel",
+                                onclick: move |_| {
+                                    state.write().editing_message_seq = None;
+                                    state.write().edit_message_draft.clear();
+                                },
+                                "\u{2717}" // X mark
+                            }
+                        } else {
+                            span { class: "chat-content", "{content}" }
+
+                            // Edit indicator
+                            if is_edited {
+                                span {
+                                    class: "chat-edited-indicator",
+                                    title: if let Some(ref t) = edited_at { "Edited at {t}" } else { "Edited" },
+                                    "(edited)"
+                                }
+                            }
+
+                            // Edit button for own messages
+                            if is_me {
+                                button {
+                                    class: "chat-edit-btn",
+                                    onclick: move |_| {
+                                        state.write().editing_message_seq = Some(msg_seq);
+                                        state.write().edit_message_draft = content_for_edit.clone();
+                                    },
+                                    "\u{270e}" // Pencil
+                                }
+                            }
+                        }
                     }
                 }
             }
