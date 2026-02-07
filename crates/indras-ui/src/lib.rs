@@ -10,6 +10,7 @@ pub mod identity;
 pub mod preview;
 pub mod contact_invite;
 pub mod artifact_display;
+pub mod chat;
 
 pub use theme::{Theme, ThemedRoot, ThemeSwitcher, CURRENT_THEME};
 pub use markdown::{render_markdown_to_html, is_markdown_file};
