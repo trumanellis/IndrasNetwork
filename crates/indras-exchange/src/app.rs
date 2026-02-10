@@ -12,7 +12,7 @@ pub fn App() -> Element {
         *indras_ui::CURRENT_THEME.write() = indras_ui::Theme::MinimalTerminal;
     });
 
-    let mut state = use_signal(|| {
+    let state = use_signal(|| {
         let mut s = ExchangeState::new();
         // Seed demo tokens
         let now = chrono::Utc::now().timestamp();
