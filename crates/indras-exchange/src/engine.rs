@@ -1,7 +1,6 @@
 use indras_artifacts::{
-    ArtifactId, Exchange, LeafType, PlayerId, Request, Story, TreeType, Vault,
+    ArtifactId, ArtifactStore, Exchange, LeafType, PlayerId, Request, Vault,
     InMemoryArtifactStore, InMemoryAttentionStore, InMemoryPayloadStore,
-    compute_token_value,
 };
 
 use crate::encounter;
@@ -23,18 +22,14 @@ pub fn seed_demo_tokens(vault: &mut InMemVault, now: i64) -> Result<Vec<TokenVie
         let payload = format!("{}: {}", name, desc);
         let leaf = vault.place_leaf(payload.as_bytes(), LeafType::Token, now)?;
 
-        // Store name in vault root metadata for lookup
-        if let Some(artifact) = vault.get_artifact(&leaf.id)? {
-            // Token is a leaf, name is in the payload
-            views.push(TokenView {
-                id: leaf.id,
-                name: name.to_string(),
-                description: desc.to_string(),
-                hours: hours.to_string(),
-                earned_date: date.to_string(),
-                selected: false,
-            });
-        }
+        views.push(TokenView {
+            id: leaf.id,
+            name: name.to_string(),
+            description: desc.to_string(),
+            hours: hours.to_string(),
+            earned_date: date.to_string(),
+            selected: false,
+        });
     }
 
     Ok(views)
