@@ -120,15 +120,52 @@ pub fn PassStoryFlow(
                                             ss.write().status = AsyncStatus::Idle;
 
                                             // Refresh home realm data to update quest checklist
+                                            let my_id = net.id();
                                             if let Ok(home) = net.home_realm().await {
                                                 if let Ok(doc) = home.quests().await {
                                                     let data = doc.read().await;
                                                     let quests: Vec<crate::state::QuestView> = data.quests.iter().map(|q| {
+                                                        let creator_id_short: String = q.creator.iter().take(8).map(|b| format!("{:02x}", b)).collect();
+                                                        let is_creator = q.creator == my_id;
+                                                        let is_complete = q.completed_at_millis.is_some();
+
+                                                        let claims: Vec<crate::state::QuestClaimView> = q.claims.iter().map(|c| {
+                                                            crate::state::QuestClaimView {
+                                                                claimant_id_short: c.claimant.iter().take(8).map(|b| format!("{:02x}", b)).collect(),
+                                                                claimant_name: None,
+                                                                verified: c.verified,
+                                                                has_proof: c.has_proof(),
+                                                                submitted_at: chrono::DateTime::from_timestamp_millis(c.submitted_at_millis)
+                                                                    .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
+                                                                    .unwrap_or_default(),
+                                                            }
+                                                        }).collect();
+
+                                                        let pending_claim_count = q.pending_claims().len();
+                                                        let verified_claim_count = q.verified_claims().len();
+
+                                                        let status = if is_complete {
+                                                            crate::state::QuestStatus::Completed
+                                                        } else if verified_claim_count > 0 {
+                                                            crate::state::QuestStatus::Verified
+                                                        } else if !q.claims.is_empty() {
+                                                            crate::state::QuestStatus::Claimed
+                                                        } else {
+                                                            crate::state::QuestStatus::Open
+                                                        };
+
                                                         crate::state::QuestView {
                                                             id: q.id.iter().map(|b| format!("{:02x}", b)).collect(),
                                                             title: q.title.clone(),
                                                             description: q.description.clone(),
-                                                            is_complete: q.completed_at_millis.is_some(),
+                                                            is_complete,
+                                                            status,
+                                                            creator_id_short,
+                                                            is_creator,
+                                                            claims,
+                                                            pending_claim_count,
+                                                            verified_claim_count,
+                                                            attention: crate::state::QuestAttentionView::default(),
                                                         }
                                                     }).collect();
                                                     drop(data);

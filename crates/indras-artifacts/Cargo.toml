@@ -1,0 +1,18 @@
+[package]
+name = "indras-artifacts"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Three-primitive domain model: Artifact, Attention Switch, Mutual Peering"
+
+[dependencies]
+serde = { workspace = true }
+postcard = { workspace = true }
+bytes = { workspace = true }
+rand = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+blake3 = "1.8"
+
+[dev-dependencies]
