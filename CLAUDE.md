@@ -56,55 +56,9 @@ When using names in examples, discussions, or documentation, **never use generic
 
 Pick names that are distinct from each other and easy to tell apart in context.
 
-## Git Workflow (GitButler)
+## Git Workflow
 
-This repo uses **GitButler virtual branches**. The workspace branch (`gitbutler/workspace`) is a synthetic merge of all active virtual branches. Follow these rules:
-
-1. **Never use `git commit`** — it will be blocked by the pre-commit hook. Use `but commit <branch> -m "msg"` instead
-2. **Check `but status`** before committing to understand which branch owns which files
-3. **Stage files explicitly** with `but stage -b <branch> <file>` when changes span multiple branches
-4. **Use `-o` flag** (`but commit -o`) to commit only staged changes, not everything
-5. **Don't touch `gitbutler/workspace`** — it's managed by GitButler
-
-### Key Commands
-
-| Task | Command |
-|------|---------|
-| Commit to a branch | `but commit <branch-name> -m "message"` |
-| Commit only staged changes | `but commit -o <branch-name> -m "message"` |
-| Stage file to a branch | `but stage -b <branch-name> <file>` |
-| View status | `but status` |
-| View diff | `but diff` |
-| List branches | `but branch list` |
-
-### Workflow: Changes Spanning Multiple Branches
-
-```bash
-# Check what's staged where
-but status
-# Stage specific files to the right branch
-but stage -b feature-a src/module_a.rs
-but stage -b feature-b src/module_b.rs
-# Commit each branch separately
-but commit -o feature-a -m "feat: update module A"
-but commit -o feature-b -m "feat: update module B"
-```
-
-### Gotchas
-
-| Issue | Cause | Fix |
-|-------|-------|-----|
-| `git commit` fails with GITBUTLER_ERROR | Pre-commit hook blocks direct commits | Use `but commit` instead |
-| Wrong files in commit | `but commit` without `-o` grabs everything | Use `but commit -o` for staged-only |
-| File locked to another branch | GitButler assigned the file to a different branch | Use `but stage -b <target> <file>` to reassign |
-
-### Shipping Branches
-
-Run `/ship` (or `scripts/ship.sh` from terminal) to auto-merge all completed branches into main. A branch is "completed" if it has commits and merges cleanly. Use `--exclude branch1,branch2` to protect WIP branches. Use `--dry-run` to preview without merging.
-
-### When to Use Git Worktrees Instead
-
-Virtual branches handle most parallel development. Only use worktrees for major architectural isolation that requires a **separate build directory** (e.g., incompatible dependency changes that would break the main workspace build).
+Standard git workflow. Use `git commit`, `git push`, etc. normally.
 
 ## Greenfield Project
 
