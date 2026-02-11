@@ -13,3 +13,11 @@ path = "src/lib.rs"
 dioxus = { version = "0.7", features = ["desktop"] }
 pulldown-cmark = "0.13"
 base64 = "0.22"
+
+# Chat component dependencies
+indras-network = { path = "../indras-network" }
+indras-sync-engine = { path = "../indras-sync-engine" }
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+tracing = "0.1"
+chrono = "0.4"

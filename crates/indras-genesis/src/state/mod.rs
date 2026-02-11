@@ -26,6 +26,34 @@ pub enum AsyncStatus {
     Error(String),
 }
 
+/// Status of a quest for display purposes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum QuestStatus {
+    /// Quest is open - no claims yet.
+    Open,
+    /// Quest has claims but none verified yet.
+    Claimed,
+    /// Quest has at least one verified claim.
+    Verified,
+    /// Quest is complete.
+    Completed,
+}
+
+/// View model for a quest claim.
+#[derive(Debug, Clone)]
+pub struct QuestClaimView {
+    /// Claimant's member ID (short hex).
+    pub claimant_id_short: String,
+    /// Claimant's display name if known.
+    pub claimant_name: Option<String>,
+    /// Whether this claim has been verified.
+    pub verified: bool,
+    /// Whether this claim has a proof artifact.
+    pub has_proof: bool,
+    /// When the claim was submitted (formatted string).
+    pub submitted_at: String,
+}
+
 /// View model for a quest in the home realm.
 #[derive(Debug, Clone)]
 pub struct QuestView {
@@ -33,6 +61,20 @@ pub struct QuestView {
     pub title: String,
     pub description: String,
     pub is_complete: bool,
+    /// Current status for display.
+    pub status: QuestStatus,
+    /// Creator's member ID (short hex).
+    pub creator_id_short: String,
+    /// Whether current user is the creator.
+    pub is_creator: bool,
+    /// Claims on this quest.
+    pub claims: Vec<QuestClaimView>,
+    /// Number of pending (unverified) claims.
+    pub pending_claim_count: usize,
+    /// Number of verified claims.
+    pub verified_claim_count: usize,
+    /// Attention data for this quest.
+    pub attention: QuestAttentionView,
 }
 
 /// View model for a note in the home realm.
@@ -43,6 +85,38 @@ pub struct NoteView {
     pub content_preview: String,
 }
 
+/// Sentiment indicator for a contact.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ContactSentiment {
+    /// Positive recommendation - you vouch for this contact.
+    Recommend,
+    /// Neutral - no strong opinion.
+    #[default]
+    Neutral,
+    /// Blocked - you don't want to interact with this contact.
+    Blocked,
+}
+
+impl ContactSentiment {
+    /// Convert to i8 value for storage (-1, 0, +1).
+    pub fn to_value(self) -> i8 {
+        match self {
+            ContactSentiment::Recommend => 1,
+            ContactSentiment::Neutral => 0,
+            ContactSentiment::Blocked => -1,
+        }
+    }
+
+    /// Create from i8 value.
+    pub fn from_value(value: i8) -> Self {
+        match value {
+            1 => ContactSentiment::Recommend,
+            -1 => ContactSentiment::Blocked,
+            _ => ContactSentiment::Neutral,
+        }
+    }
+}
+
 /// View model for a contact in the connections panel.
 #[derive(Debug, Clone)]
 pub struct ContactView {
@@ -50,6 +124,8 @@ pub struct ContactView {
     pub member_id_short: String,
     pub display_name: Option<String>,
     pub status: String,  // "pending" or "confirmed"
+    /// Sentiment towards this contact.
+    pub sentiment: ContactSentiment,
 }
 
 /// View model for a message in a peer realm chat.
@@ -74,6 +150,34 @@ pub enum PeerMessageType {
     ProofFolderSubmitted { narrative_preview: String, artifact_count: usize },
     Gallery { title: Option<String>, item_count: usize },
     Reaction { emoji: String },
+}
+
+/// View model for attention data on a quest.
+#[derive(Debug, Clone, Default)]
+pub struct QuestAttentionView {
+    /// Total attention time in milliseconds.
+    pub total_attention_millis: u64,
+    /// Number of members currently focused.
+    pub focused_member_count: usize,
+    /// Whether the current user is focused on this quest.
+    pub is_focused: bool,
+}
+
+/// View model for a token of gratitude.
+#[derive(Debug, Clone)]
+pub struct TokenView {
+    /// Token ID (short hex).
+    pub id_short: String,
+    /// Source quest title.
+    pub source_quest_title: Option<String>,
+    /// Who gave the blessing that minted this token.
+    pub blesser_name: Option<String>,
+    /// Whether this token is pledged to a quest.
+    pub is_pledged: bool,
+    /// Quest title if pledged.
+    pub pledged_quest_title: Option<String>,
+    /// Created timestamp (formatted).
+    pub created_at: String,
 }
 
 /// Direction of a network event.
@@ -159,6 +263,32 @@ pub struct GenesisState {
     pub peer_realm_contact_name: Option<String>,
     /// Whether the action menu is open in the peer realm chat.
     pub peer_realm_action_menu_open: bool,
+    /// Quests in the active peer realm (shared quests with contact).
+    pub peer_realm_quests: Vec<QuestView>,
+    /// Notes in the active peer realm (shared notes with contact).
+    pub peer_realm_notes: Vec<NoteView>,
+    /// Artifacts in the active peer realm (shared artifacts with contact).
+    pub peer_realm_artifacts: Vec<ArtifactDisplayInfo>,
+    /// Whether the note form is open in the peer realm.
+    pub peer_realm_note_form_open: bool,
+    /// Draft note title for peer realm.
+    pub peer_realm_note_draft_title: String,
+    /// Draft note content for peer realm.
+    pub peer_realm_note_draft_content: String,
+    /// Quest ID being claimed in peer realm.
+    pub peer_realm_claiming_quest_id: Option<String>,
+    /// Draft proof text for peer realm quest claim.
+    pub peer_realm_claim_proof_text: String,
+    /// Tokens of gratitude owned by the user.
+    pub tokens: Vec<TokenView>,
+    /// Quest ID currently being claimed (for claim form).
+    pub claiming_quest_id: Option<String>,
+    /// Draft proof text for quest claim.
+    pub claim_proof_text: String,
+    /// Message being edited (sequence number).
+    pub editing_message_seq: Option<u64>,
+    /// Draft text for message edit.
+    pub edit_message_draft: String,
 }
 
 impl Default for GenesisState {
@@ -193,6 +323,19 @@ impl Default for GenesisState {
             peer_realm_last_seq: 0,
             peer_realm_contact_name: None,
             peer_realm_action_menu_open: false,
+            peer_realm_quests: Vec::new(),
+            peer_realm_notes: Vec::new(),
+            peer_realm_artifacts: Vec::new(),
+            peer_realm_note_form_open: false,
+            peer_realm_note_draft_title: String::new(),
+            peer_realm_note_draft_content: String::new(),
+            peer_realm_claiming_quest_id: None,
+            peer_realm_claim_proof_text: String::new(),
+            tokens: Vec::new(),
+            claiming_quest_id: None,
+            claim_proof_text: String::new(),
+            editing_message_seq: None,
+            edit_message_draft: String::new(),
         }
     }
 }

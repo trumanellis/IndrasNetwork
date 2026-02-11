@@ -7,7 +7,7 @@ use dioxus::prelude::*;
 use indras_network::{IdentityCode, IndrasNetwork};
 use indras_sync_engine::{HomeRealmQuests, HomeRealmNotes};
 
-use crate::state::{AsyncStatus, ContactView, EventDirection, EventLogEntry, GenesisState, GenesisStep, NoteView, QuestView};
+use crate::state::{AsyncStatus, ContactView, ContactSentiment, EventDirection, EventLogEntry, GenesisState, GenesisStep, NoteView, QuestAttentionView, QuestClaimView, QuestStatus, QuestView};
 use indras_ui::{ArtifactDisplayInfo, ArtifactDisplayStatus, ContactInviteOverlay, ThemedRoot};
 
 use super::display_name::DisplayNameScreen;
@@ -122,18 +122,62 @@ pub fn App() -> Element {
 
                         let net = Arc::new(net);
 
+                        // Start the network (enables inbox listener for incoming connections)
+                        log_event(&mut state, EventDirection::System, "Starting network...");
+                        if let Err(e) = net.start().await {
+                            tracing::warn!(error = %e, "Failed to start network (non-fatal)");
+                            log_event(&mut state, EventDirection::System, format!("Network start warning: {}", e));
+                        }
+
                         // Load home realm
                         log_event(&mut state, EventDirection::System, "Joining home realm...");
                         if let Ok(home) = net.home_realm().await {
-                            // Load quests
+                            // Load quests with full claim information
                             if let Ok(doc) = home.quests().await {
                                 let data = doc.read().await;
                                 let quests: Vec<QuestView> = data.quests.iter().map(|q| {
+                                    let creator_id_short: String = q.creator.iter().take(8).map(|b| format!("{:02x}", b)).collect();
+                                    let is_creator = q.creator == id;
+                                    let is_complete = q.completed_at_millis.is_some();
+
+                                    let claims: Vec<QuestClaimView> = q.claims.iter().map(|c| {
+                                        let claimant_id_short: String = c.claimant.iter().take(8).map(|b| format!("{:02x}", b)).collect();
+                                        QuestClaimView {
+                                            claimant_id_short,
+                                            claimant_name: None,
+                                            verified: c.verified,
+                                            has_proof: c.has_proof(),
+                                            submitted_at: chrono::DateTime::from_timestamp_millis(c.submitted_at_millis)
+                                                .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
+                                                .unwrap_or_default(),
+                                        }
+                                    }).collect();
+
+                                    let pending_claim_count = q.pending_claims().len();
+                                    let verified_claim_count = q.verified_claims().len();
+
+                                    let status = if is_complete {
+                                        QuestStatus::Completed
+                                    } else if verified_claim_count > 0 {
+                                        QuestStatus::Verified
+                                    } else if !q.claims.is_empty() {
+                                        QuestStatus::Claimed
+                                    } else {
+                                        QuestStatus::Open
+                                    };
+
                                     QuestView {
                                         id: hex_id(&q.id),
                                         title: q.title.clone(),
                                         description: q.description.clone(),
-                                        is_complete: q.completed_at_millis.is_some(),
+                                        is_complete,
+                                        status,
+                                        creator_id_short,
+                                        is_creator,
+                                        claims,
+                                        pending_claim_count,
+                                        verified_claim_count,
+                                        attention: QuestAttentionView::default(),
                                     }
                                 }).collect();
                                 drop(data);
@@ -204,6 +248,7 @@ pub fn App() -> Element {
                                         member_id_short: mid.iter().take(8).map(|b| format!("{:02x}", b)).collect(),
                                         display_name: entry.display_name.clone(),
                                         status: "confirmed".to_string(),
+                                        sentiment: ContactSentiment::Neutral,
                                     }
                                 }).collect();
                                 let count = contacts.len();
@@ -367,6 +412,7 @@ pub fn App() -> Element {
                                                         member_id_short: mid.iter().take(8).map(|b| format!("{:02x}", b)).collect(),
                                                         display_name: entry.display_name.clone(),
                                                         status: "confirmed".to_string(),
+                                                        sentiment: ContactSentiment::Neutral,
                                                     }
                                                 }).collect();
                                                 let count = contacts.len();
@@ -461,17 +507,61 @@ pub async fn create_identity_and_load(
 
             let net = Arc::new(net);
 
+            // Start the network (enables inbox listener for incoming connections)
+            log_event(state, EventDirection::System, "Starting network...");
+            if let Err(e) = net.start().await {
+                tracing::warn!(error = %e, "Failed to start network (non-fatal)");
+                log_event(state, EventDirection::System, format!("Network start warning: {}", e));
+            }
+
             // Load home realm - quests and notes
             log_event(state, EventDirection::System, "Joining home realm...");
             if let Ok(home) = net.home_realm().await {
                 if let Ok(doc) = home.quests().await {
                     let data = doc.read().await;
                     let quests: Vec<QuestView> = data.quests.iter().map(|q| {
+                        let creator_id_short: String = q.creator.iter().take(8).map(|b| format!("{:02x}", b)).collect();
+                        let is_creator = q.creator == id;
+                        let is_complete = q.completed_at_millis.is_some();
+
+                        let claims: Vec<QuestClaimView> = q.claims.iter().map(|c| {
+                            let claimant_id_short: String = c.claimant.iter().take(8).map(|b| format!("{:02x}", b)).collect();
+                            QuestClaimView {
+                                claimant_id_short,
+                                claimant_name: None,
+                                verified: c.verified,
+                                has_proof: c.has_proof(),
+                                submitted_at: chrono::DateTime::from_timestamp_millis(c.submitted_at_millis)
+                                    .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
+                                    .unwrap_or_default(),
+                            }
+                        }).collect();
+
+                        let pending_claim_count = q.pending_claims().len();
+                        let verified_claim_count = q.verified_claims().len();
+
+                        let status = if is_complete {
+                            QuestStatus::Completed
+                        } else if verified_claim_count > 0 {
+                            QuestStatus::Verified
+                        } else if !q.claims.is_empty() {
+                            QuestStatus::Claimed
+                        } else {
+                            QuestStatus::Open
+                        };
+
                         QuestView {
                             id: hex_id(&q.id),
                             title: q.title.clone(),
                             description: q.description.clone(),
-                            is_complete: q.completed_at_millis.is_some(),
+                            is_complete,
+                            status,
+                            creator_id_short,
+                            is_creator,
+                            claims,
+                            pending_claim_count,
+                            verified_claim_count,
+                            attention: QuestAttentionView::default(),
                         }
                     }).collect();
                     drop(data);

@@ -1,0 +1,39 @@
+[package]
+name = "indras-exchange"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Intention Exchange - gift economy flow for Indras Network"
+
+[[bin]]
+name = "indras-exchange"
+path = "src/main.rs"
+
+[lib]
+name = "indras_exchange"
+path = "src/lib.rs"
+
+[dependencies]
+# Internal crates
+indras-artifacts = { path = "../indras-artifacts" }
+indras-ui = { path = "../indras-ui" }
+
+# UI framework
+dioxus = { version = "0.7", features = ["desktop"] }
+
+# Async runtime
+tokio = { version = "1", features = ["full", "sync", "rt-multi-thread"] }
+
+# Time
+chrono = "0.4"
+
+# Crypto (for magic code generation)
+blake3 = "1.8"
+rand = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
