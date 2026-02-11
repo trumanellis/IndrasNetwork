@@ -3349,22 +3349,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "indras-exchange"
-version = "1.0.0"
-dependencies = [
- "blake3",
- "chrono",
- "dioxus",
- "indras-artifacts",
- "indras-ui",
- "rand 0.9.2",
- "serde",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "indras-genesis"
 version = "1.0.0"
 dependencies = [
@@ -3628,16 +3612,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
-]
-
-[[package]]
-name = "indras-spatial"
-version = "1.0.0"
-dependencies = [
- "chrono",
- "dioxus",
- "indras-artifacts",
- "indras-ui",
 ]
 
 [[package]]
