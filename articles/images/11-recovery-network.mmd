@@ -1,0 +1,27 @@
+graph TD
+    Caspian(("Caspian<br/>Permanent")):::strong
+    Juniper(("Juniper<br/>Owner")):::strong
+    Ember(("Ember<br/>DEVICE LOST")):::broken
+    Wren(("Wren<br/>Timed")):::dim
+    Soren(("Soren<br/>Revocable")):::dim
+    CA["Brand Guide"]:::strongArt --- Caspian
+    JA["Final Assets"]:::strongArt --- Juniper
+    WA["Draft v3"]:::dimArt --- Wren
+    SA["Mood Board"]:::dimArt --- Soren
+    Caspian ==>|"Fully Recoverable"| Ember
+    Juniper ==>|"Fully Recoverable"| Ember
+    Wren -.-|"Best Effort"| Ember
+    Soren -.-|"Best Effort"| Ember
+    subgraph manifest["Recovery Manifest"]
+        M1["OK: Brand Guide via Caspian"]
+        M2["OK: Final Assets via Juniper"]
+        M3["?: Mood Board (best effort)"]
+        M4["?: Draft v3 (best effort)"]
+    end
+    classDef broken fill:#1a0a0f,stroke:#ff4757,color:#ff4757,stroke-width:3px
+    classDef strong fill:#1a4a7a,stroke:#f5a623,color:#fff,stroke-width:3px
+    classDef dim fill:#1a2a4a,stroke:#888,color:#aaa
+    classDef strongArt fill:#1a3a5a,stroke:#f5a623,color:#f5a623
+    classDef dimArt fill:#1a2a3a,stroke:#666,color:#888
+    linkStyle 4,5 stroke:#00d4aa,stroke-width:3px
+    linkStyle 6,7 stroke:#888,stroke-width:2px,stroke-dasharray:6 4

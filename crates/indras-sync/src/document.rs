@@ -107,6 +107,36 @@ impl InterfaceDocument {
         })
     }
 
+    /// Refresh cached object IDs from document root.
+    ///
+    /// Must be called after `apply_sync_message()` or `merge()` because
+    /// Automerge conflict resolution may have changed which object is
+    /// canonical at each key path.
+    fn refresh_object_ids(&mut self) -> Result<(), SyncError> {
+        self.members_id = self
+            .doc
+            .get(automerge::ROOT, keys::MEMBERS)
+            .map_err(|e| SyncError::DocumentLoad(e.to_string()))?
+            .map(|(_, obj_id)| obj_id)
+            .ok_or_else(|| SyncError::DocumentLoad("Missing members object".to_string()))?;
+
+        self.metadata_id = self
+            .doc
+            .get(automerge::ROOT, keys::METADATA)
+            .map_err(|e| SyncError::DocumentLoad(e.to_string()))?
+            .map(|(_, obj_id)| obj_id)
+            .ok_or_else(|| SyncError::DocumentLoad("Missing metadata object".to_string()))?;
+
+        self.events_id = self
+            .doc
+            .get(automerge::ROOT, keys::EVENTS)
+            .map_err(|e| SyncError::DocumentLoad(e.to_string()))?
+            .map(|(_, obj_id)| obj_id)
+            .ok_or_else(|| SyncError::DocumentLoad("Missing events object".to_string()))?;
+
+        Ok(())
+    }
+
     /// Export document as bytes
     pub fn save(&mut self) -> Vec<u8> {
         self.doc.save()
@@ -267,6 +297,10 @@ impl InterfaceDocument {
         self.doc
             .load_incremental(changes)
             .map_err(|e| SyncError::SyncMerge(e.to_string()))?;
+
+        // Refresh cached object IDs - conflict resolution may have changed them
+        self.refresh_object_ids()?;
+
         Ok(())
     }
 
@@ -275,6 +309,10 @@ impl InterfaceDocument {
         self.doc
             .merge(other)
             .map_err(|e| SyncError::SyncMerge(e.to_string()))?;
+
+        // Refresh cached object IDs - merge may have introduced new canonical objects
+        self.refresh_object_ids()?;
+
         Ok(())
     }
 

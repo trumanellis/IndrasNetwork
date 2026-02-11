@@ -715,6 +715,24 @@ impl IndrasNode {
         Ok(())
     }
 
+    /// Connect to a peer by their raw 32-byte public key.
+    ///
+    /// Creates an `EndpointAddr` from the key and connects via iroh relay.
+    /// This establishes transport-level connectivity so that gossip messages
+    /// and CRDT sync can flow between the two nodes.
+    pub async fn connect_to_peer(&self, peer_key_bytes: &[u8; 32]) -> NodeResult<()> {
+        let public_key = iroh::PublicKey::from_bytes(peer_key_bytes)
+            .map_err(|e| NodeError::Crypto(e.to_string()))?;
+        let guard = self.transport.read().await;
+        let transport = guard.as_ref().ok_or(NodeError::NotStarted)?;
+        transport
+            .connection_manager()
+            .connect_by_key(public_key)
+            .await
+            .map_err(|e| NodeError::Transport(e.to_string()))?;
+        Ok(())
+    }
+
     /// Get our endpoint address for sharing with peers
     pub async fn endpoint_addr(&self) -> Option<iroh::EndpointAddr> {
         self.transport
@@ -735,7 +753,7 @@ impl IndrasNode {
         // Create NInterface with us as the creator
         let interface = NInterface::new(self.identity);
         let interface_id = interface.id();
-        self.setup_interface(interface_id, interface, name).await
+        self.setup_interface(interface_id, interface, name, None).await
     }
 
     /// Create a new interface with a specific ID (for deterministic peer-set realms).
@@ -767,7 +785,44 @@ impl IndrasNode {
 
         // Create NInterface with the specified ID
         let interface = NInterface::with_id(interface_id, self.identity);
-        self.setup_interface(interface_id, interface, name).await
+        self.setup_interface(interface_id, interface, name, None).await
+    }
+
+    /// Create a new interface with a specific ID and a deterministic key seed.
+    ///
+    /// Instead of generating a random `InterfaceKey`, the key is derived from
+    /// `key_seed` via `InterfaceKey::from_seed()`. Both peers who know the
+    /// seed will independently derive the same key.
+    ///
+    /// **Idempotent:** If the interface already exists, returns the existing invite.
+    #[instrument(skip(self, key_seed))]
+    pub async fn create_interface_with_seed(
+        &self,
+        interface_id: InterfaceId,
+        key_seed: &[u8; 32],
+        name: Option<&str>,
+    ) -> NodeResult<(InterfaceId, InviteKey)> {
+        // Check if we're already in this interface
+        if self.interfaces.contains_key(&interface_id) {
+            // Already exists, return existing invite
+            let mut invite = InviteKey::new(interface_id)
+                .with_inviter_encapsulation_key(self.pq_kem_keypair.encapsulation_key_bytes())
+                .with_inviter_pq_verifying_key(self.pq_identity.verifying_key_bytes());
+
+            if let Some(transport) = self.transport.read().await.as_ref() {
+                let addr = transport.endpoint_addr();
+                if let Ok(addr_bytes) = postcard::to_allocvec(&addr) {
+                    invite = invite.with_bootstrap(addr_bytes);
+                }
+            }
+
+            return Ok((interface_id, invite));
+        }
+
+        // Create NInterface with the specified ID
+        let interface = NInterface::with_id(interface_id, self.identity);
+        self.setup_interface(interface_id, interface, name, Some(key_seed))
+            .await
     }
 
     /// Internal helper to set up an interface after creation.
@@ -776,10 +831,14 @@ impl IndrasNode {
         interface_id: InterfaceId,
         interface: NInterface<IrohIdentity>,
         name: Option<&str>,
+        key_seed: Option<&[u8; 32]>,
     ) -> NodeResult<(InterfaceId, InviteKey)> {
 
-        // Generate interface encryption key
-        let interface_key = InterfaceKey::generate(interface_id);
+        // Generate or derive interface encryption key
+        let interface_key = match key_seed {
+            Some(seed) => InterfaceKey::from_seed(seed, interface_id),
+            None => InterfaceKey::generate(interface_id),
+        };
         self.interface_keys
             .insert(interface_id, interface_key.clone());
 
