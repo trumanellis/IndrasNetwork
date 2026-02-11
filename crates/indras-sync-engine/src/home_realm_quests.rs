@@ -54,6 +54,24 @@ pub trait HomeRealmQuests {
         &self,
         quest_id: QuestId,
     ) -> Result<()>;
+
+    /// Submit a claim/proof of service for a quest.
+    ///
+    /// In the home realm, claims are typically self-claims for personal tracking.
+    async fn submit_quest_claim(
+        &self,
+        quest_id: QuestId,
+        proof: Option<ArtifactId>,
+    ) -> Result<usize>;
+
+    /// Verify a claim on a quest.
+    ///
+    /// In the home realm, the owner verifies their own claims.
+    async fn verify_quest_claim(
+        &self,
+        quest_id: QuestId,
+        claim_index: usize,
+    ) -> Result<()>;
 }
 
 impl HomeRealmQuests for HomeRealm {
@@ -123,6 +141,42 @@ impl HomeRealmQuests for HomeRealm {
         doc.update(|d| {
             if let Some(quest) = d.find_mut(&quest_id) {
                 let _ = quest.complete();
+            }
+        })
+        .await?;
+
+        Ok(())
+    }
+
+    async fn submit_quest_claim(
+        &self,
+        quest_id: QuestId,
+        proof: Option<ArtifactId>,
+    ) -> Result<usize> {
+        let mut claim_index = 0;
+        let claimant = self.member_id();
+        let doc = self.quests().await?;
+        doc.update(|d| {
+            if let Some(quest) = d.find_mut(&quest_id) {
+                if let Ok(idx) = quest.submit_claim(claimant, proof) {
+                    claim_index = idx;
+                }
+            }
+        })
+        .await?;
+
+        Ok(claim_index)
+    }
+
+    async fn verify_quest_claim(
+        &self,
+        quest_id: QuestId,
+        claim_index: usize,
+    ) -> Result<()> {
+        let doc = self.quests().await?;
+        doc.update(|d| {
+            if let Some(quest) = d.find_mut(&quest_id) {
+                let _ = quest.verify_claim(claim_index);
             }
         })
         .await?;
