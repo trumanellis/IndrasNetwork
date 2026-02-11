@@ -85,6 +85,7 @@ async fn refresh_home_realm_data(
                 NoteView {
                     id: hex_id(&n.id),
                     title: n.title.clone(),
+                    content: n.content.clone(),
                     content_preview: n.content.chars().take(100).collect(),
                 }
             }).collect();
@@ -607,16 +608,40 @@ pub fn HomeRealmScreen(
     }
 }
 
-/// Render a single quest item with clickable completion.
+/// Render a single quest item with claims, verification, and completion.
 fn render_quest_item(
     quest: &QuestView,
-    state: Signal<GenesisState>,
+    mut state: Signal<GenesisState>,
     network: Signal<Option<Arc<IndrasNetwork>>>,
 ) -> Element {
     let quest_id = quest.id.clone();
+    let quest_id_for_claim = quest.id.clone();
+    let quest_id_for_complete = quest.id.clone();
     let is_complete = quest.is_complete;
     let title = quest.title.clone();
     let description = quest.description.clone();
+    let status = quest.status.clone();
+    let claims = quest.claims.clone();
+    let pending_count = quest.pending_claim_count;
+    let verified_count = quest.verified_claim_count;
+    let is_creator = quest.is_creator;
+
+    // Check if we're showing the claim form for this quest
+    let showing_claim_form = state.read().claiming_quest_id.as_ref() == Some(&quest_id);
+
+    let status_badge = match status {
+        QuestStatus::Open => "Open",
+        QuestStatus::Claimed => "Claimed",
+        QuestStatus::Verified => "Verified",
+        QuestStatus::Completed => "Complete",
+    };
+
+    let status_class = match status {
+        QuestStatus::Open => "quest-status-open",
+        QuestStatus::Claimed => "quest-status-claimed",
+        QuestStatus::Verified => "quest-status-verified",
+        QuestStatus::Completed => "quest-status-complete",
+    };
 
     rsx! {
         div {
@@ -627,14 +652,13 @@ fn render_quest_item(
                 class: if is_complete { "quest-checkbox" } else { "quest-checkbox quest-checkbox-clickable" },
                 onclick: move |_| {
                     if !is_complete {
-                        let qid = quest_id.clone();
+                        let qid = quest_id_for_complete.clone();
                         let mut state = state;
                         let network = network;
                         spawn(async move {
                             let net = network.read();
                             if let Some(ref net) = *net {
                                 if let Ok(home) = net.home_realm().await {
-                                    // Parse hex ID back to [u8; 16]
                                     if let Some(id_bytes) = hex_to_quest_id(&qid) {
                                         if let Ok(()) = home.complete_quest(id_bytes).await {
                                             refresh_home_realm_data(net, &mut state).await;
@@ -817,6 +841,7 @@ fn render_quest_claim(
 fn render_contact_item(
     contact: &ContactView,
     mut state: Signal<GenesisState>,
+    network: Signal<Option<Arc<IndrasNetwork>>>,
 ) -> Element {
     let mid = contact.member_id;
     let contact_name = contact.display_name.clone();
@@ -854,23 +879,25 @@ fn render_contact_item(
                 class: "contact-info",
                 onclick: move |_| {
                     if !is_pending && !is_blocked {
-                        let mut s = state.write();
-                        s.peer_realm_messages.clear();
-                        s.peer_realm_messages.clear();
-                        s.peer_realm_draft.clear();
-                        s.peer_realm_last_seq = 0;
-                        s.peer_realm_message_count = 0;
-                        s.peer_realm_action_menu_open = false;
-                        s.peer_realm_contact_name = contact_name.clone();
-                        s.peer_realm_quests.clear();
-                        s.peer_realm_notes.clear();
-                        s.peer_realm_artifacts.clear();
-                        s.peer_realm_note_form_open = false;
-                        s.peer_realm_note_draft_title.clear();
-                        s.peer_realm_note_draft_content.clear();
-                        s.peer_realm_claiming_quest_id = None;
-                        s.peer_realm_claim_proof_text.clear();
-                        s.step = GenesisStep::PeerRealm(mid);
+                        let contact_name = contact_name.clone();
+                        spawn(async move {
+                            // Ensure DM realm is loaded before navigating
+                            let net = network.read();
+                            if let Some(ref net) = *net {
+                                // connect() is idempotent - loads/creates DM realm if not present
+                                let _ = net.connect(mid).await;
+                            }
+                            drop(net);
+
+                            let mut s = state.write();
+                            s.peer_realm_contact_name = contact_name;
+                            s.peer_realm_quests.clear();
+                            s.peer_realm_notes.clear();
+                            s.peer_realm_artifacts.clear();
+                            s.peer_realm_claiming_quest_id = None;
+                            s.peer_realm_claim_proof_text.clear();
+                            s.step = GenesisStep::PeerRealm(mid);
+                        });
                     }
                 },
 

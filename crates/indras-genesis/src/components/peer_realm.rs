@@ -5,13 +5,14 @@
 use std::sync::Arc;
 
 use dioxus::prelude::*;
-use indras_network::{Content, IndrasNetwork, Message, direct_connect::dm_realm_id};
-use indras_sync_engine::{RealmQuests, RealmNotes, SyncContent};
-use indras_ui::{member_color_class, ArtifactDisplayInfo, ArtifactDisplayStatus, ArtifactGallery};
+use indras_network::{IndrasNetwork, direct_connect::dm_realm_id};
+use indras_sync_engine::{RealmQuests, RealmNotes};
+use indras_ui::{ArtifactDisplayInfo, ArtifactDisplayStatus, ArtifactGallery};
+use indras_ui::chat::ChatPanel;
 
 use crate::state::{
-    GenesisState, GenesisStep, NoteView, PeerMessageType, PeerMessageView,
-    QuestAttentionView, QuestClaimView, QuestStatus, QuestView,
+    GenesisState, GenesisStep, NoteEditorMode, NoteView,
+    QuestAttentionView, QuestClaimView, QuestEditorMode, QuestStatus, QuestView,
 };
 
 /// Helper to hex-encode a 16-byte ID.
@@ -29,109 +30,6 @@ fn hex_to_quest_id(hex: &str) -> Option<[u8; 16]> {
         id[i] = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).ok()?;
     }
     Some(id)
-}
-
-/// Convert a network Message to a PeerMessageView for rendering.
-fn convert_message(msg: &Message, my_id: &[u8; 32], seq: u64) -> PeerMessageView {
-    let sender_id = msg.sender.id();
-    let sender_id_short: String = sender_id
-        .iter()
-        .take(8)
-        .map(|b| format!("{:02x}", b))
-        .collect();
-    let is_me = sender_id == *my_id;
-
-    // Edit tracking not yet supported at the network layer
-    let is_edited = false;
-    let edited_at: Option<String> = None;
-
-    let message_type = match &msg.content {
-        Content::Text(s) => PeerMessageType::Text {
-            content: s.clone(),
-        },
-        Content::Image {
-            mime_type,
-            data,
-            filename,
-            alt_text,
-            ..
-        } => PeerMessageType::Image {
-            data_url: Some(format!("data:{};base64,{}", mime_type, data)),
-            filename: filename.clone(),
-            alt_text: alt_text.clone(),
-        },
-        Content::System(s) => PeerMessageType::System {
-            content: s.clone(),
-        },
-        Content::Artifact(r) => PeerMessageType::Artifact {
-            name: r.name.clone(),
-            size: r.size,
-            mime_type: r.mime_type.clone(),
-        },
-        Content::Extension { .. } => {
-            match SyncContent::from_content(&msg.content) {
-                Some(SyncContent::ProofSubmitted {
-                    quest_id,
-                    claimant,
-                    ..
-                }) => PeerMessageType::ProofSubmitted {
-                    quest_id_short: quest_id
-                        .iter()
-                        .take(4)
-                        .map(|b| format!("{:02x}", b))
-                        .collect(),
-                    claimant_name: claimant
-                        .iter()
-                        .take(4)
-                        .map(|b| format!("{:02x}", b))
-                        .collect(),
-                },
-                Some(SyncContent::BlessingGiven {
-                    claimant,
-                    ..
-                }) => PeerMessageType::BlessingGiven {
-                    claimant_name: claimant
-                        .iter()
-                        .take(4)
-                        .map(|b| format!("{:02x}", b))
-                        .collect(),
-                    duration: String::new(),
-                },
-                Some(SyncContent::ProofFolderSubmitted {
-                    narrative_preview,
-                    artifact_count,
-                    ..
-                }) => PeerMessageType::ProofFolderSubmitted {
-                    narrative_preview: narrative_preview.clone(),
-                    artifact_count,
-                },
-                _ => PeerMessageType::System {
-                    content: "[unknown extension message]".to_string(),
-                },
-            }
-        },
-        Content::Gallery { title, items, .. } => PeerMessageType::Gallery {
-            title: title.clone(),
-            item_count: items.len(),
-        },
-        Content::Reaction { emoji, .. } => PeerMessageType::Reaction {
-            emoji: emoji.clone(),
-        },
-        _ => PeerMessageType::System {
-            content: "[unsupported message type]".to_string(),
-        },
-    };
-
-    PeerMessageView {
-        sender_name: msg.sender.name(),
-        sender_id_short,
-        is_me,
-        timestamp: msg.timestamp.format("%H:%M").to_string(),
-        message_type,
-        seq,
-        is_edited,
-        edited_at,
-    }
 }
 
 /// Get the DM realm for a peer using the correct dm_realm_id.
@@ -152,7 +50,7 @@ fn get_peer_realm(
     })
 }
 
-/// Load all shared realm data: quests, notes, artifacts, and messages.
+/// Load all shared realm data: quests, notes, and artifacts.
 async fn load_shared_realm_data(
     net: &Arc<IndrasNetwork>,
     peer_id: [u8; 32],
@@ -162,25 +60,6 @@ async fn load_shared_realm_data(
 
     match get_peer_realm(net, my_id, peer_id) {
         Ok(realm) => {
-            // Load messages
-            match realm.messages_since(0).await {
-                Ok(messages) => {
-                    let count = messages.len();
-                    let views: Vec<PeerMessageView> = messages
-                        .iter()
-                        .enumerate()
-                        .map(|(i, m)| convert_message(m, &my_id, i as u64))
-                        .collect();
-                    let mut s = state.write();
-                    s.peer_realm_messages = views;
-                    s.peer_realm_message_count = count;
-                    s.peer_realm_last_seq = count as u64;
-                }
-                Err(e) => {
-                    tracing::error!("load_shared_realm_data: messages_since failed: {}", e);
-                }
-            }
-
             // Load quests (refresh to get CRDT-synced state from peers)
             if let Ok(doc) = realm.quests().await {
                 // Refresh to pull latest synced state from peers
@@ -244,6 +123,7 @@ async fn load_shared_realm_data(
                     NoteView {
                         id: hex_id(&n.id),
                         title: n.title.clone(),
+                        content: n.content.clone(),
                         content_preview: n.content.chars().take(100).collect(),
                     }
                 }).collect();
@@ -327,20 +207,20 @@ pub fn PeerRealmScreen(
         .peer_realm_contact_name
         .clone()
         .unwrap_or_else(|| "Contact".to_string());
-    let messages = s.peer_realm_messages.clone();
-    let message_count = s.peer_realm_message_count;
     let quests = s.peer_realm_quests.clone();
     let quest_count = quests.len();
     let notes = s.peer_realm_notes.clone();
     let note_count = notes.len();
     let artifacts = s.peer_realm_artifacts.clone();
     let artifact_count = artifacts.len();
-    let draft = s.peer_realm_draft.clone();
-    let action_menu_open = s.peer_realm_action_menu_open;
-    let note_form_open = s.peer_realm_note_form_open;
     drop(s);
 
-    let draft_empty = draft.trim().is_empty();
+    // Get the actual 32-byte my_id for ChatPanel
+    let my_id_bytes = {
+        let guard = network.read();
+        guard.as_ref().map(|n| n.id()).unwrap_or([0u8; 32])
+    };
+    let peer_name_for_chat = contact_name.clone();
 
     rsx! {
         div {
@@ -358,8 +238,6 @@ pub fn PeerRealmScreen(
                         s.peer_realm_quests.clear();
                         s.peer_realm_notes.clear();
                         s.peer_realm_artifacts.clear();
-                        s.peer_realm_messages.clear();
-                        s.peer_realm_note_form_open = false;
                         s.peer_realm_claiming_quest_id = None;
                         s.step = GenesisStep::HomeRealm;
                     },
@@ -376,8 +254,6 @@ pub fn PeerRealmScreen(
                     span { "{quest_count} quests" }
                     span { class: "stat-divider", "\u{b7}" }
                     span { "{note_count} notes" }
-                    span { class: "stat-divider", "\u{b7}" }
-                    span { "{message_count} messages" }
                 }
             }
 
@@ -400,7 +276,14 @@ pub fn PeerRealmScreen(
                             button {
                                 class: "genesis-btn-secondary",
                                 onclick: move |_| {
-                                    // TODO: Create quest form
+                                    // Open quest editor in Create mode
+                                    let mut s = state.write();
+                                    s.quest_editor_open = true;
+                                    s.quest_editor_mode = QuestEditorMode::Create;
+                                    s.quest_editor_id = None;
+                                    s.quest_editor_title.clear();
+                                    s.quest_editor_description.clear();
+                                    s.quest_editor_preview_mode = true;
                                 },
                                 "+ New Quest"
                             }
@@ -434,73 +317,18 @@ pub fn PeerRealmScreen(
                                 class: "genesis-btn-secondary",
                                 onclick: move |_| {
                                     let mut s = state.write();
-                                    s.peer_realm_note_form_open = !s.peer_realm_note_form_open;
-                                    if !s.peer_realm_note_form_open {
-                                        s.peer_realm_note_draft_title.clear();
-                                        s.peer_realm_note_draft_content.clear();
-                                    }
+                                    s.note_editor_open = true;
+                                    s.note_editor_mode = NoteEditorMode::Create;
+                                    s.note_editor_id = None;
+                                    s.note_editor_title.clear();
+                                    s.note_editor_content.clear();
+                                    s.note_editor_preview_mode = true;
                                 },
-                                if note_form_open { "Cancel" } else { "+ New Note" }
+                                "+ New Note"
                             }
                         }
 
-                        // Note creation form
-                        if note_form_open {
-                            div {
-                                class: "note-form",
-                                input {
-                                    class: "genesis-input note-form-input",
-                                    r#type: "text",
-                                    placeholder: "Note title...",
-                                    value: "{state.read().peer_realm_note_draft_title}",
-                                    oninput: move |evt| {
-                                        state.write().peer_realm_note_draft_title = evt.value();
-                                    },
-                                }
-                                textarea {
-                                    class: "genesis-input note-form-textarea",
-                                    placeholder: "Write your shared note...",
-                                    rows: "4",
-                                    value: "{state.read().peer_realm_note_draft_content}",
-                                    oninput: move |evt| {
-                                        state.write().peer_realm_note_draft_content = evt.value();
-                                    },
-                                }
-                                button {
-                                    class: "genesis-btn-primary",
-                                    disabled: state.read().peer_realm_note_draft_title.trim().is_empty(),
-                                    onclick: move |_| {
-                                        let title = state.read().peer_realm_note_draft_title.clone();
-                                        let content = state.read().peer_realm_note_draft_content.clone();
-                                        spawn(async move {
-                                            let net = network.read();
-                                            if let Some(ref net) = *net {
-                                                let my_id = net.id();
-                                                if let Ok(realm) = get_peer_realm(net, my_id, peer_id) {
-                                                    if let Ok(_note_id) = realm.create_note(
-                                                        title,
-                                                        content,
-                                                        my_id,
-                                                        vec![],
-                                                    ).await {
-                                                        {
-                                                            let mut s = state.write();
-                                                            s.peer_realm_note_draft_title.clear();
-                                                            s.peer_realm_note_draft_content.clear();
-                                                            s.peer_realm_note_form_open = false;
-                                                        }
-                                                        load_shared_realm_data(net, peer_id, &mut state).await;
-                                                    }
-                                                }
-                                            }
-                                        });
-                                    },
-                                    "Create Note"
-                                }
-                            }
-                        }
-
-                        if notes.is_empty() && !note_form_open {
+                        if notes.is_empty() {
                             div {
                                 class: "panel-empty",
                                 p { "No shared notes yet." }
@@ -510,11 +338,27 @@ pub fn PeerRealmScreen(
                             div {
                                 class: "notes-list",
                                 for note in notes.iter() {
-                                    div {
-                                        key: "{note.id}",
-                                        class: "note-card",
-                                        h3 { class: "note-title", "{note.title}" }
-                                        p { class: "note-preview", "{note.content_preview}" }
+                                    {
+                                        let note_id = note.id.clone();
+                                        let note_title = note.title.clone();
+                                        let note_content = note.content.clone();
+                                        rsx! {
+                                            div {
+                                                key: "{note_id}",
+                                                class: "note-card note-card-clickable",
+                                                onclick: move |_| {
+                                                    let mut s = state.write();
+                                                    s.note_editor_open = true;
+                                                    s.note_editor_mode = NoteEditorMode::View;
+                                                    s.note_editor_id = Some(note_id.clone());
+                                                    s.note_editor_title = note_title.clone();
+                                                    s.note_editor_content = note_content.clone();
+                                                    s.note_editor_preview_mode = true;
+                                                },
+                                                h3 { class: "note-title", "{note.title}" }
+                                                p { class: "note-preview", "{note.content_preview}" }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -543,103 +387,15 @@ pub fn PeerRealmScreen(
                     }
                 }
 
-                // Right column - Chat
+                // Right column - Chat (component-based)
                 aside {
                     class: "shared-realm-chat",
 
-                    div {
-                        class: "chat-panel-header",
-                        h2 { class: "panel-title", "Chat" }
-                        span { class: "panel-count", "{message_count}" }
-                    }
-
-                    // Messages area
-                    div {
-                        class: "chat-messages",
-
-                        if messages.is_empty() {
-                            div {
-                                class: "panel-empty",
-                                "No messages yet. Send the first message!"
-                            }
-                        }
-
-                        for (i, msg) in messages.iter().enumerate() {
-                            {render_chat_message(msg, i, state)}
-                        }
-                    }
-
-                    // Input bar
-                    div {
-                        class: "chat-input-container",
-
-                        div {
-                            class: "chat-input-wrapper",
-
-                            button {
-                                class: "chat-action-btn",
-                                onclick: move |_| {
-                                    let mut s = state.write();
-                                    s.peer_realm_action_menu_open = !s.peer_realm_action_menu_open;
-                                },
-                                "+"
-                            }
-
-                            if action_menu_open {
-                                div {
-                                    class: "chat-action-menu",
-
-                                    button {
-                                        class: "action-menu-item",
-                                        onclick: move |_| {
-                                            state.write().peer_realm_action_menu_open = false;
-                                        },
-                                        "\u{1f4ce} Artifact"
-                                    }
-                                    button {
-                                        class: "action-menu-item",
-                                        onclick: move |_| {
-                                            state.write().peer_realm_action_menu_open = false;
-                                        },
-                                        "\u{1f4c4} Document"
-                                    }
-                                    button {
-                                        class: "action-menu-item",
-                                        onclick: move |_| {
-                                            state.write().peer_realm_action_menu_open = false;
-                                        },
-                                        "\u{2713} Proof of Service"
-                                    }
-                                }
-                            }
-                        }
-
-                        input {
-                            class: "chat-input",
-                            r#type: "text",
-                            placeholder: "Type a message...",
-                            value: "{draft}",
-                            oninput: move |evt| {
-                                state.write().peer_realm_draft = evt.value();
-                            },
-                            onkeypress: move |evt| {
-                                if evt.key() == Key::Enter {
-                                    let draft = state.read().peer_realm_draft.clone();
-                                    if !draft.trim().is_empty() {
-                                        send_message(state, network, peer_id);
-                                    }
-                                }
-                            },
-                        }
-
-                        button {
-                            class: "chat-send-btn",
-                            disabled: draft_empty,
-                            onclick: move |_| {
-                                send_message(state, network, peer_id);
-                            },
-                            "Send"
-                        }
+                    ChatPanel {
+                        network,
+                        peer_id,
+                        my_id: my_id_bytes,
+                        peer_name: peer_name_for_chat,
                     }
                 }
             }
@@ -655,11 +411,14 @@ fn render_shared_quest_item(
     peer_id: [u8; 32],
 ) -> Element {
     let quest_id = quest.id.clone();
+    let quest_id_for_click = quest.id.clone();
     let quest_id_for_claim = quest.id.clone();
     let quest_id_for_complete = quest.id.clone();
     let is_complete = quest.is_complete;
     let title = quest.title.clone();
+    let title_for_click = quest.title.clone();
     let description = quest.description.clone();
+    let description_for_click = quest.description.clone();
     let status = quest.status.clone();
     let claims = quest.claims.clone();
     let pending_count = quest.pending_claim_count;
@@ -715,7 +474,17 @@ fn render_shared_quest_item(
             }
 
             div {
-                class: "quest-content",
+                class: "quest-content quest-content-clickable",
+                onclick: move |_| {
+                    // Open quest editor in View mode
+                    let mut s = state.write();
+                    s.quest_editor_open = true;
+                    s.quest_editor_mode = QuestEditorMode::View;
+                    s.quest_editor_id = Some(quest_id_for_click.clone());
+                    s.quest_editor_title = title_for_click.clone();
+                    s.quest_editor_description = description_for_click.clone();
+                    s.quest_editor_preview_mode = true;
+                },
 
                 div {
                     class: "quest-header",
@@ -869,326 +638,3 @@ fn render_shared_quest_claim(
     }
 }
 
-/// Send the current draft as a text message.
-fn send_message(
-    mut state: Signal<GenesisState>,
-    network: Signal<Option<Arc<IndrasNetwork>>>,
-    peer_id: [u8; 32],
-) {
-    let draft = state.read().peer_realm_draft.clone();
-    if draft.trim().is_empty() {
-        return;
-    }
-    spawn(async move {
-        let net = {
-            let guard = network.read();
-            guard.as_ref().cloned()
-        };
-        if let Some(net) = net {
-            let my_id = net.id();
-            if let Ok(realm) = get_peer_realm(&net, my_id, peer_id) {
-                if realm.send(draft.as_str()).await.is_ok() {
-                    state.write().peer_realm_draft.clear();
-                    load_shared_realm_data(&net, peer_id, &mut state).await;
-                }
-            }
-        }
-    });
-}
-
-/// Render a single chat message based on its type.
-fn render_chat_message(
-    msg: &PeerMessageView,
-    index: usize,
-    mut state: Signal<GenesisState>,
-) -> Element {
-    let color_class = member_color_class(&msg.sender_id_short);
-    let sender = msg.sender_name.clone();
-    let timestamp = msg.timestamp.clone();
-    let is_me = msg.is_me;
-    let is_edited = msg.is_edited;
-    let edited_at = msg.edited_at.clone();
-    let msg_seq = msg.seq;
-
-    let is_editing = state.read().editing_message_seq == Some(msg_seq);
-
-    match &msg.message_type {
-        PeerMessageType::Text { content } => {
-            let content = content.clone();
-            let content_for_edit = content.clone();
-            rsx! {
-                div {
-                    key: "{index}",
-                    class: "chat-message text-message",
-
-                    div {
-                        class: "chat-message-row",
-                        span { class: "chat-tick", "{timestamp}" }
-                        span {
-                            class: "chat-sender {color_class}",
-                            if is_me { "You" } else { "{sender}" }
-                        }
-
-                        if is_editing {
-                            input {
-                                class: "chat-edit-input",
-                                r#type: "text",
-                                value: "{state.read().edit_message_draft}",
-                                oninput: move |evt| {
-                                    state.write().edit_message_draft = evt.value();
-                                },
-                                onkeypress: move |evt| {
-                                    if evt.key() == Key::Enter {
-                                        state.write().editing_message_seq = None;
-                                        state.write().edit_message_draft.clear();
-                                    } else if evt.key() == Key::Escape {
-                                        state.write().editing_message_seq = None;
-                                        state.write().edit_message_draft.clear();
-                                    }
-                                },
-                            }
-                            button {
-                                class: "chat-edit-cancel",
-                                onclick: move |_| {
-                                    state.write().editing_message_seq = None;
-                                    state.write().edit_message_draft.clear();
-                                },
-                                "\u{2717}"
-                            }
-                        } else {
-                            span { class: "chat-content", "{content}" }
-
-                            if is_edited {
-                                span {
-                                    class: "chat-edited-indicator",
-                                    title: if let Some(ref t) = edited_at { "Edited at {t}" } else { "Edited" },
-                                    "(edited)"
-                                }
-                            }
-
-                            if is_me {
-                                button {
-                                    class: "chat-edit-btn",
-                                    onclick: move |_| {
-                                        state.write().editing_message_seq = Some(msg_seq);
-                                        state.write().edit_message_draft = content_for_edit.clone();
-                                    },
-                                    "\u{270e}"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        PeerMessageType::Image {
-            data_url,
-            filename,
-            alt_text,
-        } => {
-            let alt = alt_text
-                .clone()
-                .or_else(|| filename.clone())
-                .unwrap_or_else(|| "Image".to_string());
-            rsx! {
-                div {
-                    key: "{index}",
-                    class: "chat-message image-message",
-
-                    div {
-                        class: "chat-message-header",
-                        span { class: "chat-tick", "{timestamp}" }
-                        span {
-                            class: "chat-sender {color_class}",
-                            if is_me { "You" } else { "{sender}" }
-                        }
-                        span { class: "chat-content", "shared an image" }
-                    }
-
-                    if let Some(url) = data_url {
-                        div {
-                            class: "chat-image-container",
-                            img {
-                                class: "chat-inline-image",
-                                src: "{url}",
-                                alt: "{alt}",
-                            }
-                        }
-                    } else {
-                        div {
-                            class: "chat-image-placeholder",
-                            "\u{1f5bc} {alt}"
-                        }
-                    }
-                }
-            }
-        }
-
-        PeerMessageType::System { content } => {
-            let content = content.clone();
-            rsx! {
-                div {
-                    key: "{index}",
-                    class: "chat-message system-message",
-                    span { class: "chat-content", "{content}" }
-                }
-            }
-        }
-
-        PeerMessageType::Artifact {
-            name,
-            size,
-            mime_type,
-        } => {
-            let name = name.clone();
-            let size_str = format_size(*size);
-            let mime = mime_type
-                .clone()
-                .unwrap_or_else(|| "unknown".to_string());
-            rsx! {
-                div {
-                    key: "{index}",
-                    class: "chat-message proof-message",
-
-                    div {
-                        class: "chat-message-row",
-                        span { class: "chat-tick", "{timestamp}" }
-                        span {
-                            class: "chat-sender {color_class}",
-                            if is_me { "You" } else { "{sender}" }
-                        }
-                        span { class: "chat-icon", "\u{1f4ce}" }
-                        span { class: "chat-content", "{name} ({size_str}, {mime})" }
-                    }
-                }
-            }
-        }
-
-        PeerMessageType::ProofSubmitted {
-            quest_id_short,
-            claimant_name,
-        } => {
-            let quest_id_short = quest_id_short.clone();
-            let claimant_name = claimant_name.clone();
-            rsx! {
-                div {
-                    key: "{index}",
-                    class: "chat-message proof-message",
-
-                    div {
-                        class: "chat-message-row",
-                        span { class: "chat-tick", "{timestamp}" }
-                        span { class: "chat-icon", "\u{1f4ce}" }
-                        span { class: "chat-content", "Proof submitted for quest {quest_id_short} by {claimant_name}" }
-                    }
-                }
-            }
-        }
-
-        PeerMessageType::BlessingGiven {
-            claimant_name,
-            duration,
-        } => {
-            let claimant_name = claimant_name.clone();
-            let duration = duration.clone();
-            rsx! {
-                div {
-                    key: "{index}",
-                    class: "chat-message blessing-message",
-
-                    div {
-                        class: "chat-message-row",
-                        span { class: "chat-tick", "{timestamp}" }
-                        span { class: "chat-icon", "\u{2728}" }
-                        span { class: "chat-content",
-                            if duration.is_empty() {
-                                "Blessing given to {claimant_name}"
-                            } else {
-                                "Blessing given to {claimant_name} ({duration})"
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        PeerMessageType::ProofFolderSubmitted {
-            narrative_preview,
-            artifact_count,
-        } => {
-            let preview = narrative_preview.clone();
-            let count = *artifact_count;
-            rsx! {
-                div {
-                    key: "{index}",
-                    class: "chat-message proof-folder-message",
-
-                    div {
-                        class: "chat-message-row",
-                        span { class: "chat-tick", "{timestamp}" }
-                        span { class: "chat-icon", "\u{1f4cb}" }
-                        span { class: "chat-content", "{preview}" }
-                    }
-                    span { class: "proof-artifact", "{count} attachment(s)" }
-                }
-            }
-        }
-
-        PeerMessageType::Gallery { title, item_count } => {
-            let title_str = title
-                .clone()
-                .unwrap_or_else(|| "Gallery".to_string());
-            let count = *item_count;
-            rsx! {
-                div {
-                    key: "{index}",
-                    class: "chat-message gallery-message",
-
-                    div {
-                        class: "chat-message-row",
-                        span { class: "chat-tick", "{timestamp}" }
-                        span {
-                            class: "chat-sender {color_class}",
-                            if is_me { "You" } else { "{sender}" }
-                        }
-                        span { class: "chat-icon", "\u{1f5bc}" }
-                        span { class: "gallery-title", "{title_str}" }
-                        span { class: "gallery-count", "({count} items)" }
-                    }
-                }
-            }
-        }
-
-        PeerMessageType::Reaction { emoji } => {
-            let emoji = emoji.clone();
-            rsx! {
-                div {
-                    key: "{index}",
-                    class: "chat-message text-message",
-
-                    div {
-                        class: "chat-message-row",
-                        span { class: "chat-tick", "{timestamp}" }
-                        span {
-                            class: "chat-sender {color_class}",
-                            if is_me { "You" } else { "{sender}" }
-                        }
-                        span { class: "chat-content", "{emoji}" }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// Format a byte size into a human-readable string.
-fn format_size(bytes: u64) -> String {
-    if bytes < 1024 {
-        format!("{} B", bytes)
-    } else if bytes < 1024 * 1024 {
-        format!("{:.1} KB", bytes as f64 / 1024.0)
-    } else {
-        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
-    }
-}

@@ -1,0 +1,16 @@
+graph TD
+    subgraph outer["Outer Ring (Distant Peers)"]
+        O1["Jewel"] & O2["Jewel"] & O3["Jewel"] & O4["Jewel"] & O5["Jewel"]
+        O6["Jewel"] & O7["Jewel"] & O8["Jewel"] & O9["Jewel"] & O10["Jewel"]
+    end
+    subgraph inner["Inner Ring (Close Peers)"]
+        I1["Jewel"] & I2["Jewel"] & I3["Jewel"]
+        I4["Jewel"] & I5["Jewel"] & I6["Jewel"]
+    end
+    C(("Central<br/>Jewel"))
+    C --- I1 & C --- I2 & C --- I3 & C --- I4 & C --- I5 & C --- I6
+    I1 --- I2 --- I4 --- I6 --- I5 --- I3 --- I1
+    I1 --- O1 & I1 --- O7 & I2 --- O2 & I2 --- O8
+    I3 --- O3 & I4 --- O4 & I5 --- O5 & I6 --- O6
+    I1 -..- I6 & I2 -..- I5 & I3 -..- I4
+    style C fill:#d4a843,stroke:#8a6b20,color:#fff

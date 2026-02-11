@@ -65,6 +65,14 @@ pub trait RealmQuests {
         quest_id: QuestId,
         priority: QuestPriority,
     ) -> Result<()>;
+
+    /// Update a quest's title and description.
+    async fn update_quest(
+        &self,
+        quest_id: QuestId,
+        title: impl Into<String> + Send,
+        description: impl Into<String> + Send,
+    ) -> Result<()>;
 }
 
 impl RealmQuests for Realm {
@@ -172,6 +180,26 @@ impl RealmQuests for Realm {
         doc.update(|d| {
             if let Some(quest) = d.find_mut(&quest_id) {
                 quest.set_priority(priority);
+            }
+        })
+        .await?;
+
+        Ok(())
+    }
+
+    async fn update_quest(
+        &self,
+        quest_id: QuestId,
+        title: impl Into<String> + Send,
+        description: impl Into<String> + Send,
+    ) -> Result<()> {
+        let title = title.into();
+        let description = description.into();
+        let doc = self.quests().await?;
+        doc.update(|d| {
+            if let Some(quest) = d.find_mut(&quest_id) {
+                quest.set_title(title);
+                quest.set_description(description);
             }
         })
         .await?;

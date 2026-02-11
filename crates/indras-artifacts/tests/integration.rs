@@ -68,6 +68,7 @@ fn test_artifact_store_put_get() {
         audience: vec![NOVA],
         artifact_type: LeafType::Message,
         created_at: 1000,
+        blessing_history: Vec::new(),
     };
 
     store.put_artifact(&Artifact::Leaf(leaf.clone())).unwrap();
@@ -132,6 +133,7 @@ fn test_artifact_store_list_by_steward() {
         audience: vec![NOVA],
         artifact_type: LeafType::Message,
         created_at: 1000,
+        blessing_history: Vec::new(),
     };
 
     let zephyr_leaf = LeafArtifact {
@@ -141,6 +143,7 @@ fn test_artifact_store_list_by_steward() {
         audience: vec![ZEPHYR],
         artifact_type: LeafType::Message,
         created_at: 2000,
+        blessing_history: Vec::new(),
     };
 
     store.put_artifact(&Artifact::Leaf(nova_leaf.clone())).unwrap();
@@ -470,6 +473,7 @@ fn test_update_audience() {
         audience: vec![NOVA],
         artifact_type: LeafType::Message,
         created_at: 1000,
+        blessing_history: Vec::new(),
     };
 
     store.put_artifact(&Artifact::Leaf(leaf)).unwrap();
@@ -493,6 +497,7 @@ fn test_transfer_stewardship() {
         audience: vec![NOVA],
         artifact_type: LeafType::Message,
         created_at: 1000,
+        blessing_history: Vec::new(),
     };
 
     store.put_artifact(&Artifact::Leaf(leaf)).unwrap();
@@ -582,6 +587,7 @@ fn test_vault_set_audience_requires_steward() {
         audience: vec![ZEPHYR],
         artifact_type: LeafType::Message,
         created_at: 1000,
+        blessing_history: Vec::new(),
     };
 
     vault.artifact_store_mut().put_artifact(&Artifact::Leaf(leaf.clone())).unwrap();
@@ -601,7 +607,7 @@ fn test_vault_transfer_stewardship_old_steward_loses_control() {
     vault.set_audience(&leaf_id, vec![NOVA, ZEPHYR]).unwrap();
 
     // Transfer to Zephyr
-    vault.transfer_stewardship(&leaf_id, ZEPHYR).unwrap();
+    vault.transfer_stewardship(&leaf_id, ZEPHYR, 2000).unwrap();
 
     // Nova can no longer modify it
     let result = vault.set_audience(&leaf_id, vec![NOVA]);
@@ -1004,6 +1010,7 @@ fn test_exchange_complete_requires_both_accept() {
         audience: vec![ZEPHYR],
         artifact_type: LeafType::Token,
         created_at: 1000,
+        blessing_history: Vec::new(),
     };
     vault.artifact_store_mut().put_artifact(&Artifact::Leaf(their_artifact.clone())).unwrap();
 
@@ -1019,7 +1026,7 @@ fn test_exchange_complete_requires_both_accept() {
     exchange.accept(&mut vault).unwrap();
 
     // Complete should fail
-    let result = exchange.complete(&mut vault);
+    let result = exchange.complete(&mut vault, 2000);
     assert!(matches!(result, Err(VaultError::ExchangeNotFullyAccepted)));
 }
 
@@ -1037,6 +1044,7 @@ fn test_exchange_complete_transfers_stewardship() {
         audience: vec![ZEPHYR],
         artifact_type: LeafType::Token,
         created_at: 1000,
+        blessing_history: Vec::new(),
     };
     vault.artifact_store_mut().put_artifact(&Artifact::Leaf(their_artifact.clone())).unwrap();
 
@@ -1059,7 +1067,7 @@ fn test_exchange_complete_transfers_stewardship() {
     vault.artifact_store_mut().put_artifact(&exch_artifact).unwrap();
 
     // Now complete should work
-    exchange.complete(&mut vault).unwrap();
+    exchange.complete(&mut vault, 3000).unwrap();
 
     // Verify stewardship transferred
     let my_after = vault.get_artifact(&my_artifact.id).unwrap().unwrap();
@@ -1067,4 +1075,407 @@ fn test_exchange_complete_transfers_stewardship() {
 
     assert_eq!(my_after.steward(), &ZEPHYR);
     assert_eq!(their_after.steward(), &NOVA);
+}
+
+// ----------------------------------------------------------------------------
+// Feature 1: Stewardship Transfer History Tests
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_steward_history_records_transfers() {
+    let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
+    let leaf = vault.place_leaf(b"token", LeafType::Token, 1000).unwrap();
+    let leaf_id = leaf.id.clone();
+
+    // Transfer once: Nova -> Zephyr
+    vault.transfer_stewardship(&leaf_id, ZEPHYR, 2000).unwrap();
+
+    let history = vault.steward_history(&leaf_id).unwrap();
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].from, NOVA);
+    assert_eq!(history[0].to, ZEPHYR);
+    assert_eq!(history[0].timestamp, 2000);
+}
+
+#[test]
+fn test_steward_history_multiple_transfers() {
+    let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
+    let leaf = vault.place_leaf(b"token", LeafType::Token, 1000).unwrap();
+    let leaf_id = leaf.id.clone();
+
+    // Transfer Nova -> Zephyr
+    vault.transfer_stewardship(&leaf_id, ZEPHYR, 2000).unwrap();
+
+    // Now Zephyr is steward, but vault is Nova's — so we need to
+    // directly update via store to simulate Zephyr transferring.
+    // In a real system, Zephyr's vault would do this.
+    vault.artifact_store_mut().record_stewardship_transfer(
+        &leaf_id,
+        StewardshipRecord { from: ZEPHYR, to: SAGE, timestamp: 3000 },
+    ).unwrap();
+    vault.artifact_store_mut().update_steward(&leaf_id, SAGE).unwrap();
+
+    let history = vault.steward_history(&leaf_id).unwrap();
+    assert_eq!(history.len(), 2);
+    assert_eq!(history[0].from, NOVA);
+    assert_eq!(history[0].to, ZEPHYR);
+    assert_eq!(history[1].from, ZEPHYR);
+    assert_eq!(history[1].to, SAGE);
+}
+
+// ----------------------------------------------------------------------------
+// Feature 2: Exchange Rejection Tests
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_exchange_reject() {
+    let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
+    let my_artifact = vault.place_leaf(b"my item", LeafType::Token, 1000).unwrap();
+    let their_artifact_id = generate_tree_id();
+
+    let exchange = Exchange::propose(
+        &mut vault,
+        my_artifact.id.clone(),
+        their_artifact_id,
+        vec![NOVA, ZEPHYR],
+        1000,
+    ).unwrap();
+
+    assert!(!exchange.is_closed(&vault).unwrap());
+
+    exchange.reject(&mut vault).unwrap();
+
+    assert!(exchange.is_closed(&vault).unwrap());
+}
+
+#[test]
+fn test_exchange_accept_fails_after_rejection() {
+    let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
+    let my_artifact = vault.place_leaf(b"my item", LeafType::Token, 1000).unwrap();
+    let their_artifact_id = generate_tree_id();
+
+    let exchange = Exchange::propose(
+        &mut vault,
+        my_artifact.id.clone(),
+        their_artifact_id,
+        vec![NOVA, ZEPHYR],
+        1000,
+    ).unwrap();
+
+    exchange.reject(&mut vault).unwrap();
+
+    let result = exchange.accept(&mut vault);
+    assert!(matches!(result, Err(VaultError::ExchangeClosed)));
+}
+
+#[test]
+fn test_exchange_complete_fails_after_rejection() {
+    let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
+    let my_artifact = vault.place_leaf(b"my item", LeafType::Token, 1000).unwrap();
+    let their_artifact_id = generate_tree_id();
+
+    let exchange = Exchange::propose(
+        &mut vault,
+        my_artifact.id.clone(),
+        their_artifact_id,
+        vec![NOVA, ZEPHYR],
+        1000,
+    ).unwrap();
+
+    exchange.reject(&mut vault).unwrap();
+
+    let result = exchange.complete(&mut vault, 2000);
+    assert!(matches!(result, Err(VaultError::ExchangeClosed)));
+}
+
+#[test]
+fn test_exchange_complete_sets_completed_status() {
+    let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
+    let my_artifact = vault.place_leaf(b"my item", LeafType::Token, 1000).unwrap();
+
+    let their_artifact = LeafArtifact {
+        id: leaf_id(b"their item for complete test"),
+        size: 10,
+        steward: ZEPHYR,
+        audience: vec![ZEPHYR],
+        artifact_type: LeafType::Token,
+        created_at: 1000,
+        blessing_history: Vec::new(),
+    };
+    vault.artifact_store_mut().put_artifact(&Artifact::Leaf(their_artifact.clone())).unwrap();
+
+    let exchange = Exchange::propose(
+        &mut vault,
+        my_artifact.id.clone(),
+        their_artifact.id.clone(),
+        vec![NOVA, ZEPHYR],
+        1000,
+    ).unwrap();
+
+    // Both accept
+    exchange.accept(&mut vault).unwrap();
+    let mut exch_artifact = vault.get_artifact(&exchange.id).unwrap().unwrap();
+    let exch_tree = exch_artifact.as_tree_mut().unwrap();
+    let key = format!("accept:{}", ZEPHYR.iter().map(|b| format!("{b:02x}")).collect::<String>());
+    exch_tree.metadata.insert(key, b"true".to_vec());
+    vault.artifact_store_mut().put_artifact(&exch_artifact).unwrap();
+
+    exchange.complete(&mut vault, 3000).unwrap();
+
+    // Should now be closed
+    assert!(exchange.is_closed(&vault).unwrap());
+
+    // Cannot complete again
+    let result = exchange.complete(&mut vault, 4000);
+    assert!(matches!(result, Err(VaultError::ExchangeClosed)));
+}
+
+// ----------------------------------------------------------------------------
+// Feature 3: Deterministic DM Story ID Tests
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_dm_story_id_deterministic() {
+    let id1 = dm_story_id(NOVA, ZEPHYR);
+    let id2 = dm_story_id(ZEPHYR, NOVA);
+    assert_eq!(id1, id2, "DM story ID should be the same regardless of order");
+    assert!(id1.is_doc());
+}
+
+#[test]
+fn test_dm_story_id_different_pairs_different_ids() {
+    let id1 = dm_story_id(NOVA, ZEPHYR);
+    let id2 = dm_story_id(NOVA, SAGE);
+    assert_ne!(id1, id2, "Different pairs should produce different IDs");
+}
+
+#[test]
+fn test_story_create_dm() {
+    let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
+
+    let story = Story::create_dm(&mut vault, ZEPHYR, 1000).unwrap();
+
+    // ID should match the deterministic DM ID
+    let expected_id = dm_story_id(NOVA, ZEPHYR);
+    assert_eq!(story.id, expected_id);
+
+    // Verify it's a Story tree with both players in audience
+    let artifact = vault.get_artifact(&story.id).unwrap().unwrap();
+    let tree = artifact.as_tree().unwrap();
+    assert_eq!(tree.artifact_type, TreeType::Story);
+    assert!(tree.audience.contains(&NOVA));
+    assert!(tree.audience.contains(&ZEPHYR));
+}
+
+// ----------------------------------------------------------------------------
+// Feature 4: Request Wrapper Tests
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_request_create() {
+    let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
+
+    let request = Request::create(
+        &mut vault,
+        "Looking for a rare painting",
+        vec![NOVA, ZEPHYR],
+        1000,
+    ).unwrap();
+
+    let artifact = vault.get_artifact(&request.id).unwrap().unwrap();
+    let tree = artifact.as_tree().unwrap();
+    assert_eq!(tree.artifact_type, TreeType::Request);
+
+    // Should have description
+    let desc = request.description(&vault).unwrap();
+    assert!(desc.is_some());
+    assert!(desc.unwrap().is_leaf());
+}
+
+#[test]
+fn test_request_add_offers() {
+    let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
+
+    let request = Request::create(
+        &mut vault,
+        "Need a token",
+        vec![NOVA, ZEPHYR, SAGE],
+        1000,
+    ).unwrap();
+
+    // Create 3 offer artifacts
+    let offer1 = vault.place_leaf(b"offer 1", LeafType::Token, 2000).unwrap();
+    let offer2 = vault.place_leaf(b"offer 2", LeafType::Token, 3000).unwrap();
+    let offer3 = vault.place_leaf(b"offer 3", LeafType::Token, 4000).unwrap();
+
+    request.add_offer(&mut vault, offer1.id.clone()).unwrap();
+    request.add_offer(&mut vault, offer2.id.clone()).unwrap();
+    request.add_offer(&mut vault, offer3.id.clone()).unwrap();
+
+    assert_eq!(request.offer_count(&vault).unwrap(), 3);
+
+    let offers = request.offers(&vault).unwrap();
+    assert_eq!(offers.len(), 3);
+
+    // All should have "offer" label
+    for (r, _) in &offers {
+        assert_eq!(r.label.as_deref(), Some("offer"));
+    }
+}
+
+#[test]
+fn test_request_description_content() {
+    let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
+    let desc_text = "Seeking a legendary artifact";
+
+    let request = Request::create(
+        &mut vault,
+        desc_text,
+        vec![NOVA],
+        1000,
+    ).unwrap();
+
+    let desc = request.description(&vault).unwrap().unwrap();
+    let desc_leaf = desc.as_leaf().unwrap();
+    let payload = vault.get_payload(&desc_leaf.id).unwrap().unwrap();
+    assert_eq!(payload.as_ref(), desc_text.as_bytes());
+}
+
+// ----------------------------------------------------------------------------
+// Feature 5: Inbox Tests
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_create_inbox() {
+    let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
+
+    let inbox = vault.create_inbox(1000).unwrap();
+
+    assert_eq!(inbox.artifact_type, TreeType::Inbox);
+    assert_eq!(inbox.steward, NOVA);
+    assert_eq!(inbox.audience, vec![NOVA]);
+}
+
+#[test]
+fn test_add_connection_request_to_inbox() {
+    let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
+
+    let inbox = vault.create_inbox(1000).unwrap();
+    let inbox_id = inbox.id.clone();
+
+    // Create an artifact to reference in the connection request
+    let artifact = vault.place_leaf(b"hello from Zephyr", LeafType::Message, 2000).unwrap();
+
+    vault.add_connection_request(&inbox_id, ZEPHYR, artifact.id.clone(), 2000).unwrap();
+
+    // Verify the ref appears
+    let inbox_artifact = vault.get_artifact(&inbox_id).unwrap().unwrap();
+    let tree = inbox_artifact.as_tree().unwrap();
+    assert_eq!(tree.references.len(), 1);
+
+    let expected_label = format!(
+        "connection-request:{}",
+        ZEPHYR.iter().map(|b| format!("{b:02x}")).collect::<String>()
+    );
+    assert_eq!(tree.references[0].label.as_deref(), Some(expected_label.as_str()));
+    assert_eq!(tree.references[0].artifact_id, artifact.id);
+}
+
+// ----------------------------------------------------------------------------
+// Feature 6: Token Valuation / Blessing History Tests
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_compute_token_value_zero() {
+    let token = LeafArtifact {
+        id: leaf_id(b"cold token"),
+        size: 10,
+        steward: NOVA,
+        audience: vec![NOVA],
+        artifact_type: LeafType::Token,
+        created_at: 1000,
+        blessing_history: Vec::new(),
+    };
+
+    let value = compute_token_value(&token, &[], 0.0);
+    assert_eq!(value, 0.0);
+}
+
+#[test]
+fn test_compute_token_value_with_blessings() {
+    let token = LeafArtifact {
+        id: leaf_id(b"blessed token"),
+        size: 10,
+        steward: NOVA,
+        audience: vec![NOVA],
+        artifact_type: LeafType::Token,
+        created_at: 1000,
+        blessing_history: vec![
+            BlessingRecord {
+                from: ZEPHYR,
+                quest_id: None,
+                timestamp: 2000,
+                message: Some("Great work!".to_string()),
+            },
+            BlessingRecord {
+                from: SAGE,
+                quest_id: None,
+                timestamp: 3000,
+                message: None,
+            },
+        ],
+    };
+
+    let value = compute_token_value(&token, &[], 0.0);
+    assert!(value > 0.0, "Token with blessings should have value > 0");
+}
+
+#[test]
+fn test_compute_token_value_with_steward_history() {
+    let token = LeafArtifact {
+        id: leaf_id(b"traveled token"),
+        size: 10,
+        steward: SAGE,
+        audience: vec![SAGE],
+        artifact_type: LeafType::Token,
+        created_at: 1000,
+        blessing_history: Vec::new(),
+    };
+
+    let history = vec![
+        StewardshipRecord { from: NOVA, to: ZEPHYR, timestamp: 2000 },
+        StewardshipRecord { from: ZEPHYR, to: SAGE, timestamp: 3000 },
+    ];
+
+    let value = compute_token_value(&token, &history, 0.0);
+    assert!(value > 0.0, "Token with steward history should have value > 0");
+}
+
+#[test]
+fn test_compute_token_value_all_components() {
+    let token = LeafArtifact {
+        id: leaf_id(b"hot blessed traveled token"),
+        size: 10,
+        steward: SAGE,
+        audience: vec![SAGE],
+        artifact_type: LeafType::Token,
+        created_at: 1000,
+        blessing_history: vec![
+            BlessingRecord {
+                from: ZEPHYR,
+                quest_id: None,
+                timestamp: 2000,
+                message: None,
+            },
+        ],
+    };
+
+    let history = vec![
+        StewardshipRecord { from: NOVA, to: ZEPHYR, timestamp: 2000 },
+        StewardshipRecord { from: ZEPHYR, to: SAGE, timestamp: 3000 },
+    ];
+
+    let value = compute_token_value(&token, &history, 0.8);
+    assert!(value > 0.3, "Token with heat + blessings + history should have significant value");
+    assert!(value <= 1.0);
 }

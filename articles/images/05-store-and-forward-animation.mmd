@@ -1,0 +1,38 @@
+sequenceDiagram
+    participant Zara as Zara (Sender)
+    participant Ren as Ren (Relay A)
+    participant Suki as Suki (Relay B)
+    participant Isla as Isla (Destination)
+    Note over Isla: OFFLINE
+    rect rgb(40, 40, 60)
+        Note over Zara: Phase 1: Send
+        Zara->>Ren: Sealed copy of message
+        Zara->>Suki: Sealed copy of message
+        Note over Ren: SEALED - holding copy
+        Note over Suki: SEALED - holding copy
+    end
+    Note over Zara: Goes OFFLINE
+    Note over Ren: Goes OFFLINE
+    rect rgb(40, 60, 40)
+        Note over Isla: Comes ONLINE
+        Suki->>Isla: Delivers sealed message
+        Note over Isla: Message received!
+    end
+    rect rgb(60, 40, 40)
+        Isla->>Suki: Read receipt (success)
+        Isla--xRen: Read receipt (LOST - Ren offline)
+        Note over Suki: PURGED - deletes sealed copy
+    end
+    rect rgb(40, 50, 50)
+        Note over Ren: Comes back ONLINE (still holding copy)
+        Ren->>Isla: Ping (I have a copy)
+        Isla->>Ren: Delayed read receipt
+        Note over Ren: PURGED - deletes sealed copy
+    end
+    rect rgb(50, 50, 40)
+        Note over Zara: Comes back ONLINE
+        Zara->>Ren: Ping (checking status)
+        Ren->>Zara: Relays read receipt
+        Note over Zara: Confirmed - Isla received message
+    end
+    Note over Zara,Isla: Delay-tolerant. Store-and-forward. No server needed.

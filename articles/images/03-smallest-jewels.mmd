@@ -1,0 +1,11 @@
+graph LR
+    subgraph field["In the Field"]
+        S["IoT Sensor<br/>tiny device"]
+    end
+    S -->|"wireless signal"| W["Wireless Link"]
+    W -->|"data stream"| P
+    subgraph hand["In Your Hand"]
+        P["Phone<br/>receives data"]
+    end
+    style S fill:#1a3a30,stroke:#43e8c0,color:#a0ffe8
+    style P fill:#2a2a3a,stroke:#d4a843,color:#d4a843

@@ -1,0 +1,11 @@
+sequenceDiagram
+    participant Zara as Zara (SENDER)
+    participant Kai as Kai (RELAY)
+    participant Isla as Isla (OFFLINE)
+    Note over Isla: Device asleep (zzz)
+    Zara->>Kai: Sealed message for Isla
+    Note over Kai: Holds sealed envelope with wax seal
+    Note over Kai,Isla: Waiting for Isla to come online...
+    Isla-->>Isla: Wakes up / comes online
+    Kai->>Isla: Delivers sealed message
+    Note over Isla: Opens and reads message

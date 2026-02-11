@@ -4,10 +4,10 @@
 
 use crate::config::{NetworkBuilder, NetworkConfig, Preset};
 use crate::contacts::{contacts_realm_id, ContactsRealm};
-use crate::direct_connect::{dm_realm_id, inbox_realm_id, is_initiator, ConnectionNotify};
+use crate::direct_connect::{dm_key_seed, dm_realm_id, inbox_key_seed, inbox_realm_id, is_initiator, ConnectionNotify};
 use crate::encounter;
 use crate::error::{IndraError, Result};
-use crate::home_realm::{home_realm_id, HomeRealm};
+use crate::home_realm::{home_key_seed, home_realm_id, HomeRealm};
 use crate::identity_code::IdentityCode;
 use crate::invite::InviteCode;
 use crate::member::{Member, MemberId};
@@ -315,10 +315,12 @@ impl IndrasNetwork {
             return Ok(());
         }
 
-        // Create the inbox interface with deterministic ID
+        // Create the inbox interface with deterministic ID and seed
+        // No bootstrap peers needed — this is our own inbox.
+        let seed = inbox_key_seed(&my_id);
         let (_interface_id, _invite_key) = self
             .inner
-            .create_interface_with_id(realm_id, Some("Inbox"))
+            .create_interface_with_seed(realm_id, &seed, Some("Inbox"), vec![])
             .await?;
 
         // Cache the realm state
@@ -335,9 +337,10 @@ impl IndrasNetwork {
         let inner_weak = Arc::downgrade(&self.inner);
         let realms = Arc::clone(&self.realms);
         let peer_realms = Arc::clone(&self.peer_realms);
+        let contacts_realm = Arc::clone(&self.contacts_realm);
 
         tokio::spawn(async move {
-            Self::inbox_listener(my_id, event_rx, inner_weak, realms, peer_realms).await;
+            Self::inbox_listener(my_id, event_rx, inner_weak, realms, peer_realms, contacts_realm).await;
         });
 
         tracing::info!(
@@ -350,17 +353,16 @@ impl IndrasNetwork {
 
     /// Background task that listens for ConnectionNotify messages on our inbox.
     ///
-    /// Creates DM realms and caches peer mappings. Contact management is
-    /// deferred — contacts are added when `connect()` is called explicitly
-    /// or when the contacts realm is queried.
-    ///
-    /// Uses `Weak<IndrasNode>` so this task doesn't prevent node cleanup on drop.
+    /// Creates DM realms, caches peer mappings, adds contacts, and sends
+    /// reciprocal notifications. Uses `Weak<IndrasNode>` so this task doesn't
+    /// prevent node cleanup on drop.
     async fn inbox_listener(
         my_id: MemberId,
         mut event_rx: tokio::sync::broadcast::Receiver<indras_node::ReceivedEvent>,
         inner_weak: std::sync::Weak<IndrasNode>,
         realms: Arc<DashMap<RealmId, RealmState>>,
         peer_realms: Arc<DashMap<Vec<MemberId>, RealmId>>,
+        contacts_realm: Arc<RwLock<Option<ContactsRealm>>>,
     ) {
         use indras_core::InterfaceEvent;
 
@@ -411,12 +413,35 @@ impl IndrasNetwork {
                         "Inbox: received connection notification, reciprocating"
                     );
 
-                    // Create the DM realm (reciprocate the connection)
+                    // Convert peer MemberId → PublicKey for transport + bootstrap
+                    let peer_public_key = match iroh::PublicKey::from_bytes(&peer_id) {
+                        Ok(pk) => pk,
+                        Err(e) => {
+                            tracing::warn!(error = %e, "Inbox: invalid peer key, skipping");
+                            continue;
+                        }
+                    };
+
+                    // Establish transport connectivity to peer
+                    if let Err(e) = inner.connect_to_peer(&peer_id).await {
+                        tracing::debug!(
+                            peer = %hex::encode(&peer_id[..8]),
+                            error = %e,
+                            "Inbox: transport connect failed (may still work via gossip)"
+                        );
+                    }
+
+                    // Create the DM realm (reciprocate the connection) with deterministic key + bootstrap
+                    let dm_seed = dm_key_seed(&my_id, &peer_id);
                     match inner
-                        .create_interface_with_id(dm_realm_id, Some("DM"))
+                        .create_interface_with_seed(dm_realm_id, &dm_seed, Some("DM"), vec![peer_public_key])
                         .await
                     {
                         Ok((interface_id, _invite_key)) => {
+                            // Add peer as member so send_message can reach them
+                            let peer_identity = IrohIdentity::from(peer_public_key);
+                            let _ = inner.add_member(&dm_realm_id, peer_identity).await;
+
                             // Cache realm state
                             realms.insert(
                                 interface_id,
@@ -430,11 +455,41 @@ impl IndrasNetwork {
                             peers.sort();
                             peer_realms.insert(peers, interface_id);
 
+                            // Add peer as contact so UI shows the connection
+                            if let Some(contacts) = contacts_realm.read().await.as_ref() {
+                                if !contacts.is_contact(&peer_id).await {
+                                    let _ = contacts.add_contact_with_name(peer_id, notify.display_name.clone()).await;
+                                }
+                                let _ = contacts.confirm_contact(&peer_id).await;
+                            }
+
                             tracing::info!(
                                 peer = %hex::encode(&peer_id[..8]),
                                 realm = %hex::encode(&dm_realm_id.as_bytes()[..8]),
                                 "Inbox: reciprocated connection successfully"
                             );
+
+                            // Send reciprocal notification to sender's inbox
+                            let sender_inbox_id = inbox_realm_id(peer_id);
+                            let sender_inbox_seed = inbox_key_seed(&peer_id);
+                            if let Ok(_) = inner
+                                .create_interface_with_seed(sender_inbox_id, &sender_inbox_seed, Some("PeerInbox"), vec![peer_public_key])
+                                .await
+                            {
+                                // Add peer as member so send_message delivers to them
+                                let _ = inner.add_member(&sender_inbox_id, peer_identity).await;
+
+                                let reply = ConnectionNotify::new(my_id, dm_realm_id);
+                                if let Ok(payload) = reply.to_bytes() {
+                                    let _ = inner.send_message(&sender_inbox_id, payload).await;
+                                }
+                                // Cleanup: leave peer inbox after short delay
+                                let inner_cleanup = inner.clone();
+                                tokio::spawn(async move {
+                                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                                    let _ = inner_cleanup.leave_interface(&sender_inbox_id).await;
+                                });
+                            }
                         }
                         Err(e) => {
                             tracing::warn!(
@@ -635,12 +690,28 @@ impl IndrasNetwork {
             return Ok(Realm::from_id(realm_id, state.name.clone(), Arc::clone(&self.inner)));
         }
 
-        // 3. Create the interface with deterministic ID and seed
+        // 3. Establish transport connectivity to peer via relay
+        //    MemberId IS the raw PublicKey bytes, so we can connect directly.
+        if let Err(e) = self.inner.connect_to_peer(&peer_id).await {
+            tracing::debug!(
+                peer = %hex::encode(&peer_id[..8]),
+                error = %e,
+                "Transport connect to peer failed (may still work via gossip)"
+            );
+        }
+
+        // 4. Create the interface with deterministic ID, seed, and peer as bootstrap
+        let peer_public_key = iroh::PublicKey::from_bytes(&peer_id)
+            .map_err(|e| IndraError::Crypto(format!("Invalid peer key: {}", e)))?;
         let seed = dm_key_seed(&my_id, &peer_id);
         let (interface_id, invite_key) = self
             .inner
-            .create_interface_with_seed(realm_id, &seed, Some("DM"))
+            .create_interface_with_seed(realm_id, &seed, Some("DM"), vec![peer_public_key])
             .await?;
+
+        // Add peer as member so send_message can reach them
+        let peer_identity = IrohIdentity::from(peer_public_key);
+        let _ = self.inner.add_member(&interface_id, peer_identity).await;
 
         // 4. Cache realm state
         self.realms.insert(
@@ -688,10 +759,20 @@ impl IndrasNetwork {
         let my_id = self.id();
         let peer_inbox_id = inbox_realm_id(peer_id);
 
-        // Join the peer's inbox realm temporarily
+        // Convert peer MemberId → PublicKey for bootstrap
+        let peer_public_key = match iroh::PublicKey::from_bytes(&peer_id) {
+            Ok(pk) => pk,
+            Err(e) => {
+                tracing::debug!(error = %e, "Invalid peer key for inbox notify");
+                return;
+            }
+        };
+
+        // Join the peer's inbox realm temporarily with deterministic key + bootstrap
+        let peer_inbox_seed = inbox_key_seed(&peer_id);
         let join_result = self
             .inner
-            .create_interface_with_id(peer_inbox_id, Some("PeerInbox"))
+            .create_interface_with_seed(peer_inbox_id, &peer_inbox_seed, Some("PeerInbox"), vec![peer_public_key])
             .await;
 
         if let Err(e) = join_result {
@@ -702,6 +783,10 @@ impl IndrasNetwork {
             );
             return;
         }
+
+        // Add peer as member so send_message delivers to them
+        let peer_identity = IrohIdentity::from(peer_public_key);
+        let _ = self.inner.add_member(&peer_inbox_id, peer_identity).await;
 
         // Build the notification
         let mut notify = ConnectionNotify::new(my_id, dm_realm_id);
@@ -1266,10 +1351,11 @@ impl IndrasNetwork {
         let realm_id = home_realm_id(self.id());
 
         // Create the home realm interface with deterministic key
+        // No bootstrap peers needed — this is our own home realm.
         let seed = home_key_seed(&self.id());
         let (_interface_id, _invite_key) = self
             .inner
-            .create_interface_with_seed(realm_id, &seed, Some("Home"))
+            .create_interface_with_seed(realm_id, &seed, Some("Home"), vec![])
             .await?;
 
         // Cache the realm state

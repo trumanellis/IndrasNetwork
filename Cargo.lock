@@ -3221,6 +3221,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "indras-artifacts"
+version = "1.0.0"
+dependencies = [
+ "blake3",
+ "bytes",
+ "chrono",
+ "postcard",
+ "rand 0.9.2",
+ "serde",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "indras-chat"
 version = "1.0.0"
 dependencies = [
@@ -3333,6 +3346,22 @@ dependencies = [
  "serde",
  "thiserror 2.0.18",
  "tracing",
+]
+
+[[package]]
+name = "indras-exchange"
+version = "1.0.0"
+dependencies = [
+ "blake3",
+ "chrono",
+ "dioxus",
+ "indras-artifacts",
+ "indras-ui",
+ "rand 0.9.2",
+ "serde",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -3602,6 +3631,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "indras-spatial"
+version = "1.0.0"
+dependencies = [
+ "chrono",
+ "dioxus",
+ "indras-artifacts",
+ "indras-ui",
+]
+
+[[package]]
 name = "indras-storage"
 version = "1.0.0"
 dependencies = [
@@ -3724,8 +3763,14 @@ name = "indras-ui"
 version = "1.0.0"
 dependencies = [
  "base64",
+ "chrono",
  "dioxus",
+ "futures",
+ "indras-network",
+ "indras-sync-engine",
  "pulldown-cmark",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

@@ -1,7 +1,7 @@
 use bytes::Bytes;
 use std::collections::HashMap;
 
-use crate::artifact::{Artifact, ArtifactId, ArtifactRef, PlayerId, TreeType};
+use crate::artifact::{Artifact, ArtifactId, ArtifactRef, PlayerId, StewardshipRecord, TreeType};
 use crate::attention::AttentionSwitchEvent;
 use crate::error::VaultError;
 
@@ -34,12 +34,15 @@ pub trait ArtifactStore {
     fn update_audience(&mut self, id: &ArtifactId, audience: Vec<PlayerId>) -> Result<()>;
     fn add_ref(&mut self, tree_id: &ArtifactId, child_ref: ArtifactRef) -> Result<()>;
     fn remove_ref(&mut self, tree_id: &ArtifactId, child_id: &ArtifactId) -> Result<()>;
+    fn record_stewardship_transfer(&mut self, id: &ArtifactId, record: StewardshipRecord) -> Result<()>;
+    fn steward_history(&self, id: &ArtifactId) -> Result<Vec<StewardshipRecord>>;
 }
 
 /// In-memory artifact store backed by HashMap.
 #[derive(Default)]
 pub struct InMemoryArtifactStore {
     artifacts: HashMap<ArtifactId, Artifact>,
+    stewardship_history: HashMap<ArtifactId, Vec<StewardshipRecord>>,
 }
 
 impl InMemoryArtifactStore {
@@ -133,6 +136,18 @@ impl ArtifactStore for InMemoryArtifactStore {
             }
             _ => Err(VaultError::NotATree),
         }
+    }
+
+    fn record_stewardship_transfer(&mut self, id: &ArtifactId, record: StewardshipRecord) -> Result<()> {
+        self.stewardship_history
+            .entry(id.clone())
+            .or_default()
+            .push(record);
+        Ok(())
+    }
+
+    fn steward_history(&self, id: &ArtifactId) -> Result<Vec<StewardshipRecord>> {
+        Ok(self.stewardship_history.get(id).cloned().unwrap_or_default())
     }
 }
 

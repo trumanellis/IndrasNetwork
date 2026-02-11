@@ -12,8 +12,10 @@ use indras_ui::{ArtifactDisplayInfo, ArtifactDisplayStatus, ContactInviteOverlay
 
 use super::display_name::DisplayNameScreen;
 use super::home_realm::HomeRealmScreen;
+use super::note_editor::NoteEditorOverlay;
 use super::pass_story_flow::PassStoryFlow;
 use super::peer_realm::PeerRealmScreen;
+use super::quest_editor::QuestEditorOverlay;
 use super::welcome::WelcomeScreen;
 
 /// Get the default data directory for Indras Network.
@@ -191,6 +193,7 @@ pub fn App() -> Element {
                                     NoteView {
                                         id: hex_id(&n.id),
                                         title: n.title.clone(),
+                                        content: n.content.clone(),
                                         content_preview: n.content.chars().take(100).collect(),
                                     }
                                 }).collect();
@@ -288,6 +291,8 @@ pub fn App() -> Element {
     let current_step = state.read().step.clone();
     let pass_story_active = state.read().pass_story_active;
     let contact_invite_open = state.read().contact_invite_open;
+    let note_editor_open = state.read().note_editor_open;
+    let quest_editor_open = state.read().quest_editor_open;
 
     // Contact invite URI comes from pre-computed state (async, includes transport info)
     let invite_uri = use_memo(move || {
@@ -337,7 +342,7 @@ pub fn App() -> Element {
             div {
                 class: "genesis-app",
 
-                match current_step {
+                match current_step.clone() {
                     GenesisStep::Welcome => rsx! {
                         WelcomeScreen { state }
                     },
@@ -354,6 +359,28 @@ pub fn App() -> Element {
 
                 if pass_story_active {
                     PassStoryFlow { state, network }
+                }
+
+                if note_editor_open {
+                    match current_step {
+                        GenesisStep::PeerRealm(peer_id) => rsx! {
+                            NoteEditorOverlay { state, network, peer_id: Some(peer_id) }
+                        },
+                        _ => rsx! {
+                            NoteEditorOverlay { state, network, peer_id: None }
+                        },
+                    }
+                }
+
+                if quest_editor_open {
+                    match current_step {
+                        GenesisStep::PeerRealm(peer_id) => rsx! {
+                            QuestEditorOverlay { state, network, peer_id: Some(peer_id) }
+                        },
+                        _ => rsx! {
+                            QuestEditorOverlay { state, network, peer_id: None }
+                        },
+                    }
                 }
 
                 if contact_invite_open {
@@ -574,6 +601,7 @@ pub async fn create_identity_and_load(
                         NoteView {
                             id: hex_id(&n.id),
                             title: n.title.clone(),
+                            content: n.content.clone(),
                             content_preview: n.content.chars().take(100).collect(),
                         }
                     }).collect();
@@ -632,6 +660,7 @@ pub async fn create_identity_and_load(
                             member_id_short: mid.iter().take(8).map(|b| format!("{:02x}", b)).collect(),
                             display_name: entry.display_name.clone(),
                             status: "confirmed".to_string(),
+                            sentiment: ContactSentiment::Neutral,
                         }
                     }).collect();
                     let count = contacts.len();
