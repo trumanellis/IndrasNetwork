@@ -406,6 +406,44 @@ mod tests {
     }
 
     #[test]
+    fn test_dm_key_seed_deterministic() {
+        let k1 = dm_key_seed(&zephyr_id(), &nova_id());
+        let k2 = dm_key_seed(&zephyr_id(), &nova_id());
+        assert_eq!(k1, k2);
+    }
+
+    #[test]
+    fn test_dm_key_seed_symmetric() {
+        let k1 = dm_key_seed(&zephyr_id(), &nova_id());
+        let k2 = dm_key_seed(&nova_id(), &zephyr_id());
+        assert_eq!(k1, k2, "DM key seed should be the same regardless of order");
+    }
+
+    #[test]
+    fn test_dm_key_seed_unique_per_pair() {
+        let k1 = dm_key_seed(&zephyr_id(), &nova_id());
+        let k2 = dm_key_seed(&zephyr_id(), &sage_id());
+        let k3 = dm_key_seed(&nova_id(), &sage_id());
+        assert_ne!(k1, k2);
+        assert_ne!(k1, k3);
+        assert_ne!(k2, k3);
+    }
+
+    #[test]
+    fn test_dm_key_seed_differs_from_realm_id() {
+        let seed = dm_key_seed(&zephyr_id(), &nova_id());
+        let realm = dm_realm_id(zephyr_id(), nova_id());
+        assert_ne!(seed, *realm.as_bytes(), "Key seed must differ from realm ID");
+    }
+
+    #[test]
+    fn test_dm_key_seed_differs_from_inbox_key_seed() {
+        let dm = dm_key_seed(&zephyr_id(), &nova_id());
+        let inbox = inbox_key_seed(&zephyr_id());
+        assert_ne!(dm, inbox);
+    }
+
+    #[test]
     fn test_connection_notify_serialization() {
         let dm_id = dm_realm_id(zephyr_id(), nova_id());
         let notify = ConnectionNotify::new(zephyr_id(), dm_id)

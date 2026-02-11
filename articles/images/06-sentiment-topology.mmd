@@ -1,0 +1,25 @@
+graph TD
+    subgraph healthy["Healthy Trust Cluster"]
+        Zephyr(("Zephyr"))
+        Nova(("Nova"))
+        Sage(("Sage"))
+    end
+    subgraph bridge["Neutral Bridge Zone"]
+        B1(("peer")) & B2(("peer"))
+    end
+    subgraph shrinking["Orion's Shrinking World"]
+        Orion(("Orion"))
+        D1(("dim")):::dim & D2(("dim")):::dim
+    end
+    Lyra(("Lyra"))
+    Zephyr ===|"+1 recommend"| Nova
+    Nova ===|"+1 recommend"| Sage
+    Sage ===|"+1 recommend"| Zephyr
+    Nova ---|"neutral"| B1 & Sage ---|"neutral"| B2
+    B1 -.-|"bridge"| Orion
+    Orion -.-|"-1 don't recommend"| D1 & Orion -.-|"-1 don't recommend"| D2
+    Sage -..->|"relayed warning"| Lyra & Nova -..->|"relayed warning"| Lyra
+    classDef dim fill:#504040,stroke:#a09090,color:#888
+    linkStyle 0,1,2 stroke:#70ff90,stroke-width:4px
+    linkStyle 7,8 stroke:#ff7070,stroke-width:3px,stroke-dasharray:6 4
+    linkStyle 9,10 stroke:#ffe080,stroke-width:2px,stroke-dasharray:4 6

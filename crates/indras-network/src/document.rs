@@ -15,6 +15,7 @@ use std::marker::PhantomData;
 use std::ops::Deref;
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
+use tracing::debug;
 
 /// Envelope that tags document messages with the document name.
 ///
@@ -380,23 +381,50 @@ impl<T: DocumentSchema> Document<T> {
     /// then falls back to the EventStore (local events only).
     /// Returns `true` if the state was updated.
     pub async fn refresh(&self) -> Result<bool> {
+        let realm_short: String = self.realm_id.as_bytes().iter().take(8).map(|b| format!("{:02x}", b)).collect();
+
         // 1. Automerge document events (includes events received via CRDT sync)
         if let Ok(events) = self.node.document_events(&self.realm_id).await {
+            debug!(
+                doc_name = %self.name,
+                realm = %realm_short,
+                event_count = events.len(),
+                "Document refresh: checking Automerge events"
+            );
             for event in events.iter().rev() {
                 if let InterfaceEvent::Message { content, .. } = event {
                     if let Ok(env) = postcard::from_bytes::<DocumentEnvelope>(content) {
+                        debug!(
+                            doc_name = %self.name,
+                            envelope_doc_name = %env.doc_name,
+                            payload_len = env.payload.len(),
+                            "Found DocumentEnvelope in Automerge"
+                        );
                         if env.doc_name == self.name {
                             if let Ok(new_state) = postcard::from_bytes::<T>(&env.payload) {
+                                debug!(
+                                    doc_name = %self.name,
+                                    "Successfully deserialized document state from Automerge"
+                                );
                                 let mut state = self.state.write().await;
                                 *state = new_state.clone();
                                 drop(state);
                                 self.persist(&new_state).await?;
                                 return Ok(true);
+                            } else {
+                                debug!(
+                                    doc_name = %self.name,
+                                    "Failed to deserialize payload for matching doc_name"
+                                );
                             }
                         }
                         continue;
                     }
                     if let Ok(new_state) = postcard::from_bytes::<T>(content) {
+                        debug!(
+                            doc_name = %self.name,
+                            "Found raw (non-envelope) document state in Automerge"
+                        );
                         let mut state = self.state.write().await;
                         *state = new_state.clone();
                         drop(state);
@@ -405,15 +433,36 @@ impl<T: DocumentSchema> Document<T> {
                     }
                 }
             }
+        } else {
+            debug!(
+                doc_name = %self.name,
+                realm = %realm_short,
+                "Document refresh: failed to get Automerge events"
+            );
         }
 
         // 2. Fallback: EventStore (local events only)
         if let Ok(events) = self.node.events_since(&self.realm_id, 0).await {
+            debug!(
+                doc_name = %self.name,
+                realm = %realm_short,
+                event_count = events.len(),
+                "Document refresh: checking EventStore events"
+            );
             for event in events.iter().rev() {
                 if let InterfaceEvent::Message { content, .. } = event {
                     if let Ok(env) = postcard::from_bytes::<DocumentEnvelope>(content) {
+                        debug!(
+                            doc_name = %self.name,
+                            envelope_doc_name = %env.doc_name,
+                            "Found DocumentEnvelope in EventStore"
+                        );
                         if env.doc_name == self.name {
                             if let Ok(new_state) = postcard::from_bytes::<T>(&env.payload) {
+                                debug!(
+                                    doc_name = %self.name,
+                                    "Successfully deserialized document state from EventStore"
+                                );
                                 let mut state = self.state.write().await;
                                 *state = new_state.clone();
                                 drop(state);
@@ -424,6 +473,10 @@ impl<T: DocumentSchema> Document<T> {
                         continue;
                     }
                     if let Ok(new_state) = postcard::from_bytes::<T>(content) {
+                        debug!(
+                            doc_name = %self.name,
+                            "Found raw document state in EventStore"
+                        );
                         let mut state = self.state.write().await;
                         *state = new_state.clone();
                         drop(state);
@@ -434,6 +487,11 @@ impl<T: DocumentSchema> Document<T> {
             }
         }
 
+        debug!(
+            doc_name = %self.name,
+            realm = %realm_short,
+            "Document refresh: no matching document state found"
+        );
         Ok(false)
     }
 
@@ -457,6 +515,8 @@ impl<T: DocumentSchema> Document<T> {
     where
         F: FnOnce(&mut T),
     {
+        let realm_short: String = self.realm_id.as_bytes().iter().take(8).map(|b| format!("{:02x}", b)).collect();
+
         let new_state = {
             let mut state = self.state.write().await;
             f(&mut state);
@@ -470,10 +530,25 @@ impl<T: DocumentSchema> Document<T> {
         let inner_payload = postcard::to_allocvec(&new_state)?;
         let envelope = DocumentEnvelope {
             doc_name: self.name.clone(),
-            payload: inner_payload,
+            payload: inner_payload.clone(),
         };
         let message = postcard::to_allocvec(&envelope)?;
+
+        debug!(
+            doc_name = %self.name,
+            realm = %realm_short,
+            payload_len = inner_payload.len(),
+            message_len = message.len(),
+            "Document update: sending to network"
+        );
+
         self.node.send_message(&self.realm_id, message).await?;
+
+        debug!(
+            doc_name = %self.name,
+            realm = %realm_short,
+            "Document update: sent successfully"
+        );
 
         // Notify local subscribers
         let _ = self.change_tx.send(DocumentChange {

@@ -170,7 +170,7 @@ impl<I: PeerIdentity> CompositeStorage<I> {
     /// Append an event to an interface's log
     ///
     /// Large payloads are automatically stored in the blob store.
-    #[instrument(skip(self, payload), fields(interface_id = %hex::encode(interface_id.as_bytes())))]
+    #[instrument(skip_all)]
     pub async fn append_event(
         &self,
         interface_id: &InterfaceId,

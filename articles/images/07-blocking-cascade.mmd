@@ -1,0 +1,25 @@
+graph LR
+    subgraph before["BEFORE"]
+        direction TB
+        Z1(("Zephyr")) & N1(("Nova")) & S1(("Sage")) & O1(("Orion"))
+        Z1 ---|"{Z,N,S}"| N1 & Z1 ---|"{Z,N,S}"| S1 & N1 ---|"{Z,N,S}"| S1
+        Z1 ---|"{Z,N,O}"| O1 & N1 ---|"{Z,N,O}"| O1
+        Z1 ---|"{Z,S,O}"| O1 & S1 ---|"{Z,S,O}"| O1
+    end
+    subgraph block["BLOCK"]
+        direction TB
+        Z2(("Zephyr")) & N2(("Nova")) & S2(("Sage")) & O2(("Orion")):::blocked
+        Z2 ===|"{Z,N,S} intact"| N2 & Z2 ===| | S2 & N2 ===| | S2
+        Z2 -.-x|"BLOCK"| O2
+        N2 -.-x|"leave {Z,N,O}"| O2 & S2 -.-x|"leave {Z,S,O}"| O2
+    end
+    subgraph after["AFTER"]
+        direction TB
+        Z3(("Zephyr")) & N3(("Nova")) & S3(("Sage")) & O3(("Orion")):::isolated
+        Z3 ===|"{Z,N,S}"| N3 & Z3 ===| | S3 & N3 ===| | S3
+        O3 -.- D1((" ")):::ghost & O3 -.- D2((" ")):::ghost
+    end
+    before -->|"cascade"| block -->|"result"| after
+    classDef blocked fill:#ffa0a0,stroke:#c03030,color:#000
+    classDef isolated fill:#504040,stroke:#a09090,color:#888
+    classDef ghost fill:#333,stroke:#555,color:#555

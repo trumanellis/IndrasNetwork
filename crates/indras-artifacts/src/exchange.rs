@@ -7,6 +7,7 @@ use crate::vault::Vault;
 type Result<T> = std::result::Result<T, VaultError>;
 
 const ACCEPT_KEY_PREFIX: &str = "accept:";
+const STATUS_KEY: &str = "status";
 const OFFERED_LABEL: &str = "offered";
 const REQUESTED_LABEL: &str = "requested";
 const CONVERSATION_LABEL: &str = "conversation";
@@ -109,10 +110,15 @@ impl Exchange {
     }
 
     /// Record this party's acceptance in the Exchange tree metadata.
+    /// Fails if the exchange is already closed (rejected or completed).
     pub fn accept<A: ArtifactStore, P: PayloadStore, T: AttentionStore>(
         &self,
         vault: &mut Vault<A, P, T>,
     ) -> Result<()> {
+        if self.is_closed(vault)? {
+            return Err(VaultError::ExchangeClosed);
+        }
+
         let player = *vault.player();
         let mut artifact = vault
             .get_artifact(&self.id)?
@@ -125,6 +131,46 @@ impl Exchange {
         // Write updated artifact back to store
         vault.artifact_store_mut().put_artifact(&artifact)?;
         Ok(())
+    }
+
+    /// Reject this exchange. Writes status metadata and records rejector.
+    pub fn reject<A: ArtifactStore, P: PayloadStore, T: AttentionStore>(
+        &self,
+        vault: &mut Vault<A, P, T>,
+    ) -> Result<()> {
+        let player = *vault.player();
+        let mut artifact = vault
+            .get_artifact(&self.id)?
+            .ok_or(VaultError::ArtifactNotFound)?;
+        let tree = artifact.as_tree_mut().ok_or(VaultError::NotATree)?;
+
+        tree.metadata
+            .insert(STATUS_KEY.to_string(), b"rejected".to_vec());
+        let rejected_key = format!(
+            "rejected_by:{}",
+            player.iter().map(|b| format!("{b:02x}")).collect::<String>()
+        );
+        tree.metadata
+            .insert(rejected_key, b"true".to_vec());
+
+        vault.artifact_store_mut().put_artifact(&artifact)?;
+        Ok(())
+    }
+
+    /// Check if this exchange is closed (rejected or completed).
+    pub fn is_closed<A: ArtifactStore, P: PayloadStore, T: AttentionStore>(
+        &self,
+        vault: &Vault<A, P, T>,
+    ) -> Result<bool> {
+        let artifact = vault
+            .get_artifact(&self.id)?
+            .ok_or(VaultError::ArtifactNotFound)?;
+        let tree = artifact.as_tree().ok_or(VaultError::NotATree)?;
+
+        match tree.metadata.get(STATUS_KEY) {
+            Some(v) => Ok(v == b"rejected" || v == b"completed"),
+            None => Ok(false),
+        }
     }
 
     /// Check if a specific player has accepted.
@@ -143,10 +189,16 @@ impl Exchange {
     }
 
     /// Execute mutual stewardship transfer. Both parties must have accepted.
+    /// Sets status to "completed" after successful transfer.
     pub fn complete<A: ArtifactStore, P: PayloadStore, T: AttentionStore>(
         &self,
         vault: &mut Vault<A, P, T>,
+        now: i64,
     ) -> Result<()> {
+        if self.is_closed(vault)? {
+            return Err(VaultError::ExchangeClosed);
+        }
+
         let refs = self.get_refs(vault)?;
 
         let offered_ref = refs
@@ -173,13 +225,39 @@ impl Exchange {
             return Err(VaultError::ExchangeNotFullyAccepted);
         }
 
-        // Transfer stewardship both ways
+        // Record stewardship history and transfer both ways
+        vault.artifact_store_mut().record_stewardship_transfer(
+            &offered_ref.artifact_id,
+            StewardshipRecord {
+                from: offerer,
+                to: requester,
+                timestamp: now,
+            },
+        )?;
         vault
             .artifact_store_mut()
             .update_steward(&offered_ref.artifact_id, requester)?;
+
+        vault.artifact_store_mut().record_stewardship_transfer(
+            &requested_ref.artifact_id,
+            StewardshipRecord {
+                from: requester,
+                to: offerer,
+                timestamp: now,
+            },
+        )?;
         vault
             .artifact_store_mut()
             .update_steward(&requested_ref.artifact_id, offerer)?;
+
+        // Mark as completed
+        let mut artifact = vault
+            .get_artifact(&self.id)?
+            .ok_or(VaultError::ArtifactNotFound)?;
+        let tree = artifact.as_tree_mut().ok_or(VaultError::NotATree)?;
+        tree.metadata
+            .insert(STATUS_KEY.to_string(), b"completed".to_vec());
+        vault.artifact_store_mut().put_artifact(&artifact)?;
 
         Ok(())
     }

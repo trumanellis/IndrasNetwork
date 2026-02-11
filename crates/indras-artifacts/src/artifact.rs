@@ -52,6 +52,23 @@ impl fmt::Display for ArtifactId {
     }
 }
 
+/// Record of a stewardship transfer.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StewardshipRecord {
+    pub from: PlayerId,
+    pub to: PlayerId,
+    pub timestamp: i64,
+}
+
+/// Record of a blessing on a token.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlessingRecord {
+    pub from: PlayerId,
+    pub quest_id: Option<ArtifactId>,
+    pub timestamp: i64,
+    pub message: Option<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LeafType {
     Message,
@@ -71,6 +88,7 @@ pub enum TreeType {
     Request,
     Exchange,
     Collection,
+    Inbox,
     Custom(String),
 }
 
@@ -89,6 +107,7 @@ pub struct LeafArtifact {
     pub audience: Vec<PlayerId>,
     pub artifact_type: LeafType,
     pub created_at: i64,
+    pub blessing_history: Vec<BlessingRecord>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -117,6 +136,17 @@ pub fn leaf_id(payload: &[u8]) -> ArtifactId {
 /// Generate a random tree artifact ID.
 pub fn generate_tree_id() -> ArtifactId {
     ArtifactId::Doc(random::<[u8; 32]>())
+}
+
+/// Generate a deterministic DM story ID from two player IDs.
+/// Both players produce the same ID regardless of call order.
+pub fn dm_story_id(a: PlayerId, b: PlayerId) -> ArtifactId {
+    let (first, second) = if a <= b { (a, b) } else { (b, a) };
+    let a_hex: String = first.iter().map(|b| format!("{b:02x}")).collect();
+    let b_hex: String = second.iter().map(|b| format!("{b:02x}")).collect();
+    let input = format!("dm-v1:{a_hex}{b_hex}");
+    let hash = blake3::hash(input.as_bytes());
+    ArtifactId::Doc(*hash.as_bytes())
 }
 
 impl Artifact {

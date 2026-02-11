@@ -27,6 +27,7 @@
 // Domain modules (moved from indras-network)
 pub mod quest;
 pub mod note;
+pub mod message;
 pub mod blessing;
 pub mod attention;
 pub mod token_of_gratitude;
@@ -44,6 +45,8 @@ pub mod content;
 // Extension traits on Realm
 pub mod realm_quests;
 pub mod realm_notes;
+pub mod realm_messages;
+pub mod realm_chat;
 pub mod realm_blessings;
 pub mod realm_attention;
 pub mod realm_tokens;
@@ -63,6 +66,7 @@ pub mod prelude;
 // Re-export main types at crate root
 pub use quest::{Quest, QuestClaim, QuestDocument, QuestError, QuestId, QuestPriority};
 pub use note::{Note, NoteDocument, NoteId};
+pub use message::{MessageContent, MessageDocument, MessageId, StoredMessage};
 pub use blessing::{Blessing, BlessingDocument, BlessingError, BlessingId, ClaimId};
 pub use attention::{
     AttentionDocument, AttentionError, AttentionEventId, AttentionSwitchEvent, QuestAttention,
@@ -91,6 +95,8 @@ pub use sync_engine::SyncEngine;
 // Re-export extension traits
 pub use realm_quests::RealmQuests;
 pub use realm_notes::RealmNotes;
+pub use realm_messages::RealmMessages;
+pub use realm_chat::RealmChat;
 pub use realm_blessings::RealmBlessings;
 pub use realm_attention::RealmAttention;
 pub use realm_tokens::RealmTokens;

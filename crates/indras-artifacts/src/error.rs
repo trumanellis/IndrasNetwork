@@ -16,6 +16,8 @@ pub enum VaultError {
     PayloadNotLoaded,
     #[error("exchange not fully accepted by both parties")]
     ExchangeNotFullyAccepted,
+    #[error("exchange is already closed (rejected or completed)")]
+    ExchangeClosed,
     #[error("store error: {0}")]
     StoreError(String),
 }

@@ -29,6 +29,20 @@ impl Story {
         Ok(Self { id: tree.id })
     }
 
+    /// Create a DM story with a deterministic ID derived from both player IDs.
+    /// Both players will generate the same ArtifactId for the same pair.
+    pub fn create_dm<A: ArtifactStore, P: PayloadStore, T: AttentionStore>(
+        vault: &mut Vault<A, P, T>,
+        peer_id: PlayerId,
+        now: i64,
+    ) -> Result<Self> {
+        let self_id = *vault.player();
+        let id = crate::artifact::dm_story_id(self_id, peer_id);
+        let audience = vec![self_id, peer_id];
+        let tree = vault.place_tree_with_id(id, TreeType::Story, audience, now)?;
+        Ok(Self { id: tree.id })
+    }
+
     /// Append an artifact at the next position in the Story.
     pub fn append<A: ArtifactStore, P: PayloadStore, T: AttentionStore>(
         &self,

@@ -82,7 +82,32 @@ pub struct QuestView {
 pub struct NoteView {
     pub id: String,
     pub title: String,
+    pub content: String,
     pub content_preview: String,
+}
+
+/// Mode for the note editor modal.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum NoteEditorMode {
+    /// Viewing a note (read-only with rendered/raw toggle).
+    #[default]
+    View,
+    /// Editing an existing note.
+    Edit,
+    /// Creating a new note.
+    Create,
+}
+
+/// Mode for the quest editor modal.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum QuestEditorMode {
+    /// Viewing a quest (read-only with rendered markdown description).
+    #[default]
+    View,
+    /// Editing an existing quest.
+    Edit,
+    /// Creating a new quest.
+    Create,
 }
 
 /// Sentiment indicator for a contact.
@@ -126,30 +151,6 @@ pub struct ContactView {
     pub status: String,  // "pending" or "confirmed"
     /// Sentiment towards this contact.
     pub sentiment: ContactSentiment,
-}
-
-/// View model for a message in a peer realm chat.
-#[derive(Debug, Clone)]
-pub struct PeerMessageView {
-    pub sender_name: String,
-    pub sender_id_short: String,
-    pub is_me: bool,
-    pub timestamp: String,
-    pub message_type: PeerMessageType,
-}
-
-/// Type of message content for peer realm chat rendering.
-#[derive(Debug, Clone)]
-pub enum PeerMessageType {
-    Text { content: String },
-    Image { data_url: Option<String>, filename: Option<String>, alt_text: Option<String> },
-    System { content: String },
-    Artifact { name: String, size: u64, mime_type: Option<String> },
-    ProofSubmitted { quest_id_short: String, claimant_name: String },
-    BlessingGiven { claimant_name: String, duration: String },
-    ProofFolderSubmitted { narrative_preview: String, artifact_count: usize },
-    Gallery { title: Option<String>, item_count: usize },
-    Reaction { emoji: String },
 }
 
 /// View model for attention data on a quest.
@@ -251,30 +252,14 @@ pub struct GenesisState {
     pub new_contact_toast: Option<String>,
     /// Network event log (newest first).
     pub event_log: Vec<EventLogEntry>,
-    /// Messages in the active peer realm chat.
-    pub peer_realm_messages: Vec<PeerMessageView>,
-    /// Draft text in the peer realm chat input.
-    pub peer_realm_draft: String,
-    /// Number of messages in the peer realm chat.
-    pub peer_realm_message_count: usize,
-    /// Last message sequence number for polling.
-    pub peer_realm_last_seq: u64,
     /// Display name of the contact in the active peer realm.
     pub peer_realm_contact_name: Option<String>,
-    /// Whether the action menu is open in the peer realm chat.
-    pub peer_realm_action_menu_open: bool,
     /// Quests in the active peer realm (shared quests with contact).
     pub peer_realm_quests: Vec<QuestView>,
     /// Notes in the active peer realm (shared notes with contact).
     pub peer_realm_notes: Vec<NoteView>,
     /// Artifacts in the active peer realm (shared artifacts with contact).
     pub peer_realm_artifacts: Vec<ArtifactDisplayInfo>,
-    /// Whether the note form is open in the peer realm.
-    pub peer_realm_note_form_open: bool,
-    /// Draft note title for peer realm.
-    pub peer_realm_note_draft_title: String,
-    /// Draft note content for peer realm.
-    pub peer_realm_note_draft_content: String,
     /// Quest ID being claimed in peer realm.
     pub peer_realm_claiming_quest_id: Option<String>,
     /// Draft proof text for peer realm quest claim.
@@ -285,10 +270,30 @@ pub struct GenesisState {
     pub claiming_quest_id: Option<String>,
     /// Draft proof text for quest claim.
     pub claim_proof_text: String,
-    /// Message being edited (sequence number).
-    pub editing_message_seq: Option<u64>,
-    /// Draft text for message edit.
-    pub edit_message_draft: String,
+    /// Whether the note editor modal is open.
+    pub note_editor_open: bool,
+    /// Mode for the note editor modal.
+    pub note_editor_mode: NoteEditorMode,
+    /// Note ID being edited (None for create mode).
+    pub note_editor_id: Option<String>,
+    /// Title in the note editor.
+    pub note_editor_title: String,
+    /// Content in the note editor.
+    pub note_editor_content: String,
+    /// Whether to show rendered markdown (true) or raw (false) in view mode.
+    pub note_editor_preview_mode: bool,
+    /// Whether the quest editor modal is open.
+    pub quest_editor_open: bool,
+    /// Mode for the quest editor modal.
+    pub quest_editor_mode: QuestEditorMode,
+    /// Quest ID being edited (None for create mode).
+    pub quest_editor_id: Option<String>,
+    /// Title in the quest editor.
+    pub quest_editor_title: String,
+    /// Description (markdown) in the quest editor.
+    pub quest_editor_description: String,
+    /// Whether to show rendered markdown (true) or raw (false) in view mode.
+    pub quest_editor_preview_mode: bool,
 }
 
 impl Default for GenesisState {
@@ -317,25 +322,27 @@ impl Default for GenesisState {
             contact_filter: String::new(),
             new_contact_toast: None,
             event_log: Vec::new(),
-            peer_realm_messages: Vec::new(),
-            peer_realm_draft: String::new(),
-            peer_realm_message_count: 0,
-            peer_realm_last_seq: 0,
             peer_realm_contact_name: None,
-            peer_realm_action_menu_open: false,
             peer_realm_quests: Vec::new(),
             peer_realm_notes: Vec::new(),
             peer_realm_artifacts: Vec::new(),
-            peer_realm_note_form_open: false,
-            peer_realm_note_draft_title: String::new(),
-            peer_realm_note_draft_content: String::new(),
             peer_realm_claiming_quest_id: None,
             peer_realm_claim_proof_text: String::new(),
             tokens: Vec::new(),
             claiming_quest_id: None,
             claim_proof_text: String::new(),
-            editing_message_seq: None,
-            edit_message_draft: String::new(),
+            note_editor_open: false,
+            note_editor_mode: NoteEditorMode::default(),
+            note_editor_id: None,
+            note_editor_title: String::new(),
+            note_editor_content: String::new(),
+            note_editor_preview_mode: true,
+            quest_editor_open: false,
+            quest_editor_mode: QuestEditorMode::default(),
+            quest_editor_id: None,
+            quest_editor_title: String::new(),
+            quest_editor_description: String::new(),
+            quest_editor_preview_mode: true,
         }
     }
 }

@@ -128,7 +128,7 @@ pub struct EventLog<I: PeerIdentity> {
 
 impl<I: PeerIdentity> EventLog<I> {
     /// Create a new event log for an interface
-    #[instrument(skip(config), fields(interface_id = %hex::encode(interface_id.as_bytes())))]
+    #[instrument(skip_all)]
     pub async fn new(
         interface_id: InterfaceId,
         config: EventLogConfig,
@@ -187,10 +187,12 @@ impl<I: PeerIdentity> EventLog<I> {
         *self.log_file.write().await = Some(file);
         *self.offset.write().await = file_size;
 
+        let seq = *self.sequence.read().await;
+        let entries = self.index.read().await.len();
         debug!(
-            sequence = *self.sequence.read().await,
+            sequence = seq,
             offset = file_size,
-            entries = self.index.read().await.len(),
+            entries = entries,
             "Event log opened"
         );
 

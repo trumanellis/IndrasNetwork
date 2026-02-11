@@ -98,6 +98,10 @@ but commit -o feature-b -m "feat: update module B"
 | Wrong files in commit | `but commit` without `-o` grabs everything | Use `but commit -o` for staged-only |
 | File locked to another branch | GitButler assigned the file to a different branch | Use `but stage -b <target> <file>` to reassign |
 
+### Shipping Branches
+
+Run `/ship` (or `scripts/ship.sh` from terminal) to auto-merge all completed branches into main. A branch is "completed" if it has commits and merges cleanly. Use `--exclude branch1,branch2` to protect WIP branches. Use `--dry-run` to preview without merging.
+
 ### When to Use Git Worktrees Instead
 
 Virtual branches handle most parallel development. Only use worktrees for major architectural isolation that requires a **separate build directory** (e.g., incompatible dependency changes that would break the main workspace build).

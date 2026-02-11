@@ -1,0 +1,19 @@
+graph LR
+    subgraph before["Before Transfer"]
+        direction TB
+        E1(("Ember<br/>Owner")) -->|"owns"| A1["Final Assets.zip"]
+        A1 ===|"Permanent"| C1(("Caspian"))
+    end
+    before ==>|"Transfer"| after
+    subgraph after["After Transfer"]
+        direction TB
+        J2(("Juniper<br/>New Owner")) -->|"owns"| A2["Final Assets.zip"]
+        A2 ===|"Permanent (inherited)"| C2(("Caspian"))
+        A2 -.-|"Revocable (auto-granted)"| E2(("Ember"))
+    end
+    subgraph provenance["Provenance Chain"]
+        PE(("E")) -->|"2026-01-31"| PJ(("J"))
+    end
+    style E1 fill:#f5a623,stroke:#d68910,color:#000
+    style J2 fill:#4ecdc4,stroke:#3ab5ad,color:#000
+    linkStyle 2 stroke:#4ecdc4,stroke-width:6px

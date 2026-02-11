@@ -1,0 +1,19 @@
+graph LR
+    subgraph home["Ember's Home Realm"]
+        direction TB
+        subgraph visible["Both Members Granted"]
+            BG["Brand Guide<br/>Caspian:P | Soren:R"]
+            MB["Mood Board<br/>Caspian:R | Soren:R"]
+            FL["Final Logo<br/>Caspian:P | Soren:P"]
+        end
+        subgraph hidden["Missing Grants"]
+            DV["Draft v3 (Soren only)"]:::dimmed
+            MN["Meeting Notes (Caspian only)"]:::dimmed
+            PN["Personal Notes (none)"]:::dimmed
+        end
+    end
+    subgraph realm["Realm View"]
+        R1["Brand Guide"] & R2["Mood Board"] & R3["Final Logo"]
+    end
+    BG -->|"passes"| R1 & MB -->|"passes"| R2 & FL -->|"passes"| R3
+    classDef dimmed fill:#333,stroke:#555,color:#888

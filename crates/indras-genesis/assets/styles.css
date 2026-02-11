@@ -1453,6 +1453,185 @@ html, body {
     cursor: not-allowed;
 }
 
+/* Chat textarea (replaces single-line input) */
+.chat-textarea {
+    resize: none;
+    min-height: 36px;
+    max-height: 120px;
+    overflow-y: auto;
+    line-height: 1.4;
+    padding: var(--space-2) var(--space-3);
+    field-sizing: content;
+}
+
+/* Message grouping - hide sender/time for consecutive same-author messages */
+.chat-message-grouped {
+    padding-top: 1px;
+    padding-bottom: 1px;
+    margin-top: 0;
+}
+
+.chat-message-grouped .chat-tick,
+.chat-message-grouped .chat-sender {
+    display: none;
+}
+
+/* Message action buttons (edit + delete) */
+.chat-message-actions {
+    display: none;
+    gap: var(--space-1);
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+.chat-message:hover .chat-message-actions {
+    display: flex;
+}
+
+.chat-delete-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 2px 4px;
+    border-radius: var(--radius-sm);
+    opacity: 0;
+    transition: opacity var(--transition-fast), color var(--transition-fast);
+}
+
+.chat-message:hover .chat-delete-btn {
+    opacity: 0.6;
+}
+
+.chat-delete-btn:hover {
+    opacity: 1;
+    color: var(--ember-glow, #e74c3c);
+}
+
+/* Inline edit form */
+.chat-edit-form {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.chat-edit-form .chat-edit-input {
+    width: 100%;
+    resize: none;
+    min-height: 32px;
+    max-height: 100px;
+    padding: var(--space-1) var(--space-2);
+    background: var(--surface-elevated, var(--bg-card));
+    border: 1px solid var(--border-accent, var(--moss-glow));
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    field-sizing: content;
+}
+
+.chat-edit-actions {
+    display: flex;
+    gap: var(--space-1);
+    justify-content: flex-end;
+}
+
+.chat-edit-save,
+.chat-edit-actions .chat-edit-cancel {
+    background: none;
+    border: 1px solid var(--border-subtle);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+}
+
+.chat-edit-save:hover {
+    background: var(--moss-glow);
+    color: var(--text-primary);
+}
+
+/* Deleted message style */
+.deleted-message .chat-deleted-content {
+    color: var(--text-muted);
+    font-style: italic;
+    opacity: 0.6;
+}
+
+/* Action menu backdrop (transparent overlay to close on outside click) */
+.chat-action-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 9;
+}
+
+.chat-action-menu {
+    z-index: 10;
+}
+
+/* Error toast */
+.chat-error-toast {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-2) var(--space-3);
+    background: var(--ember-glow, #e74c3c);
+    color: #fff;
+    border-radius: var(--radius-sm);
+    margin: 0 var(--space-2) var(--space-1);
+    font-size: var(--text-sm);
+    animation: toast-in 0.2s ease-out;
+}
+
+.chat-error-dismiss {
+    background: none;
+    border: none;
+    color: #fff;
+    cursor: pointer;
+    font-size: 14px;
+    padding: 0 var(--space-1);
+    opacity: 0.8;
+}
+
+.chat-error-dismiss:hover {
+    opacity: 1;
+}
+
+@keyframes toast-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Sending indicator */
+.chat-sending-indicator {
+    text-align: center;
+    font-size: 11px;
+    color: var(--text-muted);
+    padding: var(--space-1) 0;
+    font-style: italic;
+}
+
+/* Loading state */
+.chat-loading {
+    text-align: center;
+    color: var(--text-muted);
+    padding: var(--space-4);
+    font-style: italic;
+}
+
+/* Scroll anchor (invisible) */
+#chat-scroll-anchor {
+    height: 1px;
+    width: 100%;
+}
+
 /* ------------------------------------------------------------
    Quest Claims & Verification
    ------------------------------------------------------------ */
@@ -1809,5 +1988,557 @@ html, body {
 }
 
 .event-log-msg {
+    color: var(--text-secondary);
+}
+
+/* ------------------------------------------------------------
+   Note Editor Modal
+   ------------------------------------------------------------ */
+.note-editor-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.85);
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-8);
+    animation: fadeIn 0.2s ease-out;
+}
+
+.note-editor-dialog {
+    background: var(--void-lighter);
+    border: 1px solid var(--void-border);
+    border-radius: var(--radius-md);
+    width: 100%;
+    max-width: 900px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.note-editor-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-4);
+    border-bottom: 1px solid var(--void-border);
+    gap: var(--space-4);
+}
+
+.note-editor-title {
+    font-family: var(--font-serif);
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--gold);
+    flex: 1;
+    min-width: 0;
+}
+
+.note-editor-title-input {
+    flex: 1;
+    font-size: 18px;
+    font-weight: 500;
+}
+
+.note-editor-controls {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-shrink: 0;
+}
+
+.note-editor-toggle {
+    padding: var(--space-2) var(--space-3);
+    background: transparent;
+    border: 1px solid var(--void-border);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.note-editor-toggle:hover {
+    border-color: var(--text-secondary);
+    color: var(--text-secondary);
+}
+
+.note-editor-close {
+    background: none;
+    border: 1px solid var(--void-border);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-size: 18px;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.note-editor-close:hover {
+    border-color: var(--text-secondary);
+    color: var(--text-primary);
+}
+
+.note-editor-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--space-4);
+    min-height: 300px;
+}
+
+.note-editor-rendered {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    color: var(--text-secondary);
+    line-height: 1.7;
+}
+
+.note-editor-rendered h1,
+.note-editor-rendered h2,
+.note-editor-rendered h3,
+.note-editor-rendered h4 {
+    color: var(--gold);
+    margin-top: var(--space-4);
+    margin-bottom: var(--space-2);
+}
+
+.note-editor-rendered h1 { font-size: 1.5em; }
+.note-editor-rendered h2 { font-size: 1.3em; }
+.note-editor-rendered h3 { font-size: 1.1em; }
+
+.note-editor-rendered p {
+    margin-bottom: var(--space-3);
+}
+
+.note-editor-rendered ul,
+.note-editor-rendered ol {
+    margin-left: var(--space-4);
+    margin-bottom: var(--space-3);
+}
+
+.note-editor-rendered li {
+    margin-bottom: var(--space-1);
+}
+
+.note-editor-rendered code {
+    background: var(--void-black);
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    font-size: 0.9em;
+}
+
+.note-editor-rendered pre {
+    background: var(--void-black);
+    padding: var(--space-3);
+    border-radius: var(--radius-sm);
+    overflow-x: auto;
+    margin-bottom: var(--space-3);
+}
+
+.note-editor-rendered pre code {
+    background: none;
+    padding: 0;
+}
+
+.note-editor-rendered blockquote {
+    border-left: 3px solid var(--gold-muted);
+    padding-left: var(--space-3);
+    margin-left: 0;
+    margin-bottom: var(--space-3);
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+.note-editor-rendered a {
+    color: var(--cyan);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.note-editor-rendered a:hover {
+    color: var(--cyan-muted);
+}
+
+.note-editor-raw {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    color: var(--text-secondary);
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: var(--void-black);
+    padding: var(--space-4);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--void-border);
+}
+
+.note-editor-split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-4);
+    height: 100%;
+    min-height: 300px;
+}
+
+.note-editor-textarea {
+    resize: none;
+    min-height: 300px;
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+}
+
+.note-editor-preview {
+    display: flex;
+    flex-direction: column;
+    background: var(--void-black);
+    border: 1px solid var(--void-border);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+
+.note-editor-preview-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--void-border);
+    background: var(--void-lighter);
+}
+
+.note-editor-preview .note-editor-rendered {
+    padding: var(--space-3);
+    overflow-y: auto;
+    flex: 1;
+}
+
+.note-editor-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    border-top: 1px solid var(--void-border);
+}
+
+/* Clickable note cards */
+.note-card-clickable {
+    cursor: pointer;
+}
+
+.note-card-clickable:hover {
+    border-color: var(--cyan-muted);
+    background: var(--void-hover);
+}
+
+/* ------------------------------------------------------------
+   Quest Editor Modal
+   ------------------------------------------------------------ */
+.quest-editor-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.85);
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-8);
+    animation: fadeIn 0.2s ease-out;
+}
+
+.quest-editor-dialog {
+    background: var(--void-lighter);
+    border: 1px solid var(--void-border);
+    border-radius: var(--radius-md);
+    width: 100%;
+    max-width: 900px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.quest-editor-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-4);
+    border-bottom: 1px solid var(--void-border);
+    gap: var(--space-4);
+}
+
+.quest-editor-title {
+    font-family: var(--font-serif);
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--gold);
+    flex: 1;
+    min-width: 0;
+}
+
+.quest-editor-title-input {
+    flex: 1;
+    font-size: 18px;
+    font-weight: 500;
+}
+
+.quest-editor-controls {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-shrink: 0;
+}
+
+.quest-editor-toggle {
+    padding: var(--space-2) var(--space-3);
+    background: transparent;
+    border: 1px solid var(--void-border);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.quest-editor-toggle:hover {
+    border-color: var(--text-secondary);
+    color: var(--text-secondary);
+}
+
+.quest-editor-close {
+    background: none;
+    border: 1px solid var(--void-border);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-size: 18px;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.quest-editor-close:hover {
+    border-color: var(--text-secondary);
+    color: var(--text-primary);
+}
+
+.quest-editor-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--space-4);
+    min-height: 300px;
+}
+
+.quest-editor-description-section {
+    margin-bottom: var(--space-4);
+}
+
+.quest-editor-section-title {
+    font-size: var(--text-sm);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: var(--space-2);
+}
+
+.quest-editor-rendered {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    color: var(--text-secondary);
+    line-height: 1.7;
+}
+
+.quest-editor-rendered h1,
+.quest-editor-rendered h2,
+.quest-editor-rendered h3,
+.quest-editor-rendered h4 {
+    color: var(--gold);
+    margin-top: var(--space-4);
+    margin-bottom: var(--space-2);
+}
+
+.quest-editor-rendered h1 { font-size: 1.5em; }
+.quest-editor-rendered h2 { font-size: 1.3em; }
+.quest-editor-rendered h3 { font-size: 1.1em; }
+
+.quest-editor-rendered p {
+    margin-bottom: var(--space-3);
+}
+
+.quest-editor-rendered ul,
+.quest-editor-rendered ol {
+    margin-left: var(--space-4);
+    margin-bottom: var(--space-3);
+}
+
+.quest-editor-rendered li {
+    margin-bottom: var(--space-1);
+}
+
+.quest-editor-rendered code {
+    background: var(--void-black);
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    font-size: 0.9em;
+}
+
+.quest-editor-rendered pre {
+    background: var(--void-black);
+    padding: var(--space-3);
+    border-radius: var(--radius-sm);
+    overflow-x: auto;
+    margin-bottom: var(--space-3);
+}
+
+.quest-editor-rendered pre code {
+    background: none;
+    padding: 0;
+}
+
+.quest-editor-rendered blockquote {
+    border-left: 3px solid var(--gold-muted);
+    padding-left: var(--space-3);
+    margin-left: 0;
+    margin-bottom: var(--space-3);
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+.quest-editor-rendered a {
+    color: var(--cyan);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.quest-editor-rendered a:hover {
+    color: var(--cyan-muted);
+}
+
+.quest-editor-raw {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    color: var(--text-secondary);
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: var(--void-black);
+    padding: var(--space-4);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--void-border);
+}
+
+.quest-editor-split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-4);
+    height: 100%;
+    min-height: 300px;
+}
+
+.quest-editor-textarea {
+    resize: none;
+    min-height: 300px;
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+}
+
+.quest-editor-preview {
+    display: flex;
+    flex-direction: column;
+    background: var(--void-black);
+    border: 1px solid var(--void-border);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+
+.quest-editor-preview-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--void-border);
+    background: var(--void-lighter);
+}
+
+.quest-editor-preview .quest-editor-rendered {
+    padding: var(--space-3);
+    overflow-y: auto;
+    flex: 1;
+}
+
+.quest-editor-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    border-top: 1px solid var(--void-border);
+}
+
+/* Quest editor claims section */
+.quest-editor-claims-section {
+    margin-top: var(--space-4);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--void-border);
+}
+
+.quest-editor-claims-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.quest-editor-claim {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    background: var(--void-black);
+    border: 1px solid var(--void-border);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-sm);
+}
+
+.quest-editor-claim-verified {
+    border-color: var(--moss);
+    background: rgba(90, 122, 90, 0.1);
+}
+
+.quest-editor-claim-claimant {
+    color: var(--cyan);
+    font-weight: 500;
+}
+
+.quest-editor-claim-time {
+    color: var(--text-muted);
+}
+
+.quest-editor-claim-proof {
+    color: var(--gold-muted);
+}
+
+.quest-editor-claim-verified-badge {
+    color: var(--moss-glow);
+    margin-left: auto;
+}
+
+/* Clickable quest content */
+.quest-content-clickable {
+    cursor: pointer;
+}
+
+.quest-content-clickable:hover .quest-title {
+    color: var(--cyan);
+}
+
+.quest-content-clickable:hover .quest-description {
     color: var(--text-secondary);
 }

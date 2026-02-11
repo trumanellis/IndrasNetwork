@@ -90,6 +90,7 @@ impl<A: ArtifactStore, P: PayloadStore, T: AttentionStore> Vault<A, P, T> {
             audience: vec![*self.player()],
             artifact_type: leaf_type,
             created_at: now,
+            blessing_history: Vec::new(),
         };
         self.artifact_store
             .put_artifact(&Artifact::Leaf(leaf.clone()))?;
@@ -105,6 +106,28 @@ impl<A: ArtifactStore, P: PayloadStore, T: AttentionStore> Vault<A, P, T> {
     ) -> Result<TreeArtifact> {
         let tree = TreeArtifact {
             id: generate_tree_id(),
+            steward: *self.player(),
+            audience,
+            references: Vec::new(),
+            metadata: BTreeMap::new(),
+            artifact_type: tree_type,
+            created_at: now,
+        };
+        self.artifact_store
+            .put_artifact(&Artifact::Tree(tree.clone()))?;
+        Ok(tree)
+    }
+
+    /// Create a Tree artifact with a specific ID (for deterministic IDs like DM stories).
+    pub fn place_tree_with_id(
+        &mut self,
+        id: ArtifactId,
+        tree_type: TreeType,
+        audience: Vec<PlayerId>,
+        now: i64,
+    ) -> Result<TreeArtifact> {
+        let tree = TreeArtifact {
+            id,
             steward: *self.player(),
             audience,
             references: Vec::new(),
@@ -173,9 +196,70 @@ impl<A: ArtifactStore, P: PayloadStore, T: AttentionStore> Vault<A, P, T> {
         &mut self,
         artifact_id: &ArtifactId,
         new_steward: PlayerId,
+        now: i64,
     ) -> Result<()> {
         self.require_steward(artifact_id)?;
+        let old_steward = *self
+            .artifact_store
+            .get_artifact(artifact_id)?
+            .ok_or(VaultError::ArtifactNotFound)?
+            .steward();
+        let record = crate::artifact::StewardshipRecord {
+            from: old_steward,
+            to: new_steward,
+            timestamp: now,
+        };
+        self.artifact_store
+            .record_stewardship_transfer(artifact_id, record)?;
         self.artifact_store.update_steward(artifact_id, new_steward)
+    }
+
+    /// Create an Inbox tree artifact owned by this player.
+    pub fn create_inbox(&mut self, now: i64) -> Result<TreeArtifact> {
+        self.place_tree(TreeType::Inbox, vec![*self.player()], now)
+    }
+
+    /// Add a connection request to an inbox.
+    pub fn add_connection_request(
+        &mut self,
+        inbox_id: &ArtifactId,
+        from_player: PlayerId,
+        artifact_id: ArtifactId,
+        now: i64,
+    ) -> Result<()> {
+        self.require_steward(inbox_id)?;
+        self.require_tree(inbox_id)?;
+
+        let label = format!(
+            "connection-request:{}",
+            from_player.iter().map(|b| format!("{b:02x}")).collect::<String>()
+        );
+
+        // Get next position
+        let tree_artifact = self
+            .artifact_store
+            .get_artifact(inbox_id)?
+            .ok_or(VaultError::ArtifactNotFound)?;
+        let tree = tree_artifact.as_tree().ok_or(VaultError::NotATree)?;
+        let next_pos = tree.references.len() as u64;
+
+        let child_ref = ArtifactRef {
+            artifact_id,
+            position: next_pos,
+            label: Some(label),
+        };
+        self.artifact_store.add_ref(inbox_id, child_ref)?;
+        // Record attention on inbox activity
+        let _ = self.navigate_to(inbox_id.clone(), now);
+        Ok(())
+    }
+
+    /// Get the stewardship transfer history for an artifact.
+    pub fn steward_history(
+        &self,
+        artifact_id: &ArtifactId,
+    ) -> Result<Vec<crate::artifact::StewardshipRecord>> {
+        self.artifact_store.steward_history(artifact_id)
     }
 
     // -----------------------------------------------------------------------

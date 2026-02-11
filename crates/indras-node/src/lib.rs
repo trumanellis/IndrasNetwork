@@ -753,7 +753,7 @@ impl IndrasNode {
         // Create NInterface with us as the creator
         let interface = NInterface::new(self.identity);
         let interface_id = interface.id();
-        self.setup_interface(interface_id, interface, name, None).await
+        self.setup_interface(interface_id, interface, name, None, vec![]).await
     }
 
     /// Create a new interface with a specific ID (for deterministic peer-set realms).
@@ -785,7 +785,7 @@ impl IndrasNode {
 
         // Create NInterface with the specified ID
         let interface = NInterface::with_id(interface_id, self.identity);
-        self.setup_interface(interface_id, interface, name, None).await
+        self.setup_interface(interface_id, interface, name, None, vec![]).await
     }
 
     /// Create a new interface with a specific ID and a deterministic key seed.
@@ -794,13 +794,18 @@ impl IndrasNode {
     /// `key_seed` via `InterfaceKey::from_seed()`. Both peers who know the
     /// seed will independently derive the same key.
     ///
+    /// `bootstrap_peers` are iroh `PublicKey`s to pass to the gossip discovery
+    /// layer so that the two sides of a deterministic realm can find each other.
+    /// Pass an empty vec when no peer is known (e.g. own inbox, home realm).
+    ///
     /// **Idempotent:** If the interface already exists, returns the existing invite.
-    #[instrument(skip(self, key_seed))]
+    #[instrument(skip(self, key_seed, bootstrap_peers))]
     pub async fn create_interface_with_seed(
         &self,
         interface_id: InterfaceId,
         key_seed: &[u8; 32],
         name: Option<&str>,
+        bootstrap_peers: Vec<iroh::PublicKey>,
     ) -> NodeResult<(InterfaceId, InviteKey)> {
         // Check if we're already in this interface
         if self.interfaces.contains_key(&interface_id) {
@@ -821,7 +826,7 @@ impl IndrasNode {
 
         // Create NInterface with the specified ID
         let interface = NInterface::with_id(interface_id, self.identity);
-        self.setup_interface(interface_id, interface, name, Some(key_seed))
+        self.setup_interface(interface_id, interface, name, Some(key_seed), bootstrap_peers)
             .await
     }
 
@@ -832,6 +837,7 @@ impl IndrasNode {
         interface: NInterface<IrohIdentity>,
         name: Option<&str>,
         key_seed: Option<&[u8; 32]>,
+        bootstrap_peers: Vec<iroh::PublicKey>,
     ) -> NodeResult<(InterfaceId, InviteKey)> {
 
         // Generate or derive interface encryption key
@@ -876,9 +882,9 @@ impl IndrasNode {
                 invite = invite.with_bootstrap(addr_bytes);
             }
 
-            // Join the realm's gossip topic for peer discovery (as creator)
+            // Join the realm's gossip topic for peer discovery
             let discovery = transport.discovery_service();
-            if let Err(e) = discovery.join_realm_topic(interface_id, vec![]).await {
+            if let Err(e) = discovery.join_realm_topic(interface_id, bootstrap_peers).await {
                 warn!(error = %e, "Failed to join realm gossip topic");
             }
         }
@@ -1044,7 +1050,7 @@ impl IndrasNode {
     /// Leave an interface
     ///
     /// Broadcasts a leave message and cleans up all state for this interface.
-    #[instrument(skip(self), fields(interface_id = %hex::encode(interface_id.as_bytes())))]
+    #[instrument(skip_all)]
     pub async fn leave_interface(&self, interface_id: &InterfaceId) -> NodeResult<()> {
         // Check if we're in this interface
         if !self.interfaces.contains_key(interface_id) {
@@ -1073,7 +1079,7 @@ impl IndrasNode {
     }
 
     /// Send a message to an interface
-    #[instrument(skip(self, content), fields(interface_id = %hex::encode(interface_id.as_bytes())))]
+    #[instrument(skip_all)]
     pub async fn send_message(
         &self,
         interface_id: &InterfaceId,
