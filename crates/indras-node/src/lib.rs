@@ -1021,7 +1021,7 @@ impl IndrasNode {
 
                     let request = InterfaceSyncRequest {
                         interface_id: sync_msg.interface_id,
-                        heads: sync_msg.heads,
+                        state_vector: sync_msg.state_vector,
                         sync_data: sync_msg.sync_data,
                     };
                     let msg = NetworkMessage::SyncRequest(request);

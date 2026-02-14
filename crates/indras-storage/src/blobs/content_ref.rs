@@ -65,7 +65,7 @@ pub struct ContentMetadata {
     pub content_ref: ContentRef,
     /// When the content was stored (Unix millis)
     pub stored_at_millis: i64,
-    /// Content type hint (e.g., "automerge/snapshot", "application/octet-stream")
+    /// Content type hint (e.g., "yrs/update_v1", "application/octet-stream")
     pub content_type: Option<String>,
     /// Reference count (for garbage collection)
     pub ref_count: u32,

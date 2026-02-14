@@ -17,7 +17,7 @@ indras-storage.workspace = true
 indras-node.workspace = true
 
 # CRDT
-automerge.workspace = true
+yrs.workspace = true
 
 # Async runtime
 tokio = { workspace = true, features = ["full"] }

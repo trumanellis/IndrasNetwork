@@ -32,7 +32,7 @@ serde_json = "1.0"
 postcard.workspace = true
 
 # CRDT
-automerge.workspace = true
+yrs.workspace = true
 
 # Lua scripting
 mlua = { version = "0.10", features = ["lua54", "vendored", "serialize"] }

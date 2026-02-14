@@ -1,6 +1,6 @@
 //! Lua bindings for SyncableNotebook type
 //!
-//! Provides UserData implementation for SyncableNotebook with real Automerge sync.
+//! Provides UserData implementation for SyncableNotebook with real Yrs sync.
 
 use mlua::{Lua, Result, Table, UserData, UserDataMethods};
 use std::sync::Arc;
@@ -13,7 +13,7 @@ use crate::syncable_notebook::SyncableNotebook;
 use super::note::LuaNote;
 use super::operations::LuaNoteOperation;
 
-/// Lua wrapper for SyncableNotebook with real Automerge sync
+/// Lua wrapper for SyncableNotebook with real Yrs sync
 pub struct LuaSyncableNotebook {
     inner: Arc<Mutex<SyncableNotebook>>,
 }
@@ -125,32 +125,18 @@ impl UserData for LuaSyncableNotebook {
             Ok(notebook.is_empty())
         });
 
-        // ===== Automerge Sync Methods =====
+        // ===== Yrs Sync Methods =====
 
-        // heads() -> table of hex strings
-        methods.add_method("heads", |lua, this, ()| {
-            let mut notebook = futures::executor::block_on(this.inner.lock());
-            let heads = notebook.heads_hex();
-
-            let table = lua.create_table()?;
-            for (i, head) in heads.iter().enumerate() {
-                table.set(i + 1, head.as_str())?;
-            }
-            Ok(table)
+        // state_vector() -> hex string
+        methods.add_method("state_vector", |_, this, ()| {
+            let notebook = futures::executor::block_on(this.inner.lock());
+            Ok(notebook.state_vector_hex())
         });
 
-        // generate_sync(their_heads_table) -> sync_message (bytes as hex)
-        methods.add_method("generate_sync", |_, this, their_heads: mlua::Table| {
-            let mut heads_vec: Vec<String> = Vec::new();
-
-            for pair in their_heads.pairs::<i64, String>() {
-                let (_, head) = pair?;
-                heads_vec.push(head);
-            }
-
-            let mut notebook = futures::executor::block_on(this.inner.lock());
-            let sync_msg = notebook.generate_sync_message_hex(&heads_vec);
-
+        // generate_sync(their_sv_hex) -> sync_message (bytes as hex)
+        methods.add_method("generate_sync", |_, this, their_sv_hex: String| {
+            let notebook = futures::executor::block_on(this.inner.lock());
+            let sync_msg = notebook.generate_sync_message_hex(&their_sv_hex);
             Ok(hex::encode(&sync_msg))
         });
 
@@ -167,7 +153,7 @@ impl UserData for LuaSyncableNotebook {
 
         // save() -> bytes as hex (for persistence)
         methods.add_method("save", |_, this, ()| {
-            let mut notebook = futures::executor::block_on(this.inner.lock());
+            let notebook = futures::executor::block_on(this.inner.lock());
             Ok(hex::encode(notebook.save()))
         });
 
@@ -268,7 +254,7 @@ pub fn register(lua: &Lua, notes: &Table) -> Result<()> {
 
                 // Save the current notebook and load as new peer
                 let (name, interface_id, bytes) = {
-                    let mut guard = futures::executor::block_on(lua_nb.inner.lock());
+                    let guard = futures::executor::block_on(lua_nb.inner.lock());
                     (guard.name.clone(), guard.interface_id, guard.save())
                 };
 
@@ -347,9 +333,9 @@ mod tests {
                 return false
             end
 
-            -- Sync: Get Bob's heads, generate sync from Alice
-            local bob_heads = bob:heads()
-            local sync_msg = alice:generate_sync(bob_heads)
+            -- Sync: Get Bob's state vector, generate sync from Alice
+            local bob_sv = bob:state_vector()
+            local sync_msg = alice:generate_sync(bob_sv)
 
             -- Apply sync to Bob
             local changed = bob:apply_sync(sync_msg)
@@ -378,9 +364,9 @@ mod tests {
             -- Fork to Bob
             local bob = notes.SyncableNotebook.fork(alice, "Bob")
 
-            -- Get initial heads before concurrent edits
-            local alice_initial_heads = alice:heads()
-            local bob_initial_heads = bob:heads()
+            -- Get initial state vectors before concurrent edits
+            local alice_initial_sv = alice:state_vector()
+            local bob_initial_sv = bob:state_vector()
 
             -- Alice makes an edit
             local alice_note = notes.Note.new("Alice's Concurrent Note", "alice")
@@ -396,11 +382,11 @@ mod tests {
             end
 
             -- Sync Alice -> Bob
-            local sync_to_bob = alice:generate_sync(bob_initial_heads)
+            local sync_to_bob = alice:generate_sync(bob_initial_sv)
             bob:apply_sync(sync_to_bob)
 
             -- Sync Bob -> Alice
-            local sync_to_alice = bob:generate_sync(alice_initial_heads)
+            local sync_to_alice = bob:generate_sync(alice_initial_sv)
             alice:apply_sync(sync_to_alice)
 
             -- Both should have both notes (CRDT convergence)

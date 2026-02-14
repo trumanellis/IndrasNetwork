@@ -177,38 +177,38 @@ impl From<TopicId> for InterfaceId {
     }
 }
 
-/// Sync message for Automerge document synchronization
+/// Sync message for Yrs document synchronization
 ///
-/// This wraps Automerge sync protocol messages for exchange between peers.
+/// This wraps Yrs sync protocol messages for exchange between peers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncMessage {
     /// The interface this sync is for
     pub interface_id: InterfaceId,
-    /// Automerge sync message bytes
+    /// Yrs update bytes (encoded with Update V1 encoding)
     pub sync_data: Vec<u8>,
-    /// Our current heads (for the peer to know our state)
-    pub heads: Vec<[u8; 32]>,
+    /// Our current state vector (encoded with StateVector V1 encoding)
+    pub state_vector: Vec<u8>,
     /// Whether this is a request (true) or response (false)
     pub is_request: bool,
 }
 
 impl SyncMessage {
     /// Create a new sync request
-    pub fn request(interface_id: InterfaceId, sync_data: Vec<u8>, heads: Vec<[u8; 32]>) -> Self {
+    pub fn request(interface_id: InterfaceId, sync_data: Vec<u8>, state_vector: Vec<u8>) -> Self {
         Self {
             interface_id,
             sync_data,
-            heads,
+            state_vector,
             is_request: true,
         }
     }
 
     /// Create a new sync response
-    pub fn response(interface_id: InterfaceId, sync_data: Vec<u8>, heads: Vec<[u8; 32]>) -> Self {
+    pub fn response(interface_id: InterfaceId, sync_data: Vec<u8>, state_vector: Vec<u8>) -> Self {
         Self {
             interface_id,
             sync_data,
-            heads,
+            state_vector,
             is_request: false,
         }
     }
@@ -218,12 +218,12 @@ impl SyncMessage {
 ///
 /// An N-peer interface is a shared space where N peers can communicate.
 /// It uses an append-only event log with store-and-forward delivery,
-/// backed by an Automerge CRDT document for state synchronization.
+/// backed by a Yrs CRDT document for state synchronization.
 ///
 /// Key features:
 /// - Events are broadcast to all members via gossip
 /// - Offline peers receive missed events on reconnect (store-and-forward)
-/// - Document state is synchronized via Automerge sync protocol
+/// - Document state is synchronized via Yrs sync protocol
 /// - Two peers is just a special case of N peers
 #[async_trait]
 pub trait NInterfaceTrait<I: PeerIdentity>: Send + Sync {
@@ -271,16 +271,16 @@ pub trait NInterfaceTrait<I: PeerIdentity>: Send + Sync {
 
     /// Merge incoming sync state
     ///
-    /// Applies an Automerge sync message from a peer, updating our document state.
+    /// Applies a Yrs sync message from a peer, updating our document state.
     async fn merge_sync(&mut self, sync_msg: SyncMessage) -> Result<(), InterfaceError>;
 
     /// Generate sync state for a peer
     ///
-    /// Creates an Automerge sync message to send to a peer for synchronization.
+    /// Creates a Yrs sync message to send to a peer for synchronization.
     fn generate_sync(&self, for_peer: &I) -> SyncMessage;
 
-    /// Get the current document heads (for sync protocol)
-    fn heads(&self) -> Vec<[u8; 32]>;
+    /// Get the current state vector (for sync protocol)
+    fn state_vector(&self) -> Vec<u8>;
 
     /// Check if we have pending events for any peer
     fn has_pending(&self) -> bool;
