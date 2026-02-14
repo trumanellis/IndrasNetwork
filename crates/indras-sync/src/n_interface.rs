@@ -97,7 +97,7 @@ where
         let mut members = HashSet::new();
         members.insert(creator.clone());
 
-        let mut document = InterfaceDocument::new();
+        let document = InterfaceDocument::new();
         // Add creator to document members
         document.add_member(&creator);
 
@@ -130,7 +130,7 @@ where
         let mut members = HashSet::new();
         members.insert(creator.clone());
 
-        let mut document = InterfaceDocument::new();
+        let document = InterfaceDocument::new();
         document.add_member(&creator);
 
         let event_store = EventStore::with_members(members.clone());
