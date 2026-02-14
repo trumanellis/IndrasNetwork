@@ -82,7 +82,8 @@ impl InterfaceDocument {
             Update::decode_v1(bytes).map_err(|e| SyncError::DocumentLoad(e.to_string()))?;
         {
             let mut txn = doc.transact_mut();
-            txn.apply_update(update);
+            txn.apply_update(update)
+                .map_err(|e| SyncError::DocumentLoad(e.to_string()))?;
         }
 
         Ok(Self { doc })
@@ -120,7 +121,8 @@ impl InterfaceDocument {
         let update =
             Update::decode_v1(update_bytes).map_err(|e| SyncError::SyncMerge(e.to_string()))?;
         let mut txn = self.doc.transact_mut();
-        txn.apply_update(update);
+        txn.apply_update(update)
+            .map_err(|e| SyncError::SyncMerge(e.to_string()))?;
         Ok(())
     }
 

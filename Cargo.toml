@@ -27,6 +27,7 @@ members = [
     "examples/chat-app",
     "examples/sync-demo",
     "examples/indras-notes",
+    "crates/indras-appflowy-bridge",
 ]
 
 [workspace.package]
@@ -58,7 +59,7 @@ iroh = "0.95"
 iroh-gossip = "0.95"
 
 # CRDT for synced peer interfaces
-yrs = "0.21"
+yrs = "0.25"
 
 # Async runtime
 tokio = { version = "1.47", features = ["full", "sync", "time", "macros", "rt-multi-thread"] }
