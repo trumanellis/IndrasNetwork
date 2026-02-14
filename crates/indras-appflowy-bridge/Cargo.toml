@@ -1,0 +1,41 @@
+[package]
+name = "indras-appflowy-bridge"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Bridge between AppFlowy CollabPlugin and IndrasNetwork P2P transport"
+
+[dependencies]
+# Internal crates
+indras-node = { path = "../indras-node" }
+indras-core = { path = "../indras-core" }
+
+# CRDT
+yrs = { workspace = true }
+
+# Networking (for iroh::PublicKey in bootstrap config)
+iroh = { workspace = true }
+
+# Async runtime
+tokio = { workspace = true }
+
+# Hashing for deterministic ID mapping
+blake3 = "1.8"
+
+# Serialization
+postcard = { workspace = true }
+serde = { workspace = true }
+
+# Concurrent data structures
+dashmap = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tempfile = "3.19"
