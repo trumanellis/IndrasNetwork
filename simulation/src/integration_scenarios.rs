@@ -83,7 +83,7 @@ async fn test_interface_state_transfer() {
     alice_interface.append(event).await.unwrap();
 
     // Save Alice's document state
-    let doc_bytes = alice_interface.save();
+    let doc_bytes = alice_interface.save().unwrap();
 
     // Bob loads the interface from Alice's state
     let bob_interface: NInterface<SimulationIdentity> =
@@ -91,10 +91,10 @@ async fn test_interface_state_transfer() {
 
     // Both should have the same event count
     assert_eq!(
-        bob_interface.document().event_count(),
-        alice_interface.document().event_count()
+        bob_interface.document().unwrap().event_count(),
+        alice_interface.document().unwrap().event_count()
     );
-    assert_eq!(alice_interface.document().event_count(), 1);
+    assert_eq!(alice_interface.document().unwrap().event_count(), 1);
 }
 
 /// Test encryption with InterfaceKey
@@ -229,7 +229,7 @@ async fn test_partition_recovery() {
     alice_interface.add_member(bob).unwrap();
 
     // Save initial state so Bob can start from same base
-    let initial_bytes = alice_interface.save();
+    let initial_bytes = alice_interface.save().unwrap();
 
     // Bob loads from Alice's initial state (same starting point)
     let mut bob_interface: NInterface<SimulationIdentity> =
@@ -243,21 +243,21 @@ async fn test_partition_recovery() {
     bob_interface.append(bob_event).await.unwrap();
 
     // Verify each has 1 event (from their own append)
-    assert_eq!(alice_interface.document().event_count(), 1);
-    assert_eq!(bob_interface.document().event_count(), 1);
+    assert_eq!(alice_interface.document().unwrap().event_count(), 1);
+    assert_eq!(bob_interface.document().unwrap().event_count(), 1);
 
     // After partition heals, exchange sync messages
     // Alice generates sync for Bob (based on Bob's known heads - initially empty/base)
     let alice_sync = NInterfaceTrait::generate_sync(&alice_interface, &bob);
     let bob_sync = NInterfaceTrait::generate_sync(&bob_interface, &alice);
 
-    // Apply syncs - Automerge will merge the concurrent changes
+    // Apply syncs - Yrs will merge the concurrent changes
     bob_interface.merge_sync(alice_sync).await.unwrap();
     alice_interface.merge_sync(bob_sync).await.unwrap();
 
     // Both should now have 2 events (CRDT merge)
-    assert_eq!(alice_interface.document().event_count(), 2);
-    assert_eq!(bob_interface.document().event_count(), 2);
+    assert_eq!(alice_interface.document().unwrap().event_count(), 2);
+    assert_eq!(bob_interface.document().unwrap().event_count(), 2);
 }
 
 /// Test using simulation mesh with real routing types

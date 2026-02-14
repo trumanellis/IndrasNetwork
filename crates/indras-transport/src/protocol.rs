@@ -288,18 +288,18 @@ impl InterfaceEventMessage {
 pub struct InterfaceSyncRequestMessage {
     /// The interface to sync
     pub interface_id: InterfaceId,
-    /// Our current Automerge document heads
-    pub my_heads: Vec<[u8; 32]>,
+    /// Our current Yrs state vector (encoded)
+    pub my_state_vector: Vec<u8>,
     /// Last event ID we've seen (for store-and-forward catchup)
     pub last_event_id: Option<EventId>,
 }
 
 impl InterfaceSyncRequestMessage {
     /// Create a new sync request
-    pub fn new(interface_id: InterfaceId, my_heads: Vec<[u8; 32]>) -> Self {
+    pub fn new(interface_id: InterfaceId, my_state_vector: Vec<u8>) -> Self {
         Self {
             interface_id,
-            my_heads,
+            my_state_vector,
             last_event_id: None,
         }
     }
@@ -313,15 +313,15 @@ impl InterfaceSyncRequestMessage {
 
 /// Response with interface sync data
 ///
-/// Contains both Automerge document sync data and pending events.
+/// Contains both Yrs document sync data and pending events.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InterfaceSyncResponseMessage {
     /// The interface being synced
     pub interface_id: InterfaceId,
-    /// Automerge sync message (changes since their heads)
+    /// Yrs update bytes (changes since their state vector)
     pub sync_data: Vec<u8>,
-    /// Our current document heads
-    pub our_heads: Vec<[u8; 32]>,
+    /// Our current Yrs state vector (encoded)
+    pub our_state_vector: Vec<u8>,
     /// Pending events (encrypted) that they missed
     pub pending_events: Vec<PendingEventData>,
 }
@@ -339,11 +339,11 @@ pub struct PendingEventData {
 
 impl InterfaceSyncResponseMessage {
     /// Create a new sync response
-    pub fn new(interface_id: InterfaceId, sync_data: Vec<u8>, our_heads: Vec<[u8; 32]>) -> Self {
+    pub fn new(interface_id: InterfaceId, sync_data: Vec<u8>, our_state_vector: Vec<u8>) -> Self {
         Self {
             interface_id,
             sync_data,
-            our_heads,
+            our_state_vector,
             pending_events: Vec::new(),
         }
     }
@@ -810,10 +810,10 @@ mod tests {
         use indras_core::InterfaceId;
 
         let interface_id = InterfaceId::new([0xAB; 32]);
-        let heads = vec![[0x01; 32], [0x02; 32]];
+        let state_vector = vec![1, 2, 3, 4];
 
         // Test sync request
-        let request = InterfaceSyncRequestMessage::new(interface_id, heads.clone());
+        let request = InterfaceSyncRequestMessage::new(interface_id, state_vector.clone());
         let msg = WireMessage::InterfaceSyncRequest(request);
         let framed = frame_message(&msg).unwrap();
         let parsed = parse_framed_message(&framed).unwrap();
@@ -821,7 +821,7 @@ mod tests {
         match parsed {
             WireMessage::InterfaceSyncRequest(r) => {
                 assert_eq!(r.interface_id, interface_id);
-                assert_eq!(r.my_heads, heads);
+                assert_eq!(r.my_state_vector, state_vector);
                 assert!(r.last_event_id.is_none());
             }
             _ => panic!("Wrong message type"),
@@ -830,7 +830,7 @@ mod tests {
         // Test sync response
         let sync_data = vec![10, 20, 30];
         let response =
-            InterfaceSyncResponseMessage::new(interface_id, sync_data.clone(), heads.clone());
+            InterfaceSyncResponseMessage::new(interface_id, sync_data.clone(), state_vector.clone());
         let msg = WireMessage::InterfaceSyncResponse(response);
         let framed = frame_message(&msg).unwrap();
         let parsed = parse_framed_message(&framed).unwrap();
@@ -839,7 +839,7 @@ mod tests {
             WireMessage::InterfaceSyncResponse(r) => {
                 assert_eq!(r.interface_id, interface_id);
                 assert_eq!(r.sync_data, sync_data);
-                assert_eq!(r.our_heads, heads);
+                assert_eq!(r.our_state_vector, state_vector);
                 assert!(r.pending_events.is_empty());
             }
             _ => panic!("Wrong message type"),

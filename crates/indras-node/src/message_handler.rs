@@ -156,9 +156,9 @@ impl InterfaceEventMessage {
 pub struct InterfaceSyncRequest {
     /// The interface to sync
     pub interface_id: InterfaceId,
-    /// Our current heads (for sync protocol)
-    pub heads: Vec<[u8; 32]>,
-    /// Sync data (Automerge sync message)
+    /// Our current state vector (Yrs encoded)
+    pub state_vector: Vec<u8>,
+    /// Sync data (Yrs update bytes)
     pub sync_data: Vec<u8>,
 }
 
@@ -169,8 +169,8 @@ pub struct InterfaceSyncResponse {
     pub interface_id: InterfaceId,
     /// Response sync data
     pub sync_data: Vec<u8>,
-    /// Updated heads after sync
-    pub heads: Vec<[u8; 32]>,
+    /// Updated state vector after sync (Yrs encoded)
+    pub state_vector: Vec<u8>,
 }
 
 /// Acknowledge receipt of events
@@ -429,7 +429,7 @@ impl MessageHandler {
         let sync_msg = indras_core::SyncMessage {
             interface_id: msg.interface_id,
             sync_data: msg.sync_data,
-            heads: msg.heads,
+            state_vector: msg.state_vector,
             is_request: true,
         };
 
@@ -459,7 +459,7 @@ impl MessageHandler {
             let response = InterfaceSyncResponse {
                 interface_id: msg.interface_id,
                 sync_data: response_sync.sync_data,
-                heads: response_sync.heads,
+                state_vector: response_sync.state_vector,
             };
             let network_msg = NetworkMessage::SyncResponse(response);
             if let Err(e) = self.sign_and_send(&sender, network_msg).await {
@@ -521,7 +521,7 @@ impl MessageHandler {
         let sync_msg = indras_core::SyncMessage {
             interface_id: msg.interface_id,
             sync_data: msg.sync_data,
-            heads: msg.heads,
+            state_vector: msg.state_vector,
             is_request: false,
         };
 
@@ -643,7 +643,7 @@ mod tests {
     fn test_sync_request_serialization() {
         let request = InterfaceSyncRequest {
             interface_id: InterfaceId::generate(),
-            heads: vec![[1u8; 32], [2u8; 32]],
+            state_vector: vec![1, 2, 3, 4],
             sync_data: vec![10, 20, 30],
         };
 
@@ -653,7 +653,7 @@ mod tests {
 
         match parsed {
             NetworkMessage::SyncRequest(r) => {
-                assert_eq!(r.heads.len(), 2);
+                assert_eq!(r.state_vector, vec![1, 2, 3, 4]);
                 assert_eq!(r.sync_data, vec![10, 20, 30]);
             }
             _ => panic!("Wrong message type"),

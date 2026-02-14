@@ -1,23 +1,22 @@
-//! Automerge-backed syncable notebook
+//! Yrs-backed syncable notebook
 //!
 //! Uses InterfaceDocument from indras-sync to provide real CRDT sync
 //! between multiple notebook instances.
 
 use std::collections::HashMap;
 
-use automerge::ChangeHash;
 use indras_core::{InterfaceEvent, InterfaceId, SimulationIdentity};
 use indras_sync::InterfaceDocument;
 
 use crate::note::{Note, NoteId, NoteOperation};
 
-/// A notebook backed by Automerge for real CRDT sync
+/// A notebook backed by Yrs for real CRDT sync
 pub struct SyncableNotebook {
     /// Notebook name
     pub name: String,
     /// Interface ID for this notebook
     pub interface_id: InterfaceId,
-    /// The underlying Automerge document
+    /// The underlying Yrs document
     doc: InterfaceDocument,
     /// Local peer identity for signing events
     local_peer: SimulationIdentity,
@@ -75,11 +74,11 @@ impl SyncableNotebook {
     }
 
     /// Save the notebook to bytes
-    pub fn save(&mut self) -> Vec<u8> {
+    pub fn save(&self) -> Vec<u8> {
         self.doc.save()
     }
 
-    /// Apply a note operation (creates an Automerge event)
+    /// Apply a note operation (creates a Yrs event)
     pub fn apply(&mut self, op: NoteOperation) -> Option<NoteId> {
         // Serialize the operation
         let op_bytes = match postcard::to_allocvec(&op) {
@@ -170,44 +169,29 @@ impl SyncableNotebook {
 
     // ===== Sync Methods =====
 
-    /// Get the current document heads (for tracking sync state)
-    pub fn heads(&mut self) -> Vec<ChangeHash> {
-        self.doc.heads()
+    /// Get the current state vector (for tracking sync state)
+    pub fn state_vector(&self) -> Vec<u8> {
+        self.doc.state_vector()
     }
 
-    /// Get heads as hex strings (for Lua interop)
-    pub fn heads_hex(&mut self) -> Vec<String> {
-        self.doc
-            .heads()
-            .into_iter()
-            .map(|h| hex::encode(h.0))
-            .collect()
+    /// Get state vector as hex string (for Lua interop)
+    pub fn state_vector_hex(&self) -> String {
+        hex::encode(self.doc.state_vector())
     }
 
-    /// Generate a sync message for a peer given their known heads
+    /// Generate a sync message for a peer given their known state vector
     ///
     /// Returns the incremental changes since the peer's known state.
-    pub fn generate_sync_message(&mut self, their_heads: &[ChangeHash]) -> Vec<u8> {
-        self.doc.generate_sync_message(their_heads)
+    pub fn generate_sync_message(&self, their_sv: &[u8]) -> Vec<u8> {
+        self.doc.generate_sync_message(their_sv).unwrap_or_default()
     }
 
-    /// Generate a sync message from hex-encoded heads (for Lua interop)
-    pub fn generate_sync_message_hex(&mut self, their_heads_hex: &[String]) -> Vec<u8> {
-        let heads: Vec<ChangeHash> = their_heads_hex
-            .iter()
-            .filter_map(|h| {
-                let bytes = hex::decode(h).ok()?;
-                if bytes.len() == 32 {
-                    let mut arr = [0u8; 32];
-                    arr.copy_from_slice(&bytes);
-                    Some(ChangeHash(arr))
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        self.generate_sync_message(&heads)
+    /// Generate a sync message from hex-encoded state vector (for Lua interop)
+    pub fn generate_sync_message_hex(&self, their_sv_hex: &str) -> Vec<u8> {
+        match hex::decode(their_sv_hex) {
+            Ok(sv_bytes) => self.generate_sync_message(&sv_bytes),
+            Err(_) => Vec::new(),
+        }
     }
 
     /// Apply a sync message from a peer
@@ -237,7 +221,7 @@ impl SyncableNotebook {
 
     /// Fork this notebook (create an independent copy for another peer)
     pub fn fork(&mut self, new_peer: SimulationIdentity) -> Self {
-        let mut forked_doc = self.doc.fork();
+        let forked_doc = self.doc.fork().expect("Fork failed");
         forked_doc.add_member(&new_peer);
 
         let mut forked = Self {
@@ -262,7 +246,7 @@ impl SyncableNotebook {
 impl SyncableNotebook {
     /// Create a clone with the same peer identity
     pub fn clone_for_same_peer(&mut self) -> Self {
-        let forked_doc = self.doc.fork();
+        let forked_doc = self.doc.fork().expect("Fork failed");
 
         Self {
             name: self.name.clone(),
@@ -334,8 +318,8 @@ mod tests {
         assert_eq!(bob_nb.count(), 1);
 
         // Sync: Alice generates message for Bob
-        let bob_heads = bob_nb.heads();
-        let sync_msg = alice_nb.generate_sync_message(&bob_heads);
+        let bob_sv = bob_nb.state_vector();
+        let sync_msg = alice_nb.generate_sync_message(&bob_sv);
 
         // Bob applies the sync message
         let changed = bob_nb.apply_sync_message(&sync_msg).unwrap();
@@ -356,9 +340,9 @@ mod tests {
         let mut alice_nb = SyncableNotebook::new("Shared", interface_id, peer_a);
         let mut bob_nb = alice_nb.fork(peer_b);
 
-        // Get initial heads
-        let alice_initial_heads = alice_nb.heads();
-        let bob_initial_heads = bob_nb.heads();
+        // Get initial state vectors
+        let alice_initial_sv = alice_nb.state_vector();
+        let bob_initial_sv = bob_nb.state_vector();
 
         // Both make concurrent edits
         let alice_note = Note::new("Alice's Concurrent Note", "alice");
@@ -374,11 +358,11 @@ mod tests {
         assert_eq!(bob_nb.count(), 1);
 
         // Sync Alice -> Bob
-        let sync_to_bob = alice_nb.generate_sync_message(&bob_initial_heads);
+        let sync_to_bob = alice_nb.generate_sync_message(&bob_initial_sv);
         bob_nb.apply_sync_message(&sync_to_bob).unwrap();
 
         // Sync Bob -> Alice
-        let sync_to_alice = bob_nb.generate_sync_message(&alice_initial_heads);
+        let sync_to_alice = bob_nb.generate_sync_message(&alice_initial_sv);
         alice_nb.apply_sync_message(&sync_to_alice).unwrap();
 
         // Both should have both notes (CRDT convergence)

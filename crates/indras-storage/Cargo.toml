@@ -22,9 +22,6 @@ redb = "2.4"
 blake3 = "1.6"
 hex = "0.4"
 
-# CRDT for snapshots
-automerge.workspace = true
-
 # Utilities
 thiserror.workspace = true
 tracing.workspace = true
