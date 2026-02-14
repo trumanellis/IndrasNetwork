@@ -9,7 +9,7 @@
 //!    Tests: Pending count accuracy, mark delivered operations, multi-peer coordination
 //!
 //! 3. **test_document_sync_stress**: Generates and applies 1,000+ sync messages
-//!    Tests: Automerge document sync with many events, incremental sync performance
+//!    Tests: Yrs document sync with many events, incremental sync performance
 //!
 //! 4. **test_member_churn**: Rapidly adds/removes members (1,000 operations)
 //!    Tests: Membership change performance, state consistency during churn
@@ -222,8 +222,8 @@ fn test_document_sync_stress() {
     let initial_bytes = doc1.save();
     let mut doc2 = InterfaceDocument::load(&initial_bytes).expect("Failed to load doc2");
 
-    // Get doc2's heads before doc1 makes changes
-    let doc2_heads = doc2.heads();
+    // Get doc2's state vector before doc1 makes changes
+    let doc2_sv = doc2.state_vector();
 
     // Doc1: Add many events
     let start = std::time::Instant::now();
@@ -248,7 +248,7 @@ fn test_document_sync_stress() {
 
     // Sync doc1's changes to doc2
     let sync_start = std::time::Instant::now();
-    let sync_msg = doc1.generate_sync_message(&doc2_heads);
+    let sync_msg = doc1.generate_sync_message(&doc2_sv).expect("Failed to generate sync");
     doc2.apply_sync_message(&sync_msg)
         .expect("Failed to apply sync");
     let sync_duration = sync_start.elapsed();
@@ -468,9 +468,9 @@ fn test_sync_state_many_peers() {
                 peer,
             );
 
-            // Simulate receiving their heads
-            let heads = doc.heads();
-            sync_state.update_peer_heads(peer, heads);
+            // Simulate receiving their state vector
+            let sv = doc.state_vector();
+            sync_state.update_peer_state_vector(peer, sv);
         }
 
         // Add an event to trigger changes

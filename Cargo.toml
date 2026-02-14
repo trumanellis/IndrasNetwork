@@ -56,7 +56,7 @@ iroh = "0.95"
 iroh-gossip = "0.95"
 
 # CRDT for synced peer interfaces
-automerge = "0.7"
+yrs = "0.21"
 
 # Async runtime
 tokio = { version = "1.47", features = ["full", "sync", "time", "macros", "rt-multi-thread"] }

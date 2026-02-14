@@ -53,7 +53,7 @@ pub struct DocumentMeta {
 
 /// A syncable document using InterfaceDocument
 pub struct Document {
-    /// The underlying Automerge-backed document
+    /// The underlying Yrs-backed document
     doc: InterfaceDocument,
     /// Local peer identity
     local_peer: SimulationIdentity,
@@ -182,7 +182,7 @@ impl Document {
     }
 
     /// Export the document as bytes
-    pub fn to_bytes(&mut self) -> Vec<u8> {
+    pub fn to_bytes(&self) -> Vec<u8> {
         self.doc.save()
     }
 
@@ -232,14 +232,14 @@ impl Document {
         }
     }
 
-    /// Get the current heads for sync
-    pub fn heads(&mut self) -> Vec<automerge::ChangeHash> {
-        self.doc.heads()
+    /// Get the current state vector for sync
+    pub fn state_vector(&self) -> Vec<u8> {
+        self.doc.state_vector()
     }
 
     /// Generate sync message for peer
-    pub fn generate_sync_message(&mut self, their_heads: &[automerge::ChangeHash]) -> Vec<u8> {
-        self.doc.generate_sync_message(their_heads)
+    pub fn generate_sync_message(&self, their_sv: &[u8]) -> Vec<u8> {
+        self.doc.generate_sync_message(their_sv).unwrap_or_default()
     }
 
     /// Apply sync message from peer
@@ -265,8 +265,8 @@ impl Document {
     }
 
     /// Fork this document for another peer
-    pub fn fork(&mut self, new_peer: SimulationIdentity) -> Self {
-        let mut forked_doc = self.doc.fork();
+    pub fn fork(&self, new_peer: SimulationIdentity) -> Self {
+        let mut forked_doc = self.doc.fork().expect("Fork failed");
         forked_doc.add_member(&new_peer);
 
         let mut forked = Self {
