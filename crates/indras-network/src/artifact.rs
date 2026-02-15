@@ -4,11 +4,8 @@
 //! Unlike documents, artifacts are immutable once shared and are
 //! content-addressed by their hash.
 
-use crate::access::ArtifactStatus;
 use crate::error::{IndraError, Result};
-use crate::member::{Member, MemberId};
 
-use chrono::{DateTime, Utc};
 use futures::Stream;
 use std::path::PathBuf;
 use tokio::sync::watch;
@@ -18,64 +15,6 @@ use tokio::sync::watch;
 /// Re-exported from `indras_artifacts`. This is an enum with `Blob` and `Doc` variants,
 /// each wrapping a `[u8; 32]` hash.
 pub use indras_artifacts::ArtifactId;
-
-/// A shared artifact (file or binary content).
-///
-/// Artifacts are immutable - once shared, their content never changes.
-/// They are identified by their content hash (BLAKE3).
-#[derive(Debug, Clone)]
-pub struct Artifact {
-    /// Content hash (BLAKE3), wrapped in ArtifactId::Blob.
-    pub id: ArtifactId,
-    /// Original filename.
-    pub name: String,
-    /// Size in bytes.
-    pub size: u64,
-    /// MIME type if known.
-    pub mime_type: Option<String>,
-    /// Who shared this artifact.
-    pub sharer: Member,
-    /// Steward (owner) of the artifact.
-    pub steward: MemberId,
-    /// When it was shared.
-    pub shared_at: DateTime<Utc>,
-    /// Whether content is per-artifact encrypted (for revocable sharing).
-    pub is_encrypted: bool,
-    /// Current lifecycle status.
-    pub status: ArtifactStatus,
-    /// Parent artifact this is a part of (None if top-level).
-    pub parent: Option<ArtifactId>,
-    /// Child artifact IDs composing this holon.
-    pub children: Vec<ArtifactId>,
-}
-
-impl Artifact {
-    /// Get the artifact's ticket string for sharing.
-    pub fn ticket(&self) -> String {
-        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-        URL_SAFE_NO_PAD.encode(self.id.bytes())
-    }
-
-    /// Get the content hash as a hex string.
-    pub fn hash_hex(&self) -> String {
-        self.id.bytes().iter().map(|b| format!("{:02x}", b)).collect()
-    }
-
-    /// Check if this artifact is accessible (active status).
-    pub fn is_accessible(&self) -> bool {
-        self.status.is_active()
-    }
-
-    /// Check if this artifact has been recalled.
-    pub fn is_recalled(&self) -> bool {
-        matches!(self.status, ArtifactStatus::Recalled { .. })
-    }
-
-    /// Check if this artifact requires decryption.
-    pub fn requires_decryption(&self) -> bool {
-        self.is_encrypted
-    }
-}
 
 /// Progress of an artifact download.
 #[derive(Debug, Clone, Copy)]
@@ -104,8 +43,10 @@ impl DownloadProgress {
 
 /// Handle for an in-progress artifact download.
 pub struct ArtifactDownload {
-    /// The artifact being downloaded.
-    artifact: Artifact,
+    /// The artifact ID being downloaded.
+    artifact_id: ArtifactId,
+    /// The artifact name.
+    name: String,
     /// Progress receiver.
     progress_rx: watch::Receiver<DownloadProgress>,
     /// Destination path.
@@ -117,13 +58,15 @@ pub struct ArtifactDownload {
 impl ArtifactDownload {
     /// Create a new download handle.
     pub(crate) fn new(
-        artifact: Artifact,
+        artifact_id: ArtifactId,
+        name: String,
         progress_rx: watch::Receiver<DownloadProgress>,
         destination: PathBuf,
     ) -> (Self, watch::Receiver<bool>) {
         let (cancel_tx, cancel_rx) = watch::channel(false);
         let download = Self {
-            artifact,
+            artifact_id,
+            name,
             progress_rx,
             destination,
             cancel_tx,
@@ -136,9 +79,14 @@ impl ArtifactDownload {
         *self.cancel_tx.borrow()
     }
 
-    /// Get the artifact being downloaded.
-    pub fn artifact(&self) -> &Artifact {
-        &self.artifact
+    /// Get the artifact ID being downloaded.
+    pub fn artifact_id(&self) -> &ArtifactId {
+        &self.artifact_id
+    }
+
+    /// Get the artifact name.
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     /// Get the current progress.
@@ -197,7 +145,7 @@ impl ArtifactDownload {
 impl std::fmt::Debug for ArtifactDownload {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ArtifactDownload")
-            .field("artifact", &self.artifact.name)
+            .field("artifact", &self.name)
             .field("progress", &self.current_progress())
             .finish()
     }
@@ -222,54 +170,5 @@ mod tests {
         };
         assert_eq!(complete.percent(), 100.0);
         assert!(complete.is_complete());
-    }
-
-    #[test]
-    fn test_artifact_ticket() {
-        let identity = indras_transport::IrohIdentity::from_array([1u8; 32])
-            .expect("valid test identity");
-
-        let artifact = Artifact {
-            id: ArtifactId::Blob([0u8; 32]),
-            name: "test.txt".to_string(),
-            size: 100,
-            mime_type: Some("text/plain".to_string()),
-            sharer: Member::new(identity),
-            steward: [1u8; 32],
-            shared_at: Utc::now(),
-            is_encrypted: false,
-            status: ArtifactStatus::Active,
-            parent: None,
-            children: Vec::new(),
-        };
-
-        assert!(!artifact.ticket().is_empty());
-        assert_eq!(artifact.hash_hex().len(), 64);
-        assert!(artifact.is_accessible());
-        assert!(!artifact.is_recalled());
-    }
-
-    #[test]
-    fn test_artifact_recalled_status() {
-        let identity = indras_transport::IrohIdentity::from_array([1u8; 32])
-            .expect("valid test identity");
-
-        let artifact = Artifact {
-            id: ArtifactId::Blob([0u8; 32]),
-            name: "test.txt".to_string(),
-            size: 100,
-            mime_type: Some("text/plain".to_string()),
-            sharer: Member::new(identity),
-            steward: [1u8; 32],
-            shared_at: Utc::now(),
-            is_encrypted: true,
-            status: ArtifactStatus::Recalled { recalled_at: 12345 },
-            parent: None,
-            children: Vec::new(),
-        };
-
-        assert!(!artifact.is_accessible());
-        assert!(artifact.is_recalled());
-        assert!(artifact.requires_decryption());
     }
 }

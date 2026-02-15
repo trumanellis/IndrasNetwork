@@ -104,6 +104,7 @@ pub mod access;
 pub mod encryption;
 pub mod artifact_index;
 pub mod artifact_recovery;
+pub mod artifact_sync;
 pub mod chat_message;
 pub mod config;
 pub mod contacts;
@@ -123,10 +124,11 @@ pub mod read_tracker;
 pub mod realm;
 pub mod realm_alias;
 pub mod stream;
+pub(crate) mod util;
 pub mod world_view;
 
 // Re-export main types at crate root
-pub use artifact::{Artifact, ArtifactDownload, ArtifactId, DownloadProgress};
+pub use artifact::{ArtifactDownload, ArtifactId, DownloadProgress};
 pub use encryption::{ArtifactKey, EncryptedArtifactKey, ARTIFACT_KEY_SIZE};
 pub use access::{
     AccessGrant, AccessMode, ArtifactProvenance, ArtifactStatus, GrantError, HolonicError,
@@ -139,7 +141,8 @@ pub use chat_message::{
 };
 pub use config::{NetworkBuilder, NetworkConfig, Preset};
 pub use contacts::{ContactEntry, ContactStatus, ContactsDocument, ContactsRealm};
-pub use direct_connect::{dm_realm_id, KeyExchangeStatus, PendingKeyExchange};
+pub use direct_connect::{KeyExchangeStatus, PendingKeyExchange};
+pub use artifact_sync::{artifact_interface_id, artifact_key_seed, ArtifactSyncRegistry};
 pub use encounter::{EncounterExchangePayload, EncounterHandle};
 pub use identity_code::IdentityCode;
 pub use document::{Document, DocumentChange, DocumentSchema};
@@ -165,7 +168,7 @@ pub use world_view::WorldView;
 /// ```
 pub mod prelude {
     pub use crate::{
-        Artifact, ArtifactDownload, ArtifactIndex, HomeArtifactEntry,
+        ArtifactDownload, ArtifactIndex, HomeArtifactEntry,
         ContactsRealm, Content, Document, DocumentSchema, EditableChatMessage, GlobalEvent,
         HomeRealm, IdentityBackup, IdentityCode, IndraError, IndrasNetwork, InviteCode, Member,
         MemberEvent, MemberInfo, Message, Preset, Realm, RealmAlias, RealmAliasDocument,

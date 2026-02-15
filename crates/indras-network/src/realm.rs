@@ -3,19 +3,19 @@
 //! A Realm wraps an N-peer interface and provides a high-level API
 //! for messaging, documents, and artifact sharing.
 
-use crate::artifact::{Artifact, ArtifactDownload, ArtifactId, DownloadProgress};
+use crate::artifact::{ArtifactDownload, ArtifactId, DownloadProgress};
 use crate::document::Document;
 use crate::error::{IndraError, Result};
 use crate::invite::InviteCode;
 use crate::member::{Member, MemberEvent, MemberId, MemberInfo};
 use crate::message::{Content, ContentReference, Message, MessageId, MessagePayload};
 use crate::network::RealmId;
-use crate::access::{AccessMode, ArtifactStatus};
+use crate::access::AccessMode;
 use crate::artifact_index::HomeArtifactEntry;
 use crate::home_realm::HomeRealm;
 use crate::stream::broadcast_to_stream;
+use crate::util::guess_mime_type;
 
-use chrono::Utc;
 use futures::Stream;
 use indras_core::{InterfaceEvent, MembershipChange, PeerIdentity};
 use indras_node::{IndrasNode, ReceivedEvent};
@@ -682,10 +682,10 @@ impl Realm {
     /// # Example
     ///
     /// ```ignore
-    /// let artifact = realm.share_artifact("./document.pdf").await?;
-    /// println!("Shared: {} ({} bytes)", artifact.name, artifact.size);
+    /// let artifact_id = realm.share_artifact("./document.pdf").await?;
+    /// println!("Shared artifact: {:?}", artifact_id);
     /// ```
-    pub async fn share_artifact(&self, path: impl AsRef<Path>) -> Result<Artifact> {
+    pub async fn share_artifact(&self, path: impl AsRef<Path>) -> Result<ArtifactId> {
         let path = path.as_ref();
 
         // Read the file
@@ -730,8 +730,6 @@ impl Realm {
             "Stored artifact in blob storage"
         );
 
-        // Get our identity for the sharer field
-        let sharer = Member::new(*self.node.identity());
 
         // Create artifact metadata for broadcasting (legacy Custom event format)
         #[derive(Serialize)]
@@ -770,23 +768,7 @@ impl Realm {
             .map_err(|e| IndraError::Artifact(format!("Failed to serialize event: {}", e)))?;
         let _ = self.node.send_message(&self.id, event_bytes).await;
 
-        // Create and return the Artifact
-        let steward = sharer.id();
-        let artifact = Artifact {
-            id,
-            name,
-            size,
-            mime_type,
-            sharer,
-            steward,
-            shared_at: Utc::now(),
-            is_encrypted: false,
-            status: ArtifactStatus::Active,
-            parent: None,
-            children: Vec::new(),
-        };
-
-        Ok(artifact)
+        Ok(id)
     }
 
     /// Share a file as an artifact with a specific access mode.
@@ -797,8 +779,8 @@ impl Realm {
         &self,
         path: impl AsRef<Path>,
         home: &HomeRealm,
-        mode: AccessMode,
-    ) -> Result<Artifact> {
+        _mode: AccessMode,
+    ) -> Result<ArtifactId> {
         let path = path.as_ref();
 
         // Upload to home realm
@@ -830,21 +812,7 @@ impl Realm {
         }))
         .await?;
 
-        let sharer = Member::new(*self.node.identity());
-        let steward = sharer.id();
-        Ok(Artifact {
-            id,
-            name,
-            size,
-            mime_type,
-            sharer,
-            steward,
-            shared_at: Utc::now(),
-            is_encrypted: matches!(mode, AccessMode::Revocable),
-            status: ArtifactStatus::Active,
-            parent: None,
-            children: Vec::new(),
-        })
+        Ok(id)
     }
 
     /// Share a file with per-person access mode specification.
@@ -853,7 +821,7 @@ impl Realm {
         path: impl AsRef<Path>,
         home: &HomeRealm,
         grants: Vec<(MemberId, AccessMode)>,
-    ) -> Result<Artifact> {
+    ) -> Result<ArtifactId> {
         let path = path.as_ref();
 
         // Upload to home realm
@@ -886,21 +854,7 @@ impl Realm {
         }))
         .await?;
 
-        let sharer = Member::new(*self.node.identity());
-        let steward = sharer.id();
-        Ok(Artifact {
-            id,
-            name,
-            size,
-            mime_type,
-            sharer,
-            steward,
-            shared_at: Utc::now(),
-            is_encrypted: false,
-            status: ArtifactStatus::Active,
-            parent: None,
-            children: Vec::new(),
-        })
+        Ok(id)
     }
 
     /// Query artifacts visible in this realm context.
@@ -942,12 +896,12 @@ impl Realm {
     /// // Get the downloaded file path
     /// let path = download.finish().await?;
     /// ```
-    pub async fn download(&self, artifact: &Artifact) -> Result<ArtifactDownload> {
+    pub async fn download(&self, artifact_id: &ArtifactId, name: &str, size: u64) -> Result<ArtifactDownload> {
         // Create a content reference from the artifact ID
-        let content_ref = ContentRef::new(*artifact.id.bytes(), artifact.size);
+        let content_ref = ContentRef::new(*artifact_id.bytes(), size);
 
         // Determine destination path (use temp directory with artifact name)
-        let destination = std::env::temp_dir().join(&artifact.name);
+        let destination = std::env::temp_dir().join(name);
 
         // Fetch the blob from storage (this is local storage, so it's fast)
         let data = self
@@ -964,12 +918,12 @@ impl Realm {
 
         // Create progress channel showing completion
         let (_progress_tx, progress_rx) = watch::channel(DownloadProgress {
-            bytes_downloaded: artifact.size,
-            total_bytes: artifact.size,
+            bytes_downloaded: size,
+            total_bytes: size,
         });
 
         // Create the download handle (already complete)
-        let (download, _cancel_rx) = ArtifactDownload::new(artifact.clone(), progress_rx, destination);
+        let (download, _cancel_rx) = ArtifactDownload::new(*artifact_id, name.to_string(), progress_rx, destination);
 
         Ok(download)
     }
@@ -1100,73 +1054,6 @@ fn convert_event_to_member_event(event: ReceivedEvent) -> Option<MemberEvent> {
     }
 }
 
-/// Guess MIME type from file extension.
-fn guess_mime_type(ext: &str) -> String {
-    match ext.to_lowercase().as_str() {
-        // Text
-        "txt" => "text/plain",
-        "html" | "htm" => "text/html",
-        "css" => "text/css",
-        "js" => "text/javascript",
-        "json" => "application/json",
-        "xml" => "application/xml",
-        "csv" => "text/csv",
-        "md" => "text/markdown",
-        // Images
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        "svg" => "image/svg+xml",
-        "ico" => "image/x-icon",
-        "bmp" => "image/bmp",
-        // Audio
-        "mp3" => "audio/mpeg",
-        "wav" => "audio/wav",
-        "ogg" => "audio/ogg",
-        "flac" => "audio/flac",
-        "aac" => "audio/aac",
-        // Video
-        "mp4" => "video/mp4",
-        "webm" => "video/webm",
-        "avi" => "video/x-msvideo",
-        "mov" => "video/quicktime",
-        "mkv" => "video/x-matroska",
-        // Documents
-        "pdf" => "application/pdf",
-        "doc" => "application/msword",
-        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "xls" => "application/vnd.ms-excel",
-        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "ppt" => "application/vnd.ms-powerpoint",
-        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        // Archives
-        "zip" => "application/zip",
-        "tar" => "application/x-tar",
-        "gz" | "gzip" => "application/gzip",
-        "rar" => "application/vnd.rar",
-        "7z" => "application/x-7z-compressed",
-        // Code
-        "rs" => "text/x-rust",
-        "py" => "text/x-python",
-        "go" => "text/x-go",
-        "java" => "text/x-java",
-        "c" => "text/x-c",
-        "cpp" | "cc" | "cxx" => "text/x-c++",
-        "h" | "hpp" => "text/x-c-header",
-        "sh" => "application/x-sh",
-        "toml" => "application/toml",
-        "yaml" | "yml" => "application/x-yaml",
-        // Fonts
-        "woff" => "font/woff",
-        "woff2" => "font/woff2",
-        "ttf" => "font/ttf",
-        "otf" => "font/otf",
-        // Default
-        _ => "application/octet-stream",
-    }
-    .to_string()
-}
 
 // Simple hex encoding for debug output
 mod hex {
