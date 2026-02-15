@@ -9,7 +9,7 @@
 //!    Tests: Pending count accuracy, mark delivered operations, multi-peer coordination
 //!
 //! 3. **test_document_sync_stress**: Generates and applies 1,000+ sync messages
-//!    Tests: Yrs document sync with many events, incremental sync performance
+//!    Tests: Automerge document sync with many events, incremental sync performance
 //!
 //! 4. **test_member_churn**: Rapidly adds/removes members (1,000 operations)
 //!    Tests: Membership change performance, state consistency during churn
@@ -222,9 +222,6 @@ fn test_document_sync_stress() {
     let initial_bytes = doc1.save();
     let mut doc2 = InterfaceDocument::load(&initial_bytes).expect("Failed to load doc2");
 
-    // Get doc2's state vector before doc1 makes changes
-    let doc2_sv = doc2.state_vector();
-
     // Doc1: Add many events
     let start = std::time::Instant::now();
     for i in 0..MESSAGE_COUNT {
@@ -246,18 +243,18 @@ fn test_document_sync_stress() {
 
     assert_eq!(doc1.event_count(), MESSAGE_COUNT);
 
-    // Sync doc1's changes to doc2
+    // Sync doc1's changes to doc2 using save/merge pattern
     let sync_start = std::time::Instant::now();
-    let sync_msg = doc1.generate_sync_message(&doc2_sv).expect("Failed to generate sync");
-    doc2.apply_sync_message(&sync_msg)
+    let doc1_bytes = doc1.save();
+    doc2.apply_update(&doc1_bytes)
         .expect("Failed to apply sync");
     let sync_duration = sync_start.elapsed();
 
     println!(
-        "Synced {} events to doc2 in {:?} (sync message size: {} bytes)",
+        "Synced {} events to doc2 in {:?} (document size: {} bytes)",
         MESSAGE_COUNT,
         sync_duration,
-        sync_msg.len()
+        doc1_bytes.len()
     );
 
     // Verify sync
@@ -460,17 +457,14 @@ fn test_sync_state_many_peers() {
     let start = std::time::Instant::now();
     for round in 0..SYNC_ROUNDS {
         for peer in &peers {
-            // Generate sync request
-            let _sync_msg = SyncProtocol::generate_sync_request(
+            // Generate sync message using Automerge sync protocol
+            let _sync_msg = SyncProtocol::generate_sync_message(
                 interface_id,
                 &mut doc,
                 &mut sync_state,
                 peer,
             );
-
-            // Simulate receiving their state vector
-            let sv = doc.state_vector();
-            sync_state.update_peer_state_vector(peer, sv);
+            // Automerge sync state is managed internally — no manual state vector update needed
         }
 
         // Add an event to trigger changes
@@ -492,21 +486,16 @@ fn test_sync_state_many_peers() {
         (SYNC_ROUNDS * PEER_COUNT) as f64 / duration.as_secs_f64()
     );
 
-    // Verify sync state
+    // Verify sync state — all peers should have been tracked
     assert_eq!(sync_state.peers().len(), PEER_COUNT);
 
     for peer in &peers {
-        assert_eq!(
-            sync_state.rounds(peer),
-            SYNC_ROUNDS as u32,
-            "Peer {:?} should have completed {} rounds",
-            peer,
-            SYNC_ROUNDS
-        );
-        assert!(!sync_state.is_awaiting(peer));
+        // Each peer should be in awaiting state since we only generated messages
+        // (no receive_sync_message was called to complete the round)
+        assert!(sync_state.is_awaiting(peer));
     }
 
-    println!("All {} peers synced successfully", PEER_COUNT);
+    println!("All {} peers tracked successfully", PEER_COUNT);
 }
 
 /// Test 7: Deep event history queries
