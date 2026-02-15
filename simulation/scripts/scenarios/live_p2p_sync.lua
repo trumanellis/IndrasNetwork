@@ -13,71 +13,71 @@ print()
 
 -- Step 1: Create two real nodes (auto temp dirs)
 print("[1] Creating two LiveNode instances...")
-local zephyr = indras.LiveNode.new()
-local nova = indras.LiveNode.new()
-print("    Zephyr: " .. tostring(zephyr))
-print("    Nova:   " .. tostring(nova))
+local a = indras.LiveNode.new()
+local b = indras.LiveNode.new()
+print("    A: " .. tostring(a))
+print("    B: " .. tostring(b))
 
 -- Step 2: Start both nodes
 print("[2] Starting nodes...")
-zephyr:start()
-nova:start()
-indras.assert.true_(zephyr:is_started(), "Zephyr should be started")
-indras.assert.true_(nova:is_started(), "Nova should be started")
+a:start()
+b:start()
+indras.assert.true_(a:is_started(), "A should be started")
+indras.assert.true_(b:is_started(), "B should be started")
 print("    Both nodes started successfully")
 
--- Step 3: Zephyr creates an interface, gets invite
-print("[3] Zephyr creates interface 'Sync Test'...")
-local iface_id, invite = zephyr:create_interface("Sync Test")
+-- Step 3: A creates an interface, gets invite
+print("[3] A creates interface 'Sync Test'...")
+local iface_id, invite = a:create_interface("Sync Test")
 print("    Interface: " .. iface_id:sub(1, 16) .. "...")
 print("    Invite length: " .. #invite .. " chars")
 
--- Step 4: Nova joins via invite
-print("[4] Nova joins interface via invite...")
-local joined_id = nova:join_interface(invite)
+-- Step 4: B joins via invite
+print("[4] B joins interface via invite...")
+local joined_id = b:join_interface(invite)
 indras.assert.eq(joined_id, iface_id, "Joined interface ID should match")
 print("    Joined: " .. joined_id:sub(1, 16) .. "...")
 
--- Step 5: Zephyr sends a message
-print("[5] Zephyr sends message...")
-local seq = zephyr:send_message(iface_id, "Hello from Zephyr!")
+-- Step 5: A sends a message
+print("[5] A sends message...")
+local seq = a:send_message(iface_id, "Hello from A!")
 print("    Message sent, sequence: " .. seq)
 
--- Step 6: Verify Zephyr's own events
-print("[6] Checking Zephyr's events...")
-local zephyr_events = zephyr:events_since(iface_id, 0)
-indras.assert.eq(#zephyr_events, 1, "Zephyr should have 1 event")
-indras.assert.eq(zephyr_events[1].content, "Hello from Zephyr!", "Content should match")
-print("    Zephyr has " .. #zephyr_events .. " event(s)")
-print("    Content: " .. zephyr_events[1].content)
+-- Step 6: Verify A's own events
+print("[6] Checking A's events...")
+local a_events = a:events_since(iface_id, 0)
+indras.assert.eq(#a_events, 1, "A should have 1 event")
+indras.assert.eq(a_events[1].content, "Hello from A!", "Content should match")
+print("    A has " .. #a_events .. " event(s)")
+print("    Content: " .. a_events[1].content)
 
 -- Step 7: Check members
 print("[7] Checking members...")
-local zephyr_members = zephyr:members(iface_id)
-print("    Zephyr sees " .. #zephyr_members .. " member(s)")
-for i, m in ipairs(zephyr_members) do
+local a_members = a:members(iface_id)
+print("    A sees " .. #a_members .. " member(s)")
+for i, m in ipairs(a_members) do
     print("      [" .. i .. "] " .. m)
 end
 
--- Step 8: Nova also sends a message
-print("[8] Nova sends message...")
-local seq2 = nova:send_message(joined_id, "Hello from Nova!")
+-- Step 8: B also sends a message
+print("[8] B sends message...")
+local seq2 = b:send_message(joined_id, "Hello from B!")
 print("    Message sent, sequence: " .. seq2)
 
--- Step 9: Check Nova's local events
-print("[9] Checking Nova's events...")
-local nova_events = nova:events_since(joined_id, 0)
-print("    Nova has " .. #nova_events .. " local event(s)")
-for i, e in ipairs(nova_events) do
+-- Step 9: Check B's local events
+print("[9] Checking B's events...")
+local b_events = b:events_since(joined_id, 0)
+print("    B has " .. #b_events .. " local event(s)")
+for i, e in ipairs(b_events) do
     print("      [" .. i .. "] " .. e.content .. " (from " .. e.sender .. ")")
 end
 
 -- Step 10: Stop both nodes
 print("[10] Stopping nodes...")
-zephyr:stop()
-nova:stop()
-indras.assert.true_(not zephyr:is_started(), "Zephyr should be stopped")
-indras.assert.true_(not nova:is_started(), "Nova should be stopped")
+a:stop()
+b:stop()
+indras.assert.true_(not a:is_started(), "A should be stopped")
+indras.assert.true_(not b:is_started(), "B should be stopped")
 print("     Both nodes stopped")
 
 print()
