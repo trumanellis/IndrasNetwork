@@ -221,9 +221,9 @@ impl SyncTask {
                 None => continue,
             };
 
-            let interface = state.interface.read().await;
+            let mut interface = state.interface.write().await;
 
-            if let Err(e) = self.sync_interface_inner(interface_id, &interface).await {
+            if let Err(e) = self.sync_interface_inner(interface_id, &mut *interface).await {
                 warn!(
                     interface = %hex::encode(interface_id.as_bytes()),
                     error = %e,
@@ -239,7 +239,7 @@ impl SyncTask {
     async fn sync_interface_inner(
         &mut self,
         interface_id: InterfaceId,
-        interface: &tokio::sync::RwLockReadGuard<'_, indras_sync::NInterface<IrohIdentity>>,
+        interface: &mut indras_sync::NInterface<IrohIdentity>,
     ) -> Result<(), SyncError> {
         let members = interface.members();
         let key = self.interface_keys.get(&interface_id);
@@ -344,7 +344,7 @@ impl SyncTask {
     /// Send a sync request to a peer
     async fn send_sync_request(
         &self,
-        interface: &tokio::sync::RwLockReadGuard<'_, indras_sync::NInterface<IrohIdentity>>,
+        interface: &mut indras_sync::NInterface<IrohIdentity>,
         peer: &IrohIdentity,
     ) -> Result<(), SyncError> {
         // Generate sync message
@@ -383,7 +383,7 @@ impl SyncTask {
     /// in an ML-DSA-65 signed network message before sending.
     async fn deliver_pending_events_batched(
         &self,
-        interface: &tokio::sync::RwLockReadGuard<'_, indras_sync::NInterface<IrohIdentity>>,
+        interface: &indras_sync::NInterface<IrohIdentity>,
         peer: &IrohIdentity,
         key: &InterfaceKey,
     ) -> Result<(), SyncError> {

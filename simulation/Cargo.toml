@@ -21,7 +21,7 @@ iroh.workspace = true
 iroh-gossip.workspace = true
 
 # CRDT for synced peer interfaces
-yrs.workspace = true
+automerge.workspace = true
 
 # Async runtime
 tokio.workspace = true
