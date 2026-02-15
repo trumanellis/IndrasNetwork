@@ -8,6 +8,7 @@ use crate::components::topbar::Topbar;
 use crate::components::document::DocumentView;
 use crate::components::story::{StoryView, StoryMessage, StoryArtifactRef};
 use crate::components::quest::{QuestView, QuestKind, ProofEntry, ProofArtifact, AssignedToken, AttentionItem};
+use crate::components::settings::SettingsView;
 use crate::components::bottom_nav::{BottomNav, NavTab};
 use crate::components::fab::Fab;
 use crate::state::workspace::{WorkspaceState, ViewType, PeerDisplayInfo};
@@ -20,6 +21,7 @@ use indras_ui::{
     VaultSidebar, TreeNode,
     SlashMenu, SlashAction,
     DetailPanel, PropertyRow, AudienceMember, HeatEntry, TrailEvent, ReferenceItem, SyncEntry,
+    MarkdownPreviewOverlay, PreviewFile, PreviewViewMode,
 };
 use indras_ui::PeerDisplayInfo as UiPeerDisplayInfo;
 
@@ -32,6 +34,9 @@ pub fn RootApp() -> Element {
     let mut quest_data = use_signal(|| None::<QuestViewData>);
     let mut active_tab = use_signal(|| NavTab::Vault);
     let mut token_picker_open = use_signal(|| false);
+    let mut preview_open = use_signal(|| false);
+    let mut preview_file = use_signal(|| None::<PreviewFile>);
+    let mut preview_view_mode = use_signal(|| PreviewViewMode::Rendered);
     let attention_items: Vec<AttentionItem> = vec![
         AttentionItem { target: "Architecture Notes".into(), when: "Today 10:14 AM".into(), duration: "6m 33s".into() },
         AttentionItem { target: "Team Discussion".into(), when: "Today 9:41 AM".into(), duration: "12m 08s".into() },
@@ -223,6 +228,7 @@ pub fn RootApp() -> Element {
                                     };
 
                                     match vt {
+                                        ViewType::Settings => {}
                                         ViewType::Document => {
                                             // Load blocks from tree references
                                             let mut blocks = Vec::new();
@@ -253,6 +259,7 @@ pub fn RootApp() -> Element {
                                                     created_at: String::new(),
                                                     edited_ago: "just now".to_string(),
                                                 },
+                                                tree_id: Some(artifact_id.clone()),
                                             };
                                             workspace.write().editor = editor;
                                         }
@@ -729,8 +736,16 @@ pub fn RootApp() -> Element {
         workspace.write().ui.slash_menu_open = true;
     };
 
+    let on_settings = move |_: ()| {
+        workspace.write().ui.active_view = ViewType::Settings;
+    };
+
     let on_tab_change = move |tab: NavTab| {
+        let is_profile = tab == NavTab::Profile;
         active_tab.set(tab);
+        if is_profile {
+            workspace.write().ui.active_view = ViewType::Settings;
+        }
     };
 
     // --- Build render data ---
@@ -900,7 +915,7 @@ pub fn RootApp() -> Element {
                     IdentityRow {
                         avatar_letter: player_letter.clone(),
                         name: player_name.clone(),
-                        short_id: player_short_id,
+                        short_id: player_short_id.clone(),
                     }
                 }
 
@@ -939,10 +954,20 @@ pub fn RootApp() -> Element {
                     on_toggle_detail: on_toggle_detail,
                     on_toggle_sidebar: on_toggle_sidebar,
                     on_share: on_share,
+                    on_settings: on_settings,
                 }
 
                 // Render active view
                 match active_view {
+                    ViewType::Settings => {
+                        rsx! {
+                            SettingsView {
+                                player_name: player_name.clone(),
+                                player_letter: player_letter.clone(),
+                                player_short_id: player_short_id.clone(),
+                            }
+                        }
+                    }
                     ViewType::Document => {
                         if editor.blocks.is_empty() && editor.title.is_empty() {
                             // Welcome placeholder
@@ -968,7 +993,11 @@ pub fn RootApp() -> Element {
                             }
                         } else {
                             rsx! {
-                                DocumentView { editor: editor }
+                                DocumentView {
+                                    editor: editor,
+                                    vault_handle: vault_handle,
+                                    workspace: workspace,
+                                }
                             }
                         }
                     }
@@ -982,6 +1011,17 @@ pub fn RootApp() -> Element {
                                 audience_count: audience_count,
                                 message_count: message_count,
                                 messages: current_story_messages,
+                                on_artifact_click: move |aref: StoryArtifactRef| {
+                                    preview_file.set(Some(PreviewFile {
+                                        name: aref.name.clone(),
+                                        content: format!("# {}\n\nType: {}", aref.name, aref.artifact_type),
+                                        raw_content: format!("# {}\n\nType: {}", aref.name, aref.artifact_type),
+                                        mime_type: "text/markdown".to_string(),
+                                        data_url: None,
+                                    }));
+                                    preview_view_mode.set(PreviewViewMode::Rendered);
+                                    preview_open.set(true);
+                                },
                             }
                         }
                     }
@@ -1053,6 +1093,13 @@ pub fn RootApp() -> Element {
                 visible: slash_menu_open,
                 on_select: on_slash_select,
                 on_close: on_slash_close,
+            }
+
+            // Preview overlay
+            MarkdownPreviewOverlay {
+                is_open: preview_open,
+                file: preview_file,
+                view_mode: preview_view_mode,
             }
 
             // Floating action button (mobile)

@@ -36,6 +36,7 @@ pub fn StoryView(
     audience_count: usize,
     message_count: usize,
     messages: Vec<StoryMessage>,
+    on_artifact_click: Option<EventHandler<StoryArtifactRef>>,
 ) -> Element {
     let audience_text = format!("{} audience", audience_count);
     let msg_text = format!("{} messages", message_count);
@@ -66,7 +67,7 @@ pub fn StoryView(
                                 span { "{day}" }
                             }
                         }
-                        {render_message(msg)}
+                        {render_message(msg, &on_artifact_click)}
                     }
                     // Typing indicator
                     div {
@@ -101,7 +102,7 @@ pub fn StoryView(
     }
 }
 
-fn render_message(msg: &StoryMessage) -> Element {
+fn render_message(msg: &StoryMessage, on_artifact_click: &Option<EventHandler<StoryArtifactRef>>) -> Element {
     let msg_class = if msg.is_self { "msg self" } else { "msg" };
     let avatar_class = if msg.is_self {
         "msg-avatar".to_string()
@@ -130,13 +131,24 @@ fn render_message(msg: &StoryMessage) -> Element {
                     "{msg.content}"
                     // Artifact card embed
                     if let Some(aref) = &msg.artifact_ref {
-                        div {
-                            class: "msg-artifact-card",
-                            span { class: "card-icon", "{aref.icon}" }
-                            div {
-                                class: "card-info",
-                                div { class: "card-name", "{aref.name}" }
-                                div { class: "card-type", "{aref.artifact_type}" }
+                        {
+                            let click_ref = aref.clone();
+                            let handler = on_artifact_click.clone();
+                            rsx! {
+                                div {
+                                    class: "msg-artifact-card",
+                                    onclick: move |_| {
+                                        if let Some(ref h) = handler {
+                                            h.call(click_ref.clone());
+                                        }
+                                    },
+                                    span { class: "card-icon", "{aref.icon}" }
+                                    div {
+                                        class: "card-info",
+                                        div { class: "card-name", "{aref.name}" }
+                                        div { class: "card-type", "{aref.artifact_type}" }
+                                    }
+                                }
                             }
                         }
                     }

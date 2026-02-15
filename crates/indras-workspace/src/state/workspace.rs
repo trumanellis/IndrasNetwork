@@ -10,6 +10,7 @@ pub enum ViewType {
     Document,
     Story,
     Quest,
+    Settings,
 }
 
 /// Display info for a peer in the UI.

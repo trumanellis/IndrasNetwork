@@ -1,6 +1,7 @@
 //! Quest/Need/Offering/Intention view component.
 
 use dioxus::prelude::*;
+use indras_ui::{ArtifactDisplayInfo, ArtifactGallery};
 
 /// The kind of quest-like artifact.
 #[derive(Clone, Debug, PartialEq)]
@@ -98,12 +99,37 @@ fn ProofCard(
                 div { class: "proof-card-time", "{proof.time_ago}" }
             }
             div { class: "proof-card-body", "{proof.body}" }
-            for artifact in proof.artifact_attachments.iter() {
-                div {
-                    class: "proof-artifact",
-                    span { class: "proof-artifact-icon", "{artifact.icon}" }
-                    span { class: "proof-artifact-name", "{artifact.name}" }
-                    span { class: "proof-artifact-type", "{artifact.artifact_type}" }
+            if proof.artifact_attachments.len() == 1 {
+                {
+                    let a = &proof.artifact_attachments[0];
+                    let info = ArtifactDisplayInfo {
+                        name: a.name.clone(),
+                        mime_type: if a.artifact_type == "Image" { Some("image/png".into()) } else { None },
+                        ..Default::default()
+                    };
+                    let icon = info.icon();
+                    rsx! {
+                        div {
+                            class: "proof-artifact",
+                            span { class: "proof-artifact-icon", "{icon}" }
+                            span { class: "proof-artifact-name", "{a.name}" }
+                            span { class: "proof-artifact-type", "{a.artifact_type}" }
+                        }
+                    }
+                }
+            } else if proof.artifact_attachments.len() > 1 {
+                {
+                    let gallery_items: Vec<ArtifactDisplayInfo> = proof.artifact_attachments.iter().enumerate().map(|(i, a)| {
+                        ArtifactDisplayInfo {
+                            id: format!("proof-{i}"),
+                            name: a.name.clone(),
+                            mime_type: if a.artifact_type == "Image" { Some("image/png".into()) } else { None },
+                            ..Default::default()
+                        }
+                    }).collect();
+                    rsx! {
+                        ArtifactGallery { artifacts: gallery_items }
+                    }
                 }
             }
             div {

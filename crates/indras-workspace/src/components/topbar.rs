@@ -11,6 +11,7 @@ pub fn Topbar(
     on_toggle_detail: EventHandler<()>,
     on_toggle_sidebar: EventHandler<()>,
     on_share: Option<EventHandler<()>>,
+    on_settings: Option<EventHandler<()>>,
 ) -> Element {
     rsx! {
         div {
@@ -51,8 +52,18 @@ pub fn Topbar(
                 }
                 button {
                     class: "topbar-btn desktop-only",
-                    onclick: move |_| on_toggle_detail.call(()),
+                    onclick: move |_| {
+                        if let Some(handler) = &on_settings {
+                            handler.call(());
+                        }
+                    },
                     "\u{2699} ",
+                    span { class: "btn-label", "Settings" }
+                }
+                button {
+                    class: "topbar-btn desktop-only",
+                    onclick: move |_| on_toggle_detail.call(()),
+                    "\u{1F4CB} ",
                     span { class: "btn-label", "Properties" }
                 }
                 button {

@@ -3,6 +3,7 @@
 use dioxus::desktop::{Config, LogicalSize, WindowBuilder};
 
 use indras_workspace::components::app::RootApp;
+use indras_ui::ThemedRoot;
 
 /// Workspace-specific CSS embedded at compile time.
 const WORKSPACE_CSS: &str = include_str!("../assets/workspace.css");
@@ -35,5 +36,16 @@ fn main() {
                     WORKSPACE_CSS,
                 )),
         )
-        .launch(RootApp);
+        .launch(App);
+}
+
+use dioxus::prelude::*;
+
+#[component]
+fn App() -> Element {
+    rsx! {
+        ThemedRoot {
+            RootApp {}
+        }
+    }
 }

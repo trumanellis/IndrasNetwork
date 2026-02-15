@@ -1,5 +1,6 @@
 //! Editor state — document blocks and content model.
 
+use indras_artifacts::ArtifactId;
 
 /// A content block in the document editor.
 #[derive(Clone, Debug, PartialEq)]
@@ -65,6 +66,7 @@ pub struct EditorState {
     pub title: String,
     pub blocks: Vec<Block>,
     pub meta: DocumentMeta,
+    pub tree_id: Option<ArtifactId>,
 }
 
 impl EditorState {
@@ -73,6 +75,7 @@ impl EditorState {
             title: String::new(),
             blocks: Vec::new(),
             meta: DocumentMeta::default(),
+            tree_id: None,
         }
     }
 
@@ -96,6 +99,38 @@ impl EditorState {
             Some("image") => Block::Image { caption: Some(content), artifact_id: id },
             Some("divider") => Block::Divider,
             _ => Block::Text { content, artifact_id: id },
+        }
+    }
+}
+
+impl Block {
+    /// Extract the text content from any block variant.
+    pub fn content(&self) -> &str {
+        match self {
+            Block::Text { content, .. } => content,
+            Block::Heading { content, .. } => content,
+            Block::Code { content, .. } => content,
+            Block::Callout { content, .. } => content,
+            Block::Todo { text, .. } => text,
+            Block::Image { caption, .. } => caption.as_deref().unwrap_or(""),
+            Block::Divider | Block::Placeholder => "",
+        }
+    }
+
+    /// Whether this block type supports click-to-edit.
+    pub fn is_editable(&self) -> bool {
+        !matches!(self, Block::Divider | Block::Placeholder | Block::Image { .. })
+    }
+
+    /// Create a new block with updated content, preserving type and metadata.
+    pub fn with_content(&self, new_content: String) -> Block {
+        match self {
+            Block::Text { artifact_id, .. } => Block::Text { content: new_content, artifact_id: artifact_id.clone() },
+            Block::Heading { level, artifact_id, .. } => Block::Heading { level: *level, content: new_content, artifact_id: artifact_id.clone() },
+            Block::Code { language, artifact_id, .. } => Block::Code { language: language.clone(), content: new_content, artifact_id: artifact_id.clone() },
+            Block::Callout { artifact_id, .. } => Block::Callout { content: new_content, artifact_id: artifact_id.clone() },
+            Block::Todo { done, artifact_id, .. } => Block::Todo { text: new_content, done: *done, artifact_id: artifact_id.clone() },
+            other => other.clone(),
         }
     }
 }
