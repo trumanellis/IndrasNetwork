@@ -400,6 +400,7 @@ pub fn RootApp() -> Element {
 
     let on_toggle_sidebar = move |_: ()| {
         let is_open = workspace.read().ui.sidebar_open;
+        tracing::info!("Hamburger clicked: sidebar_open {} -> {}", is_open, !is_open);
         workspace.write().ui.sidebar_open = !is_open;
     };
 
@@ -899,7 +900,7 @@ pub fn RootApp() -> Element {
 
                 // Sidebar
                 div {
-                    class: "sidebar",
+                    class: if sidebar_open { "sidebar open" } else { "sidebar" },
 
                     div {
                         class: "sidebar-header",
@@ -907,6 +908,13 @@ pub fn RootApp() -> Element {
                             avatar_letter: player_letter.clone(),
                             name: player_name.clone(),
                             short_id: player_short_id.clone(),
+                        }
+                        button {
+                            class: "sidebar-close-btn",
+                            onclick: move |_| {
+                                workspace.write().ui.sidebar_open = false;
+                            },
+                            "\u{00d7}"
                         }
                     }
 

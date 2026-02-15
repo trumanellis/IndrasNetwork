@@ -59,14 +59,17 @@ button{font-family:var(--font-body)}
    ================================================================ */
 .app{display:grid;height:100%;grid-template-columns:var(--sidebar-w) 1fr var(--detail-w);grid-template-areas:"sidebar main detail";overflow:hidden}
 .app.detail-closed{grid-template-columns:var(--sidebar-w) 1fr 0;grid-template-areas:"sidebar main ."}
+.app.sidebar-closed{grid-template-columns:0 1fr var(--detail-w);grid-template-areas:". main detail"}
+.app.sidebar-closed .sidebar{display:none}
+.app.sidebar-closed.detail-closed{grid-template-columns:0 1fr 0;grid-template-areas:". main ."}
 
 /* ================================================================
    SIDEBAR (unchanged responsive patterns)
    ================================================================ */
 .sidebar{grid-area:sidebar;background:var(--bg-deep);border-right:1px solid var(--border-subtle);display:flex;flex-direction:column;overflow:hidden;z-index:50}
-.sidebar-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:49;opacity:0;transition:opacity var(--transition-slide)}
-.sidebar-backdrop.visible{opacity:1}
-.sidebar-header{padding:16px 16px 14px;border-bottom:1px solid var(--border-subtle);flex-shrink:0}
+.sidebar-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:49;opacity:0;pointer-events:none;transition:opacity var(--transition-slide)}
+.sidebar-backdrop.visible{opacity:1;pointer-events:auto}
+.sidebar-header{padding:16px 16px 14px;border-bottom:1px solid var(--border-subtle);flex-shrink:0;display:flex;align-items:center;gap:8px}
 .identity-row{display:flex;align-items:center;gap:10px}
 .identity-avatar{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,var(--accent-teal),var(--accent-violet));display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600;color:var(--bg-void);flex-shrink:0}
 .identity-name{font-weight:600;font-size:15px}
@@ -116,8 +119,9 @@ button{font-family:var(--font-body)}
 
 /* Topbar */
 .topbar{display:flex;align-items:center;padding:8px 20px;border-bottom:1px solid var(--border-subtle);min-height:46px;flex-shrink:0;gap:8px}
-.topbar-hamburger{display:none;width:36px;height:36px;border:none;background:none;color:var(--text-secondary);font-size:20px;cursor:pointer;border-radius:var(--radius-sm);align-items:center;justify-content:center;flex-shrink:0}
-.topbar-hamburger:active{background:var(--bg-hover)}
+.topbar-hamburger{display:flex;width:36px;height:36px;border:none;background:none;color:var(--text-secondary);font-size:20px;cursor:pointer;border-radius:var(--radius-sm);align-items:center;justify-content:center;flex-shrink:0}
+.topbar-hamburger:hover{background:var(--bg-hover);color:var(--text-primary)}
+.topbar-hamburger:active{background:var(--bg-active)}
 .breadcrumbs{display:flex;align-items:center;gap:4px;font-size:13px;flex:1;min-width:0;overflow-x:auto;scrollbar-width:none}
 .breadcrumbs::-webkit-scrollbar{display:none}
 .crumb{color:var(--text-muted);cursor:pointer;padding:4px 6px;border-radius:var(--radius-sm);white-space:nowrap;flex-shrink:0}
@@ -553,7 +557,6 @@ button{font-family:var(--font-body)}
   .detail-panel.open{transform:translateX(0)}
   .app.detail-closed .detail-panel{display:flex;transform:translateX(100%)}
   .topbar{padding:6px 12px;min-height:48px}
-  .topbar-hamburger{display:flex}
   .topbar-btn.desktop-only{display:none}
   .steward-badge{display:none}
   .content-scroll,.story-scroll,.request-scroll{padding-bottom:calc(var(--bottom-nav-h) + var(--safe-bottom) + 20px)}
