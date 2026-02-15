@@ -222,7 +222,7 @@ pub fn NoteEditorOverlay(
                                         if let Some(pid) = peer_id {
                                             // Peer realm
                                             let my_id = net.id();
-                                            let dm_id = indras_network::direct_connect::dm_realm_id(my_id, pid);
+                                            let dm_id = indras_network::artifact_sync::artifact_interface_id(&indras_artifacts::dm_story_id(my_id, pid));
                                             if let Some(realm) = net.get_realm_by_id(&dm_id) {
                                                 use indras_sync_engine::RealmNotes;
                                                 match realm.create_note(title, content, my_id, vec![]).await {
@@ -262,7 +262,7 @@ pub fn NoteEditorOverlay(
                                                 if let Some(pid) = peer_id {
                                                     // Peer realm
                                                     let my_id = net.id();
-                                                    let dm_id = indras_network::direct_connect::dm_realm_id(my_id, pid);
+                                                    let dm_id = indras_network::artifact_sync::artifact_interface_id(&indras_artifacts::dm_story_id(my_id, pid));
                                                     if let Some(realm) = net.get_realm_by_id(&dm_id) {
                                                         use indras_sync_engine::RealmNotes;
                                                         match realm.update_note(id_bytes, content).await {

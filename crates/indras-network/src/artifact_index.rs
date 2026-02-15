@@ -248,24 +248,6 @@ impl ArtifactIndex {
             .collect()
     }
 
-    /// Get artifacts accessible by ALL given members (realm view query).
-    pub fn accessible_by_all(
-        &self,
-        members: &[MemberId],
-        now: i64,
-    ) -> Vec<&HomeArtifactEntry> {
-        if members.is_empty() {
-            return Vec::new();
-        }
-
-        self.artifacts
-            .values()
-            .filter(|entry| {
-                entry.status.is_active()
-                    && members.iter().all(|m| entry.has_active_grant(m, now))
-            })
-            .collect()
-    }
 
     /// Remove expired timed grants.
     pub fn gc_expired(&mut self, now: i64) {
@@ -854,27 +836,6 @@ mod tests {
         assert!(index.accessible_by(&member_a(), 500).is_empty());
     }
 
-    #[test]
-    fn test_accessible_by_all_realm_view() {
-        let mut index = ArtifactIndex::default();
-        index.store(test_entry());
-        let id = test_id();
-
-        index.grant(&id, member_a(), AccessMode::Revocable, steward(), 100).unwrap();
-        index.grant(&id, member_b(), AccessMode::Permanent, steward(), 100).unwrap();
-
-        let members = vec![member_a(), member_b()];
-        assert_eq!(index.accessible_by_all(&members, 100).len(), 1);
-
-        let members_with_c = vec![member_a(), member_c()];
-        assert!(index.accessible_by_all(&members_with_c, 100).is_empty());
-    }
-
-    #[test]
-    fn test_accessible_by_all_empty_members() {
-        let index = ArtifactIndex::default();
-        assert!(index.accessible_by_all(&[], 100).is_empty());
-    }
 
     #[test]
     fn test_gc_expired() {

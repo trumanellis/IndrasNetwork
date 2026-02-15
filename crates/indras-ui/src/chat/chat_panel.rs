@@ -7,7 +7,8 @@ use std::sync::Arc;
 
 use dioxus::prelude::*;
 use indras_network::IndrasNetwork;
-use indras_network::direct_connect::dm_realm_id;
+use indras_network::artifact_sync::artifact_interface_id;
+use indras_artifacts::dm_story_id;
 use indras_sync_engine::RealmChat;
 use tracing::debug;
 
@@ -46,7 +47,7 @@ fn get_peer_realm(
     my_id: [u8; 32],
     peer_id: [u8; 32],
 ) -> Result<indras_network::Realm, indras_network::IndraError> {
-    let dm_id = dm_realm_id(my_id, peer_id);
+    let dm_id = artifact_interface_id(&dm_story_id(my_id, peer_id));
     net.get_realm_by_id(&dm_id).ok_or_else(|| {
         indras_network::IndraError::InvalidOperation(format!(
             "DM realm not found for peer {:?}",
@@ -214,7 +215,7 @@ pub fn ChatPanel(
                     }
                 };
 
-                let dm_id = dm_realm_id(my_id, peer_id);
+                let dm_id = artifact_interface_id(&dm_story_id(my_id, peer_id));
                 let realm_id_hex: String = dm_id.as_bytes().iter().map(|b| format!("{:02x}", b)).collect();
                 let tick = current_tick();
 

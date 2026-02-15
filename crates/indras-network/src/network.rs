@@ -4,14 +4,16 @@
 
 use crate::config::{NetworkBuilder, NetworkConfig, Preset};
 use crate::contacts::{contacts_realm_id, ContactsRealm};
-use crate::direct_connect::{dm_key_seed, dm_realm_id, inbox_key_seed, inbox_realm_id, is_initiator, ConnectionNotify};
+use crate::direct_connect::{inbox_key_seed, inbox_realm_id, is_initiator, ConnectionNotify};
 use crate::encounter;
 use crate::error::{IndraError, Result};
 use crate::home_realm::{home_key_seed, home_realm_id, HomeRealm};
+use crate::artifact_sync::{artifact_interface_id, artifact_key_seed};
 use crate::identity_code::IdentityCode;
 use crate::invite::InviteCode;
 use crate::member::{Member, MemberId};
 use crate::realm::Realm;
+use indras_artifacts::generate_tree_id;
 
 use dashmap::DashMap;
 use indras_core::InterfaceId;
@@ -396,7 +398,8 @@ impl IndrasNetwork {
                     };
 
                     let peer_id = notify.sender_id;
-                    let dm_realm_id = dm_realm_id(my_id, peer_id);
+                    let dm_artifact_id = indras_artifacts::dm_story_id(my_id, peer_id);
+                    let dm_realm_id = crate::artifact_sync::artifact_interface_id(&dm_artifact_id);
 
                     // Check if we already have this DM realm (idempotent)
                     if realms.contains_key(&dm_realm_id) {
@@ -432,7 +435,7 @@ impl IndrasNetwork {
                     }
 
                     // Create the DM realm (reciprocate the connection) with deterministic key + bootstrap
-                    let dm_seed = dm_key_seed(&my_id, &peer_id);
+                    let dm_seed = crate::artifact_sync::artifact_key_seed(&dm_artifact_id);
                     match inner
                         .create_interface_with_seed(dm_realm_id, &dm_seed, Some("DM"), vec![peer_public_key])
                         .await
@@ -548,7 +551,29 @@ impl IndrasNetwork {
             self.start().await?;
         }
 
-        let (interface_id, invite_key) = self.inner.create_interface(Some(name)).await?;
+        // Generate random Tree artifact ID
+        let artifact_id = generate_tree_id();
+
+        // Derive interface ID from artifact ID
+        let interface_id = artifact_interface_id(&artifact_id);
+
+        // Derive key seed from artifact ID
+        let key_seed = artifact_key_seed(&artifact_id);
+
+        // Create interface with deterministic ID and key
+        let (_interface_id, invite_key) = self.inner.create_interface_with_seed(
+            interface_id,
+            &key_seed,
+            Some(name),
+            vec![]
+        ).await?;
+
+        // Register artifact in HomeRealm
+        if let Ok(home) = self.home_realm().await {
+            if let Err(e) = home.ensure_realm_artifact(&artifact_id, name).await {
+                tracing::debug!(error = %e, "Failed to register realm artifact (non-fatal)");
+            }
+        }
 
         // Cache the realm state
         self.realms.insert(
@@ -558,10 +583,13 @@ impl IndrasNetwork {
             },
         );
 
+        // Create invite WITH artifact_id
+        let invite_code = InviteCode::new_with_artifact(invite_key, artifact_id);
+
         Ok(Realm::new(
             interface_id,
             Some(name.to_string()),
-            InviteCode::new(invite_key),
+            invite_code,
             Arc::clone(&self.inner),
         ))
     }
@@ -585,6 +613,15 @@ impl IndrasNetwork {
 
         let invite_code = InviteCode::parse(invite.as_ref())?;
         let interface_id = self.inner.join_interface(invite_code.invite_key().clone()).await?;
+
+        // If the invite carries an artifact ID, register it in our HomeRealm
+        if let Some(artifact_id) = invite_code.artifact_id() {
+            if let Ok(home) = self.home_realm().await {
+                if let Err(e) = home.ensure_realm_artifact(artifact_id, "Realm").await {
+                    tracing::debug!(error = %e, "Failed to register realm artifact (non-fatal)");
+                }
+            }
+        }
 
         // Cache the realm state
         self.realms.insert(interface_id, RealmState { name: None });
@@ -682,8 +719,9 @@ impl IndrasNetwork {
             self.start().await?;
         }
 
-        // 1. Compute deterministic DM realm ID
-        let realm_id = dm_realm_id(my_id, peer_id);
+        // 1. Use dm_story_id for canonical DM identity, derive interface ID from it
+        let artifact_id = indras_artifacts::dm_story_id(my_id, peer_id);
+        let realm_id = artifact_interface_id(&artifact_id);
 
         // 2. Check if already loaded
         if let Some(state) = self.realms.get(&realm_id) {
@@ -703,7 +741,7 @@ impl IndrasNetwork {
         // 4. Create the interface with deterministic ID, seed, and peer as bootstrap
         let peer_public_key = iroh::PublicKey::from_bytes(&peer_id)
             .map_err(|e| IndraError::Crypto(format!("Invalid peer key: {}", e)))?;
-        let seed = dm_key_seed(&my_id, &peer_id);
+        let seed = artifact_key_seed(&artifact_id);
         let (interface_id, invite_key) = self
             .inner
             .create_interface_with_seed(realm_id, &seed, Some("DM"), vec![peer_public_key])
@@ -712,6 +750,13 @@ impl IndrasNetwork {
         // Add peer as member so send_message can reach them
         let peer_identity = IrohIdentity::from(peer_public_key);
         let _ = self.inner.add_member(&interface_id, peer_identity).await;
+
+        // Register DM as a Story artifact in the HomeRealm
+        if let Ok(home) = self.home_realm().await {
+            if let Err(e) = home.ensure_dm_story(&artifact_id, peer_id).await {
+                tracing::debug!(error = %e, "Failed to register DM story in home realm (non-fatal)");
+            }
+        }
 
         // 4. Cache realm state
         self.realms.insert(
