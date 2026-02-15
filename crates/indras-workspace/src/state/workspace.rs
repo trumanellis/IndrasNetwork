@@ -13,6 +13,14 @@ pub enum ViewType {
     Settings,
 }
 
+/// Phase of the application lifecycle.
+#[derive(Clone, Debug, PartialEq)]
+pub enum AppPhase {
+    Loading,    // Checking is_first_run
+    Setup,      // First run: collect display name
+    Workspace,  // Main workspace (identity loaded)
+}
+
 /// Display info for a peer in the UI.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PeerDisplayInfo {
@@ -64,6 +72,7 @@ pub struct WorkspaceState {
     pub editor: EditorState,
     pub peers: PeerState,
     pub ui: UiState,
+    pub phase: AppPhase,
 }
 
 impl WorkspaceState {
@@ -79,6 +88,7 @@ impl WorkspaceState {
                 active_detail_tab: 0,
                 active_view: ViewType::Document,
             },
+            phase: AppPhase::Loading,
         }
     }
 }

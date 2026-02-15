@@ -7,3 +7,5 @@ pub mod settings;
 pub mod blocks;
 pub mod bottom_nav;
 pub mod fab;
+pub mod setup;
+pub mod pass_story;

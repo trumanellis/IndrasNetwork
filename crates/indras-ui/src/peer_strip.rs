@@ -13,7 +13,11 @@ pub struct PeerDisplayInfo {
 
 /// Horizontal strip of peer avatars with online indicators.
 #[component]
-pub fn PeerStrip(peers: Vec<PeerDisplayInfo>) -> Element {
+pub fn PeerStrip(
+    peers: Vec<PeerDisplayInfo>,
+    #[props(optional)]
+    on_add_contact: Option<EventHandler<()>>,
+) -> Element {
     rsx! {
         div {
             class: "peer-strip",
@@ -27,6 +31,19 @@ pub fn PeerStrip(peers: Vec<PeerDisplayInfo>) -> Element {
                             class: "{class_str}",
                             title: "{peer.name}",
                             "{peer.letter}"
+                        }
+                    }
+                }
+            }
+            if let Some(handler) = &on_add_contact {
+                {
+                    let handler = handler.clone();
+                    rsx! {
+                        button {
+                            class: "peer-add-btn",
+                            title: "Make Contact",
+                            onclick: move |_| handler.call(()),
+                            "+"
                         }
                     }
                 }
