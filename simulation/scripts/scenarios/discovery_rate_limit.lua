@@ -4,8 +4,8 @@
 -- (1 response per peer per 30-second window).
 --
 -- Flow:
--- 1. Alice, Bob, Carol form a group
--- 2. Dave joins and sends multiple IntroductionRequests rapidly
+-- 1. A, B, C form a group
+-- 2. D joins and sends multiple IntroductionRequests rapidly
 -- 3. Only first request gets response, subsequent ones rate-limited
 -- 4. After 30s window, new request succeeds
 --

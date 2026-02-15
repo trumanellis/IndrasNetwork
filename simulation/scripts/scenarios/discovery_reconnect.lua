@@ -4,11 +4,11 @@
 -- discovery with other group members.
 --
 -- Flow:
--- 1. Alice, Bob, Carol form a group (discover each other)
--- 2. Bob goes offline (network failure)
+-- 1. A, B, C form a group (discover each other)
+-- 2. B goes offline (network failure)
 -- 3. Other members may or may not notice
--- 4. Bob comes back online
--- 5. Bob re-broadcasts presence
+-- 4. B comes back online
+-- 5. B re-broadcasts presence
 -- 6. Mutual awareness restored
 --
 -- This scenario validates discovery resilience to network disconnections.

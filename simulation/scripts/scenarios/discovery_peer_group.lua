@@ -3,11 +3,11 @@
 -- Tests discovery among 3+ peers, where multiple overlapping realms emerge.
 --
 -- Flow:
--- 1. Alice comes online
--- 2. Bob discovers Alice -> Realm {Alice, Bob} now exists
--- 3. Carol discovers Alice -> Realm {Alice, Carol} now exists
--- 4. Carol discovers Bob -> Realm {Bob, Carol} now exists
--- 5. All three know each other -> Realm {Alice, Bob, Carol} also exists
+-- 1. A comes online
+-- 2. B discovers A -> Realm {A, B} now exists
+-- 3. C discovers A -> Realm {A, C} now exists
+-- 4. C discovers B -> Realm {B, C} now exists
+-- 5. All three know each other -> Realm {A, B, C} also exists
 -- 6. Four distinct realms emerge from three peers
 --
 -- Key insight: N peers can form 2^N - N - 1 distinct realms (all subsets of size >= 2)

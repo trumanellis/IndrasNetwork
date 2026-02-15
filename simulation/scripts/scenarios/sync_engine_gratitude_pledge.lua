@@ -1,7 +1,7 @@
 -- SyncEngine Gratitude Pledge Scenario
 --
 -- Demonstrates the full Token of Gratitude lifecycle:
--- 1. Realm creation with 3 members (Zephyr, Nova, Sage)
+-- 1. Realm creation with 3 members (A, B, C)
 -- 2. Quest creation (Design Logo, Write Documentation, Build API)
 -- 3. Proof submission and blessings (minting tokens)
 -- 4. Token pledging to quests as bounty
@@ -41,11 +41,11 @@ sim:initialize()
 local peers = mesh:peers()
 local result = quest_helpers.result_builder("sync_engine_gratitude_pledge")
 
--- Assign roles (futuristic names per CLAUDE.md)
-local peer_zephyr = tostring(peers[1])
-local peer_nova = tostring(peers[2])
-local peer_sage = tostring(peers[3])
-local all_members = { peer_zephyr, peer_nova, peer_sage }
+-- Assign roles
+local peer_a = tostring(peers[1])
+local peer_b = tostring(peers[2])
+local peer_c = tostring(peers[3])
+local all_members = { peer_a, peer_b, peer_c }
 
 -- Tracking
 local blessing_tracker = home.BlessingTracker.new()
@@ -105,7 +105,7 @@ sim:step()
 -- Rename realm
 logger.event("realm_alias_set", {
     tick = sim.tick,
-    member = peer_zephyr,
+    member = peer_a,
     realm_id = realm_id,
     alias = "Gratitude Workshop",
 })
@@ -120,37 +120,37 @@ logger.info("Phase 1 complete", { phase = 1, tick = sim.tick })
 indras.narrative("New quests take shape — a logo, documentation, and an API")
 logger.info("Phase 2: Create quests", { phase = 2 })
 
--- Quest A: Design Logo (created by Zephyr)
+-- Quest A: Design Logo (created by A)
 local quest_a_id = quest_helpers.compute_quest_id(realm_id, "Design Logo")
 logger.event("quest_created", {
     tick = sim.tick,
     realm_id = realm_id,
     quest_id = quest_a_id,
-    creator = peer_zephyr,
+    creator = peer_a,
     title = "Design Logo",
     description = "Create a logo for the Gratitude Workshop",
 })
 sim:step()
 
--- Quest B: Write Documentation (created by Zephyr)
+-- Quest B: Write Documentation (created by A)
 local quest_b_id = quest_helpers.compute_quest_id(realm_id, "Write Documentation")
 logger.event("quest_created", {
     tick = sim.tick,
     realm_id = realm_id,
     quest_id = quest_b_id,
-    creator = peer_zephyr,
+    creator = peer_a,
     title = "Write Documentation",
     description = "Document the token system for new members",
 })
 sim:step()
 
--- Quest C: Build API (created by Sage)
+-- Quest C: Build API (created by C)
 local quest_c_id = quest_helpers.compute_quest_id(realm_id, "Build API")
 logger.event("quest_created", {
     tick = sim.tick,
     realm_id = realm_id,
     quest_id = quest_c_id,
-    creator = peer_sage,
+    creator = peer_c,
     title = "Build API",
     description = "Build the gratitude pledge API endpoints",
 })
@@ -165,52 +165,52 @@ logger.info("Phase 2 complete", { phase = 2, tick = sim.tick })
 indras.narrative("All eyes turn to the logo quest")
 logger.info("Phase 3: Members focus attention", { phase = 3 })
 
--- Zephyr focuses on Quest A
+-- A focuses on Quest A
 logger.event("attention_switched", {
     tick = sim.tick,
-    member = peer_zephyr,
+    member = peer_a,
     quest_id = quest_a_id,
     latency_us = quest_helpers.attention_switch_latency(),
 })
-blessing_tracker:record_attention(quest_a_id, peer_zephyr, 1, 30000)
+blessing_tracker:record_attention(quest_a_id, peer_a, 1, 30000)
 sim:step()
 
--- Nova focuses on Quest A
+-- B focuses on Quest A
 logger.event("attention_switched", {
     tick = sim.tick,
-    member = peer_nova,
+    member = peer_b,
     quest_id = quest_a_id,
     latency_us = quest_helpers.attention_switch_latency(),
 })
-blessing_tracker:record_attention(quest_a_id, peer_nova, 1, 45000)
+blessing_tracker:record_attention(quest_a_id, peer_b, 1, 45000)
 sim:step()
 
--- Sage focuses on Quest A
+-- C focuses on Quest A
 logger.event("attention_switched", {
     tick = sim.tick,
-    member = peer_sage,
+    member = peer_c,
     quest_id = quest_a_id,
     latency_us = quest_helpers.attention_switch_latency(),
 })
-blessing_tracker:record_attention(quest_a_id, peer_sage, 1, 20000)
+blessing_tracker:record_attention(quest_a_id, peer_c, 1, 20000)
 sim:step()
 
 logger.info("Phase 3 complete", { phase = 3, tick = sim.tick })
 
 -- ============================================================================
--- PHASE 4: NOVA SUBMITS PROOF FOR QUEST A
+-- PHASE 4: B SUBMITS PROOF FOR QUEST A
 -- ============================================================================
 
-indras.narrative("Nova presents a logo that captures the workshop's spirit")
-logger.info("Phase 4: Nova submits proof for Quest A", { phase = 4 })
+indras.narrative("B presents a logo that captures the workshop's spirit")
+logger.info("Phase 4: B submits proof for Quest A", { phase = 4 })
 
-local folder_a_id = quest_helpers.compute_folder_id(realm_id, quest_a_id, peer_nova)
+local folder_a_id = quest_helpers.compute_folder_id(realm_id, quest_a_id, peer_b)
 
 logger.event("proof_folder_submitted", {
     tick = sim.tick,
     realm_id = realm_id,
     quest_id = quest_a_id,
-    claimant = peer_nova,
+    claimant = peer_b,
     folder_id = folder_a_id,
     narrative_preview = "Designed a clean logo capturing the workshop's essence.",
     artifact_count = 2,
@@ -222,7 +222,7 @@ sim:step()
 
 logger.event("chat_message", {
     tick = sim.tick,
-    member = peer_nova,
+    member = peer_b,
     realm_id = realm_id,
     content = "Submitted my logo proof!",
     message_type = "text",
@@ -235,109 +235,109 @@ logger.info("Phase 4 complete", { phase = 4, tick = sim.tick })
 -- PHASE 5: BLESSINGS FOR QUEST A (MINTING TOKENS T1 AND T2)
 -- ============================================================================
 
-indras.narrative("Blessings flow — Nova's work is recognized with tokens of gratitude")
-logger.info("Phase 5: Bless Quest A proof -> Mint tokens for Nova", { phase = 5 })
+indras.narrative("Blessings flow — B's work is recognized with tokens of gratitude")
+logger.info("Phase 5: Bless Quest A proof -> Mint tokens for B", { phase = 5 })
 
--- Zephyr blesses Nova's proof (30min attention) -> Token T1 minted
-local zephyr_attention = 30000 -- 30s (displayed as 30s in viewer, millis)
-blessing_tracker:record_blessing(quest_a_id, peer_nova, peer_zephyr, {1}, zephyr_attention)
+-- A blesses B's proof (30min attention) -> Token T1 minted
+local a_attention = 30000 -- 30s (displayed as 30s in viewer, millis)
+blessing_tracker:record_blessing(quest_a_id, peer_b, peer_a, {1}, a_attention)
 
 logger.event("blessing_given", {
     tick = sim.tick,
     realm_id = realm_id,
     quest_id = quest_a_id,
-    claimant = peer_nova,
-    blesser = peer_zephyr,
+    claimant = peer_b,
+    blesser = peer_a,
     event_count = 1,
-    attention_millis = zephyr_attention,
+    attention_millis = a_attention,
 })
 
-local token_t1 = make_token_id(quest_a_id, peer_nova, sim.tick)
+local token_t1 = make_token_id(quest_a_id, peer_b, sim.tick)
 logger.event("token_minted", {
     tick = sim.tick,
     realm_id = realm_id,
     token_id = token_t1,
-    steward = peer_nova,
-    value_millis = zephyr_attention,
-    blesser = peer_zephyr,
+    steward = peer_b,
+    value_millis = a_attention,
+    blesser = peer_a,
     source_quest_id = quest_a_id,
 })
 sim:step()
 
 logger.event("chat_message", {
     tick = sim.tick,
-    member = peer_zephyr,
+    member = peer_a,
     realm_id = realm_id,
     content = "Excellent logo work! Releasing gratitude.",
     message_type = "text",
 })
 sim:step()
 
--- Sage blesses Nova's proof (20s attention) -> Token T2 minted
-local sage_attention = 20000
-blessing_tracker:record_blessing(quest_a_id, peer_nova, peer_sage, {1}, sage_attention)
+-- C blesses B's proof (20s attention) -> Token T2 minted
+local c_attention = 20000
+blessing_tracker:record_blessing(quest_a_id, peer_b, peer_c, {1}, c_attention)
 
 logger.event("blessing_given", {
     tick = sim.tick,
     realm_id = realm_id,
     quest_id = quest_a_id,
-    claimant = peer_nova,
-    blesser = peer_sage,
+    claimant = peer_b,
+    blesser = peer_c,
     event_count = 1,
-    attention_millis = sage_attention,
+    attention_millis = c_attention,
 })
 
-local token_t2 = make_token_id(quest_a_id, peer_nova, sim.tick)
+local token_t2 = make_token_id(quest_a_id, peer_b, sim.tick)
 logger.event("token_minted", {
     tick = sim.tick,
     realm_id = realm_id,
     token_id = token_t2,
-    steward = peer_nova,
-    value_millis = sage_attention,
-    blesser = peer_sage,
+    steward = peer_b,
+    value_millis = c_attention,
+    blesser = peer_c,
     source_quest_id = quest_a_id,
 })
 sim:step()
 
 logger.event("chat_message", {
     tick = sim.tick,
-    member = peer_sage,
+    member = peer_c,
     realm_id = realm_id,
     content = "Clean design! Gratitude released.",
     message_type = "text",
 })
 sim:step()
 
--- Verify: Nova now has 2 tokens (T1=30s, T2=20s)
-logger.info("Phase 5 complete: Nova has 2 tokens", {
+-- Verify: B now has 2 tokens (T1=30s, T2=20s)
+logger.info("Phase 5 complete: B has 2 tokens", {
     phase = 5,
     tick = sim.tick,
     token_t1 = token_t1,
-    token_t1_value = zephyr_attention,
+    token_t1_value = a_attention,
     token_t2 = token_t2,
-    token_t2_value = sage_attention,
+    token_t2_value = c_attention,
 })
 
 -- ============================================================================
--- PHASE 6: NOVA PLEDGES T2 TO QUEST B AS BOUNTY
+-- PHASE 6: B PLEDGES T2 TO QUEST B AS BOUNTY
 -- ============================================================================
 
-indras.narrative("Nova pledges gratitude forward — past work fuels the next quest")
-logger.info("Phase 6: Nova pledges T2 to Quest B", { phase = 6 })
+indras.narrative("B pledges gratitude forward — past work fuels the next quest")
+logger.info("Phase 6: B pledges T2 to Quest B", { phase = 6 })
 
 logger.event("gratitude_pledged", {
     tick = sim.tick,
     realm_id = realm_id,
     token_id = token_t2,
-    pledger = peer_nova,
+    pledger = peer_b,
     target_quest_id = quest_b_id,
-    amount_millis = sage_attention,
+    amount_millis = c_attention,
 })
 sim:step()
 
 logger.event("chat_message", {
     tick = sim.tick,
-    member = peer_nova,
+    member = peer_b,
     realm_id = realm_id,
     content = "Pledged 20s of gratitude to the Documentation quest!",
     message_type = "text",
@@ -348,23 +348,23 @@ sim:step()
 logger.info("Phase 6 complete: Quest B bounty = 20s", {
     phase = 6,
     tick = sim.tick,
-    quest_b_bounty = sage_attention,
+    quest_b_bounty = c_attention,
 })
 
 -- ============================================================================
--- PHASE 7: SAGE SUBMITS PROOF FOR QUEST B
+-- PHASE 7: C SUBMITS PROOF FOR QUEST B
 -- ============================================================================
 
-indras.narrative("Sage delivers documentation that brings clarity to the system")
-logger.info("Phase 7: Sage submits proof for Quest B", { phase = 7 })
+indras.narrative("C delivers documentation that brings clarity to the system")
+logger.info("Phase 7: C submits proof for Quest B", { phase = 7 })
 
-local folder_b_id = quest_helpers.compute_folder_id(realm_id, quest_b_id, peer_sage)
+local folder_b_id = quest_helpers.compute_folder_id(realm_id, quest_b_id, peer_c)
 
 logger.event("proof_folder_submitted", {
     tick = sim.tick,
     realm_id = realm_id,
     quest_id = quest_b_id,
-    claimant = peer_sage,
+    claimant = peer_c,
     folder_id = folder_b_id,
     narrative_preview = "Comprehensive token system docs with examples.",
     artifact_count = 3,
@@ -376,7 +376,7 @@ sim:step()
 
 logger.event("chat_message", {
     tick = sim.tick,
-    member = peer_sage,
+    member = peer_c,
     realm_id = realm_id,
     content = "Documentation is ready for review!",
     message_type = "text",
@@ -386,60 +386,60 @@ sim:step()
 logger.info("Phase 7 complete", { phase = 7, tick = sim.tick })
 
 -- ============================================================================
--- PHASE 8: NOVA RELEASES T2 TO SAGE (STEWARD TRANSFER)
+-- PHASE 8: B RELEASES T2 TO C (STEWARD TRANSFER)
 -- ============================================================================
 
-indras.narrative("Gratitude changes hands as Nova releases a token to Sage")
-logger.info("Phase 8: Nova releases T2 to Sage", { phase = 8 })
+indras.narrative("Gratitude changes hands as B releases a token to C")
+logger.info("Phase 8: B releases T2 to C", { phase = 8 })
 
 logger.event("gratitude_released", {
     tick = sim.tick,
     realm_id = realm_id,
     token_id = token_t2,
-    from_steward = peer_nova,
-    to_steward = peer_sage,
+    from_steward = peer_b,
+    to_steward = peer_c,
     target_quest_id = quest_b_id,
-    amount_millis = sage_attention,
+    amount_millis = c_attention,
 })
 sim:step()
 
 logger.event("chat_message", {
     tick = sim.tick,
-    member = peer_nova,
+    member = peer_b,
     realm_id = realm_id,
-    content = "Great docs, Sage! Releasing gratitude.",
+    content = "Great docs, C! Releasing gratitude.",
     message_type = "text",
 })
 sim:step()
 
--- Verify: Sage now owns T2 (20s), Nova still owns T1 (30s)
+-- Verify: C now owns T2 (20s), B still owns T1 (30s)
 logger.info("Phase 8 complete: Steward transfer", {
     phase = 8,
     tick = sim.tick,
-    t2_steward = "Sage",
-    t1_steward = "Nova",
+    t2_steward = "C",
+    t1_steward = "B",
 })
 
 -- ============================================================================
--- PHASE 9: TOKEN CHAINING -- SAGE PLEDGES T2 TO QUEST C
+-- PHASE 9: TOKEN CHAINING -- C PLEDGES T2 TO QUEST C
 -- ============================================================================
 
-indras.narrative("The token travels onward — Sage pledges it to the API quest")
-logger.info("Phase 9: Token chaining -- Sage pledges T2 to Quest C", { phase = 9 })
+indras.narrative("The token travels onward — C pledges it to the API quest")
+logger.info("Phase 9: Token chaining -- C pledges T2 to Quest C", { phase = 9 })
 
 logger.event("gratitude_pledged", {
     tick = sim.tick,
     realm_id = realm_id,
     token_id = token_t2,
-    pledger = peer_sage,
+    pledger = peer_c,
     target_quest_id = quest_c_id,
-    amount_millis = sage_attention,
+    amount_millis = c_attention,
 })
 sim:step()
 
 logger.event("chat_message", {
     tick = sim.tick,
-    member = peer_sage,
+    member = peer_c,
     realm_id = realm_id,
     content = "Passing the gratitude forward! Pledged to Build API quest.",
     message_type = "text",
@@ -449,23 +449,23 @@ sim:step()
 logger.info("Phase 9 complete: T2 now pledged to Quest C", {
     phase = 9,
     tick = sim.tick,
-    quest_c_bounty = sage_attention,
+    quest_c_bounty = c_attention,
 })
 
 -- ============================================================================
--- PHASE 10: ZEPHYR SUBMITS PROOF FOR QUEST C, SAGE RELEASES T2
+-- PHASE 10: A SUBMITS PROOF FOR QUEST C, C RELEASES T2
 -- ============================================================================
 
 indras.narrative("A single token has now flowed through three stewards")
-logger.info("Phase 10: Zephyr submits proof for Quest C", { phase = 10 })
+logger.info("Phase 10: A submits proof for Quest C", { phase = 10 })
 
-local folder_c_id = quest_helpers.compute_folder_id(realm_id, quest_c_id, peer_zephyr)
+local folder_c_id = quest_helpers.compute_folder_id(realm_id, quest_c_id, peer_a)
 
 logger.event("proof_folder_submitted", {
     tick = sim.tick,
     realm_id = realm_id,
     quest_id = quest_c_id,
-    claimant = peer_zephyr,
+    claimant = peer_a,
     folder_id = folder_c_id,
     narrative_preview = "API endpoints for pledge/release/withdraw.",
     artifact_count = 4,
@@ -475,75 +475,75 @@ logger.event("proof_folder_submitted", {
 })
 sim:step()
 
--- Sage releases T2 to Zephyr (3rd steward!)
+-- C releases T2 to A (3rd steward!)
 logger.event("gratitude_released", {
     tick = sim.tick,
     realm_id = realm_id,
     token_id = token_t2,
-    from_steward = peer_sage,
-    to_steward = peer_zephyr,
+    from_steward = peer_c,
+    to_steward = peer_a,
     target_quest_id = quest_c_id,
-    amount_millis = sage_attention,
+    amount_millis = c_attention,
 })
 sim:step()
 
 logger.event("chat_message", {
     tick = sim.tick,
-    member = peer_sage,
+    member = peer_c,
     realm_id = realm_id,
     content = "Solid API work! Gratitude flows onward.",
     message_type = "text",
 })
 sim:step()
 
--- T2 has now flowed: Nova -> Sage -> Zephyr (3 stewards)
+-- T2 has now flowed: B -> C -> A (3 stewards)
 logger.info("Phase 10 complete: Token chained through 3 stewards", {
     phase = 10,
     tick = sim.tick,
-    t2_steward = "Zephyr",
-    t2_chain = "Nova -> Sage -> Zephyr",
+    t2_steward = "A",
+    t2_chain = "B -> C -> A",
 })
 
 -- ============================================================================
 -- PHASE 11: PLEDGE AND WITHDRAW DEMONSTRATION
 -- ============================================================================
 
-indras.narrative("Nova reconsiders a pledge — gratitude returns to its source")
+indras.narrative("B reconsiders a pledge — gratitude returns to its source")
 logger.info("Phase 11: Withdraw demonstration", { phase = 11 })
 
--- Nova pledges T1 to Quest C
+-- B pledges T1 to Quest C
 logger.event("gratitude_pledged", {
     tick = sim.tick,
     realm_id = realm_id,
     token_id = token_t1,
-    pledger = peer_nova,
+    pledger = peer_b,
     target_quest_id = quest_c_id,
-    amount_millis = zephyr_attention,
+    amount_millis = a_attention,
 })
 sim:step()
 
--- Nova changes mind, withdraws T1
+-- B changes mind, withdraws T1
 logger.event("gratitude_withdrawn", {
     tick = sim.tick,
     realm_id = realm_id,
     token_id = token_t1,
-    steward = peer_nova,
+    steward = peer_b,
     target_quest_id = quest_c_id,
-    amount_millis = zephyr_attention,
+    amount_millis = a_attention,
 })
 sim:step()
 
 logger.event("chat_message", {
     tick = sim.tick,
-    member = peer_nova,
+    member = peer_b,
     realm_id = realm_id,
     content = "Changed my mind about that pledge. Withdrawn!",
     message_type = "text",
 })
 sim:step()
 
--- T1 is back in Nova's wallet, unpledged
-logger.info("Phase 11 complete: T1 withdrawn, back in Nova's wallet", {
+-- T1 is back in B's wallet, unpledged
+logger.info("Phase 11 complete: T1 withdrawn, back in B's wallet", {
     phase = 11,
     tick = sim.tick,
 })
@@ -556,15 +556,15 @@ indras.narrative("The cycle completes — gratitude found its way to those who b
 logger.info("Phase 12: Final state", { phase = 12 })
 
 -- Expected final state:
--- Nova: T1 (30s, available)
--- Sage: no tokens
--- Zephyr: T2 (20s, available)
+-- B: T1 (30s, available)
+-- C: no tokens
+-- A: T2 (20s, available)
 -- Quest B bounty: 0 (released)
 -- Quest C bounty: 0 (released)
 
 logger.event("chat_message", {
     tick = sim.tick,
-    member = peer_zephyr,
+    member = peer_a,
     realm_id = realm_id,
     content = "Final state: I hold T2 (20s) from the logo quest. Token chaining works!",
     message_type = "text",
@@ -573,7 +573,7 @@ sim:step()
 
 logger.event("chat_message", {
     tick = sim.tick,
-    member = peer_nova,
+    member = peer_b,
     realm_id = realm_id,
     content = "Final state: I hold T1 (30s) -- my first token, still mine after all the action.",
     message_type = "text",
@@ -586,7 +586,7 @@ logger.info("Scenario complete!", {
     pledges = 3,
     releases = 2,
     withdrawals = 1,
-    steward_transfers = "Nova->Sage->Zephyr (T2)",
+    steward_transfers = "B->C->A (T2)",
 })
 
 result

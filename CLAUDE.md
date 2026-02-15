@@ -48,13 +48,7 @@ Then the user can simply run:
 
 ## Examples and Naming
 
-When using names in examples, discussions, or documentation, **never use generic placeholder names** like Alice, Bob, Charlie, Eve, etc. Instead, use futuristic baby names popular among millennial parents (2025-2026 era):
-
-- Zephyr, Nova, Sage, Orion, Lyra, Kai, Caspian, Juniper
-- Ember, Atlas, Wren, Soren, Rune, Indigo, Marlowe, Cypress
-- Bodhi, Aria, Phoenix, Isla, Ezrin, Solene, Theron, Elowen
-
-Pick names that are distinct from each other and easy to tell apart in context.
+When using names for peer/node instances in examples, simulations, or documentation, use single-letter identifiers: A, B, C, D, E, F, G, etc.
 
 ## Git Workflow
 

@@ -4,11 +4,11 @@
 -- system" of Indra's Network — through a five-character story.
 --
 -- Cast:
---   Zephyr  — first to detect the threat
---   Nova    — quickly corroborates Zephyr's warning
---   Sage    — receives relayed sentiment signals and acts on them
---   Orion   — the bad actor who gets progressively isolated
---   Lyra    — an innocent bystander connected to Orion
+--   A — first to detect the threat
+--   B — quickly corroborates A's warning
+--   C — receives relayed sentiment signals and acts on them
+--   D — the bad actor who gets progressively isolated
+--   E — an innocent bystander connected to D
 --
 -- Phases map to the immune system analogy:
 --   1. Genesis          (healthy body)
@@ -61,11 +61,11 @@ for _, peer in ipairs(peers) do
 end
 
 -- Map peer indices to character names
-local Z = immune.ZEPHYR
-local N = immune.NOVA
-local S = immune.SAGE
-local O = immune.ORION
-local L = immune.LYRA
+local Z = immune.A
+local N = immune.B
+local S = immune.C
+local O = immune.D
+local L = immune.E
 
 -- Track state locally for assertions
 local contacts = {}   -- member -> set of contacts
@@ -175,10 +175,10 @@ end
 
 -- Create peer-set realms for natural groupings:
 --   {Z,N,S}  — the "inner circle"
---   {Z,N,O}  — Zephyr+Nova know Orion
---   {Z,S,O}  — Zephyr+Sage know Orion
---   {O,L}    — Orion+Lyra pair
---   {Z,N,S,L} — Lyra in the main group
+--   {Z,N,O}  — Z+N know D
+--   {Z,S,O}  — Z+C know D
+--   {O,L}    — D+E pair
+--   {Z,N,S,L} — E in the main group
 local realm_zns  = create_realm({Z, N, S})
 local realm_zno  = create_realm({Z, N, O})
 local realm_zso  = create_realm({Z, S, O})
@@ -226,20 +226,20 @@ logger.info("Phase 1 complete: Healthy network formed", {
 
 -- ============================================================================
 -- PHASE 2: INFECTION — Pathogen appears
--- Orion starts misbehaving: sends spam to shared realms
+-- D starts misbehaving: sends spam to shared realms
 -- ============================================================================
 
-immune.phase(logger, sim.tick, 2, "Infection: Orion begins misbehaving")
+immune.phase(logger, sim.tick, 2, "Infection: D begins misbehaving")
 
 for i = 1, config.spam_count do
-    -- Orion spams in {Z,N,O} realm
+    -- D spams in {Z,N,O} realm
     if realms[realm_zno] then
         immune.chat(logger, sim.tick, O,
             string.format("BUY NOW!!! Amazing deal #%d - click here!!!", i),
             realm_zno)
     end
 
-    -- Orion spams in {Z,S,O} realm
+    -- D spams in {Z,S,O} realm
     if realms[realm_zso] then
         immune.chat(logger, sim.tick, O,
             string.format("URGENT: You've been selected!!! Offer #%d", i),
@@ -252,7 +252,7 @@ for i = 1, config.spam_count do
 end
 
 indras.narrative("Members build trust through personal connections")
-logger.info("Phase 2 complete: Orion sent spam", {
+logger.info("Phase 2 complete: D sent spam", {
     phase = 2,
     tick = sim.tick,
     spam_messages = config.spam_count * 2,
@@ -260,53 +260,53 @@ logger.info("Phase 2 complete: Orion sent spam", {
 
 -- ============================================================================
 -- PHASE 3: DETECTION — Innate immunity
--- Zephyr is the first to notice and rates Orion negatively
+-- A is the first to notice and rates D negatively
 -- ============================================================================
 
-immune.phase(logger, sim.tick, 3, "Detection: Zephyr detects the threat")
+immune.phase(logger, sim.tick, 3, "Detection: A detects the threat")
 
 sim:step()
 sim:step()
 
--- Zephyr rates Orion as "don't recommend"
+-- A rates D as "don't recommend"
 immune.set_sentiment(logger, sim.tick, Z, O, -1)
 sentiments[Z][O] = -1
 
--- Zephyr sends a warning to the inner circle
+-- A sends a warning to the inner circle
 immune.chat(logger, sim.tick, Z,
-    "Heads up — Orion is spamming our shared realms with scam links.",
+    "Heads up — D is spamming our shared realms with scam links.",
     realm_zns)
 
 sim:step()
 
 indras.narrative("Cracks appear — not everyone sees eye to eye")
-logger.info("Phase 3 complete: Zephyr flagged Orion", {
+logger.info("Phase 3 complete: A flagged D", {
     phase = 3,
     tick = sim.tick,
-    zephyr_sentiment_orion = sentiments[Z][O],
+    a_sentiment_d = sentiments[Z][O],
 })
 
 -- ============================================================================
 -- PHASE 4: SIGNAL PROPAGATION — Cytokine cascade
--- Nova corroborates; relay signals reach Sage and Lyra
+-- B corroborates; relay signals reach C and E
 -- ============================================================================
 
 immune.phase(logger, sim.tick, 4, "Signal Propagation: Warnings spread through the network")
 
 sim:step()
 
--- Nova independently rates Orion as "don't recommend"
+-- B independently rates D as "don't recommend"
 immune.set_sentiment(logger, sim.tick, N, O, -1)
 sentiments[N][O] = -1
 
 immune.chat(logger, sim.tick, N,
-    "Confirmed. I'm seeing the same spam from Orion.",
+    "Confirmed. I'm seeing the same spam from D.",
     realm_zns)
 
 sim:step()
 
--- Relay: Sage receives relayed negative sentiment about Orion
--- via Zephyr (a trusted contact with sentiment +1)
+-- Relay: C receives relayed negative sentiment about D
+-- via A (a trusted contact with sentiment +1)
 for tick_delay = 1, config.relay_delay_ticks do
     sim:step()
 end
@@ -316,7 +316,7 @@ immune.relay_sentiment(logger, sim.tick, S, O, -1, N)
 
 sim:step()
 
--- Relay: Lyra also receives a relayed warning via Zephyr
+-- Relay: E also receives a relayed warning via A
 immune.relay_sentiment(logger, sim.tick, L, O, -1, Z)
 
 sim:step()
@@ -325,13 +325,13 @@ indras.narrative("Word spreads through the community's trust graph")
 logger.info("Phase 4 complete: Sentiment signals relayed", {
     phase = 4,
     tick = sim.tick,
-    nova_sentiment_orion = sentiments[N][O],
+    b_sentiment_d = sentiments[N][O],
     relays_sent = 3,
 })
 
 -- ============================================================================
 -- PHASE 5: GRADUATED RESPONSE — Adaptive immunity
--- Sage acts on relayed signals; Zephyr blocks Orion
+-- C acts on relayed signals; A blocks D
 -- ============================================================================
 
 immune.phase(logger, sim.tick, 5, "Graduated Response: Network begins isolating the threat")
@@ -339,34 +339,34 @@ immune.phase(logger, sim.tick, 5, "Graduated Response: Network begins isolating 
 sim:step()
 sim:step()
 
--- Sage, having received two independent relay signals, sets -1
+-- C, having received two independent relay signals, sets -1
 immune.set_sentiment(logger, sim.tick, S, O, -1)
 sentiments[S][O] = -1
 
 immune.chat(logger, sim.tick, S,
-    "Got warnings about Orion from both Zephyr and Nova. Setting to don't-recommend.",
+    "Got warnings about D from both A and B. Setting to don't-recommend.",
     realm_zns)
 
 sim:step()
 sim:step()
 
--- Zephyr takes the strongest action: blocks Orion entirely
+-- A takes the strongest action: blocks D entirely
 -- This triggers cascade: leave all shared realms
 block_contact(Z, O)
 
 sim:step()
 
 indras.narrative("A member is blocked — the network's immune system activates")
-logger.info("Phase 5 complete: Zephyr blocked Orion", {
+logger.info("Phase 5 complete: A blocked D", {
     phase = 5,
     tick = sim.tick,
-    sage_sentiment_orion = sentiments[S][O],
-    zephyr_blocked_orion = blocked[Z][O] ~= nil,
+    c_sentiment_d = sentiments[S][O],
+    a_blocked_d = blocked[Z][O] ~= nil,
 })
 
 -- ============================================================================
 -- PHASE 6: CASCADE — Inflammation
--- Nova also blocks Orion. Remaining shared realms dissolve.
+-- B also blocks D. Remaining shared realms dissolve.
 -- ============================================================================
 
 immune.phase(logger, sim.tick, 6, "Cascade: Blocking propagates, realms dissolve")
@@ -374,12 +374,12 @@ immune.phase(logger, sim.tick, 6, "Cascade: Blocking propagates, realms dissolve
 sim:step()
 sim:step()
 
--- Nova blocks Orion
+-- B blocks D
 block_contact(N, O)
 
 sim:step()
 
--- Sage blocks Orion
+-- C blocks D
 block_contact(S, O)
 
 sim:step()
@@ -389,46 +389,46 @@ sim:step()
 local final_realm_count = 0
 for _ in pairs(realms) do final_realm_count = final_realm_count + 1 end
 
--- Count Orion's remaining contacts
+-- Count D's remaining contacts
 local orion_contacts = 0
 for _, is_contact in pairs(contacts[O]) do
     if is_contact then orion_contacts = orion_contacts + 1 end
 end
 
--- Count Orion's remaining realms
+-- Count D's remaining realms
 local orion_realms = #realms_containing(O)
 
-logger.info("Phase 6 complete: Orion isolated", {
+logger.info("Phase 6 complete: D isolated", {
     phase = 6,
     tick = sim.tick,
     realms_before = initial_realm_count,
     realms_after = final_realm_count,
-    orion_contacts_remaining = orion_contacts,
-    orion_realms_remaining = orion_realms,
+    d_contacts_remaining = orion_contacts,
+    d_realms_remaining = orion_realms,
 })
 
 -- ============================================================================
 -- PHASE 7: RECOVERY — Homeostasis
--- Remaining peers are healthy. Lyra decides about Orion.
+-- Remaining peers are healthy. E decides about D.
 -- ============================================================================
 
 immune.phase(logger, sim.tick, 7, "Recovery: Network stabilizes")
 
 sim:step()
 
--- Lyra received the relay warnings but makes her own decision.
--- She sets Orion to "don't recommend" but doesn't block — she still
+-- E received the relay warnings but makes her own decision.
+-- E sets D to "don't recommend" but doesn't block — E still
 -- has a personal connection via {O,L} realm.
 immune.set_sentiment(logger, sim.tick, L, O, -1)
 sentiments[L][O] = -1
 
 immune.chat(logger, sim.tick, L,
-    "I've seen the warnings about Orion. Setting to don't-recommend, but keeping contact for now.",
+    "I've seen the warnings about D. Setting to don't-recommend, but keeping contact for now.",
     realm_znsl)
 
 sim:step()
 
--- The inner circle + Lyra remain healthy
+-- The inner circle + E remain healthy
 -- Positive sentiment reinforcement
 immune.set_sentiment(logger, sim.tick, Z, L, 1)
 immune.set_sentiment(logger, sim.tick, L, Z, 1)
@@ -451,7 +451,7 @@ for _, a in ipairs(healthy_members) do
     end
 end
 
--- Orion's final contact count (should only have Lyra, if anyone)
+-- D's final contact count (should only have E, if anyone)
 local orion_final_contacts = 0
 for contact, is_contact in pairs(contacts[O]) do
     if is_contact then
@@ -459,7 +459,7 @@ for contact, is_contact in pairs(contacts[O]) do
     end
 end
 
--- Who still has Orion as a contact?
+-- Who still has D as a contact?
 local who_has_orion = 0
 for _, m in ipairs(immune.ALL_MEMBERS) do
     if contacts[m][O] then
@@ -486,9 +486,9 @@ result:add_metrics({
     final_realms = final_realm_count,
     realms_dissolved = initial_realm_count - final_realm_count,
     spam_messages = config.spam_count * 2,
-    negative_sentiments_set = 4,  -- Z, N, S, L all set -1 on Orion
-    blocks_issued = 3,           -- Z, N, S blocked Orion
-    relay_signals_sent = 3,      -- 2 to Sage, 1 to Lyra
+    negative_sentiments_set = 4,  -- Z, N, S, L all set -1 on D
+    blocks_issued = 3,           -- Z, N, S blocked D
+    relay_signals_sent = 3,      -- 2 to C, 1 to E
     orion_final_contacts = orion_final_contacts,
     healthy_mutual_contacts = healthy_mutual_contacts,
     who_still_has_orion = who_has_orion,
@@ -498,8 +498,8 @@ result:add_metrics({
 result:record_assertion("orion_isolated",
     orion_final_contacts <= 1, "<=1", orion_final_contacts)
 
--- Lyra is the only one who should still have Orion as contact
-result:record_assertion("only_lyra_has_orion",
+-- E is the only one who should still have D as contact
+result:record_assertion("only_e_has_d",
     who_has_orion <= 1, "<=1", who_has_orion)
 
 -- Healthy members should maintain mutual contacts
@@ -507,7 +507,7 @@ result:record_assertion("only_lyra_has_orion",
 result:record_assertion("healthy_contacts_intact",
     healthy_mutual_contacts >= 12, ">=12", healthy_mutual_contacts)
 
--- At least some realms should survive (the ones not involving Orion)
+-- At least some realms should survive (the ones not involving D)
 result:record_assertion("some_realms_survive",
     final_realm_count >= 1, ">=1", final_realm_count)
 
@@ -518,22 +518,22 @@ logger.info("Immune response simulation completed", {
     level = final_result.level,
     duration_sec = final_result.duration_sec,
     final_tick = sim.tick,
-    orion_isolated = orion_final_contacts <= 1,
+    d_isolated = orion_final_contacts <= 1,
     healthy_network_intact = healthy_mutual_contacts >= 12,
 })
 
 -- Standard assertions
 indras.assert.le(orion_final_contacts, 1,
-    "Orion should have at most 1 contact remaining")
+    "D should have at most 1 contact remaining")
 indras.assert.le(who_has_orion, 1,
-    "At most 1 member should still have Orion as contact")
+    "At most 1 member should still have D as contact")
 indras.assert.ge(healthy_mutual_contacts, 12,
     "Healthy members should maintain all mutual contacts")
 indras.assert.ge(final_realm_count, 1,
     "At least some realms should survive the cascade")
 
 logger.info("Immune response simulation passed", {
-    summary = "Orion isolated, healthy network intact, immune system worked",
+    summary = "D isolated, healthy network intact, immune system worked",
 })
 
 return final_result
