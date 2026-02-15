@@ -5,54 +5,54 @@ use serde::{Deserialize, Serialize};
 /// The three peers in the collaboration scenario
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Peer {
-    Love,
-    Joy,
-    Peace,
+    A,
+    B,
+    C,
 }
 
 impl Peer {
     pub fn all() -> &'static [Peer] {
-        &[Peer::Love, Peer::Joy, Peer::Peace]
+        &[Peer::A, Peer::B, Peer::C]
     }
 
     pub fn name(&self) -> &'static str {
         match self {
-            Peer::Love => "love",
-            Peer::Joy => "joy",
-            Peer::Peace => "peace",
+            Peer::A => "a",
+            Peer::B => "b",
+            Peer::C => "c",
         }
     }
 
     pub fn display_name(&self) -> &'static str {
         match self {
-            Peer::Love => "Love",
-            Peer::Joy => "Joy",
-            Peer::Peace => "Peace",
+            Peer::A => "A",
+            Peer::B => "B",
+            Peer::C => "C",
         }
     }
 
     pub fn initial(&self) -> char {
         match self {
-            Peer::Love => 'L',
-            Peer::Joy => 'J',
-            Peer::Peace => 'P',
+            Peer::A => 'A',
+            Peer::B => 'B',
+            Peer::C => 'C',
         }
     }
 
     pub fn css_class(&self) -> &'static str {
         match self {
-            Peer::Love => "love",
-            Peer::Joy => "joy",
-            Peer::Peace => "peace",
+            Peer::A => "a",
+            Peer::B => "b",
+            Peer::C => "c",
         }
     }
 
     /// Position in the triangle visualization (normalized 0-1 coordinates)
     pub fn position(&self) -> (f64, f64) {
         match self {
-            Peer::Love => (0.5, 0.15),   // Top center
-            Peer::Joy => (0.15, 0.85),   // Bottom left
-            Peer::Peace => (0.85, 0.85), // Bottom right
+            Peer::A => (0.5, 0.15),   // Top center
+            Peer::B => (0.15, 0.85),   // Bottom left
+            Peer::C => (0.85, 0.85), // Bottom right
         }
     }
 }
@@ -375,12 +375,12 @@ impl ScenarioData {
     /// All quests to be created
     pub fn quests() -> Vec<(Peer, &'static str, Peer)> {
         vec![
-            (Peer::Love, "Spread kindness in the community", Peer::Joy),
-            (Peer::Love, "Write a gratitude journal", Peer::Love),
-            (Peer::Joy, "Organize a celebration event", Peer::Peace),
-            (Peer::Joy, "Create a playlist of uplifting songs", Peer::Love),
-            (Peer::Peace, "Meditate for inner calm", Peer::Peace),
-            (Peer::Peace, "Resolve a conflict with compassion", Peer::Joy),
+            (Peer::A, "Spread kindness in the community", Peer::B),
+            (Peer::A, "Write a gratitude journal", Peer::A),
+            (Peer::B, "Organize a celebration event", Peer::C),
+            (Peer::B, "Create a playlist of uplifting songs", Peer::A),
+            (Peer::C, "Meditate for inner calm", Peer::C),
+            (Peer::C, "Resolve a conflict with compassion", Peer::B),
         ]
     }
 
@@ -388,15 +388,15 @@ impl ScenarioData {
     pub fn plan_sections() -> Vec<(Peer, &'static str)> {
         vec![
             (
-                Peer::Love,
+                Peer::A,
                 "Our mission is to create a world where compassion guides every action. Through acts of kindness, we build bridges between hearts.",
             ),
             (
-                Peer::Joy,
+                Peer::B,
                 "Celebration is our tool for transformation. When we find joy in small moments, we amplify positivity for all.",
             ),
             (
-                Peer::Peace,
+                Peer::C,
                 "Inner calm creates outer harmony. Through mindfulness and understanding, conflicts dissolve into cooperation.",
             ),
         ]
