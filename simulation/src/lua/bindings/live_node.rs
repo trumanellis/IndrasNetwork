@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use indras_node::{IndrasNode, InviteKey, NodeConfig};
-use indras_core::{InterfaceId, PeerIdentity};
+use indras_core::{InterfaceId, PeerIdentity, transport::Transport};
 
 /// Lua wrapper for a real IndrasNode
 ///
@@ -291,6 +291,75 @@ impl UserData for LuaLiveNode {
                     .map_err(mlua::Error::external)
             },
         );
+
+        // -- World View (debug state snapshot) --
+
+        methods.add_async_method("world_view", |lua, this, _iface_hex: Option<String>| async move {
+            let result = lua.create_table()?;
+
+            // Node identity
+            result.set("identity", this.node.identity().short_id())?;
+            result.set("identity_full", hex::encode(this.node.identity().as_bytes()))?;
+            result.set("started", this.node.is_started())?;
+            result.set("data_dir", this.data_dir.to_string_lossy().to_string())?;
+
+            // Interfaces
+            let iface_ids = this.node.list_interfaces();
+            let ifaces_table = lua.create_table()?;
+            for (i, iface_id) in iface_ids.iter().enumerate() {
+                let iface_table = lua.create_table()?;
+                let id_hex = hex::encode(iface_id.as_bytes());
+                iface_table.set("id", id_hex.clone())?;
+
+                // In-memory members (what sync_task iterates)
+                let members = this.node.members(iface_id).await
+                    .unwrap_or_default();
+                let members_table = lua.create_table()?;
+                for (j, m) in members.iter().enumerate() {
+                    members_table.set(j + 1, m.short_id())?;
+                }
+                iface_table.set("members", members_table)?;
+                iface_table.set("member_count", members.len())?;
+
+                // Storage members (what survives restart)
+                let storage = this.node.storage();
+                let storage_members = storage.interface_store()
+                    .get_members(iface_id)
+                    .unwrap_or_default();
+                let storage_table = lua.create_table()?;
+                for (j, m) in storage_members.iter().enumerate() {
+                    let peer_hex = m.peer_id.iter().map(|b| format!("{:02x}", b)).collect::<String>();
+                    // Show short id (first 10 hex chars)
+                    let short = if peer_hex.len() >= 10 { &peer_hex[..10] } else { &peer_hex };
+                    storage_table.set(j + 1, short.to_string())?;
+                }
+                iface_table.set("storage_members", storage_table)?;
+                iface_table.set("storage_member_count", storage_members.len())?;
+
+                ifaces_table.set(i + 1, iface_table)?;
+            }
+            result.set("interfaces", ifaces_table)?;
+            result.set("interface_count", iface_ids.len())?;
+
+            // Connected peers (transport layer)
+            if let Some(transport) = this.node.transport().await {
+                let connected: Vec<String> = transport.connected_peers()
+                    .into_iter()
+                    .map(|p| p.short_id())
+                    .collect();
+                let connected_table = lua.create_table()?;
+                for (i, p) in connected.iter().enumerate() {
+                    connected_table.set(i + 1, p.clone())?;
+                }
+                result.set("connected_peers", connected_table)?;
+                result.set("connected_count", connected.len())?;
+            } else {
+                result.set("connected_peers", lua.create_table()?)?;
+                result.set("connected_count", 0)?;
+            }
+
+            Ok(result)
+        });
 
         // -- Data dir (for recreating node with same state) --
 

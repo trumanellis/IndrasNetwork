@@ -444,6 +444,10 @@ impl MessageHandler {
             // Ensure sender is tracked as a member so generate_sync produces correct diff
             let _ = interface.add_member(sender);
 
+            // Persist the member to storage so they survive node restart
+            let _ = self.storage.register_peer(&sender, None);
+            let _ = self.storage.add_member(&msg.interface_id, &sender);
+
             // Generate sync response containing state the sender is missing
             interface.generate_sync(&sender)
         };
@@ -532,6 +536,11 @@ impl MessageHandler {
                 .merge_sync(sync_msg)
                 .await
                 .map_err(|e| MessageError::SyncFailed(e.to_string()))?;
+
+            // Track sender as a member (in-memory + storage) so sync_task can reach them
+            let _ = interface.add_member(sender);
+            let _ = self.storage.register_peer(&sender, None);
+            let _ = self.storage.add_member(&msg.interface_id, &sender);
         }
 
         debug!(

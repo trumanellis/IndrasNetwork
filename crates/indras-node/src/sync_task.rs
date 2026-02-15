@@ -241,8 +241,20 @@ impl SyncTask {
         interface_id: InterfaceId,
         interface: &mut indras_sync::NInterface<IrohIdentity>,
     ) -> Result<(), SyncError> {
-        let members = interface.members();
+        let mut members: Vec<IrohIdentity> = interface.members().into_iter().collect();
         let key = self.interface_keys.get(&interface_id);
+
+        // Also include connected peers not yet in the member list.
+        // This handles the case where a node reconnects after the original
+        // bootstrap peer went offline — the raw transport connection exists
+        // but neither node has the other as a member yet. Sending a sync
+        // request will cause the receiver's handle_sync_request to add us
+        // as a member (and vice versa via the response).
+        for connected_peer in self.transport.connected_peers() {
+            if connected_peer != self.local_identity && !members.contains(&connected_peer) {
+                members.push(connected_peer);
+            }
+        }
 
         for member in members {
             if member == self.local_identity {
@@ -285,8 +297,7 @@ impl SyncTask {
                 );
                 match self
                     .transport
-                    .connection_manager()
-                    .connect_by_key(*member.public_key())
+                    .connect_by_key_and_handle(*member.public_key())
                     .await
                 {
                     Ok(_) => {
