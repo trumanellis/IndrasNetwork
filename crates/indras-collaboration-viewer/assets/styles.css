@@ -40,9 +40,9 @@ body {
   --glow-effect: none;
 
   /* Peer colors */
-  --peer-love: #ff6b9d;
-  --peer-joy: #ffd93d;
-  --peer-peace: #6bcfff;
+  --peer-a: #ff6b9d;
+  --peer-b: #ffd93d;
+  --peer-c: #6bcfff;
 
   /* Spacing */
   --space-1: 0.25rem;
@@ -143,9 +143,9 @@ body {
   --accent-error: #dc2626;
   --border-color: rgba(0, 0, 0, 0.1);
   --glow-effect: none;
-  --peer-love: #e91e63;
-  --peer-joy: #ff9800;
-  --peer-peace: #2196f3;
+  --peer-a: #e91e63;
+  --peer-b: #ff9800;
+  --peer-c: #2196f3;
 }
 
 /* ============================================
@@ -367,9 +367,9 @@ body {
   flex-shrink: 0;
 }
 
-.peer-avatar.love { background: var(--peer-love); color: #fff; }
-.peer-avatar.joy { background: var(--peer-joy); color: #1a1a1a; }
-.peer-avatar.peace { background: var(--peer-peace); color: #1a1a1a; }
+.peer-avatar.a { background: var(--peer-a); color: #fff; }
+.peer-avatar.b { background: var(--peer-b); color: #1a1a1a; }
+.peer-avatar.c { background: var(--peer-c); color: #1a1a1a; }
 
 .peer-info {
   flex: 1;
@@ -670,9 +670,9 @@ body {
   border-radius: 50%;
 }
 
-.assignee-dot.love { background: var(--peer-love); }
-.assignee-dot.joy { background: var(--peer-joy); }
-.assignee-dot.peace { background: var(--peer-peace); }
+.assignee-dot.a { background: var(--peer-a); }
+.assignee-dot.b { background: var(--peer-b); }
+.assignee-dot.c { background: var(--peer-c); }
 
 /* ============================================
    RIGHT PANEL (PROJECT + ACTIVITY)
@@ -743,9 +743,9 @@ body {
   flex-shrink: 0;
 }
 
-.section-card.love { border-left-color: var(--peer-love); }
-.section-card.joy { border-left-color: var(--peer-joy); }
-.section-card.peace { border-left-color: var(--peer-peace); }
+.section-card.a { border-left-color: var(--peer-a); }
+.section-card.b { border-left-color: var(--peer-b); }
+.section-card.c { border-left-color: var(--peer-c); }
 
 .section-header {
   display: flex;
@@ -1206,16 +1206,16 @@ body {
   background: var(--bg-primary);
 }
 
-.pov-dashboard.love {
-  background: color-mix(in srgb, var(--peer-love) 5%, var(--bg-primary));
+.pov-dashboard.a {
+  background: color-mix(in srgb, var(--peer-a) 5%, var(--bg-primary));
 }
 
-.pov-dashboard.joy {
-  background: color-mix(in srgb, var(--peer-joy) 5%, var(--bg-primary));
+.pov-dashboard.b {
+  background: color-mix(in srgb, var(--peer-b) 5%, var(--bg-primary));
 }
 
-.pov-dashboard.peace {
-  background: color-mix(in srgb, var(--peer-peace) 5%, var(--bg-primary));
+.pov-dashboard.c {
+  background: color-mix(in srgb, var(--peer-c) 5%, var(--bg-primary));
 }
 
 /* POV Header */
@@ -1318,9 +1318,9 @@ body {
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
 }
 
-.profile-avatar-large.love { background: var(--peer-love); color: #fff; }
-.profile-avatar-large.joy { background: var(--peer-joy); color: #1a1a1a; }
-.profile-avatar-large.peace { background: var(--peer-peace); color: #1a1a1a; }
+.profile-avatar-large.a { background: var(--peer-a); color: #fff; }
+.profile-avatar-large.b { background: var(--peer-b); color: #1a1a1a; }
+.profile-avatar-large.c { background: var(--peer-c); color: #1a1a1a; }
 
 .profile-name {
   font-size: 1.5rem;

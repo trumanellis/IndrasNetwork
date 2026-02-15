@@ -1,37 +1,46 @@
 //! Identity display utilities for member names, IDs, and colors.
 
-/// Convert member ID to human-readable name.
-pub fn member_name(member_id: &str) -> String {
-    let names = [
-        "Love", "Joy", "Peace", "Grace", "Hope", "Faith", "Light", "Truth",
-        "Wisdom", "Mercy", "Valor", "Honor", "Glory", "Spirit", "Unity", "Bliss",
-    ];
+use std::sync::Mutex;
 
-    if member_id.len() >= 4 {
-        if let Ok(n) = u16::from_str_radix(&member_id[..4], 16) {
-            let idx = (n as usize) % names.len();
-            return names[idx].to_string();
-        }
-    }
+/// Global registry of member IDs → sequential index.
+/// First member encountered gets index 0 (→ "A"), second gets 1 (→ "B"), etc.
+static MEMBER_REGISTRY: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
-    // Short IDs (e.g. "A", "B", "C" from mesh builder): use ordinal position
-    if !member_id.is_empty() && member_id.len() < 4 {
+/// Get or assign a sequential index for a member ID.
+fn member_index(member_id: &str) -> usize {
+    // Short IDs (e.g. "A", "B", "C" from mesh builder): use ordinal position directly
+    if !member_id.is_empty() && member_id.len() <= 2 {
         let first = member_id.as_bytes()[0];
-        let idx = match first {
+        return match first {
             b'A'..=b'Z' => (first - b'A') as usize,
             b'a'..=b'z' => (first - b'a') as usize,
             b'0'..=b'9' => (first - b'0') as usize,
             _ => first as usize,
         };
-        return names[idx % names.len()].to_string();
     }
 
-    // Fallback: use first few chars
-    if member_id.len() > 8 {
-        format!("{}...", &member_id[..8])
-    } else {
-        member_id.to_string()
+    // Long IDs (hex hashes): use registry for sequential assignment
+    let mut registry = MEMBER_REGISTRY.lock().unwrap();
+    if let Some(idx) = registry.iter().position(|id| id == member_id) {
+        return idx;
     }
+    let idx = registry.len();
+    registry.push(member_id.to_string());
+    idx
+}
+
+/// Convert member ID to a single-letter display name (A, B, C, ...).
+/// Names are assigned sequentially as new member IDs are encountered.
+pub fn member_name(member_id: &str) -> String {
+    let idx = member_index(member_id) % 26;
+    let letter = (b'A' + idx as u8) as char;
+    letter.to_string()
+}
+
+/// Reset the member name registry (call between scenarios).
+pub fn reset_member_names() {
+    let mut registry = MEMBER_REGISTRY.lock().unwrap();
+    registry.clear();
 }
 
 /// Shorten an ID for display.
@@ -65,40 +74,24 @@ pub fn format_duration_millis(millis: u64) -> String {
 
 /// Get the CSS class for a member's color.
 pub fn member_color_class(member: &str) -> &'static str {
-    let name = member_name(member).to_lowercase();
-    match name.as_str() {
-        "love" => "member-love",
-        "joy" => "member-joy",
-        "peace" => "member-peace",
-        "grace" => "member-grace",
-        "hope" => "member-hope",
-        "faith" => "member-faith",
-        "light" => "member-light",
-        "truth" => "member-truth",
-        "wisdom" => "member-wisdom",
-        "mercy" => "member-mercy",
-        "valor" => "member-valor",
-        "honor" => "member-honor",
-        "glory" => "member-glory",
-        "spirit" => "member-spirit",
-        "unity" => "member-unity",
-        "bliss" => "member-bliss",
-        _ => "member-default",
-    }
+    const CLASSES: [&str; 16] = [
+        "member-love", "member-joy", "member-peace", "member-grace",
+        "member-hope", "member-faith", "member-light", "member-truth",
+        "member-wisdom", "member-mercy", "member-valor", "member-honor",
+        "member-glory", "member-spirit", "member-unity", "member-bliss",
+    ];
+    let idx = member_index(member) % CLASSES.len();
+    CLASSES[idx]
 }
 
 /// Get the CSS variable for a member's color.
 pub fn member_color_var(member: &str) -> &'static str {
-    let name = member_name(member).to_lowercase();
-    match name.as_str() {
-        "love" => "var(--color-love)",
-        "joy" => "var(--color-joy)",
-        "peace" => "var(--color-peace)",
-        "grace" => "var(--color-grace)",
-        "hope" => "var(--color-hope)",
-        "faith" => "var(--color-faith)",
-        _ => "var(--accent-primary)",
-    }
+    const VARS: [&str; 6] = [
+        "var(--color-love)", "var(--color-joy)", "var(--color-peace)",
+        "var(--color-grace)", "var(--color-hope)", "var(--color-faith)",
+    ];
+    let idx = member_index(member) % VARS.len();
+    VARS[idx]
 }
 
 #[cfg(test)]
@@ -106,9 +99,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_member_name() {
-        assert!(!member_name("abcd1234").is_empty());
-        assert!(!member_name("0000ffff").is_empty());
+    fn test_member_name_sequential() {
+        reset_member_names();
+        assert_eq!(member_name("abcd1234abcd1234"), "A");
+        assert_eq!(member_name("ffff0000ffff0000"), "B");
+        assert_eq!(member_name("12345678deadbeef"), "C");
+        // Same ID returns same name
+        assert_eq!(member_name("abcd1234abcd1234"), "A");
+        reset_member_names();
+    }
+
+    #[test]
+    fn test_member_name_short_ids() {
+        assert_eq!(member_name("A"), "A");
+        assert_eq!(member_name("B"), "B");
+        assert_eq!(member_name("C"), "C");
     }
 
     #[test]
