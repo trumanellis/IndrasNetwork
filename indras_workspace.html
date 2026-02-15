@@ -1,0 +1,1327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>IndrasNetwork — Artifact Workspace</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+/* ================================================================
+   TOKENS
+   ================================================================ */
+:root {
+  --bg-void: #050507;
+  --bg-deep: #0a0a0e;
+  --bg-surface: #111116;
+  --bg-raised: #18181f;
+  --bg-hover: #1f1f28;
+  --bg-active: #262630;
+  --text-primary: #e8e4d9;
+  --text-secondary: #8a8a96;
+  --text-muted: #55555f;
+  --text-ghost: #33333a;
+  --border-subtle: #1a1a22;
+  --border-dim: #252530;
+  --border-visible: #35354a;
+  --accent-teal: #00d4aa;
+  --accent-teal-dim: rgba(0,212,170,0.12);
+  --accent-gold: #d4af37;
+  --accent-gold-dim: rgba(212,175,55,0.12);
+  --accent-rose: #ff6b9d;
+  --accent-rose-dim: rgba(255,107,157,0.12);
+  --accent-violet: #b19cd9;
+  --accent-violet-dim: rgba(177,156,217,0.12);
+  --accent-sky: #6bcfff;
+  --accent-sky-dim: rgba(107,207,255,0.12);
+  --heat-0: #55555f;
+  --heat-1: #7a6b40;
+  --heat-2: #b8922e;
+  --heat-3: #d4af37;
+  --heat-4: #e8c547;
+  --heat-5: #ffd93d;
+  --font-body: 'DM Sans', -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --sidebar-w: 280px;
+  --detail-w: 320px;
+  --bottom-nav-h: 56px;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --transition: 150ms ease;
+  --transition-slide: 280ms cubic-bezier(0.4,0,0.2,1);
+}
+
+/* ================================================================
+   RESET
+   ================================================================ */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{height:100%;overflow:hidden}
+body{font-family:var(--font-body);background:var(--bg-void);color:var(--text-primary);height:100%;overflow:hidden;font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+button{font-family:var(--font-body)}
+
+/* ================================================================
+   APP SHELL
+   ================================================================ */
+.app{display:grid;height:100%;grid-template-columns:var(--sidebar-w) 1fr var(--detail-w);grid-template-areas:"sidebar main detail";overflow:hidden}
+.app.detail-closed{grid-template-columns:var(--sidebar-w) 1fr 0;grid-template-areas:"sidebar main ."}
+
+/* ================================================================
+   SIDEBAR (unchanged responsive patterns)
+   ================================================================ */
+.sidebar{grid-area:sidebar;background:var(--bg-deep);border-right:1px solid var(--border-subtle);display:flex;flex-direction:column;overflow:hidden;z-index:50}
+.sidebar-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:49;opacity:0;transition:opacity var(--transition-slide)}
+.sidebar-backdrop.visible{opacity:1}
+.sidebar-header{padding:16px 16px 14px;border-bottom:1px solid var(--border-subtle);flex-shrink:0}
+.identity-row{display:flex;align-items:center;gap:10px}
+.identity-avatar{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,var(--accent-teal),var(--accent-violet));display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600;color:var(--bg-void);flex-shrink:0}
+.identity-name{font-weight:600;font-size:15px}
+.identity-id{font-family:var(--font-mono);font-size:10px;color:var(--text-muted)}
+.sidebar-close-btn{display:none;width:32px;height:32px;border:none;background:var(--bg-hover);border-radius:var(--radius-sm);color:var(--text-secondary);font-size:18px;cursor:pointer;align-items:center;justify-content:center;margin-left:auto;flex-shrink:0}
+.peer-strip{display:flex;gap:6px;padding:10px 16px;border-bottom:1px solid var(--border-subtle);align-items:center;flex-shrink:0}
+.peer-strip-label{font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);margin-right:4px}
+.peer-dot{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;cursor:pointer;position:relative;transition:transform var(--transition)}
+.peer-dot:active{transform:scale(0.9)}
+.peer-dot.online::after{content:'';position:absolute;bottom:-1px;right:-1px;width:8px;height:8px;border-radius:50%;background:#22c55e;border:2px solid var(--bg-deep)}
+.peer-dot-sage{background:linear-gradient(135deg,#98d8aa,var(--accent-teal));color:#001a10}
+.peer-dot-zeph{background:linear-gradient(135deg,var(--accent-sky),var(--accent-violet));color:#00081a}
+.peer-dot-rose{background:linear-gradient(135deg,var(--accent-rose),#ff8fab);color:#1a0008}
+.vault-tree{flex:1;overflow-y:auto;overflow-x:hidden;padding:6px 0;-webkit-overflow-scrolling:touch}
+.vault-tree::-webkit-scrollbar{width:3px}
+.vault-tree::-webkit-scrollbar-thumb{background:var(--text-ghost);border-radius:2px}
+.tree-section-label{font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);padding:14px 16px 4px;user-select:none}
+.tree-item{display:flex;align-items:center;gap:8px;padding:8px 14px 8px 16px;cursor:pointer;transition:background var(--transition);position:relative;user-select:none;min-height:40px}
+.tree-item:active{background:var(--bg-active)}
+.tree-item.active{background:var(--bg-active)}
+.tree-item.active::before{content:'';position:absolute;left:0;top:6px;bottom:6px;width:2.5px;background:var(--accent-teal);border-radius:0 2px 2px 0}
+.tree-indent{width:18px;flex-shrink:0}
+.tree-toggle{width:18px;height:18px;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:10px;flex-shrink:0;transition:transform var(--transition)}
+.tree-toggle.open{transform:rotate(90deg)}
+.tree-icon{width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+.tree-label{flex:1;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tree-item:not(.active) .tree-label{color:var(--text-secondary)}
+.heat-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;transition:all 300ms ease}
+.heat-0{background:transparent}.heat-1{background:var(--heat-1)}.heat-2{background:var(--heat-2)}
+.heat-3{background:var(--heat-3);box-shadow:0 0 4px var(--accent-gold-dim)}
+.heat-4{background:var(--heat-4);box-shadow:0 0 6px rgba(232,197,71,0.3)}
+.heat-5{background:var(--heat-5);box-shadow:0 0 8px rgba(255,217,61,0.4);animation:pulse-heat 2s ease-in-out infinite}
+@keyframes pulse-heat{0%,100%{box-shadow:0 0 6px rgba(255,217,61,0.3)}50%{box-shadow:0 0 14px rgba(255,217,61,0.55)}}
+.tree-item[data-heat="5"] .tree-label{color:var(--heat-5)}
+.tree-item[data-heat="4"] .tree-label{color:var(--heat-4)}
+.tree-item[data-heat="3"] .tree-label{color:var(--heat-3)}
+.sidebar-footer{padding:10px 16px;border-top:1px solid var(--border-subtle);display:flex;gap:8px;flex-shrink:0}
+.sidebar-footer-btn{flex:1;padding:8px;background:var(--bg-raised);border:1px solid var(--border-dim);border-radius:var(--radius-sm);color:var(--text-secondary);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;min-height:38px}
+.sidebar-footer-btn:active{background:var(--bg-active)}
+
+/* ================================================================
+   MAIN
+   ================================================================ */
+.main{grid-area:main;background:var(--bg-surface);display:flex;flex-direction:column;overflow:hidden;min-width:0}
+
+/* Topbar */
+.topbar{display:flex;align-items:center;padding:8px 20px;border-bottom:1px solid var(--border-subtle);min-height:46px;flex-shrink:0;gap:8px}
+.topbar-hamburger{display:none;width:36px;height:36px;border:none;background:none;color:var(--text-secondary);font-size:20px;cursor:pointer;border-radius:var(--radius-sm);align-items:center;justify-content:center;flex-shrink:0}
+.topbar-hamburger:active{background:var(--bg-hover)}
+.breadcrumbs{display:flex;align-items:center;gap:4px;font-size:13px;flex:1;min-width:0;overflow-x:auto;scrollbar-width:none}
+.breadcrumbs::-webkit-scrollbar{display:none}
+.crumb{color:var(--text-muted);cursor:pointer;padding:4px 6px;border-radius:var(--radius-sm);white-space:nowrap;flex-shrink:0}
+.crumb:active{background:var(--bg-hover)}
+.crumb.current{color:var(--text-primary);font-weight:500}
+.crumb-sep{color:var(--text-ghost);font-size:10px;flex-shrink:0}
+.topbar-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.topbar-btn{padding:6px 12px;background:transparent;border:1px solid var(--border-dim);border-radius:var(--radius-sm);color:var(--text-secondary);font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;white-space:nowrap;min-height:34px;transition:all var(--transition)}
+.topbar-btn:active{background:var(--bg-hover)}
+.topbar-btn.primary{background:var(--accent-teal-dim);border-color:rgba(0,212,170,0.25);color:var(--accent-teal)}
+.steward-badge{display:flex;align-items:center;gap:4px;font-size:10px;color:var(--text-muted);padding:4px 10px;border-radius:var(--radius-sm);background:var(--bg-raised);border:1px solid var(--border-subtle);white-space:nowrap}
+.steward-badge .dot{width:6px;height:6px;border-radius:50%;background:var(--accent-teal)}
+
+/* ================================================================
+   VIEW: DOCUMENT (existing)
+   ================================================================ */
+.view{display:none;flex:1;overflow:hidden;flex-direction:column}
+.view.active{display:flex}
+
+.content-scroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:32px 0}
+.content-scroll::-webkit-scrollbar{width:5px}
+.content-scroll::-webkit-scrollbar-thumb{background:var(--text-ghost);border-radius:3px}
+.content-body{max-width:720px;margin:0 auto;padding:0 24px}
+.doc-title{font-size:28px;font-weight:700;margin-bottom:4px;outline:none;line-height:1.3;word-break:break-word}
+.doc-title:empty::before{content:'Untitled';color:var(--text-ghost)}
+.doc-meta{display:flex;align-items:center;gap:10px;margin-bottom:28px;font-size:12px;color:var(--text-muted);flex-wrap:wrap}
+.doc-meta-tag{padding:2px 8px;border-radius:var(--radius-sm);background:var(--bg-raised);border:1px solid var(--border-dim);font-size:10px;text-transform:uppercase;letter-spacing:0.04em}
+.doc-meta-tag.type-document{color:var(--accent-teal);border-color:rgba(0,212,170,0.2)}
+.doc-meta-tag.type-story{color:var(--accent-gold);border-color:rgba(212,175,55,0.2)}
+.block{position:relative;padding:3px 0;border-radius:var(--radius-sm)}
+.block:hover .block-handle{opacity:1}
+.block-handle{position:absolute;left:-28px;top:50%;transform:translateY(-50%);width:18px;height:18px;display:flex;align-items:center;justify-content:center;color:var(--text-ghost);cursor:grab;opacity:0;font-size:11px}
+.block p{line-height:1.7;font-size:15px}
+.block h2{font-size:21px;font-weight:600;margin-top:24px;margin-bottom:6px;line-height:1.3}
+.block-code{background:var(--bg-deep);border:1px solid var(--border-dim);border-radius:var(--radius-md);padding:14px 16px;font-family:var(--font-mono);font-size:12px;line-height:1.6;color:var(--text-secondary);overflow-x:auto;margin:8px 0;-webkit-overflow-scrolling:touch}
+.block-code .kw{color:var(--accent-violet)}.block-code .ty{color:var(--accent-teal)}.block-code .cm{color:var(--text-muted);font-style:italic}.block-code .fn{color:var(--accent-sky)}
+.block-callout{background:var(--accent-teal-dim);border-left:3px solid var(--accent-teal);border-radius:0 var(--radius-md) var(--radius-md) 0;padding:12px 16px;margin:8px 0;font-size:14px;color:var(--text-secondary)}
+.block-callout strong{color:var(--accent-teal)}
+.block-divider{height:1px;background:var(--border-dim);margin:18px 0}
+.block-todo{display:flex;align-items:flex-start;gap:10px;padding:4px 0}
+.todo-check{width:20px;height:20px;border:1.5px solid var(--border-visible);border-radius:4px;margin-top:2px;flex-shrink:0;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;color:transparent;transition:all var(--transition)}
+.todo-check:active{transform:scale(0.9)}
+.todo-check.done{background:var(--accent-teal);border-color:var(--accent-teal);color:var(--bg-void)}
+.todo-text{font-size:15px}
+.todo-check.done+.todo-text{color:var(--text-muted);text-decoration:line-through}
+.inline-code{font-family:var(--font-mono);font-size:12px;padding:2px 6px;background:var(--bg-raised);border-radius:3px;color:var(--accent-teal)}
+.artifact-inline{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--bg-raised);border:1px solid var(--border-dim);border-radius:var(--radius-sm);font-size:12px;color:var(--accent-teal);cursor:pointer}
+.block-image{border-radius:var(--radius-lg);overflow:hidden;margin:12px 0;border:1px solid var(--border-dim)}
+.block-image-placeholder{height:160px;background:linear-gradient(135deg,var(--bg-raised) 0%,var(--bg-hover) 50%,var(--bg-raised) 100%);display:flex;align-items:center;justify-content:center;color:var(--text-ghost);font-size:36px}
+.image-caption{padding:8px 12px;font-size:11px;color:var(--text-muted);font-style:italic;background:var(--bg-deep)}
+.block-placeholder{padding:8px 0;color:var(--text-ghost);font-size:15px;cursor:text}
+.block-placeholder kbd{font-family:var(--font-mono);font-size:10px;padding:2px 5px;background:var(--bg-raised);border:1px solid var(--border-dim);border-radius:3px}
+
+/* ================================================================
+   VIEW: STORY (new — chat/conversation)
+   ================================================================ */
+.story-scroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column}
+.story-scroll::-webkit-scrollbar{width:5px}
+.story-scroll::-webkit-scrollbar-thumb{background:var(--text-ghost);border-radius:3px}
+
+.story-header{padding:20px 24px 16px;border-bottom:1px solid var(--border-subtle);flex-shrink:0}
+.story-title{font-size:20px;font-weight:600;margin-bottom:4px}
+.story-meta{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-muted);flex-wrap:wrap}
+
+.story-messages{flex:1;padding:16px 24px;display:flex;flex-direction:column;gap:2px;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.story-messages::-webkit-scrollbar{width:5px}
+.story-messages::-webkit-scrollbar-thumb{background:var(--text-ghost);border-radius:3px}
+
+/* Day separator */
+.story-day-sep{display:flex;align-items:center;gap:12px;padding:12px 0;margin:4px 0}
+.story-day-sep::before,.story-day-sep::after{content:'';flex:1;height:1px;background:var(--border-dim)}
+.story-day-sep span{font-size:10px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);white-space:nowrap}
+
+/* Message */
+.msg{display:flex;gap:10px;padding:6px 0;max-width:85%}
+.msg.self{margin-left:auto;flex-direction:row-reverse}
+.msg-avatar{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex-shrink:0;margin-top:2px}
+.msg-body{display:flex;flex-direction:column;gap:2px;min-width:0}
+.msg-sender{font-size:11px;font-weight:500;color:var(--text-muted)}
+.msg.self .msg-sender{text-align:right}
+.msg-bubble{padding:10px 14px;border-radius:var(--radius-lg);font-size:14px;line-height:1.55;word-break:break-word;position:relative}
+.msg:not(.self) .msg-bubble{background:var(--bg-raised);border:1px solid var(--border-dim);border-top-left-radius:var(--radius-sm);color:var(--text-primary)}
+.msg.self .msg-bubble{background:var(--accent-teal-dim);border:1px solid rgba(0,212,170,0.15);border-top-right-radius:var(--radius-sm);color:var(--text-primary)}
+.msg-time{font-size:10px;color:var(--text-ghost);font-family:var(--font-mono)}
+.msg.self .msg-time{text-align:right}
+
+/* Message with image */
+.msg-image{border-radius:var(--radius-md);overflow:hidden;border:1px solid var(--border-dim);margin-top:4px;max-width:280px}
+.msg-image-placeholder{height:120px;background:linear-gradient(135deg,var(--bg-raised),var(--bg-hover));display:flex;align-items:center;justify-content:center;color:var(--text-ghost);font-size:28px}
+
+/* Message with artifact ref */
+.msg-artifact-card{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--bg-surface);border:1px solid var(--border-dim);border-radius:var(--radius-md);margin-top:6px;cursor:pointer;transition:border-color var(--transition)}
+.msg-artifact-card:hover{border-color:var(--accent-teal)}
+.msg-artifact-card .card-icon{font-size:18px}
+.msg-artifact-card .card-info{flex:1;min-width:0}
+.msg-artifact-card .card-name{font-size:13px;font-weight:500;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.msg-artifact-card .card-type{font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em}
+
+/* Branch indicator */
+.msg-branch{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--accent-violet);padding:4px 8px;background:var(--accent-violet-dim);border-radius:var(--radius-sm);margin-top:4px;cursor:pointer}
+
+/* Typing indicator */
+.typing-indicator{display:flex;align-items:center;gap:8px;padding:8px 0;font-size:12px;color:var(--text-muted)}
+.typing-dots{display:flex;gap:3px}
+.typing-dots span{width:5px;height:5px;border-radius:50%;background:var(--text-muted);animation:typeBounce 1.2s ease-in-out infinite}
+.typing-dots span:nth-child(2){animation-delay:0.15s}
+.typing-dots span:nth-child(3){animation-delay:0.3s}
+@keyframes typeBounce{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-4px)}}
+
+/* Compose bar */
+.compose-bar{display:flex;align-items:flex-end;gap:8px;padding:12px 24px;border-top:1px solid var(--border-subtle);background:var(--bg-deep);flex-shrink:0}
+.compose-input{flex:1;min-height:38px;max-height:120px;padding:8px 14px;background:var(--bg-surface);border:1px solid var(--border-dim);border-radius:var(--radius-lg);color:var(--text-primary);font-size:14px;font-family:var(--font-body);resize:none;outline:none;line-height:1.5;overflow-y:auto}
+.compose-input:focus{border-color:var(--accent-teal)}
+.compose-input::placeholder{color:var(--text-ghost)}
+.compose-btn{width:38px;height:38px;border-radius:50%;background:var(--accent-teal);border:none;color:var(--bg-void);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:transform var(--transition)}
+.compose-btn:active{transform:scale(0.9)}
+.compose-attach{width:38px;height:38px;border-radius:50%;background:var(--bg-surface);border:1px solid var(--border-dim);color:var(--text-muted);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+
+/* ================================================================
+   VIEW: REQUEST (new — marketplace)
+   ================================================================ */
+.request-scroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:24px}
+.request-scroll::-webkit-scrollbar{width:5px}
+.request-scroll::-webkit-scrollbar-thumb{background:var(--text-ghost);border-radius:3px}
+
+.request-layout{max-width:800px;margin:0 auto}
+
+/* Central quest/intention/need/offering card */
+.quest-card{background:var(--bg-raised);border:2px solid var(--accent-rose);border-radius:var(--radius-xl);padding:24px;margin-bottom:32px;position:relative;overflow:hidden}
+.quest-card::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at center,var(--accent-rose-dim) 0%,transparent 70%);pointer-events:none}
+.quest-card.type-intention{border-color:var(--accent-violet)}.quest-card.type-intention::before{background:radial-gradient(ellipse at center,var(--accent-violet-dim) 0%,transparent 70%)}
+.quest-card.type-need{border-color:var(--accent-rose)}.quest-card.type-need::before{background:radial-gradient(ellipse at center,var(--accent-rose-dim) 0%,transparent 70%)}
+.quest-card.type-offering{border-color:var(--accent-teal)}.quest-card.type-offering::before{background:radial-gradient(ellipse at center,var(--accent-teal-dim) 0%,transparent 70%)}
+.quest-card.type-quest{border-color:var(--accent-gold)}.quest-card.type-quest::before{background:radial-gradient(ellipse at center,var(--accent-gold-dim) 0%,transparent 70%)}
+.quest-header{display:flex;align-items:center;gap:12px;margin-bottom:12px;position:relative}
+.quest-icon{width:40px;height:40px;border-radius:var(--radius-md);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0}
+.quest-card.type-intention .quest-icon{background:var(--accent-violet-dim);border:1px solid rgba(177,156,217,0.2)}
+.quest-card.type-need .quest-icon{background:var(--accent-rose-dim);border:1px solid rgba(255,107,157,0.2)}
+.quest-card.type-offering .quest-icon{background:var(--accent-teal-dim);border:1px solid rgba(0,212,170,0.2)}
+.quest-card.type-quest .quest-icon{background:var(--accent-gold-dim);border:1px solid rgba(212,175,55,0.2)}
+.quest-title{font-size:22px;font-weight:700;flex:1}
+.quest-status{padding:4px 10px;border-radius:var(--radius-xl);font-size:10px;text-transform:uppercase;letter-spacing:0.06em;font-weight:600}
+.quest-status.open{background:rgba(34,197,94,0.12);color:#22c55e;border:1px solid rgba(34,197,94,0.2)}
+.quest-status.proven{background:var(--accent-gold-dim);color:var(--accent-gold);border:1px solid rgba(212,175,55,0.2)}
+.quest-status.blessed{background:var(--accent-teal-dim);color:var(--accent-teal);border:1px solid rgba(0,212,170,0.2)}
+.quest-description{font-size:15px;color:var(--text-secondary);line-height:1.65;position:relative;margin-bottom:16px}
+.quest-meta{display:flex;gap:16px;font-size:12px;color:var(--text-muted);position:relative;flex-wrap:wrap}
+.quest-meta-item{display:flex;align-items:center;gap:4px}
+.doc-meta-tag.type-quest{color:var(--accent-gold);border-color:rgba(212,175,55,0.2)}
+.doc-meta-tag.type-intention{color:var(--accent-violet);border-color:rgba(177,156,217,0.2)}
+.doc-meta-tag.type-need{color:var(--accent-rose);border-color:rgba(255,107,157,0.2)}
+.doc-meta-tag.type-offering{color:var(--accent-teal);border-color:rgba(0,212,170,0.2)}
+
+/* Proofs of Service section */
+.proofs-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.proofs-title{font-size:14px;font-weight:600;color:var(--text-secondary);display:flex;align-items:center;gap:8px}
+.proofs-count{font-size:11px;color:var(--text-muted);padding:2px 8px;background:var(--bg-raised);border:1px solid var(--border-dim);border-radius:var(--radius-xl)}
+.proof-submit-btn{padding:6px 14px;background:var(--accent-teal-dim);border:1px solid rgba(0,212,170,0.25);border-radius:var(--radius-md);color:var(--accent-teal);font-size:12px;font-weight:500;cursor:pointer;font-family:var(--font-body);transition:all var(--transition)}
+.proof-submit-btn:active{background:rgba(0,212,170,0.2)}
+
+/* Proof cards */
+.proofs-list{display:flex;flex-direction:column;gap:12px;margin-bottom:32px}
+
+.proof-card{background:var(--bg-raised);border:1px solid var(--border-dim);border-radius:var(--radius-lg);padding:16px;transition:all var(--transition);position:relative}
+.proof-card:hover{border-color:var(--border-visible)}
+.proof-card.has-tokens{border-color:var(--accent-gold);border-width:1.5px}
+.proof-card-header{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.proof-card-avatar{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex-shrink:0}
+.proof-card-from{font-size:13px;color:var(--text-secondary);font-weight:500}
+.proof-card-time{font-size:10px;color:var(--text-ghost);margin-left:auto;font-family:var(--font-mono)}
+.proof-card-body{font-size:14px;color:var(--text-secondary);line-height:1.6;margin-bottom:12px}
+
+/* Proof artifact attachment */
+.proof-artifact{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-md);font-size:12px;margin-bottom:12px;cursor:pointer;transition:border-color var(--transition)}
+.proof-artifact:hover{border-color:var(--accent-teal)}
+.proof-artifact-icon{font-size:16px;flex-shrink:0}
+.proof-artifact-name{color:var(--text-secondary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.proof-artifact-type{font-size:9px;color:var(--text-ghost);text-transform:uppercase}
+
+/* Token assignment section on proof */
+.proof-tokens{padding:12px;background:var(--bg-deep);border:1px solid var(--border-subtle);border-radius:var(--radius-md)}
+.proof-tokens-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.proof-tokens-title{font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:500;display:flex;align-items:center;gap:6px}
+.proof-tokens-title .token-icon{color:var(--accent-gold)}
+.assign-btn{padding:4px 10px;background:var(--accent-gold-dim);border:1px solid rgba(212,175,55,0.2);border-radius:var(--radius-sm);color:var(--accent-gold);font-size:11px;font-weight:500;cursor:pointer;font-family:var(--font-body);transition:all var(--transition)}
+.assign-btn:hover{background:rgba(212,175,55,0.18)}
+
+/* Assigned token list */
+.assigned-tokens{display:flex;flex-direction:column;gap:4px}
+.assigned-token{display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--bg-surface);border:1px solid var(--border-dim);border-radius:var(--radius-sm);font-size:12px}
+.token-time-pill{padding:2px 8px;border-radius:var(--radius-sm);font-family:var(--font-mono);font-size:11px;font-weight:500;background:var(--accent-gold-dim);color:var(--accent-gold);border:1px solid rgba(212,175,55,0.15);white-space:nowrap}
+.token-source{color:var(--text-muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}
+.token-remove{width:18px;height:18px;border-radius:50%;background:none;border:1px solid var(--border-dim);color:var(--text-ghost);font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.token-remove:hover{border-color:var(--accent-rose);color:var(--accent-rose)}
+.no-tokens-yet{font-size:12px;color:var(--text-ghost);font-style:italic;padding:4px 0}
+
+/* Token picker modal overlay */
+.token-picker{display:none;position:fixed;inset:0;z-index:300;background:rgba(0,0,0,0.6);align-items:center;justify-content:center}
+.token-picker.visible{display:flex}
+.token-picker-panel{background:var(--bg-raised);border:1px solid var(--border-visible);border-radius:var(--radius-xl);width:420px;max-width:92vw;max-height:75vh;display:flex;flex-direction:column;box-shadow:0 16px 64px rgba(0,0,0,0.5);overflow:hidden}
+.token-picker-header{padding:16px 20px;border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;justify-content:space-between}
+.token-picker-title{font-size:16px;font-weight:600}
+.token-picker-close{width:30px;height:30px;border:none;background:var(--bg-hover);border-radius:var(--radius-sm);color:var(--text-secondary);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.token-picker-subtitle{padding:12px 20px 8px;font-size:12px;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)}
+.token-picker-list{flex:1;overflow-y:auto;padding:8px;-webkit-overflow-scrolling:touch}
+.token-picker-list::-webkit-scrollbar{width:3px}
+.token-picker-list::-webkit-scrollbar-thumb{background:var(--text-ghost);border-radius:2px}
+
+/* Attention artifact rows in picker */
+.attn-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:var(--radius-md);cursor:pointer;transition:background var(--transition);min-height:44px}
+.attn-row:hover{background:var(--bg-hover)}
+.attn-row.selected{background:var(--accent-gold-dim);border:1px solid rgba(212,175,55,0.2)}
+.attn-check{width:20px;height:20px;border:1.5px solid var(--border-visible);border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:12px;color:transparent;transition:all var(--transition)}
+.attn-row.selected .attn-check{background:var(--accent-gold);border-color:var(--accent-gold);color:var(--bg-void)}
+.attn-info{flex:1;min-width:0}
+.attn-target{font-size:13px;color:var(--text-primary);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.attn-when{font-size:10px;color:var(--text-muted);font-family:var(--font-mono)}
+.attn-duration{padding:3px 8px;border-radius:var(--radius-sm);font-family:var(--font-mono);font-size:12px;font-weight:500;background:var(--bg-surface);border:1px solid var(--border-dim);color:var(--text-secondary);flex-shrink:0}
+.attn-row.selected .attn-duration{background:var(--accent-gold-dim);border-color:rgba(212,175,55,0.2);color:var(--accent-gold)}
+
+/* Picker footer */
+.token-picker-footer{padding:12px 20px;border-top:1px solid var(--border-subtle);display:flex;align-items:center;justify-content:space-between}
+.picker-total{font-size:13px;color:var(--text-secondary)}.picker-total strong{color:var(--accent-gold)}
+.picker-confirm{padding:8px 20px;background:var(--accent-gold);border:none;border-radius:var(--radius-md);color:var(--bg-void);font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font-body);transition:transform var(--transition)}
+.picker-confirm:active{transform:scale(0.96)}
+.picker-confirm:disabled{opacity:0.4;cursor:not-allowed}
+
+/* ================================================================
+   DETAIL PANEL (expanded with tabs)
+   ================================================================ */
+.detail-panel{grid-area:detail;background:var(--bg-deep);border-left:1px solid var(--border-subtle);overflow:hidden;display:flex;flex-direction:column;z-index:50}
+.app.detail-closed .detail-panel{display:none}
+.detail-header{padding:12px 16px;border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.detail-title{font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600}
+.detail-close{width:30px;height:30px;display:flex;align-items:center;justify-content:center;color:var(--text-muted);cursor:pointer;border-radius:var(--radius-sm);font-size:16px;background:none;border:none}
+.detail-close:active{background:var(--bg-hover)}
+
+/* Detail Tabs */
+.detail-tabs{display:flex;border-bottom:1px solid var(--border-subtle);flex-shrink:0}
+.detail-tab{flex:1;padding:10px 8px;text-align:center;font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-muted);cursor:pointer;border-bottom:2px solid transparent;transition:all var(--transition);background:none;border-top:none;border-left:none;border-right:none;font-family:var(--font-body)}
+.detail-tab:hover{color:var(--text-secondary);background:var(--bg-hover)}
+.detail-tab.active{color:var(--accent-teal);border-bottom-color:var(--accent-teal)}
+
+/* Tab content */
+.detail-tab-content{display:none;flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.detail-tab-content.active{display:block}
+.detail-tab-content::-webkit-scrollbar{width:3px}
+.detail-tab-content::-webkit-scrollbar-thumb{background:var(--text-ghost);border-radius:2px}
+
+.detail-section{padding:14px 16px;border-bottom:1px solid var(--border-subtle)}
+.detail-section-title{font-size:10px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);margin-bottom:10px;font-weight:500}
+.prop-row{display:flex;align-items:center;justify-content:space-between;padding:5px 0;font-size:13px}
+.prop-key{color:var(--text-muted)}
+.prop-val{color:var(--text-secondary);font-family:var(--font-mono);font-size:11px}
+.prop-val.accent{color:var(--accent-teal)}
+.audience-item{display:flex;align-items:center;gap:8px;padding:6px 0}
+.audience-dot{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600}
+.audience-name{font-size:13px;color:var(--text-secondary)}
+.audience-role{font-size:10px;color:var(--text-muted);margin-left:auto}
+.heat-viz{display:flex;flex-direction:column;gap:8px}
+.heat-bar-row{display:flex;align-items:center;gap:8px}
+.heat-bar-label{font-size:11px;color:var(--text-muted);width:56px;text-align:right;flex-shrink:0}
+.heat-bar-track{flex:1;height:5px;background:var(--bg-surface);border-radius:3px;overflow:hidden}
+.heat-bar-fill{height:100%;border-radius:3px;transition:width 600ms ease}
+.heat-bar-value{font-family:var(--font-mono);font-size:11px;color:var(--text-muted);width:28px;flex-shrink:0}
+.trail-event{display:flex;align-items:center;gap:6px;font-size:12px;padding:4px 0}
+.trail-time{font-family:var(--font-mono);font-size:10px;color:var(--text-ghost);width:44px;flex-shrink:0}
+.trail-arrow{color:var(--accent-teal);font-size:9px}
+.trail-target{color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ref-item{display:flex;align-items:center;gap:8px;padding:6px 8px;margin:2px 0;border-radius:var(--radius-sm);cursor:pointer;font-size:13px;min-height:36px}
+.ref-item:active{background:var(--bg-hover)}
+.ref-icon{font-size:14px;flex-shrink:0}
+.ref-name{color:var(--text-secondary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ref-type{font-size:9px;color:var(--text-ghost);text-transform:uppercase;letter-spacing:0.04em}
+
+/* ================================================================
+   AUDIENCE PANEL (new — inside detail tab)
+   ================================================================ */
+.audience-search{display:flex;gap:8px;padding:14px 16px;border-bottom:1px solid var(--border-subtle)}
+.audience-search-input{flex:1;padding:8px 12px;background:var(--bg-surface);border:1px solid var(--border-dim);border-radius:var(--radius-md);color:var(--text-primary);font-size:13px;font-family:var(--font-body);outline:none}
+.audience-search-input:focus{border-color:var(--accent-teal)}
+.audience-search-input::placeholder{color:var(--text-ghost)}
+
+.audience-member{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--border-subtle);transition:background var(--transition)}
+.audience-member:hover{background:var(--bg-hover)}
+.audience-member-avatar{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;flex-shrink:0}
+.audience-member-info{flex:1;min-width:0}
+.audience-member-name{font-size:14px;font-weight:500}
+.audience-member-id{font-family:var(--font-mono);font-size:10px;color:var(--text-muted)}
+.audience-member-actions{display:flex;gap:4px;flex-shrink:0}
+.audience-badge{padding:3px 8px;border-radius:var(--radius-xl);font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:0.04em}
+.audience-badge.steward{background:var(--accent-teal-dim);color:var(--accent-teal);border:1px solid rgba(0,212,170,0.2)}
+.audience-badge.peer{background:var(--bg-surface);color:var(--text-muted);border:1px solid var(--border-dim)}
+.audience-badge.syncing{background:var(--accent-sky-dim);color:var(--accent-sky);border:1px solid rgba(107,207,255,0.2)}
+.audience-remove-btn{width:24px;height:24px;border-radius:50%;background:none;border:1px solid var(--border-dim);color:var(--text-ghost);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all var(--transition)}
+.audience-remove-btn:hover{border-color:var(--accent-rose);color:var(--accent-rose);background:var(--accent-rose-dim)}
+
+/* Add peer row */
+.audience-add{display:flex;align-items:center;gap:10px;padding:10px 16px;cursor:pointer;transition:background var(--transition);border-bottom:1px solid var(--border-subtle)}
+.audience-add:hover{background:var(--bg-hover)}
+.audience-add-icon{width:30px;height:30px;border-radius:50%;border:1.5px dashed var(--border-visible);display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:16px}
+.audience-add-text{font-size:13px;color:var(--text-muted)}
+
+/* Stewardship transfer */
+.steward-transfer{padding:14px 16px;border-bottom:1px solid var(--border-subtle)}
+.steward-transfer-title{font-size:10px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);margin-bottom:8px;font-weight:500}
+.steward-current{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--bg-surface);border:1px solid var(--border-dim);border-radius:var(--radius-md);margin-bottom:8px}
+.steward-current-info{flex:1}
+.steward-current-label{font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em}
+.steward-current-name{font-size:14px;font-weight:500}
+.transfer-btn{width:100%;padding:8px;background:var(--accent-gold-dim);border:1px solid rgba(212,175,55,0.2);border-radius:var(--radius-md);color:var(--accent-gold);font-size:12px;font-weight:500;cursor:pointer;text-align:center;font-family:var(--font-body);transition:all var(--transition)}
+.transfer-btn:hover{background:rgba(212,175,55,0.18)}
+
+/* Sync status */
+.sync-section{padding:14px 16px}
+.sync-item{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px}
+.sync-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.sync-dot.synced{background:#22c55e}
+.sync-dot.syncing{background:var(--accent-sky);animation:pulse-sync 1.5s ease-in-out infinite}
+.sync-dot.offline{background:var(--text-ghost)}
+@keyframes pulse-sync{0%,100%{opacity:1}50%{opacity:0.4}}
+.sync-name{color:var(--text-secondary);flex:1}
+.sync-status{font-size:10px;color:var(--text-muted);font-family:var(--font-mono)}
+
+/* ================================================================
+   SLASH MENU
+   ================================================================ */
+.slash-menu{position:fixed;background:var(--bg-raised);border:1px solid var(--border-visible);border-radius:var(--radius-lg);box-shadow:0 12px 48px rgba(0,0,0,0.6);width:300px;max-height:70vh;overflow-y:auto;padding:6px;z-index:200;display:none;-webkit-overflow-scrolling:touch}
+.slash-menu.visible{display:block}
+.slash-menu-title{font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);padding:8px 10px 4px}
+.slash-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:var(--radius-sm);cursor:pointer;min-height:44px}
+.slash-item:active{background:var(--bg-active)}
+.slash-item.selected{background:var(--accent-teal-dim)}
+.slash-item-icon{width:32px;height:32px;border-radius:var(--radius-sm);background:var(--bg-surface);border:1px solid var(--border-dim);display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
+.slash-item-name{font-size:14px;font-weight:500}
+.slash-item-desc{font-size:11px;color:var(--text-muted)}
+
+/* ================================================================
+   BOTTOM NAV + FAB (mobile)
+   ================================================================ */
+.bottom-nav{display:none;position:fixed;bottom:0;left:0;right:0;background:var(--bg-deep);border-top:1px solid var(--border-subtle);z-index:60;padding-bottom:var(--safe-bottom)}
+.bottom-nav-inner{display:flex;height:var(--bottom-nav-h)}
+.bottom-nav-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:var(--text-muted);font-size:10px;cursor:pointer;border:none;background:none;font-family:var(--font-body);min-height:44px;position:relative}
+.bottom-nav-item:active{color:var(--text-primary)}
+.bottom-nav-item.active{color:var(--accent-teal)}
+.bottom-nav-item .nav-icon{font-size:20px;line-height:1}
+.bottom-nav-item.active::after{content:'';position:absolute;top:0;left:25%;right:25%;height:2px;background:var(--accent-teal);border-radius:0 0 2px 2px}
+.nav-heat-badge{position:absolute;top:4px;right:calc(50% - 18px);width:6px;height:6px;border-radius:50%;background:var(--heat-5);box-shadow:0 0 6px rgba(255,217,61,0.4)}
+.fab{display:none;position:fixed;z-index:55;width:52px;height:52px;border-radius:50%;background:var(--accent-teal);color:var(--bg-void);border:none;font-size:26px;cursor:pointer;box-shadow:0 4px 20px rgba(0,212,170,0.3);align-items:center;justify-content:center}
+.fab:active{transform:scale(0.92)}
+
+/* ================================================================
+   ANIMATIONS
+   ================================================================ */
+@keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.content-body>*,.request-layout>*{animation:fadeUp 250ms ease both}
+.content-body>*:nth-child(1),.request-layout>*:nth-child(1){animation-delay:0ms}
+.content-body>*:nth-child(2),.request-layout>*:nth-child(2){animation-delay:30ms}
+.content-body>*:nth-child(3),.request-layout>*:nth-child(3){animation-delay:60ms}
+.content-body>*:nth-child(4){animation-delay:90ms}
+.content-body>*:nth-child(5){animation-delay:120ms}
+.content-body>*:nth-child(6){animation-delay:150ms}
+.content-body>*:nth-child(7){animation-delay:180ms}
+.content-body>*:nth-child(8){animation-delay:210ms}
+.content-body>*:nth-child(9){animation-delay:240ms}
+.content-body>*:nth-child(10){animation-delay:270ms}
+.content-body>*:nth-child(11){animation-delay:300ms}
+.content-body>*:nth-child(12){animation-delay:330ms}
+.content-body>*:nth-child(13){animation-delay:360ms}
+.content-body>*:nth-child(14){animation-delay:390ms}
+
+/* ================================================================
+   RESPONSIVE
+   ================================================================ */
+@media (max-width:1024px){
+  .app{grid-template-columns:var(--sidebar-w) 1fr;grid-template-areas:"sidebar main"}
+  .app.detail-closed{grid-template-columns:var(--sidebar-w) 1fr}
+  .detail-panel{position:fixed;right:0;top:0;bottom:0;width:var(--detail-w);box-shadow:-8px 0 32px rgba(0,0,0,0.4)}
+  .steward-badge{display:none}
+}
+@media (max-width:768px){
+  :root{--sidebar-w:85vw}
+  .app{grid-template-columns:1fr;grid-template-areas:"main"}
+  .app.detail-closed{grid-template-columns:1fr;grid-template-areas:"main"}
+  .sidebar{position:fixed;left:0;top:0;bottom:0;width:var(--sidebar-w);max-width:320px;transform:translateX(-100%);transition:transform var(--transition-slide);box-shadow:8px 0 32px rgba(0,0,0,0.5)}
+  .sidebar.open{transform:translateX(0)}
+  .sidebar-backdrop{display:block}
+  .sidebar-close-btn{display:flex}
+  .detail-panel{position:fixed;right:0;top:0;bottom:0;width:92vw;max-width:380px;transform:translateX(100%);transition:transform var(--transition-slide);box-shadow:-8px 0 32px rgba(0,0,0,0.5)}
+  .detail-panel.open{transform:translateX(0)}
+  .app.detail-closed .detail-panel{display:flex;transform:translateX(100%)}
+  .topbar{padding:6px 12px;min-height:48px}
+  .topbar-hamburger{display:flex}
+  .topbar-btn.desktop-only{display:none}
+  .steward-badge{display:none}
+  .content-scroll,.story-scroll,.request-scroll{padding-bottom:calc(var(--bottom-nav-h) + var(--safe-bottom) + 20px)}
+  .compose-bar{padding-bottom:calc(12px + var(--bottom-nav-h) + var(--safe-bottom))}
+  .content-body{padding:0 16px}
+  .doc-title{font-size:24px}
+  .block-handle{display:none}
+  .block-code{font-size:11px;padding:12px 14px}
+  .bottom-nav{display:block}
+  .fab{display:flex;bottom:calc(var(--bottom-nav-h) + var(--safe-bottom) + 16px);right:16px}
+  .slash-menu{bottom:calc(var(--bottom-nav-h) + var(--safe-bottom) + 8px);left:8px;right:8px;width:auto;max-height:60vh;border-radius:var(--radius-xl)}
+  .block-image-placeholder{height:140px}
+  .msg{max-width:90%}
+  .story-messages{padding:12px 16px}
+  .compose-bar{padding-left:16px;padding-right:16px}
+  .request-scroll{padding-left:0;padding-right:0}
+  .request-layout{padding:0 16px}
+}
+@media (max-width:400px){
+  .content-body{padding:0 12px}
+  .doc-title{font-size:22px}
+  .block p{font-size:14px}
+  .topbar-actions .topbar-btn span.btn-label{display:none}
+  .quest-card{padding:16px}
+  .quest-title{font-size:18px}
+  .token-picker-panel{max-width:100vw;border-radius:var(--radius-xl) var(--radius-xl) 0 0;max-height:85vh}
+}
+</style>
+</head>
+<body>
+<div class="app detail-closed" id="app">
+  <div class="sidebar-backdrop" id="sidebarBackdrop" onclick="closeSidebar()"></div>
+
+  <!-- ===== SIDEBAR ===== -->
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="identity-row">
+        <div class="identity-avatar">N</div>
+        <div><div class="identity-name">Nova</div><div class="identity-id">indra1qz7x...f3m9</div></div>
+        <button class="sidebar-close-btn" onclick="closeSidebar()">&#10005;</button>
+      </div>
+    </div>
+    <div class="peer-strip">
+      <span class="peer-strip-label">Peers</span>
+      <div class="peer-dot peer-dot-sage online">S</div>
+      <div class="peer-dot peer-dot-zeph online">Z</div>
+      <div class="peer-dot" style="background:var(--bg-active);color:var(--text-muted);">O</div>
+    </div>
+    <div class="vault-tree">
+      <div class="tree-section-label">Vault</div>
+      <div class="tree-item" data-heat="4" data-view="document"><div class="tree-toggle open">&#9654;</div><div class="tree-icon">&#128194;</div><div class="tree-label">Project Alpha</div><div class="heat-dot heat-4"></div></div>
+      <div class="tree-item active" data-view="document"><div class="tree-indent"></div><div class="tree-toggle">&#9654;</div><div class="tree-icon">&#128196;</div><div class="tree-label">Architecture Notes</div><div class="heat-dot heat-3"></div></div>
+      <div class="tree-item" data-heat="5" data-view="story"><div class="tree-indent"></div><div class="tree-toggle">&#9654;</div><div class="tree-icon">&#128172;</div><div class="tree-label">Team Discussion</div><div class="heat-dot heat-5"></div></div>
+      <div class="tree-item" data-view="document"><div class="tree-indent"></div><div class="tree-toggle">&#9654;</div><div class="tree-icon">&#127912;</div><div class="tree-label">Design Assets</div><div class="heat-dot heat-1"></div></div>
+      <div class="tree-item" data-view="document"><div class="tree-toggle">&#9654;</div><div class="tree-icon">&#128214;</div><div class="tree-label">Personal Journal</div><div class="heat-dot heat-0"></div></div>
+      <div class="tree-item" data-heat="3" data-view="story"><div class="tree-toggle">&#9654;</div><div class="tree-icon">&#128141;</div><div class="tree-label">DM with Sage</div><div class="heat-dot heat-3"></div></div>
+      <div class="tree-section-label">Intentions &amp; Quests</div>
+      <div class="tree-item" data-view="quest" data-quest-type="quest"><div class="tree-toggle">&#9654;</div><div class="tree-icon">&#9876;</div><div class="tree-label">Build P2P Workspace</div><div class="heat-dot heat-2"></div></div>
+      <div class="tree-item" data-view="quest" data-quest-type="need"><div class="tree-toggle">&#9654;</div><div class="tree-icon">&#127793;</div><div class="tree-label">Need: Logo Design</div><div class="heat-dot heat-3"></div></div>
+      <div class="tree-item" data-view="quest" data-quest-type="offering"><div class="tree-toggle">&#9654;</div><div class="tree-icon">&#127873;</div><div class="tree-label">Offering: Code Review</div><div class="heat-dot heat-1"></div></div>
+      <div class="tree-item" data-view="quest" data-quest-type="intention"><div class="tree-toggle">&#9654;</div><div class="tree-icon">&#10024;</div><div class="tree-label">Intention: Learn Rust</div><div class="heat-dot heat-0"></div></div>
+      <div class="tree-section-label">Exchanges</div>
+      <div class="tree-item" data-view="document"><div class="tree-toggle">&#9654;</div><div class="tree-icon">&#128260;</div><div class="tree-label">Exchange with Zephyr</div><div class="heat-dot heat-1"></div></div>
+      <div class="tree-section-label">Tokens</div>
+      <div class="tree-item" data-view="document"><div class="tree-toggle">&#9654;</div><div class="tree-icon">&#10024;</div><div class="tree-label">Tokens of Gratitude (3)</div><div class="heat-dot heat-0"></div></div>
+    </div>
+    <div class="sidebar-footer">
+      <button class="sidebar-footer-btn" onclick="toggleSlash()">&#9889; New</button>
+      <button class="sidebar-footer-btn">&#128269; Search</button>
+    </div>
+  </div>
+
+  <!-- ===== MAIN ===== -->
+  <div class="main">
+    <div class="topbar" id="topbar">
+      <button class="topbar-hamburger" onclick="openSidebar()">&#9776;</button>
+      <div class="breadcrumbs" id="breadcrumbs">
+        <span class="crumb">&#127760; Vault</span><span class="crumb-sep">&#8250;</span>
+        <span class="crumb">Project Alpha</span><span class="crumb-sep">&#8250;</span>
+        <span class="crumb current" id="crumbCurrent">Architecture Notes</span>
+      </div>
+      <div class="topbar-actions">
+        <div class="steward-badge" id="stewardBadge"><span class="dot"></span><span>Steward: You</span></div>
+        <button class="topbar-btn desktop-only" onclick="toggleDetail()">&#9881; <span class="btn-label">Properties</span></button>
+        <button class="topbar-btn primary" onclick="showAudiencePanel()">&#128101; <span class="btn-label">Share</span></button>
+      </div>
+    </div>
+
+    <!-- ====== VIEW: DOCUMENT ====== -->
+    <div class="view active" id="view-document">
+      <div class="content-scroll">
+        <div class="content-body">
+          <div class="doc-title" contenteditable="true">Architecture Notes</div>
+          <div class="doc-meta">
+            <span class="doc-meta-tag type-document">Document</span>
+            <span>3 audience</span><span>&#183;</span><span>Edited 2m ago</span>
+          </div>
+          <div class="block"><span class="block-handle">&#8942;</span><p>The new ontology reduces everything to <strong>three primitives</strong>: Artifact (Leaf/Tree), Attention Switch Event, and Mutual Peering. This document captures the architecture decisions for the workspace interface built on <code class="inline-code">indras-artifacts</code>.</p></div>
+          <div class="block"><span class="block-handle">&#8942;</span><h2>Core Data Structures</h2></div>
+          <div class="block"><span class="block-handle">&#8942;</span><p>Every piece of content is an <span class="artifact-inline">&#128196; Artifact</span>. Immutable content lives in Leaf artifacts. Mutable structure lives in Tree artifacts.</p></div>
+          <div class="block"><span class="block-handle">&#8942;</span><div class="block-code"><span class="kw">pub enum</span> <span class="ty">Artifact</span> {
+    <span class="fn">Leaf</span>(<span class="ty">LeafArtifact</span>),   <span class="cm">// immutable, content-addressed</span>
+    <span class="fn">Tree</span>(<span class="ty">TreeArtifact</span>),   <span class="cm">// mutable CRDT</span>
+}
+
+<span class="kw">pub enum</span> <span class="ty">TreeType</span> {
+    <span class="fn">Vault</span>,       <span class="cm">// player's root</span>
+    <span class="fn">Story</span>,       <span class="cm">// sequential journey</span>
+    <span class="fn">Document</span>,    <span class="cm">// vertical reading flow</span>
+    <span class="fn">Gallery</span>,     <span class="cm">// spatial layout</span>
+    <span class="fn">Collection</span>,  <span class="cm">// structured data</span>
+    <span class="fn">Intention</span>,   <span class="cm">// aspiration</span>
+    <span class="fn">Need</span>,        <span class="cm">// request for help</span>
+    <span class="fn">Offering</span>,    <span class="cm">// gift of service</span>
+    <span class="fn">Quest</span>,       <span class="cm">// call to action</span>
+    <span class="fn">Exchange</span>,    <span class="cm">// negotiation</span>
+}</div></div>
+          <div class="block"><span class="block-handle">&#8942;</span><h2>Navigation as Attention</h2></div>
+          <div class="block"><span class="block-handle">&#8942;</span><p>Every click generates an <code class="inline-code" style="color:var(--accent-gold)">AttentionSwitchEvent</code>. The attention log is append-only and shared with mutual peers. Heat is derived from these logs.</p></div>
+          <div class="block"><span class="block-handle">&#8942;</span><div class="block-callout"><strong>Key insight:</strong> The fractal artifact tree IS the UI. Navigation IS attention tracking. The Vault IS an artifact.</div></div>
+          <div class="block"><span class="block-handle">&#8942;</span><h2>Tasks</h2></div>
+          <div class="block"><span class="block-handle">&#8942;</span><div class="block-todo"><div class="todo-check done">&#10003;</div><span class="todo-text">Define Artifact enum (Leaf/Tree)</span></div></div>
+          <div class="block"><span class="block-handle">&#8942;</span><div class="block-todo"><div class="todo-check done">&#10003;</div><span class="todo-text">Implement Vault with in-memory stores</span></div></div>
+          <div class="block"><span class="block-handle">&#8942;</span><div class="block-todo"><div class="todo-check"></div><span class="todo-text">Wire up AttentionSwitchEvent on navigate_to</span></div></div>
+          <div class="block"><span class="block-handle">&#8942;</span><div class="block-todo"><div class="todo-check"></div><span class="todo-text">Compute heat from peer attention logs</span></div></div>
+          <div class="block"><span class="block-handle">&#8942;</span><div class="block-image"><div class="block-image-placeholder">&#128506;</div><div class="image-caption">Leaf(Image) — system_diagram.png — Blob(a3f8...c291)</div></div></div>
+          <div class="block-placeholder" onclick="toggleSlash()">Type <kbd>/</kbd> for commands...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====== VIEW: STORY (Team Discussion) ====== -->
+    <div class="view" id="view-story">
+      <div class="story-scroll">
+        <div class="story-header">
+          <div class="story-title">Team Discussion</div>
+          <div class="story-meta">
+            <span class="doc-meta-tag type-story">Story</span>
+            <span>3 audience</span><span>&#183;</span><span>42 messages</span>
+          </div>
+        </div>
+        <div class="story-messages" id="storyMessages">
+          <div class="story-day-sep"><span>Yesterday</span></div>
+
+          <div class="msg">
+            <div class="msg-avatar peer-dot-sage">S</div>
+            <div class="msg-body">
+              <div class="msg-sender">Sage</div>
+              <div class="msg-bubble">Has anyone looked at the new ontology plan? I think collapsing everything into Leaf/Tree is elegant but I'm worried about the migration path from the old Realm model.</div>
+              <div class="msg-time">14:22</div>
+            </div>
+          </div>
+
+          <div class="msg self">
+            <div class="msg-avatar" style="background:linear-gradient(135deg,var(--accent-teal),var(--accent-violet));color:var(--bg-void)">N</div>
+            <div class="msg-body">
+              <div class="msg-sender">Nova</div>
+              <div class="msg-bubble">Yeah I've been going through it. The key insight is that Realm members just become per-artifact audiences. So we don't need to migrate — we just reinterpret existing data.
+                <div class="msg-artifact-card">
+                  <span class="card-icon">&#128196;</span>
+                  <div class="card-info">
+                    <div class="card-name">Architecture Notes</div>
+                    <div class="card-type">Tree(Document)</div>
+                  </div>
+                </div>
+              </div>
+              <div class="msg-time">14:25</div>
+            </div>
+          </div>
+
+          <div class="msg">
+            <div class="msg-avatar peer-dot-zeph">Z</div>
+            <div class="msg-body">
+              <div class="msg-sender">Zephyr</div>
+              <div class="msg-bubble">Love the heat concept. Being able to see where everyone's attention is focused in real-time makes the workspace feel alive.</div>
+              <div class="msg-time">14:31</div>
+            </div>
+          </div>
+
+          <div class="msg self">
+            <div class="msg-avatar" style="background:linear-gradient(135deg,var(--accent-teal),var(--accent-violet));color:var(--bg-void)">N</div>
+            <div class="msg-body">
+              <div class="msg-sender">Nova</div>
+              <div class="msg-bubble">Exactly. And it's not opt-in tracking — navigation IS the attention event. Just using the workspace generates the data.</div>
+              <div class="msg-time">14:33</div>
+            </div>
+          </div>
+
+          <div class="msg">
+            <div class="msg-avatar peer-dot-sage">S</div>
+            <div class="msg-body">
+              <div class="msg-sender">Sage</div>
+              <div class="msg-bubble">One question — when someone posts a Proof of Service to a Quest, how does the token assignment work? Do you pick specific attention artifacts from your log?</div>
+              <div class="msg-time">14:38</div>
+            </div>
+          </div>
+
+          <div class="msg self">
+            <div class="msg-avatar" style="background:linear-gradient(135deg,var(--accent-teal),var(--accent-violet));color:var(--bg-void)">N</div>
+            <div class="msg-body">
+              <div class="msg-sender">Nova</div>
+              <div class="msg-bubble">Yes — every attention switch event is an artifact whose value is the dwell time until the next switch. You browse your log and select specific ones to assign as Tokens of Gratitude linked to that proof. The tokens carry the attention time as their value.</div>
+              <div class="msg-time">14:40</div>
+            </div>
+          </div>
+
+          <div class="story-day-sep"><span>Today</span></div>
+
+          <div class="msg">
+            <div class="msg-avatar peer-dot-zeph">Z</div>
+            <div class="msg-body">
+              <div class="msg-sender">Zephyr</div>
+              <div class="msg-bubble">I pushed an image of the system diagram. Can someone review?
+                <div class="msg-image"><div class="msg-image-placeholder">&#128506;</div></div>
+              </div>
+              <div class="msg-time">09:14</div>
+            </div>
+          </div>
+
+          <div class="msg">
+            <div class="msg-avatar peer-dot-sage">S</div>
+            <div class="msg-body">
+              <div class="msg-sender">Sage</div>
+              <div class="msg-bubble">Looks good! Should we branch this into a design review thread?
+                <div class="msg-branch" onclick="alert('Branch into sub-Story')">&#10551; Branch into sub-Story</div>
+              </div>
+              <div class="msg-time">09:22</div>
+            </div>
+          </div>
+
+          <div class="typing-indicator">
+            <div class="msg-avatar peer-dot-zeph" style="width:20px;height:20px;font-size:8px">Z</div>
+            <div class="typing-dots"><span></span><span></span><span></span></div>
+            <span>Zephyr is composing...</span>
+          </div>
+        </div>
+      </div>
+      <div class="compose-bar">
+        <button class="compose-attach">&#128206;</button>
+        <textarea class="compose-input" placeholder="Send a message..." rows="1"></textarea>
+        <button class="compose-btn">&#10148;</button>
+      </div>
+    </div>
+
+    <!-- ====== VIEW: QUEST (Need: Logo Design) ====== -->
+    <div class="view" id="view-quest">
+      <div class="request-scroll">
+        <div class="request-layout">
+          <!-- Central Quest Card -->
+          <div class="quest-card type-quest" id="questCard">
+            <div class="quest-header">
+              <div class="quest-icon">&#9876;</div>
+              <div class="quest-title" id="questTitle">Build P2P Workspace</div>
+              <div class="quest-status proven">Proven</div>
+            </div>
+            <div class="quest-description" id="questDescription">Design and implement the IndrasNetwork workspace interface — a P2P collaborative environment built on the new artifact ontology. Needs responsive layout, all TreeType views, and working attention heat visualization.</div>
+            <div class="quest-meta">
+              <div class="quest-meta-item"><span style="color:var(--accent-teal)">&#9679;</span> Steward: Nova</div>
+              <div class="quest-meta-item">&#128101; 5 audience</div>
+              <div class="quest-meta-item">&#128220; 2 proofs</div>
+              <div class="quest-meta-item">&#10024; 3 tokens assigned</div>
+              <div class="quest-meta-item">&#128337; Posted 5 days ago</div>
+            </div>
+          </div>
+
+          <!-- Proofs of Service -->
+          <div class="proofs-header">
+            <div class="proofs-title">Proofs of Service <span class="proofs-count">2</span></div>
+            <button class="proof-submit-btn">+ Submit Proof</button>
+          </div>
+
+          <div class="proofs-list">
+            <!-- Proof 1 — with tokens assigned -->
+            <div class="proof-card has-tokens">
+              <div class="proof-card-header">
+                <div class="proof-card-avatar peer-dot-sage">S</div>
+                <div class="proof-card-from">Sage</div>
+                <div class="proof-card-time">2d ago</div>
+              </div>
+              <div class="proof-card-body">Completed the responsive mockup with all three breakpoints — desktop, tablet, mobile. Implemented swipe gestures, bottom nav, Anytype-inspired overlay patterns, and the full Quiet Protocol design system.</div>
+              <div class="proof-artifact">
+                <span class="proof-artifact-icon">&#128196;</span>
+                <span class="proof-artifact-name">indras_workspace.html</span>
+                <span class="proof-artifact-type">File</span>
+              </div>
+
+              <!-- Tokens already assigned to this proof -->
+              <div class="proof-tokens">
+                <div class="proof-tokens-header">
+                  <div class="proof-tokens-title"><span class="token-icon">&#10024;</span> Tokens of Gratitude</div>
+                  <button class="assign-btn" onclick="openTokenPicker()">+ Assign more</button>
+                </div>
+                <div class="assigned-tokens">
+                  <div class="assigned-token">
+                    <span class="token-time-pill">14m 22s</span>
+                    <span class="token-source">&#9654; Architecture Notes</span>
+                    <button class="token-remove" title="Unassign">&#10005;</button>
+                  </div>
+                  <div class="assigned-token">
+                    <span class="token-time-pill">8m 47s</span>
+                    <span class="token-source">&#9654; Team Discussion</span>
+                    <button class="token-remove" title="Unassign">&#10005;</button>
+                  </div>
+                  <div class="assigned-token">
+                    <span class="token-time-pill">3m 11s</span>
+                    <span class="token-source">&#9654; Design Assets</span>
+                    <button class="token-remove" title="Unassign">&#10005;</button>
+                  </div>
+                </div>
+                <div style="margin-top:8px;font-size:11px;color:var(--text-muted);display:flex;justify-content:space-between">
+                  <span>3 attention artifacts assigned</span>
+                  <span style="color:var(--accent-gold);font-weight:500;font-family:var(--font-mono)">26m 20s total</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Proof 2 — no tokens yet -->
+            <div class="proof-card">
+              <div class="proof-card-header">
+                <div class="proof-card-avatar peer-dot-zeph">Z</div>
+                <div class="proof-card-from">Zephyr</div>
+                <div class="proof-card-time">18h ago</div>
+              </div>
+              <div class="proof-card-body">Created the system architecture diagram showing all artifact types, their relationships, and the attention flow. Also wrote the TreeType enum documentation with inline examples.</div>
+              <div class="proof-artifact">
+                <span class="proof-artifact-icon">&#128444;</span>
+                <span class="proof-artifact-name">system_diagram.svg</span>
+                <span class="proof-artifact-type">Image</span>
+              </div>
+              <div class="proof-artifact" style="margin-top:4px">
+                <span class="proof-artifact-icon">&#128196;</span>
+                <span class="proof-artifact-name">treetype_docs.md</span>
+                <span class="proof-artifact-type">File</span>
+              </div>
+
+              <div class="proof-tokens">
+                <div class="proof-tokens-header">
+                  <div class="proof-tokens-title"><span class="token-icon">&#10024;</span> Tokens of Gratitude</div>
+                  <button class="assign-btn" onclick="openTokenPicker()">+ Assign</button>
+                </div>
+                <div class="no-tokens-yet">No attention artifacts assigned yet</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ===== TOKEN PICKER MODAL ===== -->
+  <div class="token-picker" id="tokenPicker">
+    <div class="token-picker-panel">
+      <div class="token-picker-header">
+        <div class="token-picker-title">Assign Attention</div>
+        <button class="token-picker-close" onclick="closeTokenPicker()">&#10005;</button>
+      </div>
+      <div class="token-picker-subtitle">Select attention artifacts from your log. Each represents time you spent navigating to an artifact — that dwell time becomes the token's value.</div>
+      <div class="token-picker-list">
+        <div class="attn-row" onclick="toggleAttn(this)">
+          <div class="attn-check">&#10003;</div>
+          <div class="attn-info">
+            <div class="attn-target">Architecture Notes</div>
+            <div class="attn-when">Today 10:14 AM</div>
+          </div>
+          <div class="attn-duration">6m 33s</div>
+        </div>
+        <div class="attn-row" onclick="toggleAttn(this)">
+          <div class="attn-check">&#10003;</div>
+          <div class="attn-info">
+            <div class="attn-target">Team Discussion</div>
+            <div class="attn-when">Today 9:41 AM</div>
+          </div>
+          <div class="attn-duration">12m 08s</div>
+        </div>
+        <div class="attn-row" onclick="toggleAttn(this)">
+          <div class="attn-check">&#10003;</div>
+          <div class="attn-info">
+            <div class="attn-target">Design Assets</div>
+            <div class="attn-when">Today 9:22 AM</div>
+          </div>
+          <div class="attn-duration">4m 51s</div>
+        </div>
+        <div class="attn-row" onclick="toggleAttn(this)">
+          <div class="attn-check">&#10003;</div>
+          <div class="attn-info">
+            <div class="attn-target">Need: Logo Design</div>
+            <div class="attn-when">Yesterday 4:38 PM</div>
+          </div>
+          <div class="attn-duration">2m 14s</div>
+        </div>
+        <div class="attn-row" onclick="toggleAttn(this)">
+          <div class="attn-check">&#10003;</div>
+          <div class="attn-info">
+            <div class="attn-target">DM with Sage</div>
+            <div class="attn-when">Yesterday 4:02 PM</div>
+          </div>
+          <div class="attn-duration">9m 37s</div>
+        </div>
+        <div class="attn-row" onclick="toggleAttn(this)">
+          <div class="attn-check">&#10003;</div>
+          <div class="attn-info">
+            <div class="attn-target">Personal Journal</div>
+            <div class="attn-when">Yesterday 3:18 PM</div>
+          </div>
+          <div class="attn-duration">18m 02s</div>
+        </div>
+        <div class="attn-row" onclick="toggleAttn(this)">
+          <div class="attn-check">&#10003;</div>
+          <div class="attn-info">
+            <div class="attn-target">Project Alpha</div>
+            <div class="attn-when">Yesterday 2:55 PM</div>
+          </div>
+          <div class="attn-duration">7m 45s</div>
+        </div>
+      </div>
+      <div class="token-picker-footer">
+        <div class="picker-total"><strong id="pickerCount">0</strong> selected &middot; <strong id="pickerDuration">0m 0s</strong></div>
+        <button class="picker-confirm" id="pickerConfirm" disabled onclick="closeTokenPicker()">Assign Tokens</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== DETAIL PANEL (tabbed) ===== -->
+  <div class="detail-panel" id="detailPanel">
+    <div class="detail-header">
+      <span class="detail-title" id="detailPanelTitle">Artifact Properties</span>
+      <button class="detail-close" onclick="toggleDetail()">&#10005;</button>
+    </div>
+
+    <div class="detail-tabs">
+      <button class="detail-tab active" data-tab="properties" onclick="switchDetailTab('properties')">Properties</button>
+      <button class="detail-tab" data-tab="audience" onclick="switchDetailTab('audience')">Audience</button>
+      <button class="detail-tab" data-tab="heat" onclick="switchDetailTab('heat')">Heat</button>
+    </div>
+
+    <!-- TAB: Properties -->
+    <div class="detail-tab-content active" id="tab-properties">
+      <div class="detail-section">
+        <div class="detail-section-title">Identity</div>
+        <div class="prop-row"><span class="prop-key">Type</span><span class="prop-val accent" id="detailType">Tree(Document)</span></div>
+        <div class="prop-row"><span class="prop-key">ID</span><span class="prop-val" id="detailId">Doc(7f2a...e891)</span></div>
+        <div class="prop-row"><span class="prop-key">Steward</span><span class="prop-val accent">Nova (you)</span></div>
+        <div class="prop-row"><span class="prop-key">Created</span><span class="prop-val">2026-02-12</span></div>
+        <div class="prop-row"><span class="prop-key">Refs</span><span class="prop-val" id="detailRefs">14 artifacts</span></div>
+      </div>
+      <div class="detail-section">
+        <div class="detail-section-title">Recent Attention</div>
+        <div class="trail-event"><span class="trail-time">2m ago</span><span class="trail-arrow">&#9654;</span><span class="trail-target" style="color:var(--accent-teal)">Architecture Notes</span></div>
+        <div class="trail-event"><span class="trail-time">8m ago</span><span class="trail-arrow">&#9654;</span><span class="trail-target">Team Discussion</span></div>
+        <div class="trail-event"><span class="trail-time">14m</span><span class="trail-arrow">&#9654;</span><span class="trail-target">Project Alpha</span></div>
+        <div class="trail-event"><span class="trail-time">22m</span><span class="trail-arrow">&#9654;</span><span class="trail-target">DM with Sage</span></div>
+        <div class="trail-event"><span class="trail-time">41m</span><span class="trail-arrow">&#9654;</span><span class="trail-target">Need: Logo Design</span></div>
+      </div>
+      <div class="detail-section">
+        <div class="detail-section-title">References</div>
+        <div class="ref-item"><span class="ref-icon">&#128196;</span><span class="ref-name">The new ontology reduces...</span><span class="ref-type">msg</span></div>
+        <div class="ref-item"><span class="ref-icon">&#128187;</span><span class="ref-name">pub enum Artifact { ... }</span><span class="ref-type">code</span></div>
+        <div class="ref-item"><span class="ref-icon">&#128506;</span><span class="ref-name">system_diagram.png</span><span class="ref-type">image</span></div>
+        <div style="color:var(--text-ghost);font-size:11px;padding:4px 8px 4px 38px;">+ 11 more...</div>
+      </div>
+    </div>
+
+    <!-- TAB: Audience -->
+    <div class="detail-tab-content" id="tab-audience">
+      <div class="audience-search">
+        <input class="audience-search-input" placeholder="Search peers to add..." />
+      </div>
+
+      <!-- Stewardship Transfer -->
+      <div class="steward-transfer">
+        <div class="steward-transfer-title">Stewardship</div>
+        <div class="steward-current">
+          <div class="audience-dot" style="background:linear-gradient(135deg,var(--accent-teal),var(--accent-violet))">N</div>
+          <div class="steward-current-info">
+            <div class="steward-current-label">Current Steward</div>
+            <div class="steward-current-name">Nova (you)</div>
+          </div>
+        </div>
+        <button class="transfer-btn">&#128260; Transfer Stewardship...</button>
+      </div>
+
+      <!-- Current Audience Members -->
+      <div class="audience-member">
+        <div class="audience-member-avatar" style="background:linear-gradient(135deg,var(--accent-teal),var(--accent-violet));color:var(--bg-void)">N</div>
+        <div class="audience-member-info">
+          <div class="audience-member-name">Nova</div>
+          <div class="audience-member-id">indra1qz7x...f3m9</div>
+        </div>
+        <div class="audience-member-actions">
+          <span class="audience-badge steward">Steward</span>
+        </div>
+      </div>
+
+      <div class="audience-member">
+        <div class="audience-member-avatar peer-dot-sage">S</div>
+        <div class="audience-member-info">
+          <div class="audience-member-name">Sage</div>
+          <div class="audience-member-id">indra1m4kp...a7n2</div>
+        </div>
+        <div class="audience-member-actions">
+          <span class="audience-badge syncing">Syncing</span>
+          <button class="audience-remove-btn" title="Remove from audience">&#10005;</button>
+        </div>
+      </div>
+
+      <div class="audience-member">
+        <div class="audience-member-avatar peer-dot-zeph">Z</div>
+        <div class="audience-member-info">
+          <div class="audience-member-name">Zephyr</div>
+          <div class="audience-member-id">indra1j9wx...d5e8</div>
+        </div>
+        <div class="audience-member-actions">
+          <span class="audience-badge peer">Peer</span>
+          <button class="audience-remove-btn" title="Remove from audience">&#10005;</button>
+        </div>
+      </div>
+
+      <!-- Add Peer -->
+      <div class="audience-add">
+        <div class="audience-add-icon">+</div>
+        <div class="audience-add-text">Add peer to audience...</div>
+      </div>
+
+      <!-- Sync Status -->
+      <div class="sync-section">
+        <div class="detail-section-title">Sync Status</div>
+        <div class="sync-item"><div class="sync-dot synced"></div><span class="sync-name">Nova (local)</span><span class="sync-status">up to date</span></div>
+        <div class="sync-item"><div class="sync-dot syncing"></div><span class="sync-name">Sage</span><span class="sync-status">syncing 3 refs</span></div>
+        <div class="sync-item"><div class="sync-dot offline"></div><span class="sync-name">Zephyr</span><span class="sync-status">last seen 4m ago</span></div>
+      </div>
+    </div>
+
+    <!-- TAB: Heat -->
+    <div class="detail-tab-content" id="tab-heat">
+      <div class="detail-section">
+        <div class="detail-section-title">Per-Peer Heat</div>
+        <div class="heat-viz">
+          <div class="heat-bar-row"><span class="heat-bar-label">Nova</span><div class="heat-bar-track"><div class="heat-bar-fill" style="width:82%;background:linear-gradient(90deg,var(--accent-teal),var(--heat-4))"></div></div><span class="heat-bar-value">0.82</span></div>
+          <div class="heat-bar-row"><span class="heat-bar-label">Sage</span><div class="heat-bar-track"><div class="heat-bar-fill" style="width:64%;background:linear-gradient(90deg,#98d8aa,var(--heat-3))"></div></div><span class="heat-bar-value">0.64</span></div>
+          <div class="heat-bar-row"><span class="heat-bar-label">Zephyr</span><div class="heat-bar-track"><div class="heat-bar-fill" style="width:23%;background:linear-gradient(90deg,var(--accent-sky),var(--heat-1))"></div></div><span class="heat-bar-value">0.23</span></div>
+          <div class="heat-bar-row" style="margin-top:6px;padding-top:8px;border-top:1px solid var(--border-subtle)"><span class="heat-bar-label" style="font-weight:500;color:var(--text-secondary)">Combined</span><div class="heat-bar-track" style="height:6px"><div class="heat-bar-fill" style="width:56%;background:linear-gradient(90deg,var(--heat-2),var(--heat-5))"></div></div><span class="heat-bar-value" style="color:var(--heat-3);font-weight:500">0.56</span></div>
+        </div>
+      </div>
+      <div class="detail-section">
+        <div class="detail-section-title">Heat Computation</div>
+        <div class="prop-row"><span class="prop-key">Unique peers</span><span class="prop-val">3 / 3</span></div>
+        <div class="prop-row"><span class="prop-key">Total dwell</span><span class="prop-val">14m 22s</span></div>
+        <div class="prop-row"><span class="prop-key">Recency weight</span><span class="prop-val">0.78</span></div>
+        <div class="prop-row"><span class="prop-key">Density score</span><span class="prop-val">0.56</span></div>
+      </div>
+      <div class="detail-section">
+        <div class="detail-section-title">CSS Output</div>
+        <div style="font-family:var(--font-mono);font-size:12px;color:var(--text-secondary);padding:10px 14px;background:var(--bg-surface);border:1px solid var(--border-dim);border-radius:var(--radius-md);line-height:1.6">
+          <span style="color:var(--accent-violet)">--heat</span>: <span style="color:var(--heat-3)">0.56</span>;<br>
+          <span style="color:var(--accent-violet)">--heat-color</span>: <span style="color:var(--heat-3)">rgb(200, 168, 47)</span>;<br>
+          <span style="color:var(--accent-violet)">--heat-glow</span>: <span style="color:var(--heat-3)">0 0 8px rgba(200,168,47,0.3)</span>;
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== SLASH MENU ===== -->
+  <div class="slash-menu" id="slashMenu">
+    <div class="slash-menu-title">Place Artifact</div>
+    <div class="slash-item selected"><div class="slash-item-icon">&#128196;</div><div><div class="slash-item-name">Text</div><div class="slash-item-desc">Leaf(Message)</div></div></div>
+    <div class="slash-item"><div class="slash-item-icon">&#119919;</div><div><div class="slash-item-name">Heading</div><div class="slash-item-desc">Leaf(Message)</div></div></div>
+    <div class="slash-item"><div class="slash-item-icon">&#128444;</div><div><div class="slash-item-name">Image</div><div class="slash-item-desc">Leaf(Image)</div></div></div>
+    <div class="slash-item"><div class="slash-item-icon">&#9744;</div><div><div class="slash-item-name">To-do</div><div class="slash-item-desc">Leaf(Custom)</div></div></div>
+    <div class="slash-item"><div class="slash-item-icon">&#128187;</div><div><div class="slash-item-name">Code</div><div class="slash-item-desc">Leaf(Custom)</div></div></div>
+    <div class="slash-menu-title" style="margin-top:2px;">Compose Tree</div>
+    <div class="slash-item"><div class="slash-item-icon">&#128194;</div><div><div class="slash-item-name">Sub-page</div><div class="slash-item-desc">Tree(Document)</div></div></div>
+    <div class="slash-item"><div class="slash-item-icon">&#128172;</div><div><div class="slash-item-name">Story</div><div class="slash-item-desc">Tree(Story)</div></div></div>
+    <div class="slash-item"><div class="slash-item-icon">&#127912;</div><div><div class="slash-item-name">Gallery</div><div class="slash-item-desc">Tree(Gallery)</div></div></div>
+    <div class="slash-item"><div class="slash-item-icon">&#128202;</div><div><div class="slash-item-name">Collection</div><div class="slash-item-desc">Tree(Collection)</div></div></div>
+    <div class="slash-item"><div class="slash-item-icon">&#9876;</div><div><div class="slash-item-name">Quest</div><div class="slash-item-desc">Tree(Quest)</div></div></div>
+    <div class="slash-item"><div class="slash-item-icon">&#127793;</div><div><div class="slash-item-name">Need</div><div class="slash-item-desc">Tree(Need)</div></div></div>
+    <div class="slash-item"><div class="slash-item-icon">&#127873;</div><div><div class="slash-item-name">Offering</div><div class="slash-item-desc">Tree(Offering)</div></div></div>
+    <div class="slash-item"><div class="slash-item-icon">&#10024;</div><div><div class="slash-item-name">Intention</div><div class="slash-item-desc">Tree(Intention)</div></div></div>
+  </div>
+
+  <!-- ===== BOTTOM NAV ===== -->
+  <div class="bottom-nav"><div class="bottom-nav-inner">
+    <button class="bottom-nav-item" onclick="openSidebar()"><span class="nav-icon">&#127760;</span><span>Vault</span></button>
+    <button class="bottom-nav-item active"><span class="nav-icon">&#128196;</span><span>Current</span></button>
+    <button class="bottom-nav-item" style="position:relative" onclick="openSidebar()"><span class="nav-icon">&#128172;</span><span>Stories</span><span class="nav-heat-badge"></span></button>
+    <button class="bottom-nav-item" onclick="toggleDetail()"><span class="nav-icon">&#9881;</span><span>Info</span></button>
+  </div></div>
+
+  <button class="fab" onclick="toggleSlash()">+</button>
+</div>
+
+<script>
+const sidebar = document.getElementById('sidebar');
+const backdrop = document.getElementById('sidebarBackdrop');
+const detail = document.getElementById('detailPanel');
+const app = document.getElementById('app');
+const slashMenu = document.getElementById('slashMenu');
+
+function isMobile() { return window.innerWidth <= 768; }
+
+/* Sidebar */
+function openSidebar() {
+  if (isMobile()) {
+    sidebar.classList.add('open');
+    backdrop.style.display = 'block';
+    requestAnimationFrame(() => backdrop.classList.add('visible'));
+  }
+}
+function closeSidebar() {
+  sidebar.classList.remove('open');
+  backdrop.classList.remove('visible');
+  setTimeout(() => { backdrop.style.display = 'none'; }, 280);
+}
+
+/* Detail panel */
+function toggleDetail() {
+  if (isMobile()) {
+    detail.classList.toggle('open');
+    closeSidebar();
+  } else {
+    app.classList.toggle('detail-closed');
+  }
+}
+
+/* Show audience panel specifically */
+function showAudiencePanel() {
+  if (app.classList.contains('detail-closed')) {
+    if (isMobile()) {
+      detail.classList.add('open');
+    } else {
+      app.classList.remove('detail-closed');
+    }
+  }
+  switchDetailTab('audience');
+}
+
+/* Detail tabs */
+function switchDetailTab(tabId) {
+  document.querySelectorAll('.detail-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tabId));
+  document.querySelectorAll('.detail-tab-content').forEach(c => c.classList.toggle('active', c.id === 'tab-' + tabId));
+}
+
+/* Slash menu */
+function toggleSlash() { slashMenu.classList.toggle('visible'); }
+
+/* View switching */
+const viewData = {
+  'Architecture Notes': { view: 'document', type: 'Tree(Document)', id: 'Doc(7f2a...e891)', refs: '14 artifacts', crumbs: ['&#127760; Vault', 'Project Alpha', 'Architecture Notes'] },
+  'Team Discussion': { view: 'story', type: 'Tree(Story)', id: 'Doc(a1c3...b472)', refs: '42 messages', crumbs: ['&#127760; Vault', 'Project Alpha', 'Team Discussion'] },
+  'Build P2P Workspace': { view: 'quest', type: 'Tree(Quest)', id: 'Doc(f8d2...91a7)', refs: '4 artifacts', crumbs: ['&#127760; Vault', 'Build P2P Workspace'], questType: 'quest', title: 'Build P2P Workspace', desc: 'Design and implement the IndrasNetwork workspace interface — a P2P collaborative environment built on the new artifact ontology. Needs responsive layout, all TreeType views, and working attention heat visualization.' },
+  'Need: Logo Design': { view: 'quest', type: 'Tree(Need)', id: 'Doc(c3a1...7f2e)', refs: '1 artifact', crumbs: ['&#127760; Vault', 'Need: Logo Design'], questType: 'need', title: 'Logo Design for IndrasNetwork', desc: 'Looking for a logo that captures the essence of P2P gift economy — something organic, interconnected, and warm. Should work at small sizes for mobile and as a favicon.' },
+  'Offering: Code Review': { view: 'quest', type: 'Tree(Offering)', id: 'Doc(e7b4...2c8f)', refs: '0 artifacts', crumbs: ['&#127760; Vault', 'Offering: Code Review'], questType: 'offering', title: 'Offering: Rust Code Review', desc: 'I have experience with Rust async patterns and CRDT implementations. Happy to review PRs or pair on tricky lifetime issues. Available evenings UTC.' },
+  'Intention: Learn Rust': { view: 'quest', type: 'Tree(Intention)', id: 'Doc(91d5...a3f0)', refs: '0 artifacts', crumbs: ['&#127760; Vault', 'Intention: Learn Rust'], questType: 'intention', title: 'Learn Rust for P2P Development', desc: 'Setting an intention to learn Rust well enough to contribute to the indras-artifacts crate. Starting with the Rust book, then moving to async and networking.' },
+  'DM with Sage': { view: 'story', type: 'Tree(Story)', id: 'Doc(dm01...sage)', refs: '28 messages', crumbs: ['&#127760; Vault', 'DM with Sage'] },
+};
+
+const questIcons = { quest: '&#9876;', need: '&#127793;', offering: '&#127873;', intention: '&#10024;' };
+const questStatuses = { quest: ['proven','Proven'], need: ['open','Open'], offering: ['open','Open'], intention: ['open','Open'] };
+
+function switchView(name) {
+  const data = viewData[name];
+  if (!data) return;
+
+  // Switch content view
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById('view-' + data.view).classList.add('active');
+
+  // Update breadcrumbs
+  const bc = document.getElementById('breadcrumbs');
+  bc.innerHTML = data.crumbs.map((c, i) => {
+    const sep = i < data.crumbs.length - 1 ? '<span class="crumb-sep">&#8250;</span>' : '';
+    const cls = i === data.crumbs.length - 1 ? 'crumb current' : 'crumb';
+    return `<span class="${cls}">${c}</span>${sep}`;
+  }).join('');
+
+  // Update detail panel properties
+  document.getElementById('detailType').textContent = data.type;
+  document.getElementById('detailId').textContent = data.id;
+  document.getElementById('detailRefs').textContent = data.refs;
+
+  // Scroll story to bottom
+  if (data.view === 'story') {
+    const msgs = document.getElementById('storyMessages');
+    setTimeout(() => { msgs.scrollTop = msgs.scrollHeight; }, 50);
+  }
+
+  // Update quest card if switching to quest view
+  if (data.view === 'quest' && data.questType) {
+    const card = document.getElementById('questCard');
+    card.className = 'quest-card type-' + data.questType;
+    document.getElementById('questTitle').textContent = data.title;
+    document.getElementById('questDescription').textContent = data.desc;
+    card.querySelector('.quest-icon').innerHTML = questIcons[data.questType];
+    const st = questStatuses[data.questType];
+    const statusEl = card.querySelector('.quest-status');
+    statusEl.className = 'quest-status ' + st[0];
+    statusEl.textContent = st[1];
+  }
+}
+
+/* Token picker */
+function openTokenPicker() {
+  document.getElementById('tokenPicker').classList.add('visible');
+  // Reset selections
+  document.querySelectorAll('.attn-row').forEach(r => r.classList.remove('selected'));
+  updatePickerTotal();
+}
+function closeTokenPicker() {
+  document.getElementById('tokenPicker').classList.remove('visible');
+}
+function toggleAttn(row) {
+  row.classList.toggle('selected');
+  updatePickerTotal();
+}
+function updatePickerTotal() {
+  const selected = document.querySelectorAll('.attn-row.selected');
+  const count = selected.length;
+  document.getElementById('pickerCount').textContent = count;
+  // Parse durations from selected rows
+  let totalSec = 0;
+  selected.forEach(row => {
+    const durText = row.querySelector('.attn-duration').textContent;
+    const parts = durText.match(/(\d+)m\s*(\d+)s/);
+    if (parts) totalSec += parseInt(parts[1]) * 60 + parseInt(parts[2]);
+  });
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  document.getElementById('pickerDuration').textContent = m + 'm ' + s + 's';
+  document.getElementById('pickerConfirm').disabled = count === 0;
+}
+
+// Close picker on backdrop click
+document.getElementById('tokenPicker').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('tokenPicker')) closeTokenPicker();
+});
+
+/* Sidebar item selection + view switching */
+document.querySelectorAll('.tree-item').forEach(item => {
+  item.addEventListener('click', () => {
+    document.querySelectorAll('.tree-item').forEach(i => i.classList.remove('active'));
+    item.classList.add('active');
+    const label = item.querySelector('.tree-label').textContent;
+    switchView(label);
+    if (isMobile()) closeSidebar();
+  });
+});
+
+/* Todos */
+document.querySelectorAll('.todo-check').forEach(c => {
+  c.addEventListener('click', () => {
+    c.classList.toggle('done');
+    c.innerHTML = c.classList.contains('done') ? '&#10003;' : '';
+  });
+});
+
+/* Close overlays */
+document.addEventListener('click', (e) => {
+  if (slashMenu.classList.contains('visible') && !slashMenu.contains(e.target)
+      && !e.target.closest('.block-placeholder') && !e.target.closest('.fab')
+      && !e.target.closest('.sidebar-footer-btn')) {
+    slashMenu.classList.remove('visible');
+  }
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    slashMenu.classList.remove('visible');
+    if (isMobile()) { closeSidebar(); detail.classList.remove('open'); }
+  }
+  if (e.key === '/' && document.activeElement.getAttribute('contenteditable') !== 'true'
+      && document.activeElement.tagName !== 'TEXTAREA' && document.activeElement.tagName !== 'INPUT') {
+    e.preventDefault(); toggleSlash();
+  }
+});
+
+/* Touch swipe */
+let touchStartX = 0, touchStartY = 0;
+document.addEventListener('touchstart', (e) => {
+  touchStartX = e.touches[0].clientX;
+  touchStartY = e.touches[0].clientY;
+}, { passive: true });
+document.addEventListener('touchend', (e) => {
+  if (!isMobile()) return;
+  const dx = e.changedTouches[0].clientX - touchStartX;
+  const dy = Math.abs(e.changedTouches[0].clientY - touchStartY);
+  if (touchStartX < 30 && dx > 60 && dy < 80) openSidebar();
+  if (sidebar.classList.contains('open') && dx < -60 && dy < 80) closeSidebar();
+}, { passive: true });
+
+window.addEventListener('resize', () => {
+  if (!isMobile()) {
+    sidebar.classList.remove('open');
+    backdrop.style.display = 'none';
+    backdrop.classList.remove('visible');
+    detail.classList.remove('open');
+  }
+});
+
+/* Auto-resize compose textarea */
+document.querySelectorAll('.compose-input').forEach(ta => {
+  ta.addEventListener('input', () => {
+    ta.style.height = 'auto';
+    ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
+  });
+});
+</script>
+</body>
+</html>

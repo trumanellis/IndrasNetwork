@@ -23,6 +23,7 @@ members = [
     "crates/indras-genesis",
     "crates/indras-artifacts",
     "crates/indras-fuse",
+    "crates/indras-workspace",
     "simulation",
     "examples/chat-app",
     "examples/sync-demo",
