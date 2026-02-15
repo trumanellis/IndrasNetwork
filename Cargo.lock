@@ -3787,11 +3787,30 @@ dependencies = [
  "chrono",
  "dioxus",
  "futures",
+ "indras-artifacts",
  "indras-network",
  "indras-sync-engine",
  "pulldown-cmark",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "indras-workspace"
+version = "1.0.0"
+dependencies = [
+ "chrono",
+ "dioxus",
+ "futures",
+ "indras-artifacts",
+ "indras-network",
+ "indras-ui",
+ "rand 0.9.2",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

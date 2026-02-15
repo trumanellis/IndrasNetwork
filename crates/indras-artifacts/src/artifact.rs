@@ -89,6 +89,10 @@ pub enum TreeType {
     Exchange,
     Collection,
     Inbox,
+    Quest,
+    Need,
+    Offering,
+    Intention,
     Custom(String),
 }
 
