@@ -74,6 +74,9 @@ pub fn register_indras_module(lua: &Lua) -> Result<()> {
     // Register pass story authentication bindings
     bindings::pass_story::register(lua, &indras)?;
 
+    // Register LiveNode bindings (real P2P nodes)
+    bindings::live_node::register(lua, &indras)?;
+
     // Register assertion helpers
     assertions::register(lua, &indras)?;
 

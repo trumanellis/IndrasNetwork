@@ -1,0 +1,301 @@
+//! Lua bindings for real IndrasNode (live P2P networking)
+//!
+//! Unlike the simulation bindings which model P2P behavior in-memory,
+//! these bindings wrap real `IndrasNode` instances with actual QUIC transport,
+//! CRDT sync, and post-quantum cryptography.
+
+use mlua::{Lua, MetaMethod, Result, Table, UserData, UserDataMethods};
+use std::sync::Arc;
+
+use indras_node::{IndrasNode, InviteKey, NodeConfig};
+use indras_core::{InterfaceId, PeerIdentity};
+
+/// Lua wrapper for a real IndrasNode
+///
+/// Holds the node in an Arc (shared ownership for async methods)
+/// and optionally a TempDir to keep temporary storage alive.
+struct LuaLiveNode {
+    node: Arc<IndrasNode>,
+    /// Kept alive to prevent temp dir cleanup
+    _temp_dir: Option<tempfile::TempDir>,
+}
+
+impl UserData for LuaLiveNode {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+        // -- Lifecycle --
+
+        methods.add_async_method("start", |_, this, ()| async move {
+            this.node
+                .start()
+                .await
+                .map_err(mlua::Error::external)
+        });
+
+        methods.add_async_method("stop", |_, this, ()| async move {
+            this.node
+                .stop()
+                .await
+                .map_err(mlua::Error::external)
+        });
+
+        methods.add_method("is_started", |_, this, ()| {
+            Ok(this.node.is_started())
+        });
+
+        // -- Identity --
+
+        methods.add_method("identity", |_, this, ()| {
+            Ok(this.node.identity().short_id())
+        });
+
+        methods.add_method("identity_full", |_, this, ()| {
+            Ok(hex::encode(this.node.identity().as_bytes()))
+        });
+
+        // -- Interfaces --
+
+        methods.add_async_method(
+            "create_interface",
+            |_, this, name: Option<String>| async move {
+                let (iface_id, invite) = this
+                    .node
+                    .create_interface(name.as_deref())
+                    .await
+                    .map_err(mlua::Error::external)?;
+
+                let iface_hex = hex::encode(iface_id.as_bytes());
+                let invite_b64 = invite
+                    .to_base64()
+                    .map_err(mlua::Error::external)?;
+
+                Ok((iface_hex, invite_b64))
+            },
+        );
+
+        methods.add_async_method(
+            "join_interface",
+            |_, this, invite_b64: String| async move {
+                let invite = InviteKey::from_base64(&invite_b64)
+                    .map_err(mlua::Error::external)?;
+                let iface_id = this
+                    .node
+                    .join_interface(invite)
+                    .await
+                    .map_err(mlua::Error::external)?;
+                Ok(hex::encode(iface_id.as_bytes()))
+            },
+        );
+
+        // -- Messaging --
+
+        methods.add_async_method(
+            "send_message",
+            |_, this, (iface_hex, content): (String, String)| async move {
+                let iface_bytes = hex::decode(&iface_hex)
+                    .map_err(|e| mlua::Error::external(format!("Invalid interface ID hex: {}", e)))?;
+                if iface_bytes.len() != 32 {
+                    return Err(mlua::Error::external("Interface ID must be 32 bytes"));
+                }
+                let mut bytes = [0u8; 32];
+                bytes.copy_from_slice(&iface_bytes);
+                let iface_id = InterfaceId::from(bytes);
+
+                let event_id = this
+                    .node
+                    .send_message(&iface_id, content.into_bytes())
+                    .await
+                    .map_err(mlua::Error::external)?;
+
+                Ok(event_id.sequence)
+            },
+        );
+
+        // -- Reading events --
+
+        methods.add_async_method(
+            "events_since",
+            |lua, this, (iface_hex, since): (String, u64)| async move {
+                let iface_bytes = hex::decode(&iface_hex)
+                    .map_err(|e| mlua::Error::external(format!("Invalid interface ID hex: {}", e)))?;
+                if iface_bytes.len() != 32 {
+                    return Err(mlua::Error::external("Interface ID must be 32 bytes"));
+                }
+                let mut bytes = [0u8; 32];
+                bytes.copy_from_slice(&iface_bytes);
+                let iface_id = InterfaceId::from(bytes);
+
+                let events = this
+                    .node
+                    .events_since(&iface_id, since)
+                    .await
+                    .map_err(mlua::Error::external)?;
+
+                let result = lua.create_table()?;
+                for (i, event) in events.iter().enumerate() {
+                    let entry = lua.create_table()?;
+                    match event {
+                        indras_core::InterfaceEvent::Message {
+                            sender,
+                            content,
+                            id,
+                            ..
+                        } => {
+                            entry.set("sender", sender.short_id())?;
+                            entry.set(
+                                "content",
+                                String::from_utf8_lossy(content).to_string(),
+                            )?;
+                            entry.set("sequence", id.sequence)?;
+                        }
+                        _ => {
+                            entry.set("sender", "system")?;
+                            entry.set("content", format!("{:?}", event))?;
+                            entry.set("sequence", 0u64)?;
+                        }
+                    }
+                    result.set(i + 1, entry)?;
+                }
+                Ok(result)
+            },
+        );
+
+        // -- Reading document events (includes CRDT-synced remote events) --
+
+        methods.add_async_method(
+            "document_events",
+            |lua, this, iface_hex: String| async move {
+                let iface_bytes = hex::decode(&iface_hex)
+                    .map_err(|e| mlua::Error::external(format!("Invalid interface ID hex: {}", e)))?;
+                if iface_bytes.len() != 32 {
+                    return Err(mlua::Error::external("Interface ID must be 32 bytes"));
+                }
+                let mut bytes = [0u8; 32];
+                bytes.copy_from_slice(&iface_bytes);
+                let iface_id = InterfaceId::from(bytes);
+
+                let events = this
+                    .node
+                    .document_events(&iface_id)
+                    .await
+                    .map_err(mlua::Error::external)?;
+
+                let result = lua.create_table()?;
+                for (i, event) in events.iter().enumerate() {
+                    let entry = lua.create_table()?;
+                    match event {
+                        indras_core::InterfaceEvent::Message {
+                            sender,
+                            content,
+                            id,
+                            ..
+                        } => {
+                            entry.set("sender", sender.short_id())?;
+                            entry.set(
+                                "content",
+                                String::from_utf8_lossy(content).to_string(),
+                            )?;
+                            entry.set("sequence", id.sequence)?;
+                        }
+                        _ => {
+                            entry.set("sender", "system")?;
+                            entry.set("content", format!("{:?}", event))?;
+                            entry.set("sequence", 0u64)?;
+                        }
+                    }
+                    result.set(i + 1, entry)?;
+                }
+                Ok(result)
+            },
+        );
+
+        // -- Members --
+
+        methods.add_async_method("members", |_, this, iface_hex: String| async move {
+            let iface_bytes = hex::decode(&iface_hex)
+                .map_err(|e| mlua::Error::external(format!("Invalid interface ID hex: {}", e)))?;
+            if iface_bytes.len() != 32 {
+                return Err(mlua::Error::external("Interface ID must be 32 bytes"));
+            }
+            let mut bytes = [0u8; 32];
+            bytes.copy_from_slice(&iface_bytes);
+            let iface_id = InterfaceId::from(bytes);
+
+            let members = this
+                .node
+                .members(&iface_id)
+                .await
+                .map_err(mlua::Error::external)?;
+
+            let result: Vec<String> = members.iter().map(|m| m.short_id()).collect();
+            Ok(result)
+        });
+
+        // -- Connect to peer --
+
+        methods.add_async_method(
+            "connect_to_peer",
+            |_, this, peer_hex: String| async move {
+                let peer_bytes = hex::decode(&peer_hex)
+                    .map_err(|e| mlua::Error::external(format!("Invalid peer hex: {}", e)))?;
+                if peer_bytes.len() != 32 {
+                    return Err(mlua::Error::external("Peer key must be 32 bytes"));
+                }
+                let mut key = [0u8; 32];
+                key.copy_from_slice(&peer_bytes);
+                this.node
+                    .connect_to_peer(&key)
+                    .await
+                    .map_err(mlua::Error::external)
+            },
+        );
+
+        // -- ToString --
+
+        methods.add_meta_method(MetaMethod::ToString, |_, this, ()| {
+            Ok(format!(
+                "LiveNode(id={}, started={})",
+                this.node.identity().short_id(),
+                this.node.is_started()
+            ))
+        });
+    }
+}
+
+/// Register LiveNode bindings with the indras Lua table
+pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
+    let live_node = lua.create_table()?;
+
+    // LiveNode.new(path?) -> LiveNode
+    // If no path given, creates a temp directory that's auto-cleaned on drop
+    live_node.set(
+        "new",
+        lua.create_async_function(|_, path: Option<String>| async move {
+            let (data_path, temp_dir) = match path {
+                Some(p) => {
+                    let path = std::path::PathBuf::from(p);
+                    (path, None)
+                }
+                None => {
+                    let tmp = tempfile::TempDir::new()
+                        .map_err(mlua::Error::external)?;
+                    let path = tmp.path().to_path_buf();
+                    (path, Some(tmp))
+                }
+            };
+
+            let config = NodeConfig::with_data_dir(&data_path);
+            let node = IndrasNode::new(config)
+                .await
+                .map_err(mlua::Error::external)?;
+
+            Ok(LuaLiveNode {
+                node: Arc::new(node),
+                _temp_dir: temp_dir,
+            })
+        })?,
+    )?;
+
+    indras.set("LiveNode", live_node)?;
+
+    Ok(())
+}
