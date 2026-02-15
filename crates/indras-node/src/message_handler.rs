@@ -156,9 +156,9 @@ impl InterfaceEventMessage {
 pub struct InterfaceSyncRequest {
     /// The interface to sync
     pub interface_id: InterfaceId,
-    /// Our current state vector (Yrs encoded)
+    /// Reserved (unused with Automerge sync protocol, kept for wire compat)
     pub state_vector: Vec<u8>,
-    /// Sync data (Yrs update bytes)
+    /// Automerge sync message bytes
     pub sync_data: Vec<u8>,
 }
 
@@ -167,9 +167,9 @@ pub struct InterfaceSyncRequest {
 pub struct InterfaceSyncResponse {
     /// The interface this sync is for
     pub interface_id: InterfaceId,
-    /// Response sync data
+    /// Automerge sync message bytes
     pub sync_data: Vec<u8>,
-    /// Updated state vector after sync (Yrs encoded)
+    /// Reserved (unused with Automerge sync protocol, kept for wire compat)
     pub state_vector: Vec<u8>,
 }
 

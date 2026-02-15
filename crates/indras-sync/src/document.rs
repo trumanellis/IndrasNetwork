@@ -1,20 +1,20 @@
-//! Yrs document backing an N-peer interface
+//! Automerge document backing an N-peer interface
 //!
 //! The InterfaceDocument stores:
 //! - Member list (who is in the interface)
 //! - Interface metadata (name, description, settings)
-//! - Event log (serialized events as byte buffers in a Yrs Array)
+//! - Event log (serialized events as byte buffers in an Automerge List)
 
 use std::collections::HashSet;
 
+use automerge::sync::SyncDoc;
+use automerge::transaction::Transactable;
+use automerge::{AutoCommit, ObjId, ObjType, ReadDoc, ScalarValue, Value, ROOT};
 use indras_core::{InterfaceEvent, InterfaceMetadata, PeerIdentity};
-use yrs::updates::decoder::Decode;
-use yrs::updates::encoder::Encode;
-use yrs::{Any, Array, Doc, Map, Out, ReadTxn, StateVector, Transact, Update};
 
 use crate::error::SyncError;
 
-/// Keys used in the Yrs document structure
+/// Keys used in the Automerge document structure
 mod keys {
     pub const MEMBERS: &str = "members";
     pub const METADATA: &str = "metadata";
@@ -25,7 +25,7 @@ mod keys {
     pub const CREATOR: &str = "creator";
 }
 
-/// Yrs document backing an NInterface
+/// Automerge document backing an NInterface
 ///
 /// Document structure:
 /// ```json
@@ -38,124 +38,153 @@ mod keys {
 ///     "creator": "peer_id_hex"
 ///   },
 ///   "events": [
-///     <serialized event bytes as Buffer>,
+///     <serialized event bytes>,
 ///     ...
 ///   ]
 /// }
 /// ```
 pub struct InterfaceDocument {
-    doc: Doc,
+    doc: AutoCommit,
 }
 
 impl InterfaceDocument {
+    // ===== Dynamic ObjId lookup helpers =====
+    // CRITICAL: Never cache ObjIds — they go stale after sync/merge.
+
+    fn members_obj(&self) -> ObjId {
+        self.doc
+            .get(ROOT, keys::MEMBERS)
+            .expect("members lookup failed")
+            .expect("members map missing")
+            .1
+    }
+
+    fn metadata_obj(&self) -> ObjId {
+        self.doc
+            .get(ROOT, keys::METADATA)
+            .expect("metadata lookup failed")
+            .expect("metadata map missing")
+            .1
+    }
+
+    fn events_obj(&self) -> ObjId {
+        self.doc
+            .get(ROOT, keys::EVENTS)
+            .expect("events lookup failed")
+            .expect("events list missing")
+            .1
+    }
+
     /// Create a new empty document with pre-initialized shared types
     pub fn new() -> Self {
-        let doc = Doc::new();
+        let mut doc = AutoCommit::new();
 
-        // Pre-initialize the shared types so they exist in the document.
-        // These calls register the root-level map/array names; the actual
-        // MapRef/ArrayRef handles are cheap to re-obtain later.
-        {
-            let _members = doc.get_or_insert_map(keys::MEMBERS);
-            let _metadata = doc.get_or_insert_map(keys::METADATA);
-            let _events = doc.get_or_insert_array(keys::EVENTS);
-
-            // Open a write transaction to commit the initial structure
-            let _txn = doc.transact_mut();
-            // Transaction auto-commits on drop
-        }
+        doc.put_object(ROOT, keys::MEMBERS, ObjType::Map)
+            .expect("Failed to create members map");
+        doc.put_object(ROOT, keys::METADATA, ObjType::Map)
+            .expect("Failed to create metadata map");
+        doc.put_object(ROOT, keys::EVENTS, ObjType::List)
+            .expect("Failed to create events list");
 
         Self { doc }
     }
 
-    /// Create from existing Yrs update bytes
+    /// Create from existing Automerge document bytes
     pub fn load(bytes: &[u8]) -> Result<Self, SyncError> {
-        let doc = Doc::new();
-
-        // Pre-register shared type names so they're accessible
-        let _members = doc.get_or_insert_map(keys::MEMBERS);
-        let _metadata = doc.get_or_insert_map(keys::METADATA);
-        let _events = doc.get_or_insert_array(keys::EVENTS);
-
-        // Apply the saved state
-        let update =
-            Update::decode_v1(bytes).map_err(|e| SyncError::DocumentLoad(e.to_string()))?;
-        {
-            let mut txn = doc.transact_mut();
-            txn.apply_update(update);
-        }
-
+        let doc =
+            AutoCommit::load(bytes).map_err(|e| SyncError::DocumentLoad(e.to_string()))?;
         Ok(Self { doc })
     }
 
     /// Export the full document state as bytes
-    pub fn save(&self) -> Vec<u8> {
-        let txn = self.doc.transact();
-        txn.encode_state_as_update_v1(&StateVector::default())
+    pub fn save(&mut self) -> Vec<u8> {
+        self.doc.save()
     }
 
-    /// Get the encoded state vector (replaces heads/heads_as_bytes)
-    pub fn state_vector(&self) -> Vec<u8> {
-        let txn = self.doc.transact();
-        txn.state_vector().encode_v1()
-    }
-
-    /// Generate a sync message (update) for a peer given their encoded state vector.
+    /// Get the document state as bytes (for sync compatibility)
     ///
-    /// Returns the minimal update bytes that the peer needs to catch up.
-    pub fn generate_sync_message(&self, their_sv_bytes: &[u8]) -> Result<Vec<u8>, SyncError> {
-        let their_sv = if their_sv_bytes.is_empty() {
-            // Empty bytes means the peer has no state — send everything
-            StateVector::default()
-        } else {
-            StateVector::decode_v1(their_sv_bytes)
-                .map_err(|e| SyncError::SyncMerge(e.to_string()))?
-        };
-        let txn = self.doc.transact();
-        Ok(txn.encode_state_as_update_v1(&their_sv))
+    /// With Automerge, the state vector concept is replaced by full document
+    /// bytes. This returns the same as `save()`.
+    pub fn state_vector(&mut self) -> Vec<u8> {
+        self.doc.save()
     }
 
-    /// Apply a sync message (update bytes) from a peer
-    pub fn apply_sync_message(&self, update_bytes: &[u8]) -> Result<(), SyncError> {
-        let update =
-            Update::decode_v1(update_bytes).map_err(|e| SyncError::SyncMerge(e.to_string()))?;
-        let mut txn = self.doc.transact_mut();
-        txn.apply_update(update);
+    /// Generate a sync message using Automerge's built-in sync protocol.
+    ///
+    /// Returns `None` when the peer is fully up-to-date.
+    pub fn generate_sync_message(
+        &mut self,
+        peer_state: &mut automerge::sync::State,
+    ) -> Option<automerge::sync::Message> {
+        self.doc.sync().generate_sync_message(peer_state)
+    }
+
+    /// Receive a sync message using Automerge's built-in sync protocol.
+    pub fn receive_sync_message(
+        &mut self,
+        peer_state: &mut automerge::sync::State,
+        message: automerge::sync::Message,
+    ) -> Result<(), SyncError> {
+        self.doc
+            .sync()
+            .receive_sync_message(peer_state, message)
+            .map_err(|e| SyncError::SyncMerge(e.to_string()))
+    }
+
+    /// Apply raw document bytes by merging (convenience for simple sync).
+    ///
+    /// Loads the bytes as an Automerge document and merges it into ours.
+    /// Used by `merge_sync` and tests that don't need per-peer sync state.
+    pub fn apply_update(&mut self, bytes: &[u8]) -> Result<(), SyncError> {
+        let mut other =
+            AutoCommit::load(bytes).map_err(|e| SyncError::SyncMerge(e.to_string()))?;
+        self.doc
+            .merge(&mut other)
+            .map_err(|e| SyncError::SyncMerge(e.to_string()))?;
         Ok(())
     }
 
+    /// Get the current change heads (for sync completion checking)
+    pub fn get_heads(&mut self) -> Vec<automerge::ChangeHash> {
+        self.doc.get_heads()
+    }
+
     /// Add a member to the interface
-    pub fn add_member<I: PeerIdentity>(&self, peer: &I) {
-        let members = self.doc.get_or_insert_map(keys::MEMBERS);
-        let mut txn = self.doc.transact_mut();
+    pub fn add_member<I: PeerIdentity>(&mut self, peer: &I) {
+        let members = self.members_obj();
         let peer_key = hex::encode(peer.as_bytes());
-        members.insert(&mut txn, peer_key.as_str(), true);
+        self.doc
+            .put(&members, peer_key.as_str(), true)
+            .expect("Failed to add member");
     }
 
     /// Remove a member from the interface
-    pub fn remove_member<I: PeerIdentity>(&self, peer: &I) {
-        let members = self.doc.get_or_insert_map(keys::MEMBERS);
-        let mut txn = self.doc.transact_mut();
+    pub fn remove_member<I: PeerIdentity>(&mut self, peer: &I) {
+        let members = self.members_obj();
         let peer_key = hex::encode(peer.as_bytes());
-        members.remove(&mut txn, &peer_key);
+        self.doc
+            .delete(&members, peer_key.as_str())
+            .expect("Failed to remove member");
     }
 
     /// Check if a peer is a member
     pub fn is_member<I: PeerIdentity>(&self, peer: &I) -> bool {
-        let members = self.doc.get_or_insert_map(keys::MEMBERS);
-        let txn = self.doc.transact();
+        let members = self.members_obj();
         let peer_key = hex::encode(peer.as_bytes());
-        members.get(&txn, &peer_key).is_some()
+        self.doc
+            .get(&members, peer_key.as_str())
+            .ok()
+            .flatten()
+            .is_some()
     }
 
     /// Get all members
     pub fn members<I: PeerIdentity>(&self) -> HashSet<I> {
-        let members_map = self.doc.get_or_insert_map(keys::MEMBERS);
-        let txn = self.doc.transact();
+        let members_obj = self.members_obj();
         let mut members = HashSet::new();
 
-        for (key, _value) in members_map.iter(&txn) {
-            if let Ok(bytes) = hex::decode(key) {
+        for key in self.doc.keys(&members_obj) {
+            if let Ok(bytes) = hex::decode(&key) {
                 if let Ok(peer) = I::from_bytes(&bytes) {
                     members.insert(peer);
                 }
@@ -166,56 +195,64 @@ impl InterfaceDocument {
     }
 
     /// Set interface metadata
-    pub fn set_metadata<I: PeerIdentity>(&self, metadata: &InterfaceMetadata<I>) {
-        let meta_map = self.doc.get_or_insert_map(keys::METADATA);
-        let mut txn = self.doc.transact_mut();
+    pub fn set_metadata<I: PeerIdentity>(&mut self, metadata: &InterfaceMetadata<I>) {
+        let meta = self.metadata_obj();
 
         if let Some(name) = &metadata.name {
-            meta_map.insert(&mut txn, keys::NAME, name.as_str());
+            self.doc
+                .put(&meta, keys::NAME, name.as_str())
+                .expect("Failed to set name");
         }
         if let Some(desc) = &metadata.description {
-            meta_map.insert(&mut txn, keys::DESCRIPTION, desc.as_str());
+            self.doc
+                .put(&meta, keys::DESCRIPTION, desc.as_str())
+                .expect("Failed to set description");
         }
-        meta_map.insert(
-            &mut txn,
-            keys::CREATED_AT,
-            metadata.created_at.timestamp(),
-        );
-        meta_map.insert(
-            &mut txn,
-            keys::CREATOR,
-            hex::encode(metadata.creator.as_bytes()).as_str(),
-        );
+        self.doc
+            .put(&meta, keys::CREATED_AT, metadata.created_at.timestamp())
+            .expect("Failed to set created_at");
+        self.doc
+            .put(
+                &meta,
+                keys::CREATOR,
+                hex::encode(metadata.creator.as_bytes()).as_str(),
+            )
+            .expect("Failed to set creator");
     }
 
     /// Append an event to the event log
     ///
-    /// Events are serialized with postcard and stored as byte buffers in the array.
+    /// Events are serialized with postcard and stored as byte buffers in the list.
     pub fn append_event<I: PeerIdentity>(
-        &self,
+        &mut self,
         event: &InterfaceEvent<I>,
     ) -> Result<(), SyncError> {
         let event_bytes =
             postcard::to_allocvec(event).map_err(|e| SyncError::Serialization(e.to_string()))?;
 
-        let events = self.doc.get_or_insert_array(keys::EVENTS);
-        let mut txn = self.doc.transact_mut();
-        let len = events.len(&txn);
-        events.insert(&mut txn, len, Any::Buffer(event_bytes.into()));
+        let events = self.events_obj();
+        let len = self.doc.length(&events);
+        self.doc
+            .insert(&events, len, ScalarValue::Bytes(event_bytes))
+            .map_err(|e| SyncError::DocumentOperation(e.to_string()))?;
 
         Ok(())
     }
 
     /// Get all events from the log
     pub fn events<I: PeerIdentity>(&self) -> Vec<InterfaceEvent<I>> {
-        let events_array = self.doc.get_or_insert_array(keys::EVENTS);
-        let txn = self.doc.transact();
+        let events_obj = self.events_obj();
+        let len = self.doc.length(&events_obj);
         let mut events = Vec::new();
 
-        for value in events_array.iter(&txn) {
-            if let Out::Any(Any::Buffer(buf)) = value {
-                if let Ok(event) = postcard::from_bytes::<InterfaceEvent<I>>(&buf) {
-                    events.push(event);
+        for i in 0..len {
+            if let Ok(Some((value, _))) = self.doc.get(&events_obj, i) {
+                if let Value::Scalar(cow) = value {
+                    if let ScalarValue::Bytes(buf) = cow.as_ref() {
+                        if let Ok(event) = postcard::from_bytes::<InterfaceEvent<I>>(buf) {
+                            events.push(event);
+                        }
+                    }
                 }
             }
         }
@@ -225,16 +262,17 @@ impl InterfaceDocument {
 
     /// Get events since a specific index
     pub fn events_since<I: PeerIdentity>(&self, since: usize) -> Vec<InterfaceEvent<I>> {
-        let events_array = self.doc.get_or_insert_array(keys::EVENTS);
-        let txn = self.doc.transact();
+        let events_obj = self.events_obj();
+        let len = self.doc.length(&events_obj);
         let mut events = Vec::new();
-        let len = events_array.len(&txn) as usize;
 
         for i in since..len {
-            if let Some(value) = events_array.get(&txn, i as u32) {
-                if let Out::Any(Any::Buffer(buf)) = value {
-                    if let Ok(event) = postcard::from_bytes::<InterfaceEvent<I>>(&buf) {
-                        events.push(event);
+            if let Ok(Some((value, _))) = self.doc.get(&events_obj, i) {
+                if let Value::Scalar(cow) = value {
+                    if let ScalarValue::Bytes(buf) = cow.as_ref() {
+                        if let Ok(event) = postcard::from_bytes::<InterfaceEvent<I>>(buf) {
+                            events.push(event);
+                        }
                     }
                 }
             }
@@ -245,21 +283,22 @@ impl InterfaceDocument {
 
     /// Get the number of events in the log
     pub fn event_count(&self) -> usize {
-        let events_array = self.doc.get_or_insert_array(keys::EVENTS);
-        let txn = self.doc.transact();
-        events_array.len(&txn) as usize
+        let events_obj = self.events_obj();
+        self.doc.length(&events_obj)
     }
 
     /// Fork this document (create an independent copy)
-    pub fn fork(&self) -> Result<Self, SyncError> {
+    pub fn fork(&mut self) -> Result<Self, SyncError> {
         let bytes = self.save();
         Self::load(&bytes)
     }
 
     /// Merge another document into this one
-    pub fn merge(&self, other: &InterfaceDocument) -> Result<(), SyncError> {
-        let other_bytes = other.save();
-        self.apply_sync_message(&other_bytes)
+    pub fn merge(&mut self, other: &mut InterfaceDocument) -> Result<(), SyncError> {
+        self.doc
+            .merge(&mut other.doc)
+            .map_err(|e| SyncError::SyncMerge(e.to_string()))?;
+        Ok(())
     }
 }
 
@@ -282,7 +321,7 @@ mod tests {
 
     #[test]
     fn test_member_management() {
-        let doc = InterfaceDocument::new();
+        let mut doc = InterfaceDocument::new();
         let peer_a = SimulationIdentity::new('A').unwrap();
         let peer_b = SimulationIdentity::new('B').unwrap();
 
@@ -306,7 +345,7 @@ mod tests {
 
     #[test]
     fn test_event_append_and_retrieval() {
-        let doc = InterfaceDocument::new();
+        let mut doc = InterfaceDocument::new();
         let peer_a = SimulationIdentity::new('A').unwrap();
 
         let event = InterfaceEvent::message(peer_a, 1, b"Hello world".to_vec());
@@ -327,7 +366,7 @@ mod tests {
 
     #[test]
     fn test_save_and_load() {
-        let doc = InterfaceDocument::new();
+        let mut doc = InterfaceDocument::new();
         let peer_a = SimulationIdentity::new('A').unwrap();
 
         doc.add_member(&peer_a);
@@ -344,7 +383,7 @@ mod tests {
     #[test]
     fn test_sync_between_documents() {
         // Create doc1 and make changes
-        let doc1 = InterfaceDocument::new();
+        let mut doc1 = InterfaceDocument::new();
         let peer_a = SimulationIdentity::new('A').unwrap();
 
         doc1.add_member(&peer_a);
@@ -361,28 +400,23 @@ mod tests {
     }
 
     #[test]
-    fn test_incremental_sync() {
+    fn test_merge_sync() {
         // Create initial document
-        let doc1 = InterfaceDocument::new();
+        let mut doc1 = InterfaceDocument::new();
         let peer_a = SimulationIdentity::new('A').unwrap();
         doc1.add_member(&peer_a);
 
         // Save initial state and create doc2 from it
         let initial_bytes = doc1.save();
-        let doc2 = InterfaceDocument::load(&initial_bytes).unwrap();
-
-        // Get doc2's state vector before any more changes
-        let doc2_sv = doc2.state_vector();
+        let mut doc2 = InterfaceDocument::load(&initial_bytes).unwrap();
 
         // Add an event to doc1
         doc1.append_event(&InterfaceEvent::message(peer_a, 1, b"New message".to_vec()))
             .unwrap();
 
-        // Generate incremental sync
-        let sync_msg = doc1.generate_sync_message(&doc2_sv).unwrap();
-
-        // Apply to doc2
-        doc2.apply_sync_message(&sync_msg).unwrap();
+        // Use apply_update to sync doc1 -> doc2
+        let doc1_bytes = doc1.save();
+        doc2.apply_update(&doc1_bytes).unwrap();
 
         // Doc2 should now have the new event
         assert_eq!(doc2.event_count(), 1);
@@ -393,5 +427,54 @@ mod tests {
             }
             _ => panic!("Expected Message event"),
         }
+    }
+
+    #[test]
+    fn test_automerge_sync_protocol() {
+        // Test the full automerge sync protocol with per-peer state.
+        // Both docs must share a common base (fork) so their root objects
+        // (members map, events list) are the same Automerge objects.
+        let peer_a = SimulationIdentity::new('A').unwrap();
+        let peer_b = SimulationIdentity::new('B').unwrap();
+
+        let mut doc1 = InterfaceDocument::new();
+        doc1.add_member(&peer_a);
+        doc1.add_member(&peer_b);
+
+        // Fork so both docs share the same root structure
+        let mut doc2 = doc1.fork().unwrap();
+
+        // Each adds an event independently (simulating partition)
+        doc1.append_event(&InterfaceEvent::message(peer_a, 1, b"From A".to_vec()))
+            .unwrap();
+        doc2.append_event(&InterfaceEvent::message(peer_b, 1, b"From B".to_vec()))
+            .unwrap();
+
+        // Sync using automerge sync protocol
+        let mut state1 = automerge::sync::State::new();
+        let mut state2 = automerge::sync::State::new();
+
+        for _ in 0..20 {
+            let msg1 = doc1.generate_sync_message(&mut state1);
+            let msg2 = doc2.generate_sync_message(&mut state2);
+
+            if msg1.is_none() && msg2.is_none() {
+                break;
+            }
+
+            if let Some(msg) = msg1 {
+                doc2.receive_sync_message(&mut state2, msg).unwrap();
+            }
+            if let Some(msg) = msg2 {
+                doc1.receive_sync_message(&mut state1, msg).unwrap();
+            }
+        }
+
+        // Both should have both events (and both members)
+        assert_eq!(doc1.get_heads(), doc2.get_heads());
+        assert_eq!(doc1.event_count(), 2);
+        assert_eq!(doc2.event_count(), 2);
+        assert!(doc1.is_member(&peer_a));
+        assert!(doc1.is_member(&peer_b));
     }
 }

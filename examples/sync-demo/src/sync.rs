@@ -18,6 +18,10 @@ pub struct SyncResult {
 }
 
 /// Sync two documents directly (for testing/demo)
+///
+/// Uses Automerge's save/merge pattern: each document saves its full state,
+/// then the other merges it in. This is simple and correct for demos;
+/// production code uses the incremental sync protocol.
 pub fn sync_documents(
     doc_a: &mut Document,
     doc_b: &mut Document,
@@ -31,18 +35,16 @@ pub fn sync_documents(
         rounds += 1;
         let mut made_progress = false;
 
-        // A -> B: generate update based on B's state vector
-        let b_sv = doc_b.state_vector();
-        let msg_to_b = doc_a.generate_sync_message(&b_sv);
-        if !msg_to_b.is_empty() && doc_b.apply_sync_message(&msg_to_b)? {
+        // A -> B: save A's state, merge into B
+        let a_bytes = doc_a.to_bytes();
+        if doc_b.apply_sync(&a_bytes)? {
             made_progress = true;
             b_updated = true;
         }
 
-        // B -> A: generate update based on A's state vector
-        let a_sv = doc_a.state_vector();
-        let msg_to_a = doc_b.generate_sync_message(&a_sv);
-        if !msg_to_a.is_empty() && doc_a.apply_sync_message(&msg_to_a)? {
+        // B -> A: save B's state, merge into A
+        let b_bytes = doc_b.to_bytes();
+        if doc_a.apply_sync(&b_bytes)? {
             made_progress = true;
             a_updated = true;
         }
@@ -60,7 +62,7 @@ pub fn sync_documents(
 }
 
 /// Create a copy of a document for another peer
-pub fn fork_document(doc: &Document, new_peer_char: char) -> Result<Document, DocumentError> {
+pub fn fork_document(doc: &mut Document, new_peer_char: char) -> Result<Document, DocumentError> {
     let new_peer = SimulationIdentity::new(new_peer_char).ok_or_else(|| {
         DocumentError::Sync(format!(
             "Invalid peer identity: {} (must be A-Z)",
@@ -80,7 +82,7 @@ mod tests {
         doc_a.set_content("Hello from Alice").unwrap();
 
         // Create Bob's copy
-        let mut doc_b = fork_document(&doc_a, 'B').unwrap();
+        let mut doc_b = fork_document(&mut doc_a, 'B').unwrap();
 
         // Bob should have Alice's content
         assert_eq!(doc_b.content(), "Hello from Alice");
@@ -101,7 +103,7 @@ mod tests {
         doc_a.set_content("Start").unwrap();
 
         // Clone to B
-        let mut doc_b = fork_document(&doc_a, 'B').unwrap();
+        let mut doc_b = fork_document(&mut doc_a, 'B').unwrap();
 
         // Both make concurrent changes
         doc_a.set_content("Alice's version").unwrap();
