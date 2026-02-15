@@ -746,7 +746,7 @@ mod tests {
                 local text = story:render()
                 return text:find("static") ~= nil
                    and text:find("lighthouse") ~= nil
-                   and text:find("I grew up") ~= nil
+                   and text:find("In the land") ~= nil
             "#,
             )
             .eval()

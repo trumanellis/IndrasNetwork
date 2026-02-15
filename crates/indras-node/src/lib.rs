@@ -1044,7 +1044,7 @@ impl IndrasNode {
 
             // Send initial sync request ONLY to bootstrap peers we connected to (signed)
             let state = self.interfaces.get(&interface_id).unwrap();
-            let interface = state.interface.read().await;
+            let mut interface = state.interface.write().await;
             for peer in &bootstrap_peer_ids {
                 if *peer != self.identity && transport.is_connected(peer) {
                     let sync_msg = interface.generate_sync(peer);
