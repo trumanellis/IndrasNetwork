@@ -5,7 +5,8 @@
 use std::sync::Arc;
 
 use dioxus::prelude::*;
-use indras_network::{IndrasNetwork, direct_connect::dm_realm_id};
+use indras_network::{IndrasNetwork, artifact_sync::artifact_interface_id};
+use indras_artifacts::dm_story_id;
 use indras_sync_engine::{RealmQuests, RealmNotes};
 use indras_ui::{ArtifactDisplayInfo, ArtifactDisplayStatus, ArtifactGallery};
 use indras_ui::chat::ChatPanel;
@@ -42,7 +43,7 @@ fn get_peer_realm(
     my_id: [u8; 32],
     peer_id: [u8; 32],
 ) -> Result<indras_network::Realm, indras_network::IndraError> {
-    let dm_id = dm_realm_id(my_id, peer_id);
+    let dm_id = artifact_interface_id(&dm_story_id(my_id, peer_id));
     net.get_realm_by_id(&dm_id).ok_or_else(|| {
         indras_network::IndraError::InvalidOperation(
             format!("DM realm not found for peer {:?}", &peer_id[..4])

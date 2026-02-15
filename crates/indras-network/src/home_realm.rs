@@ -13,13 +13,15 @@
 //! the sync-engine layer, not here.
 
 use crate::access::{AccessMode, ArtifactStatus};
-use crate::artifact::{Artifact, ArtifactId};
+use crate::artifact::ArtifactId;
 use crate::artifact_index::{ArtifactIndex, HomeArtifactEntry};
+use crate::artifact_sync::ArtifactSyncRegistry;
 use crate::document::Document;
 use crate::error::{IndraError, Result};
-use crate::member::{Member, MemberId};
+use crate::member::MemberId;
 use crate::network::RealmId;
-use indras_core::{InterfaceId, PeerIdentity};
+use crate::util::guess_mime_type;
+use indras_core::InterfaceId;
 use indras_node::IndrasNode;
 use indras_storage::ContentRef;
 use serde::{Deserialize, Serialize};
@@ -100,6 +102,8 @@ pub struct HomeRealm {
     node: Arc<IndrasNode>,
     /// Our own member ID.
     self_id: MemberId,
+    /// Artifact sync registry for automatic P2P sync of shared artifacts.
+    sync_registry: Arc<ArtifactSyncRegistry>,
 }
 
 impl HomeRealm {
@@ -111,7 +115,8 @@ impl HomeRealm {
         node: Arc<IndrasNode>,
         self_id: MemberId,
     ) -> Result<Self> {
-        Ok(Self { id, node, self_id })
+        let sync_registry = Arc::new(ArtifactSyncRegistry::new(node.clone(), self_id));
+        Ok(Self { id, node, self_id, sync_registry })
     }
 
     /// Get the home realm ID.
@@ -181,7 +186,7 @@ impl HomeRealm {
     /// Share a file from the filesystem.
     ///
     /// Convenience method that reads the file and shares it.
-    pub async fn share_file(&self, path: impl AsRef<Path>) -> Result<Artifact> {
+    pub async fn share_file(&self, path: impl AsRef<Path>) -> Result<ArtifactId> {
         let path = path.as_ref();
 
         // Read the file
@@ -217,19 +222,7 @@ impl HomeRealm {
             )
             .await?;
 
-        Ok(Artifact {
-            id,
-            name,
-            size,
-            mime_type,
-            sharer: Member::new(*self.node.identity()),
-            steward: self.node.identity().as_bytes().try_into().expect("identity bytes"),
-            shared_at: chrono::Utc::now(),
-            is_encrypted: false,
-            status: ArtifactStatus::Active,
-            parent: None,
-            children: Vec::new(),
-        })
+        Ok(id)
     }
 
     /// Get an artifact by ID.
@@ -342,7 +335,108 @@ impl HomeRealm {
             }
         })
         .await?;
+
+        // Reconcile sync interface after grant change
+        if result.is_ok() {
+            let data = doc.read().await;
+            if let Some(entry) = data.get(id) {
+                self.sync_registry.reconcile(id, entry).await?;
+            }
+        }
+
         result
+    }
+
+    /// Ensure a DM Story artifact exists in the index and both peers have access.
+    ///
+    /// Creates the artifact entry if it doesn't exist, then grants Permanent
+    /// access to the peer (the steward/self already has implicit access).
+    /// This is idempotent — calling it multiple times has no effect.
+    pub async fn ensure_dm_story(
+        &self,
+        artifact_id: &ArtifactId,
+        peer_id: MemberId,
+    ) -> Result<()> {
+        let doc = self.artifact_index().await?;
+        let artifact_id_copy = *artifact_id;
+
+        // Create the entry if it doesn't exist
+        doc.update(|index| {
+            if index.get(&artifact_id_copy).is_none() {
+                let entry = HomeArtifactEntry {
+                    id: artifact_id_copy,
+                    name: "DM".to_string(),
+                    mime_type: None,
+                    size: 0,
+                    created_at: 0,
+                    encrypted_key: None,
+                    status: ArtifactStatus::Active,
+                    grants: Vec::new(),
+                    provenance: None,
+                    parent: None,
+                    children: Vec::new(),
+                };
+                index.store(entry);
+            }
+        })
+        .await?;
+
+        // Grant peer permanent access (triggers sync registry reconcile)
+        // Ignore AlreadyGranted errors
+        if let Err(e) = self.grant_access(artifact_id, peer_id, AccessMode::Permanent).await {
+            let err_str = format!("{}", e);
+            if !err_str.contains("AlreadyGranted") {
+                return Err(e);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Ensure a realm's Tree artifact exists in the index with self as grantee.
+    ///
+    /// Creates the artifact entry if it doesn't exist, then grants self
+    /// Permanent access (which triggers the sync registry to create/maintain
+    /// the NInterface). This is idempotent.
+    pub async fn ensure_realm_artifact(
+        &self,
+        artifact_id: &ArtifactId,
+        name: &str,
+    ) -> Result<()> {
+        let doc = self.artifact_index().await?;
+        let artifact_id_copy = *artifact_id;
+        let name = name.to_string();
+        let self_id = self.self_id;
+
+        doc.update(|index| {
+            if index.get(&artifact_id_copy).is_none() {
+                let entry = HomeArtifactEntry {
+                    id: artifact_id_copy,
+                    name,
+                    mime_type: None,
+                    size: 0,
+                    created_at: 0,
+                    encrypted_key: None,
+                    status: ArtifactStatus::Active,
+                    grants: Vec::new(),
+                    provenance: None,
+                    parent: None,
+                    children: Vec::new(),
+                };
+                index.store(entry);
+            }
+        })
+        .await?;
+
+        // Grant self permanent access (triggers sync registry reconcile)
+        if let Err(e) = self.grant_access(artifact_id, self_id, AccessMode::Permanent).await {
+            let err_str = format!("{}", e);
+            if !err_str.contains("AlreadyGranted") {
+                return Err(e);
+            }
+        }
+
+        Ok(())
     }
 
     /// Revoke a member's access to an artifact.
@@ -360,6 +454,15 @@ impl HomeRealm {
             }
         })
         .await?;
+
+        // Reconcile sync interface after revoke
+        if result.is_ok() {
+            let data = doc.read().await;
+            if let Some(entry) = data.get(id) {
+                self.sync_registry.reconcile(id, entry).await?;
+            }
+        }
+
         result
     }
 
@@ -375,6 +478,12 @@ impl HomeRealm {
         if recalled {
             let content_ref = indras_storage::ContentRef::new(*id.bytes(), 0);
             let _ = self.node.storage().delete_blob(&content_ref).await;
+
+            // Reconcile sync interface after recall
+            let data = doc.read().await;
+            if let Some(entry) = data.get(id) {
+                self.sync_registry.reconcile(id, entry).await?;
+            }
         }
 
         Ok(recalled)
@@ -396,7 +505,15 @@ impl HomeRealm {
         })
         .await?;
 
-        transfer_result.map_err(|e| IndraError::Artifact(format!("Transfer failed: {}", e)))
+        let recipient_entry = transfer_result.map_err(|e| IndraError::Artifact(format!("Transfer failed: {}", e)))?;
+
+        // Reconcile sync interface after transfer (artifact now has different grants)
+        let data = doc.read().await;
+        if let Some(entry) = data.get(id) {
+            self.sync_registry.reconcile(id, entry).await?;
+        }
+
+        Ok(recipient_entry)
     }
 
     /// Get all artifacts shared with a specific member.
@@ -538,6 +655,7 @@ impl Clone for HomeRealm {
             id: self.id,
             node: Arc::clone(&self.node),
             self_id: self.self_id,
+            sync_registry: Arc::clone(&self.sync_registry),
         }
     }
 }
@@ -551,24 +669,6 @@ impl std::fmt::Debug for HomeRealm {
     }
 }
 
-/// Guess MIME type from file extension.
-fn guess_mime_type(ext: &str) -> String {
-    match ext.to_lowercase().as_str() {
-        // Images
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        "svg" => "image/svg+xml",
-        // Documents
-        "pdf" => "application/pdf",
-        "md" => "text/markdown",
-        "txt" => "text/plain",
-        // Default
-        _ => "application/octet-stream",
-    }
-    .to_string()
-}
 
 // Simple hex encoding for debug output
 mod hex {
