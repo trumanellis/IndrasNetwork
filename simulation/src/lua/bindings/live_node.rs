@@ -5,6 +5,7 @@
 //! CRDT sync, and post-quantum cryptography.
 
 use mlua::{Lua, MetaMethod, Result, Table, UserData, UserDataMethods};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use indras_node::{IndrasNode, InviteKey, NodeConfig};
@@ -16,6 +17,8 @@ use indras_core::{InterfaceId, PeerIdentity};
 /// and optionally a TempDir to keep temporary storage alive.
 struct LuaLiveNode {
     node: Arc<IndrasNode>,
+    /// Data directory path (for recreating nodes with same state)
+    data_dir: PathBuf,
     /// Kept alive to prevent temp dir cleanup
     _temp_dir: Option<tempfile::TempDir>,
 }
@@ -249,6 +252,52 @@ impl UserData for LuaLiveNode {
             },
         );
 
+        // -- Disconnect from peer (close stale connection) --
+
+        methods.add_async_method(
+            "disconnect_from",
+            |_, this, peer_hex: String| async move {
+                let peer_bytes = hex::decode(&peer_hex)
+                    .map_err(|e| mlua::Error::external(format!("Invalid peer hex: {}", e)))?;
+                if peer_bytes.len() != 32 {
+                    return Err(mlua::Error::external("Peer key must be 32 bytes"));
+                }
+                let mut key = [0u8; 32];
+                key.copy_from_slice(&peer_bytes);
+                this.node
+                    .disconnect_from(&key)
+                    .await
+                    .map_err(mlua::Error::external)
+            },
+        );
+
+        // -- Connect to another node by its endpoint address (in-process) --
+        // Unlike connect_to_peer (relay discovery), this uses full address info
+
+        methods.add_async_method(
+            "connect_to",
+            |_, this, other: mlua::AnyUserData| async move {
+                let other_ref = other.borrow::<LuaLiveNode>()?;
+                let addr = other_ref
+                    .node
+                    .endpoint_addr()
+                    .await
+                    .ok_or_else(|| mlua::Error::external("Target node not started"))?;
+                drop(other_ref);
+
+                this.node
+                    .connect_by_addr(addr)
+                    .await
+                    .map_err(mlua::Error::external)
+            },
+        );
+
+        // -- Data dir (for recreating node with same state) --
+
+        methods.add_method("data_dir", |_, this, ()| {
+            Ok(this.data_dir.to_string_lossy().to_string())
+        });
+
         // -- ToString --
 
         methods.add_meta_method(MetaMethod::ToString, |_, this, ()| {
@@ -290,6 +339,7 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
 
             Ok(LuaLiveNode {
                 node: Arc::new(node),
+                data_dir: data_path,
                 _temp_dir: temp_dir,
             })
         })?,

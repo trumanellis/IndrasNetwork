@@ -733,6 +733,36 @@ impl IndrasNode {
         Ok(())
     }
 
+    /// Disconnect from a peer (close and remove stale connection)
+    ///
+    /// Call this before `connect_to_peer` when reconnecting to a peer
+    /// that has restarted, to ensure the old QUIC connection is dropped.
+    pub async fn disconnect_from(&self, peer_key_bytes: &[u8; 32]) -> NodeResult<()> {
+        let public_key = iroh::PublicKey::from_bytes(peer_key_bytes)
+            .map_err(|e| NodeError::Crypto(e.to_string()))?;
+        let peer_id = IrohIdentity::new(public_key);
+        let guard = self.transport.read().await;
+        if let Some(transport) = guard.as_ref() {
+            transport.connection_manager().close_connection(&peer_id);
+        }
+        Ok(())
+    }
+
+    /// Connect to a peer using their full endpoint address
+    ///
+    /// Unlike `connect_to_peer` which uses relay discovery (can be slow/unreliable),
+    /// this connects using the full address including relay URL.
+    pub async fn connect_by_addr(&self, addr: iroh::EndpointAddr) -> NodeResult<()> {
+        let guard = self.transport.read().await;
+        let transport = guard.as_ref().ok_or(NodeError::NotStarted)?;
+        transport
+            .connection_manager()
+            .connect(addr)
+            .await
+            .map_err(|e| NodeError::Transport(e.to_string()))?;
+        Ok(())
+    }
+
     /// Get our endpoint address for sharing with peers
     pub async fn endpoint_addr(&self) -> Option<iroh::EndpointAddr> {
         self.transport

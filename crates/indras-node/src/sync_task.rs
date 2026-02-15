@@ -278,12 +278,33 @@ impl SyncTask {
             }
 
             if !self.transport.is_connected(&member) {
+                // Attempt to reconnect before skipping
                 debug!(
                     peer = %member.short_id(),
-                    "Skipping sync - peer not connected"
+                    "Peer not connected — attempting reconnection"
                 );
-                delivery_state.record_failure();
-                continue;
+                match self
+                    .transport
+                    .connection_manager()
+                    .connect_by_key(*member.public_key())
+                    .await
+                {
+                    Ok(_) => {
+                        info!(
+                            peer = %member.short_id(),
+                            "Reconnected to peer"
+                        );
+                    }
+                    Err(e) => {
+                        debug!(
+                            peer = %member.short_id(),
+                            error = %e,
+                            "Failed to reconnect to peer"
+                        );
+                        delivery_state.record_failure();
+                        continue;
+                    }
+                }
             }
 
             let mut sync_ok = true;
