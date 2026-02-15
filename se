@@ -1,5 +1,5 @@
 #!/bin/bash
-# Launch Synchronicity Engine instances.
+# Launch Indras Workspace instances.
 #
 # Usage:
 #   ./se                    Launch single instance (normal onboarding)
@@ -29,12 +29,12 @@ done
 if [ ${#NAMES[@]} -eq 0 ]; then
   # No names: single instance, normal flow
   echo "Logging stdout to $LOGFILE"
-  cargo run -p indras-genesis -- $CLEAN 2>&1 | tee -a "$LOGFILE"
+  cargo run -p indras-workspace -- $CLEAN 2>&1 | tee -a "$LOGFILE"
   exit 0
 fi
 
 # Build once before launching instances
-cargo build -p indras-genesis
+cargo build -p indras-workspace
 
 PIDS=()
 NUM=${#NAMES[@]}
@@ -58,7 +58,7 @@ for NAME in "${NAMES[@]}"; do
   INDRAS_NAME="$NAME" INDRAS_DATA_DIR="$DATA_DIR" \
     INDRAS_WIN_X="$WIN_X" INDRAS_WIN_Y=25 \
     INDRAS_WIN_W="$TILE_W" INDRAS_WIN_H="$TILE_H" \
-    cargo run -p indras-genesis -- $CLEAN 2>&1 | tee -a "$LOGFILE" &
+    cargo run -p indras-workspace -- $CLEAN 2>&1 | tee -a "$LOGFILE" &
   PIDS+=($!)
   IDX=$((IDX + 1))
   sleep 0.5 # stagger window creation
@@ -69,20 +69,20 @@ echo "Running: ${NAMES[*]}${CLEAN:+ (clean)}"
 echo "PIDs: ${PIDS[*]}"
 echo "Press Ctrl+C to stop all instances."
 
-# Bring all indras-genesis windows to front after they finish rendering
+# Bring all indras-workspace windows to front after they finish rendering
 bring_windows_to_front() {
     osascript -e '
         tell application "System Events"
-            set genesisProcs to every process whose name is "indras-genesis"
-            if (count of genesisProcs) > 0 then
-                repeat with proc in genesisProcs
+            set workspaceProcs to every process whose name is "indras-workspace"
+            if (count of workspaceProcs) > 0 then
+                repeat with proc in workspaceProcs
                     set frontmost of proc to true
                 end repeat
             else
                 set allProcs to every process whose visible is true
                 repeat with proc in allProcs
                     try
-                        set wins to every window of proc whose name contains "Synchronicity Engine"
+                        set wins to every window of proc whose name contains "Indras Workspace"
                         if (count of wins) > 0 then
                             set frontmost of proc to true
                         end if
