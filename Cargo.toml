@@ -51,6 +51,7 @@ indras-logging = { path = "crates/indras-logging" }
 indras-node = { path = "crates/indras-node" }
 indras-network = { path = "crates/indras-network" }
 indras-sync-engine = { path = "crates/indras-sync-engine" }
+indras-artifacts = { path = "crates/indras-artifacts" }
 
 # Core iroh stack
 iroh = "0.95"

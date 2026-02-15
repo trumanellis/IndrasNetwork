@@ -127,7 +127,7 @@ pub enum Content {
     },
 
     /// Reference to a shared artifact.
-    Artifact(ArtifactRef),
+    Artifact(ContentReference),
 
     /// Reaction to another message.
     Reaction {
@@ -189,7 +189,7 @@ pub enum Content {
     /// artifact with display hints.
     InlineArtifact {
         /// Reference to the artifact.
-        artifact: ArtifactRef,
+        artifact: ContentReference,
         /// Whether to display inline (true) or as download link (false).
         display_inline: bool,
         /// Alt text / caption.
@@ -215,7 +215,7 @@ pub enum Content {
     /// own ArtifactIndex automatically.
     ArtifactGranted {
         /// Reference to the artifact.
-        artifact: ArtifactRef,
+        artifact: ContentReference,
         /// What kind of access was granted.
         mode: crate::access::AccessMode,
         /// How the artifact was received.
@@ -399,15 +399,15 @@ impl From<String> for Content {
     }
 }
 
-impl From<ArtifactRef> for Content {
-    fn from(artifact: ArtifactRef) -> Self {
+impl From<ContentReference> for Content {
+    fn from(artifact: ContentReference) -> Self {
         Content::Artifact(artifact)
     }
 }
 
 /// Reference to a shared artifact in a message.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ArtifactRef {
+pub struct ContentReference {
     /// Artifact name.
     pub name: String,
     /// Artifact size in bytes.
@@ -522,7 +522,7 @@ mod tests {
 
     #[test]
     fn test_content_inline_artifact_image() {
-        let artifact = ArtifactRef {
+        let artifact = ContentReference {
             name: "photo.jpg".to_string(),
             size: 1024 * 1024,
             hash: [0u8; 32],
@@ -544,7 +544,7 @@ mod tests {
 
     #[test]
     fn test_content_inline_artifact_not_image() {
-        let artifact = ArtifactRef {
+        let artifact = ContentReference {
             name: "document.pdf".to_string(),
             size: 1024,
             hash: [0u8; 32],
@@ -607,7 +607,7 @@ mod tests {
         use crate::access::{AccessGrant, AccessMode, ArtifactProvenance, ProvenanceType};
 
         let content = Content::ArtifactGranted {
-            artifact: ArtifactRef {
+            artifact: ContentReference {
                 name: "document.pdf".to_string(),
                 size: 2048,
                 hash: [0x42u8; 32],
@@ -615,10 +615,10 @@ mod tests {
             },
             mode: AccessMode::Permanent,
             provenance: ArtifactProvenance {
-                original_owner: [1u8; 32],
+                original_steward: [1u8; 32],
                 received_from: [1u8; 32],
                 received_at: 100,
-                received_via: ProvenanceType::CoOwnership,
+                received_via: ProvenanceType::CoStewardship,
             },
             inherited_grants: vec![],
         };
@@ -658,7 +658,7 @@ mod tests {
         use crate::access::{AccessMode, ArtifactProvenance, ProvenanceType};
 
         let content = Content::ArtifactGranted {
-            artifact: ArtifactRef {
+            artifact: ContentReference {
                 name: "test.pdf".to_string(),
                 size: 1024,
                 hash: [0x42u8; 32],
@@ -666,7 +666,7 @@ mod tests {
             },
             mode: AccessMode::Revocable,
             provenance: ArtifactProvenance {
-                original_owner: [1u8; 32],
+                original_steward: [1u8; 32],
                 received_from: [1u8; 32],
                 received_at: 100,
                 received_via: ProvenanceType::Transfer,
@@ -685,7 +685,7 @@ mod tests {
         use crate::access::{AccessMode, ArtifactProvenance, ProvenanceType};
 
         let content = Content::ArtifactGranted {
-            artifact: ArtifactRef {
+            artifact: ContentReference {
                 name: "temp_doc.pdf".to_string(),
                 size: 4096,
                 hash: [0x33u8; 32],
@@ -693,10 +693,10 @@ mod tests {
             },
             mode: AccessMode::Timed { expires_at: 500 },
             provenance: ArtifactProvenance {
-                original_owner: [1u8; 32],
+                original_steward: [1u8; 32],
                 received_from: [1u8; 32],
                 received_at: 100,
-                received_via: ProvenanceType::CoOwnership,
+                received_via: ProvenanceType::CoStewardship,
             },
             inherited_grants: vec![],
         };
@@ -733,7 +733,7 @@ mod tests {
         ];
 
         let content = Content::ArtifactGranted {
-            artifact: ArtifactRef {
+            artifact: ContentReference {
                 name: "shared_file.zip".to_string(),
                 size: 1048576,
                 hash: [0xAAu8; 32],
@@ -741,7 +741,7 @@ mod tests {
             },
             mode: AccessMode::Transfer,
             provenance: ArtifactProvenance {
-                original_owner: [1u8; 32],
+                original_steward: [1u8; 32],
                 received_from: [1u8; 32],
                 received_at: 200,
                 received_via: ProvenanceType::Transfer,
@@ -767,24 +767,25 @@ mod tests {
     #[test]
     fn test_content_recovery_manifest_with_artifacts() {
         use crate::access::AccessMode;
+        use crate::artifact::ArtifactId;
         use crate::artifact_recovery::{RecoverableArtifact, RecoveryManifest};
 
         let mut manifest = RecoveryManifest::new();
         manifest.add(RecoverableArtifact {
-            id: [1u8; 32],
+            id: ArtifactId::Blob([1u8; 32]),
             name: "photo.jpg".to_string(),
             size: 204800,
             mime_type: Some("image/jpeg".to_string()),
             access_mode: AccessMode::Permanent,
-            owner: [2u8; 32],
+            steward: [2u8; 32],
         });
         manifest.add(RecoverableArtifact {
-            id: [3u8; 32],
+            id: ArtifactId::Blob([3u8; 32]),
             name: "doc.pdf".to_string(),
             size: 8192,
             mime_type: Some("application/pdf".to_string()),
             access_mode: AccessMode::Revocable,
-            owner: [2u8; 32],
+            steward: [2u8; 32],
         });
 
         let content = Content::RecoveryManifest { manifest };

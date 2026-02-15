@@ -6,7 +6,7 @@ use indras_network::artifact::ArtifactId;
 use indras_network::document::Document;
 use indras_network::error::Result;
 use indras_network::member::MemberId;
-use indras_network::message::ArtifactRef;
+use indras_network::message::ContentReference;
 use indras_network::Realm;
 
 /// Quest management extension trait for Realm.
@@ -36,7 +36,7 @@ pub trait RealmQuests {
         &self,
         quest_id: QuestId,
         claimant: MemberId,
-        proof_artifact: ArtifactRef,
+        proof_artifact: ContentReference,
     ) -> Result<usize>;
 
     /// Verify a claim on a quest.
@@ -123,10 +123,10 @@ impl RealmQuests for Realm {
         &self,
         quest_id: QuestId,
         claimant: MemberId,
-        proof_artifact: ArtifactRef,
+        proof_artifact: ContentReference,
     ) -> Result<usize> {
         let claim_index = self
-            .submit_quest_claim(quest_id, claimant, Some(proof_artifact.hash))
+            .submit_quest_claim(quest_id, claimant, Some(ArtifactId::Blob(proof_artifact.hash)))
             .await?;
 
         self.send(SyncContent::ProofSubmitted {

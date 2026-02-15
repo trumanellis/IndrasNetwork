@@ -140,7 +140,7 @@ async fn test_upload_image_to_home_realm() {
         .unwrap();
 
     // Verify artifact ID is non-zero (it's a blake3 hash)
-    assert!(!artifact_id.iter().all(|&b| b == 0));
+    assert!(!artifact_id.bytes().iter().all(|&b| b == 0));
 
     // Retrieve artifact
     let retrieved = home.get_artifact(&artifact_id).await.unwrap();

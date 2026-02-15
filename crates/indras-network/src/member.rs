@@ -9,7 +9,8 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 
 /// Unique identifier for a member (32-byte public key hash).
-pub type MemberId = [u8; 32];
+/// Bridged to `indras_artifacts::PlayerId` for type compatibility.
+pub type MemberId = indras_artifacts::PlayerId;
 
 /// A member of a realm.
 ///

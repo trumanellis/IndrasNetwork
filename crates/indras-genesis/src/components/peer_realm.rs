@@ -131,30 +131,8 @@ async fn load_shared_realm_data(
                 state.write().peer_realm_notes = notes;
             }
 
-            // Load artifacts from artifact key registry if available
-            if let Ok(doc) = realm.artifact_key_registry().await {
-                // Refresh to pull latest synced state from peers
-                let _ = doc.refresh().await;
-                let data = doc.read().await;
-                let artifacts: Vec<ArtifactDisplayInfo> = data.artifacts.values().map(|a| {
-                    ArtifactDisplayInfo {
-                        id: a.hash.iter().map(|b| format!("{:02x}", b)).collect(),
-                        name: a.name.clone(),
-                        size: a.size,
-                        mime_type: a.mime_type.clone(),
-                        status: if a.status.is_shared() {
-                            ArtifactDisplayStatus::Active
-                        } else {
-                            ArtifactDisplayStatus::Recalled
-                        },
-                        data_url: None,
-                        grant_count: 0,
-                        owner_label: Some(format!("Shared by {}", &a.sharer[..8.min(a.sharer.len())])),
-                    }
-                }).collect();
-                drop(data);
-                state.write().peer_realm_artifacts = artifacts;
-            }
+            // Peer realm artifacts are now managed via grant-based access
+            // through the owner's ArtifactIndex rather than a key registry.
         }
         Err(e) => {
             tracing::error!("load_shared_realm_data: realm() failed: {}", e);

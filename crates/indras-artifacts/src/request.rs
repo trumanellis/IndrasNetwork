@@ -33,7 +33,13 @@ impl Request {
         let request_id = tree.id.clone();
 
         // Create description as a Leaf(Message) child
-        let desc_leaf = vault.place_leaf(description_text.as_bytes(), LeafType::Message, now)?;
+        let desc_leaf = vault.place_leaf(
+            description_text.as_bytes(),
+            "description".to_string(),
+            None,
+            LeafType::Message,
+            now,
+        )?;
         vault.compose(
             &request_id,
             desc_leaf.id,
