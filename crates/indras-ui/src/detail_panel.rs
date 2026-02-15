@@ -1,6 +1,7 @@
 //! Detail panel with tabbed views for Properties, Audience, and Heat.
 
 use dioxus::prelude::*;
+use crate::heat_display::HeatBar;
 
 /// Property row data for the Properties tab.
 #[derive(Clone, Debug, PartialEq)]
@@ -298,26 +299,10 @@ pub fn DetailPanel(
                                 div {
                                     class: "heat-viz",
                                     for entry in heat_entries.iter() {
-                                        {
-                                            let pct = (entry.value.clamp(0.0, 1.0) * 100.0) as u32;
-                                            let display_val = format!("{:.2}", entry.value);
-                                            rsx! {
-                                                div {
-                                                    class: "heat-bar-row",
-                                                    span { class: "heat-bar-label", "{entry.label}" }
-                                                    div {
-                                                        class: "heat-bar-track",
-                                                        div {
-                                                            class: "heat-bar-fill",
-                                                            style: "width: {pct}%; background: {entry.color}",
-                                                        }
-                                                    }
-                                                    span {
-                                                        class: "heat-bar-value",
-                                                        "{display_val}"
-                                                    }
-                                                }
-                                            }
+                                        HeatBar {
+                                            label: entry.label.clone(),
+                                            value: entry.value,
+                                            color: Some(entry.color.clone()),
                                         }
                                     }
                                     // Combined heat bar

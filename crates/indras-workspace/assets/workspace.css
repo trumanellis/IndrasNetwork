@@ -168,6 +168,37 @@ button{font-family:var(--font-body)}
 .image-caption{padding:8px 12px;font-size:11px;color:var(--text-muted);font-style:italic;background:var(--bg-deep)}
 .block-placeholder{padding:8px 0;color:var(--text-ghost);font-size:15px;cursor:text}
 .block-placeholder kbd{font-family:var(--font-mono);font-size:10px;padding:2px 5px;background:var(--bg-raised);border:1px solid var(--border-dim);border-radius:3px}
+/* Click-to-edit: hover hint */
+.block-clickable{cursor:text;border-radius:var(--radius-sm);transition:background var(--transition)}
+.block-clickable:hover{background:var(--bg-hover)}
+
+/* Active editing: no visible chrome */
+.block-edit-active{position:relative}
+
+/* Inline textarea — invisible chrome, inherits block styling */
+.block-edit-inline{width:100%;background:transparent;border:none;outline:none;color:var(--text-primary);resize:none;padding:0;margin:0;overflow:hidden;field-sizing:content}
+
+/* Per-type textarea styling */
+.block-editing-text .block-edit-inline{font-family:var(--font-body);font-size:15px;line-height:1.7}
+.block-editing-h1 .block-edit-inline{font-size:28px;font-weight:700;line-height:1.3;font-family:var(--font-body)}
+.block-editing-h2 .block-edit-inline{font-size:21px;font-weight:600;line-height:1.3;margin-top:24px;margin-bottom:6px;font-family:var(--font-body)}
+.block-editing-h3 .block-edit-inline{font-size:18px;font-weight:600;line-height:1.3;font-family:var(--font-body)}
+.block-editing-h4 .block-edit-inline{font-size:16px;font-weight:600;line-height:1.3;font-family:var(--font-body)}
+
+/* Code: sits inside the code-block visual container */
+.block-editing-code{background:var(--bg-deep);border:1px solid var(--border-dim);border-radius:var(--radius-md);padding:14px 16px;margin:8px 0}
+.block-editing-code .block-edit-inline{font-family:var(--font-mono);font-size:12px;line-height:1.6;color:var(--text-secondary)}
+
+/* Callout: keeps the teal left-border treatment */
+.block-editing-callout{background:var(--accent-teal-dim);border-left:3px solid var(--accent-teal);border-radius:0 var(--radius-md) var(--radius-md) 0;padding:12px 16px;margin:8px 0}
+.block-editing-callout .block-edit-inline{font-size:14px;line-height:1.6;color:var(--text-secondary);font-family:var(--font-body)}
+
+/* Todo: textarea inline next to checkbox */
+.block-editing-todo .block-edit-inline{font-size:15px;line-height:1.6;font-family:var(--font-body);flex:1}
+
+/* Hint — only visible when textarea focused */
+.block-edit-hint{font-size:9px;color:var(--text-ghost);text-align:right;opacity:0;margin-top:2px;transition:opacity var(--transition)}
+.block-edit-active:focus-within .block-edit-hint{opacity:0.5}
 
 /* ================================================================
    VIEW: STORY (new — chat/conversation)
@@ -466,6 +497,18 @@ button{font-family:var(--font-body)}
 .nav-heat-badge{position:absolute;top:4px;right:calc(50% - 18px);width:6px;height:6px;border-radius:50%;background:var(--heat-5);box-shadow:0 0 6px rgba(255,217,61,0.4)}
 .fab{display:none;position:fixed;z-index:55;width:52px;height:52px;border-radius:50%;background:var(--accent-teal);color:var(--bg-void);border:none;font-size:26px;cursor:pointer;box-shadow:0 4px 20px rgba(0,212,170,0.3);align-items:center;justify-content:center}
 .fab:active{transform:scale(0.92)}
+
+/* ================================================================
+   VIEW: SETTINGS
+   ================================================================ */
+.settings-section .theme-switcher{position:static;z-index:auto;display:flex;align-items:center;gap:8px}
+.settings-section{padding:20px 24px;border-bottom:1px solid var(--border-subtle)}
+.settings-section-title{font-size:10px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);margin-bottom:14px}
+.settings-identity{display:flex;align-items:center;gap:16px;padding:8px 0}
+.settings-identity-avatar{width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,var(--accent-teal),var(--accent-violet));display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:600;color:var(--bg-void)}
+.settings-identity-info{display:flex;flex-direction:column;gap:2px}
+.settings-identity-name{font-size:16px;font-weight:600;color:var(--text-primary)}
+.settings-identity-id{font-size:12px;font-family:var(--font-mono);color:var(--text-muted)}
 
 /* ================================================================
    ANIMATIONS
