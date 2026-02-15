@@ -28,7 +28,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use dashmap::DashMap;
+use dashmap::{DashMap, DashSet};
 use iroh::endpoint::Connection;
 use iroh::protocol::Router;
 use iroh::{EndpointAddr, PublicKey, SecretKey};
@@ -113,6 +113,8 @@ pub struct IrohNetworkAdapter {
     shutdown: broadcast::Sender<()>,
     /// Running state
     running: RwLock<bool>,
+    /// Tracks peers with active connection read handlers (prevents duplicate handlers)
+    handled_peers: Arc<DashSet<IrohIdentity>>,
 }
 
 impl IrohNetworkAdapter {
@@ -171,6 +173,7 @@ impl IrohNetworkAdapter {
             message_rx: Arc::new(RwLock::new(message_rx)),
             shutdown,
             running: RwLock::new(false),
+            handled_peers: Arc::new(DashSet::new()),
         })
     }
 
@@ -220,6 +223,9 @@ impl IrohNetworkAdapter {
 
         // Close all connections
         self.connection_manager.close().await;
+
+        // Clear handler tracking (connections are closed, handlers will exit)
+        self.handled_peers.clear();
 
         // Shut down the Router (stops accepting new connections, closes endpoint)
         if let Err(e) = self.router.shutdown().await {
@@ -280,6 +286,7 @@ impl IrohNetworkAdapter {
         let conn_rx = self.conn_rx.clone();
         let connection_manager = self.connection_manager.clone();
         let message_tx = self.message_tx.clone();
+        let handled_peers = self.handled_peers.clone();
         let mut shutdown_rx = self.shutdown.subscribe();
 
         tokio::spawn(async move {
@@ -296,10 +303,15 @@ impl IrohNetworkAdapter {
                                 debug!(peer = %peer_id.short_id(), "Router dispatched indras connection");
                                 // Store the connection in the connection manager
                                 connection_manager.store_connection(peer_id, conn.clone());
-                                Self::spawn_connection_handler(
+                                // Force-remove old handler tracking — this is a NEW incoming
+                                // connection, so any old handler is on a stale connection
+                                // that will exit naturally when accept_uni() fails.
+                                handled_peers.remove(&peer_id);
+                                Self::ensure_connection_handler_inner(
                                     peer_id,
                                     conn,
                                     message_tx.clone(),
+                                    handled_peers.clone(),
                                 );
                             }
                             None => {
@@ -314,22 +326,42 @@ impl IrohNetworkAdapter {
         });
     }
 
-    /// Spawn a handler for an established connection
-    fn spawn_connection_handler(
-        peer_id: IrohIdentity,
+    /// Ensure a connection read handler exists for a peer.
+    ///
+    /// Uses `handled_peers` to prevent duplicate handlers racing on the same
+    /// connection. When the handler exits (connection closed), the peer is
+    /// removed from the set so a new handler can be spawned for a future
+    /// connection.
+    fn ensure_connection_handler(&self, peer: IrohIdentity, conn: Connection) {
+        Self::ensure_connection_handler_inner(
+            peer,
+            conn,
+            self.message_tx.clone(),
+            self.handled_peers.clone(),
+        );
+    }
+
+    /// Inner static version for use in spawned tasks that don't have `&self`.
+    fn ensure_connection_handler_inner(
+        peer: IrohIdentity,
         conn: Connection,
         message_tx: mpsc::Sender<IncomingMessage>,
+        handled_peers: Arc<DashSet<IrohIdentity>>,
     ) {
+        if !handled_peers.insert(peer) {
+            // Handler already exists for this peer
+            return;
+        }
+
         tokio::spawn(async move {
             loop {
                 match conn.accept_uni().await {
                     Ok(mut recv) => {
-                        // Read the message
                         match recv.read_to_end(1024 * 1024).await {
                             Ok(data) => {
                                 if let Err(e) = message_tx
                                     .send(IncomingMessage {
-                                        sender: peer_id,
+                                        sender: peer,
                                         data,
                                     })
                                     .await
@@ -345,7 +377,7 @@ impl IrohNetworkAdapter {
                     }
                     Err(e) => {
                         if conn.close_reason().is_some() {
-                            debug!(peer = %peer_id.short_id(), "Connection closed");
+                            debug!(peer = %peer.short_id(), "Connection closed");
                         } else {
                             debug!(error = %e, "Failed to accept stream");
                         }
@@ -353,7 +385,38 @@ impl IrohNetworkAdapter {
                     }
                 }
             }
+            // Allow a new handler to be spawned if a new connection is established
+            handled_peers.remove(&peer);
         });
+    }
+
+    /// Connect to a peer and ensure a message handler is spawned for the connection.
+    ///
+    /// This is the preferred way to establish outgoing connections, as it ensures
+    /// we can receive messages (sync responses, etc.) on the same connection.
+    pub async fn connect_and_handle(
+        &self,
+        addr: EndpointAddr,
+    ) -> Result<Connection, ConnectionError> {
+        let conn = self.connection_manager.connect(addr).await?;
+        let peer_id = IrohIdentity::new(conn.remote_id());
+        // Force-remove old handler tracking — this is a fresh outgoing connection
+        self.handled_peers.remove(&peer_id);
+        self.ensure_connection_handler(peer_id, conn.clone());
+        Ok(conn)
+    }
+
+    /// Connect to a peer by public key and ensure a message handler is spawned.
+    pub async fn connect_by_key_and_handle(
+        &self,
+        key: PublicKey,
+    ) -> Result<Connection, ConnectionError> {
+        let conn = self.connection_manager.connect_by_key(key).await?;
+        let peer_id = IrohIdentity::new(conn.remote_id());
+        // Force-remove old handler tracking — this is a fresh outgoing connection
+        self.handled_peers.remove(&peer_id);
+        self.ensure_connection_handler(peer_id, conn.clone());
+        Ok(conn)
     }
 
     /// Spawn the discovery event handler
@@ -409,10 +472,12 @@ impl IrohNetworkAdapter {
     async fn send_bytes(&self, peer: &IrohIdentity, data: Vec<u8>) -> Result<(), TransportError> {
         // Get or establish connection
         let conn = if let Some(conn) = self.connection_manager.get_connection(peer) {
+            // Ensure we have a handler even for pre-existing connections
+            self.ensure_connection_handler(*peer, conn.clone());
             conn
         } else {
             // Try to connect using known address
-            if let Some(addr) = self.peer_addresses.get(peer) {
+            let new_conn = if let Some(addr) = self.peer_addresses.get(peer) {
                 self.connection_manager
                     .connect(addr.clone())
                     .await
@@ -423,7 +488,10 @@ impl IrohNetworkAdapter {
                     .connect_by_key(*peer.public_key())
                     .await
                     .map_err(|e| TransportError::ConnectionFailed(e.to_string()))?
-            }
+            };
+            // Ensure handler for new outgoing connection so we can receive responses
+            self.ensure_connection_handler(*peer, new_conn.clone());
+            new_conn
         };
 
         // Open a unidirectional stream and send data
@@ -471,21 +539,21 @@ impl Transport<IrohIdentity> for IrohNetworkAdapter {
             return Ok(());
         }
 
-        // Try to connect
-        if let Some(addr) = self.peer_addresses.get(peer) {
+        // Try to connect and ensure handler for responses
+        let conn = if let Some(addr) = self.peer_addresses.get(peer) {
             self.connection_manager
                 .connect(addr.clone())
                 .await
-                .map_err(|e| TransportError::ConnectionFailed(e.to_string()))?;
-            Ok(())
+                .map_err(|e| TransportError::ConnectionFailed(e.to_string()))?
         } else {
             // Try by key
             self.connection_manager
                 .connect_by_key(*peer.public_key())
                 .await
-                .map_err(|e| TransportError::ConnectionFailed(e.to_string()))?;
-            Ok(())
-        }
+                .map_err(|e| TransportError::ConnectionFailed(e.to_string()))?
+        };
+        self.ensure_connection_handler(*peer, conn);
+        Ok(())
     }
 
     async fn try_recv(&self) -> Result<Option<(IrohIdentity, Vec<u8>)>, TransportError> {
