@@ -7,7 +7,7 @@
 # Usage:
 #   ./scripts/run-live-abc-relay.sh              # normal run
 #   ./scripts/run-live-abc-relay.sh --debug       # with sync debug logs
-#   ./scripts/run-live-abc-relay.sh | cargo run -p indras-realm-viewer --bin omni-viewer-v2
+#   ./scripts/run-live-abc-relay.sh | cargo run -p indras-realm-viewer --bin omni-viewer
 
 if [[ "$1" == "--debug" ]]; then
   RUST_LOG="warn,indras_node::sync_task=debug,indras_node::message_handler=debug,indras_simulation=info"

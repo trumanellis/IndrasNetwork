@@ -1,12 +1,11 @@
-//! Omni Viewer V2 - Calm Observation Dashboard
+//! Omni Viewer - Calm Observation Dashboard
 //!
-//! Fork of omni-viewer with per-member "pulse" layout.
-//! Each column shows only what's unique to that member.
+//! Per-member "pulse" layout. Each column shows only what's unique to that member.
 //!
 //! Usage:
-//!   lua_runner scenario.lua | omni-viewer-v2
-//!   omni-viewer-v2 --file events.jsonl
-//!   omni-viewer-v2                           (TTY: shows scenario picker)
+//!   lua_runner scenario.lua | omni-viewer
+//!   omni-viewer --file events.jsonl
+//!   omni-viewer                           (TTY: shows scenario picker)
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -14,7 +13,7 @@ use std::sync::OnceLock;
 use clap::Parser;
 use dioxus::prelude::*;
 
-use indras_realm_viewer::components::omni_v2::OmniV2App;
+use indras_realm_viewer::components::omni::OmniApp;
 use indras_realm_viewer::components::scenario_picker::ScenarioPicker;
 use indras_realm_viewer::events::{start_stream, StreamConfig, StreamEvent};
 use indras_realm_viewer::playback;
@@ -24,7 +23,7 @@ use indras_realm_viewer::theme::ThemedRoot;
 /// Embedded CSS styles
 const SHARED_CSS: &str = indras_ui::SHARED_CSS;
 const STYLES_CSS: &str = include_str!("../assets/styles.css");
-const OMNI_V2_STYLES_CSS: &str = include_str!("../assets/omni_v2_styles.css");
+const OMNI_STYLES_CSS: &str = include_str!("../assets/omni_styles.css");
 
 /// Global file path for stream config
 static FILE_PATH: OnceLock<Option<PathBuf>> = OnceLock::new();
@@ -34,7 +33,7 @@ static IS_TTY: OnceLock<bool> = OnceLock::new();
 
 /// Command-line arguments
 #[derive(Parser, Debug)]
-#[command(name = "omni-viewer-v2")]
+#[command(name = "omni-viewer")]
 #[command(about = "Calm observation dashboard showing per-member pulse views")]
 struct Args {
     /// Read events from file instead of stdin
@@ -75,14 +74,14 @@ fn main() {
             dioxus::desktop::Config::new()
                 .with_window(
                     dioxus::desktop::WindowBuilder::new()
-                        .with_title("Omni V2 - Indras Network")
+                        .with_title("Omni Viewer - Indras Network")
                         .with_inner_size(dioxus::desktop::LogicalSize::new(1920, 1080))
                         .with_resizable(true)
                         .with_maximized(true),
                 )
                 .with_custom_head(format!(
                     r#"<style>{}</style><style>{}</style><style>{}</style>"#,
-                    SHARED_CSS, STYLES_CSS, OMNI_V2_STYLES_CSS
+                    SHARED_CSS, STYLES_CSS, OMNI_STYLES_CSS
                 )),
         )
         .launch(RootApp);
@@ -347,7 +346,7 @@ fn RootApp() -> Element {
         }
         AppMode::Streaming => {
             rsx! {
-                OmniV2App { state }
+                OmniApp { state }
             }
         }
     }

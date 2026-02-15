@@ -12,7 +12,6 @@ use crate::state::{
 use crate::theme::{ThemeSwitcher, ThemedRoot};
 
 pub mod omni;
-pub mod omni_v2;
 pub mod scenario_picker;
 
 pub use indras_ui::{

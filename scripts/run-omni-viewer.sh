@@ -1,15 +1,15 @@
 #!/bin/bash
-# Run the Omni Viewer with a Lua scenario piped in
+# Run the Omni Viewer (calm observation dashboard)
 #
 # Usage:
-#   ./scripts/run-omni-viewer.sh                    # Default scenario
-#   ./scripts/run-omni-viewer.sh -t mystic          # With theme
-#   SCENARIO=sync_engine_proof_folder ./scripts/run-omni-viewer.sh
-#   STRESS_LEVEL=full ./scripts/run-omni-viewer.sh
+#   ./scripts/run-omni-viewer.sh                              # Scenario picker UI (default)
+#   SCENARIO=sync_engine_harmony_proof ./scripts/run-omni-viewer.sh   # Pipe a specific scenario
+#   STRESS_LEVEL=full SCENARIO=sync_engine_stress ./scripts/run-omni-viewer.sh
+#   ./scripts/run-omni-viewer.sh -t light                     # Picker with light theme
 #
 # Environment variables:
 #   STRESS_LEVEL - quick, medium, or full (default: quick)
-#   SCENARIO     - scenario name without .lua extension (default: sync_engine_quest_proof_blessing)
+#   SCENARIO     - scenario name without .lua extension (if set, pipes that scenario)
 
 set -e
 
@@ -18,9 +18,12 @@ ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 
 cd "$ROOT_DIR"
 
-SCENARIO="${SCENARIO:-sync_engine_quest_proof_blessing}"
-
-STRESS_LEVEL="${STRESS_LEVEL:-quick}" cargo run --bin lua_runner \
-    --manifest-path simulation/Cargo.toml \
-    -- "simulation/scripts/scenarios/${SCENARIO}.lua" \
-    | cargo run -p indras-realm-viewer --bin omni-viewer -- "$@"
+# If SCENARIO is set, pipe it into the viewer; otherwise launch the picker
+if [ -n "$SCENARIO" ]; then
+    STRESS_LEVEL="${STRESS_LEVEL:-quick}" cargo run --bin lua_runner \
+        --manifest-path simulation/Cargo.toml \
+        -- "simulation/scripts/scenarios/${SCENARIO}.lua" \
+        | cargo run -p indras-realm-viewer --bin omni-viewer -- "$@"
+else
+    cargo run -p indras-realm-viewer --bin omni-viewer -- "$@"
+fi

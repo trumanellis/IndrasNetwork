@@ -6,7 +6,7 @@
 -- and verify that the full quest/proof/blessing/token lifecycle propagates
 -- across the network.
 --
--- Emits structured JSONL events for the Omni V2 viewer alongside real P2P ops.
+-- Emits structured JSONL events for the Omni Viewer alongside real P2P ops.
 --
 -- Usage:
 --   cargo run --bin lua_runner --manifest-path simulation/Cargo.toml \
@@ -15,7 +15,7 @@
 -- With viewer:
 --   cargo run --bin lua_runner --manifest-path simulation/Cargo.toml \
 --     -- simulation/scripts/scenarios/live_harmony.lua \
---     | cargo run -p indras-realm-viewer --bin omni-viewer-v2
+--     | cargo run -p indras-realm-viewer --bin omni-viewer
 
 local quest_helpers = require("lib.quest_helpers")
 local home = require("lib.home_realm_helpers")

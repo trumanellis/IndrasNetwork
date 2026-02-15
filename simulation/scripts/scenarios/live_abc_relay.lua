@@ -16,7 +16,7 @@
 -- With viewer:
 --   cargo run --bin lua_runner --manifest-path simulation/Cargo.toml \
 --     -- simulation/scripts/scenarios/live_abc_relay.lua \
---     | cargo run -p indras-realm-viewer --bin omni-viewer-v2
+--     | cargo run -p indras-realm-viewer --bin omni-viewer
 
 local quest_helpers = require("lib.quest_helpers")
 
