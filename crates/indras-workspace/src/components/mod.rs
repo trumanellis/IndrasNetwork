@@ -9,3 +9,4 @@ pub mod bottom_nav;
 pub mod fab;
 pub mod setup;
 pub mod pass_story;
+pub mod event_log;

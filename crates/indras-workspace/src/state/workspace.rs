@@ -21,6 +21,22 @@ pub enum AppPhase {
     Workspace,  // Main workspace (identity loaded)
 }
 
+/// Direction of a P2P event.
+#[derive(Clone, Debug, PartialEq)]
+pub enum EventDirection {
+    Sent,
+    Received,
+    System,
+}
+
+/// A single entry in the network event log.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EventLogEntry {
+    pub timestamp: String,
+    pub direction: EventDirection,
+    pub message: String,
+}
+
 /// Display info for a peer in the UI.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PeerDisplayInfo {
@@ -73,6 +89,7 @@ pub struct WorkspaceState {
     pub peers: PeerState,
     pub ui: UiState,
     pub phase: AppPhase,
+    pub event_log: Vec<EventLogEntry>,
 }
 
 impl WorkspaceState {
@@ -89,6 +106,18 @@ impl WorkspaceState {
                 active_view: ViewType::Document,
             },
             phase: AppPhase::Loading,
+            event_log: Vec::new(),
         }
     }
+}
+
+/// Append an event to the log (newest at index 0), truncating at 200 entries.
+pub fn log_event(ws: &mut WorkspaceState, dir: EventDirection, msg: impl Into<String>) {
+    let now = chrono::Local::now().format("%H:%M:%S").to_string();
+    ws.event_log.insert(0, EventLogEntry {
+        timestamp: now,
+        direction: dir,
+        message: msg.into(),
+    });
+    ws.event_log.truncate(200);
 }
