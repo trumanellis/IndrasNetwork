@@ -3,15 +3,21 @@
 use dioxus::prelude::*;
 use dioxus::prelude::Key;
 
-use crate::bridge::vault_bridge::{VaultHandle, create_seeded_vault};
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
+use crate::bridge::vault_bridge::{VaultHandle, InMemoryVault};
+use crate::bridge::network_bridge::{NetworkHandle, is_first_run, create_identity, load_identity};
 use crate::components::topbar::Topbar;
 use crate::components::document::DocumentView;
 use crate::components::story::{StoryView, StoryMessage, StoryArtifactRef};
 use crate::components::quest::{QuestView, QuestKind, ProofEntry, ProofArtifact, AssignedToken, AttentionItem};
 use crate::components::settings::SettingsView;
+use crate::components::setup::SetupView;
+use crate::components::pass_story::PassStoryOverlay;
 use crate::components::bottom_nav::{BottomNav, NavTab};
 use crate::components::fab::Fab;
-use crate::state::workspace::{WorkspaceState, ViewType, PeerDisplayInfo};
+use crate::state::workspace::{WorkspaceState, ViewType, AppPhase};
 use crate::state::navigation::{NavigationState, VaultTreeNode};
 use crate::state::editor::{EditorState, DocumentMeta};
 
@@ -22,8 +28,10 @@ use indras_ui::{
     SlashMenu, SlashAction,
     DetailPanel, PropertyRow, AudienceMember, HeatEntry, TrailEvent, ReferenceItem, SyncEntry,
     MarkdownPreviewOverlay, PreviewFile, PreviewViewMode,
+    ContactInviteOverlay,
 };
 use indras_ui::PeerDisplayInfo as UiPeerDisplayInfo;
+use indras_network::IdentityCode;
 
 /// Root application component.
 #[component]
@@ -37,6 +45,26 @@ pub fn RootApp() -> Element {
     let mut preview_open = use_signal(|| false);
     let mut preview_file = use_signal(|| None::<PreviewFile>);
     let mut preview_view_mode = use_signal(|| PreviewViewMode::Rendered);
+    let mut network_handle = use_signal(|| None::<NetworkHandle>);
+    let mut setup_error = use_signal(|| None::<String>);
+    let mut setup_loading = use_signal(|| false);
+    let mut pass_story_open = use_signal(|| false);
+    let mut contact_invite_open = use_signal(|| false);
+    let mut contact_invite_input = use_signal(String::new);
+    let mut contact_invite_status = use_signal(|| None::<String>);
+    let mut contact_parsed_name = use_signal(|| None::<String>);
+    let mut contact_copy_feedback = use_signal(|| false);
+    let mut contact_invite_uri = use_signal(String::new);
+    let mut contact_display_name_sig = use_signal(String::new);
+    let mut contact_member_id_short_sig = use_signal(String::new);
+
+    // Memo wrappers for ReadSignal props
+    let ci_uri = use_memo(move || contact_invite_uri.read().clone());
+    let ci_name = use_memo(move || contact_display_name_sig.read().clone());
+    let ci_mid = use_memo(move || contact_member_id_short_sig.read().clone());
+    let ci_status = use_memo(move || contact_invite_status.read().clone());
+    let ci_parsed = use_memo(move || contact_parsed_name.read().clone());
+    let ci_copied = use_memo(move || *contact_copy_feedback.read());
     let attention_items: Vec<AttentionItem> = vec![
         AttentionItem { target: "Architecture Notes".into(), when: "Today 10:14 AM".into(), duration: "6m 33s".into() },
         AttentionItem { target: "Team Discussion".into(), when: "Today 9:41 AM".into(), duration: "12m 08s".into() },
@@ -47,133 +75,43 @@ pub fn RootApp() -> Element {
         AttentionItem { target: "Project Alpha".into(), when: "Yesterday 2:55 PM".into(), duration: "7m 45s".into() },
     ];
 
-    // Initialize vault on first render
+    // Phase-based boot: check first-run on mount
     use_effect(move || {
-        match create_seeded_vault() {
-            Ok(handle) => {
-                // Build the vault tree synchronously by spawning
-                let vh = handle.clone();
-                vault_handle.set(Some(handle));
+        spawn(async move {
+            if is_first_run() {
+                workspace.write().phase = AppPhase::Setup;
+            } else {
+                // Returning user — load existing identity
+                match load_identity().await {
+                    Ok(nh) => {
+                        let player_name = nh.network.display_name()
+                            .unwrap_or("Unknown").to_string();
+                        let player_id = nh.network.id();
 
-                spawn(async move {
-                    let vault = vh.vault.lock().await;
-                    let now = chrono::Utc::now().timestamp_millis();
-
-                    // Build vault tree from root references (read from store, not stale root field)
-                    let mut nodes = Vec::new();
-                    let root_tree = match vault.get_artifact(&vault.root.id) {
-                        Ok(Some(Artifact::Tree(t))) => t,
-                        _ => return,
-                    };
-                    let root_refs = &root_tree.references;
-
-                    // Track which sections we've emitted
-                    let mut quest_section_added = false;
-                    let mut exchange_section_added = false;
-                    let mut tokens_section_added = false;
-
-                    for aref in root_refs {
-                        if let Ok(Some(artifact)) = vault.get_artifact(&aref.artifact_id) {
-                            if let Artifact::Tree(tree) = &artifact {
-                                let view_type_str = NavigationState::view_type_for_tree(&tree.artifact_type);
-                                let icon = NavigationState::icon_for_tree_type(&tree.artifact_type);
-                                let heat_val = vault.heat(&aref.artifact_id, now).unwrap_or(0.0);
-                                let heat_lvl = indras_ui::heat_level(heat_val);
-                                let label = aref.label.clone().unwrap_or_default();
-
-                                // Determine section headers based on tree type
-                                let is_quest_type = matches!(
-                                    tree.artifact_type,
-                                    TreeType::Quest | TreeType::Need | TreeType::Offering | TreeType::Intention
-                                );
-                                let section = if nodes.is_empty() {
-                                    Some("Vault".to_string())
-                                } else if is_quest_type && !quest_section_added {
-                                    quest_section_added = true;
-                                    Some("Intentions & Quests".to_string())
-                                } else if tree.artifact_type == TreeType::Exchange && !exchange_section_added {
-                                    exchange_section_added = true;
-                                    Some("Exchanges".to_string())
-                                } else if tree.artifact_type == TreeType::Collection && !tokens_section_added {
-                                    tokens_section_added = true;
-                                    Some("Tokens".to_string())
-                                } else {
-                                    None
-                                };
-
-                                let node_id = format!("{:?}", aref.artifact_id);
-                                let has_children = !tree.references.is_empty();
-
-                                nodes.push(VaultTreeNode {
-                                    id: node_id.clone(),
-                                    artifact_id: Some(aref.artifact_id.clone()),
-                                    label: label.clone(),
-                                    icon: icon.to_string(),
-                                    heat_level: heat_lvl,
-                                    depth: 0,
-                                    has_children,
-                                    expanded: has_children, // expand folders by default
-                                    active: false,
-                                    section,
-                                    view_type: view_type_str.to_string(),
-                                });
-
-                                // If it has children (e.g. Project Alpha), add them
-                                if has_children {
-                                    for child_ref in &tree.references {
-                                        if let Ok(Some(child_artifact)) = vault.get_artifact(&child_ref.artifact_id) {
-                                            if let Artifact::Tree(child_tree) = &child_artifact {
-                                                let child_vt = NavigationState::view_type_for_tree(&child_tree.artifact_type);
-                                                let child_icon = NavigationState::icon_for_tree_type(&child_tree.artifact_type);
-                                                let child_heat = vault.heat(&child_ref.artifact_id, now).unwrap_or(0.0);
-                                                let child_heat_lvl = indras_ui::heat_level(child_heat);
-                                                let child_label = child_ref.label.clone().unwrap_or_default();
-                                                let child_node_id = format!("{:?}", child_ref.artifact_id);
-
-                                                nodes.push(VaultTreeNode {
-                                                    id: child_node_id,
-                                                    artifact_id: Some(child_ref.artifact_id.clone()),
-                                                    label: child_label,
-                                                    icon: child_icon.to_string(),
-                                                    heat_level: child_heat_lvl,
-                                                    depth: 1,
-                                                    has_children: false,
-                                                    expanded: false,
-                                                    active: false,
-                                                    section: None,
-                                                    view_type: child_vt.to_string(),
-                                                });
-                                            }
-                                        }
-                                    }
-                                }
+                        let now = chrono::Utc::now().timestamp_millis();
+                        match InMemoryVault::in_memory(player_id, now) {
+                            Ok(vault) => {
+                                vault_handle.set(Some(VaultHandle {
+                                    vault: Arc::new(Mutex::new(vault)),
+                                    player_id,
+                                    player_name: player_name.clone(),
+                                }));
+                                network_handle.set(Some(nh));
+                                workspace.write().phase = AppPhase::Workspace;
+                            }
+                            Err(e) => {
+                                tracing::error!("Vault creation failed: {}", e);
+                                workspace.write().phase = AppPhase::Setup;
                             }
                         }
                     }
-
-                    // Build peer display info
-                    let peers_data: Vec<PeerDisplayInfo> = vault.peers().iter().map(|p| {
-                        let name = p.display_name.clone().unwrap_or_else(|| "Unknown".to_string());
-                        let letter = name.chars().next().unwrap_or('?').to_string();
-                        let color_class = format!("peer-dot-{}", name.to_lowercase());
-                        PeerDisplayInfo {
-                            name,
-                            letter,
-                            color_class,
-                            online: true, // seed peers are "online"
-                            player_id: p.peer_id,
-                        }
-                    }).collect();
-
-                    // Update workspace state
-                    workspace.write().nav.vault_tree = nodes;
-                    workspace.write().peers.entries = peers_data;
-                });
+                    Err(e) => {
+                        tracing::error!("Failed to load identity: {}", e);
+                        workspace.write().phase = AppPhase::Setup;
+                    }
+                }
             }
-            Err(e) => {
-                tracing::error!("Failed to create vault: {}", e);
-            }
-        }
+        });
     });
 
     // --- Event handlers ---
@@ -792,9 +730,20 @@ pub fn RootApp() -> Element {
     // Player identity
     let player_name = vault_handle.read().as_ref()
         .map(|vh| vh.player_name.clone())
-        .unwrap_or_else(|| "Nova".to_string());
-    let player_letter = player_name.chars().next().unwrap_or('N').to_string();
-    let player_short_id = "indra1qz7x...f3m9".to_string();
+        .unwrap_or_else(|| "Unknown".to_string());
+    let player_letter = player_name.chars().next().unwrap_or('?').to_string();
+    let player_short_id = network_handle.read().as_ref()
+        .map(|nh| {
+            let code = nh.network.identity_code();
+            if code.len() > 14 {
+                format!("{}...{}", &code[..10], &code[code.len()-4..])
+            } else {
+                code
+            }
+        })
+        .unwrap_or_else(|| "not connected".to_string());
+    let identity_uri = network_handle.read().as_ref()
+        .map(|nh| nh.network.identity_uri());
 
     // Build detail panel data
     let properties = vec![
@@ -811,7 +760,7 @@ pub fn RootApp() -> Element {
             letter: player_letter.clone(),
             color_class: String::new(),
             role: "steward".to_string(),
-            short_id: "indra1qz7x...f3m9".to_string(),
+            short_id: player_short_id.clone(),
         }];
         let peer_ids = ["indra1m4kp...a7n2", "indra1j9wx...d5e8"];
         let peer_roles = ["syncing", "peer"];
@@ -892,225 +841,438 @@ pub fn RootApp() -> Element {
         }
     };
 
-    rsx! {
-        div {
-            class: "{app_class}",
-            tabindex: "0",
-            onkeydown: on_keydown,
+    let current_phase = workspace.read().phase.clone();
 
-            // Sidebar backdrop (mobile overlay)
-            div {
-                class: if sidebar_open { "sidebar-backdrop visible" } else { "sidebar-backdrop" },
-                onclick: move |_| {
-                    workspace.write().ui.sidebar_open = false;
+    match current_phase {
+        AppPhase::Loading => rsx! {
+            div { class: "setup-container",
+                div { class: "setup-card",
+                    div { class: "setup-title", "Loading..." }
+                }
+            }
+        },
+        AppPhase::Setup => rsx! {
+            SetupView {
+                on_create: move |(name, pass_story_slots): (String, Option<[String; 23]>)| {
+                    setup_loading.set(true);
+                    setup_error.set(None);
+                    spawn(async move {
+                        match create_identity(&name, pass_story_slots).await {
+                            Ok(nh) => {
+                                let player_id = nh.network.id();
+                                let now = chrono::Utc::now().timestamp_millis();
+                                match InMemoryVault::in_memory(player_id, now) {
+                                    Ok(vault) => {
+                                        vault_handle.set(Some(VaultHandle {
+                                            vault: Arc::new(Mutex::new(vault)),
+                                            player_id,
+                                            player_name: name.clone(),
+                                        }));
+                                        network_handle.set(Some(nh));
+                                        workspace.write().phase = AppPhase::Workspace;
+                                    }
+                                    Err(e) => setup_error.set(Some(format!("{}", e))),
+                                }
+                            }
+                            Err(e) => setup_error.set(Some(e)),
+                        }
+                        setup_loading.set(false);
+                    });
                 },
+                error: setup_error.read().clone(),
+                loading: *setup_loading.read(),
             }
-
-            // Sidebar
+        },
+        AppPhase::Workspace => rsx! {
             div {
-                class: "sidebar",
+                class: "{app_class}",
+                tabindex: "0",
+                onkeydown: on_keydown,
 
+                // Sidebar backdrop (mobile overlay)
                 div {
-                    class: "sidebar-header",
-                    IdentityRow {
-                        avatar_letter: player_letter.clone(),
-                        name: player_name.clone(),
-                        short_id: player_short_id.clone(),
+                    class: if sidebar_open { "sidebar-backdrop visible" } else { "sidebar-backdrop" },
+                    onclick: move |_| {
+                        workspace.write().ui.sidebar_open = false;
+                    },
+                }
+
+                // Sidebar
+                div {
+                    class: "sidebar",
+
+                    div {
+                        class: "sidebar-header",
+                        IdentityRow {
+                            avatar_letter: player_letter.clone(),
+                            name: player_name.clone(),
+                            short_id: player_short_id.clone(),
+                        }
                     }
-                }
 
-                PeerStrip { peers: ui_peers }
-
-                VaultSidebar {
-                    nodes: sidebar_nodes,
-                    on_click: on_tree_click,
-                    on_toggle: on_tree_toggle,
-                }
-
-                div {
-                    class: "sidebar-footer",
-                    button {
-                        class: "sidebar-footer-btn",
-                        onclick: move |_| {
-                            workspace.write().ui.slash_menu_open = true;
+                    PeerStrip {
+                        peers: ui_peers,
+                        on_add_contact: move |_| {
+                            // Populate signals from current network handle
+                            if let Some(nh) = network_handle.read().as_ref() {
+                                contact_invite_uri.set(nh.network.identity_uri());
+                                contact_display_name_sig.set(
+                                    nh.network.display_name().unwrap_or("Unknown").to_string()
+                                );
+                                let code = nh.network.identity_code();
+                                let short = if code.len() > 14 {
+                                    format!("{}...{}", &code[..10], &code[code.len()-4..])
+                                } else {
+                                    code
+                                };
+                                contact_member_id_short_sig.set(short);
+                            }
+                            contact_invite_input.set(String::new());
+                            contact_invite_status.set(None);
+                            contact_parsed_name.set(None);
+                            contact_copy_feedback.set(false);
+                            contact_invite_open.set(true);
                         },
-                        "\u{26A1} New"
                     }
-                    button {
-                        class: "sidebar-footer-btn",
-                        "\u{1F50D} Search"
+
+                    VaultSidebar {
+                        nodes: sidebar_nodes,
+                        on_click: on_tree_click,
+                        on_toggle: on_tree_toggle,
                     }
-                }
-            }
 
-            // Main content area
-            div {
-                class: "main",
-
-                Topbar {
-                    breadcrumbs: breadcrumbs,
-                    steward_name: steward_name,
-                    on_crumb_click: on_crumb_click,
-                    on_toggle_detail: on_toggle_detail,
-                    on_toggle_sidebar: on_toggle_sidebar,
-                    on_share: on_share,
-                    on_settings: on_settings,
-                }
-
-                // Render active view
-                match active_view {
-                    ViewType::Settings => {
-                        rsx! {
-                            SettingsView {
-                                player_name: player_name.clone(),
-                                player_letter: player_letter.clone(),
-                                player_short_id: player_short_id.clone(),
-                            }
+                    div {
+                        class: "sidebar-footer",
+                        button {
+                            class: "sidebar-footer-btn",
+                            onclick: move |_| {
+                                workspace.write().ui.slash_menu_open = true;
+                            },
+                            "\u{26A1} New"
+                        }
+                        button {
+                            class: "sidebar-footer-btn",
+                            "\u{1F50D} Search"
                         }
                     }
-                    ViewType::Document => {
-                        if editor.blocks.is_empty() && editor.title.is_empty() {
-                            // Welcome placeholder
+                }
+
+                // Main content area
+                div {
+                    class: "main",
+
+                    Topbar {
+                        breadcrumbs: breadcrumbs,
+                        steward_name: steward_name,
+                        on_crumb_click: on_crumb_click,
+                        on_toggle_detail: on_toggle_detail,
+                        on_toggle_sidebar: on_toggle_sidebar,
+                        on_share: on_share,
+                        on_settings: on_settings,
+                    }
+
+                    // Render active view
+                    match active_view {
+                        ViewType::Settings => {
                             rsx! {
-                                div {
-                                    class: "view active",
+                                SettingsView {
+                                    player_name: player_name.clone(),
+                                    player_letter: player_letter.clone(),
+                                    player_short_id: player_short_id.clone(),
+                                    identity_uri: identity_uri.clone(),
+                                    network_handle: network_handle,
+                                    on_open_pass_story: move |_| {
+                                        pass_story_open.set(true);
+                                    },
+                                }
+                            }
+                        }
+                        ViewType::Document => {
+                            if editor.blocks.is_empty() && editor.title.is_empty() {
+                                // Welcome placeholder
+                                rsx! {
                                     div {
-                                        class: "content-scroll",
+                                        class: "view active",
                                         div {
-                                            class: "content-body",
-                                            div { class: "doc-title", "Welcome to Indras Workspace" }
+                                            class: "content-scroll",
                                             div {
-                                                class: "doc-meta",
-                                                span { class: "doc-meta-tag type-document", "Document" }
+                                                class: "content-body",
+                                                div { class: "doc-title", "Welcome to Indras Workspace" }
+                                                div {
+                                                    class: "doc-meta",
+                                                    span { class: "doc-meta-tag type-document", "Document" }
+                                                }
+                                                div {
+                                                    class: "block",
+                                                    p { "Select an item from the sidebar, or press / to create something new." }
+                                                }
                                             }
+                                        }
+                                    }
+                                }
+                            } else {
+                                rsx! {
+                                    DocumentView {
+                                        editor: editor,
+                                        vault_handle: vault_handle,
+                                        workspace: workspace,
+                                    }
+                                }
+                            }
+                        }
+                        ViewType::Story => {
+                            let title = editor.title.clone();
+                            let audience_count = editor.meta.audience_count;
+                            let message_count = current_story_messages.len();
+                            rsx! {
+                                StoryView {
+                                    title: title,
+                                    audience_count: audience_count,
+                                    message_count: message_count,
+                                    messages: current_story_messages,
+                                    on_artifact_click: move |aref: StoryArtifactRef| {
+                                        preview_file.set(Some(PreviewFile {
+                                            name: aref.name.clone(),
+                                            content: format!("# {}\n\nType: {}", aref.name, aref.artifact_type),
+                                            raw_content: format!("# {}\n\nType: {}", aref.name, aref.artifact_type),
+                                            mime_type: "text/markdown".to_string(),
+                                            data_url: None,
+                                        }));
+                                        preview_view_mode.set(PreviewViewMode::Rendered);
+                                        preview_open.set(true);
+                                    },
+                                }
+                            }
+                        }
+                        ViewType::Quest => {
+                            if let Some(qd) = current_quest_data {
+                                let current_token_picker_open = *token_picker_open.read();
+                                let current_attention_items = attention_items.clone();
+                                rsx! {
+                                    QuestView {
+                                        kind: qd.kind,
+                                        title: qd.title,
+                                        description: qd.description,
+                                        status: qd.status,
+                                        steward_name: qd.steward_name,
+                                        audience_count: qd.audience_count,
+                                        proofs: qd.proofs,
+                                        posted_ago: qd.posted_ago,
+                                        token_picker_open: current_token_picker_open,
+                                        on_open_token_picker: move |_: ()| {
+                                            token_picker_open.set(true);
+                                        },
+                                        on_close_token_picker: move |_: ()| {
+                                            token_picker_open.set(false);
+                                        },
+                                        attention_items: current_attention_items,
+                                    }
+                                }
+                            } else {
+                                rsx! {
+                                    div {
+                                        class: "view active",
+                                        div {
+                                            class: "content-scroll",
                                             div {
-                                                class: "block",
-                                                p { "Select an item from the sidebar to begin." }
+                                                class: "content-body",
+                                                div { class: "doc-title", "Select a quest" }
                                             }
                                         }
                                     }
                                 }
                             }
-                        } else {
-                            rsx! {
-                                DocumentView {
-                                    editor: editor,
-                                    vault_handle: vault_handle,
-                                    workspace: workspace,
-                                }
-                            }
                         }
                     }
-                    ViewType::Story => {
-                        let title = editor.title.clone();
-                        let audience_count = editor.meta.audience_count;
-                        let message_count = current_story_messages.len();
-                        rsx! {
-                            StoryView {
-                                title: title,
-                                audience_count: audience_count,
-                                message_count: message_count,
-                                messages: current_story_messages,
-                                on_artifact_click: move |aref: StoryArtifactRef| {
-                                    preview_file.set(Some(PreviewFile {
-                                        name: aref.name.clone(),
-                                        content: format!("# {}\n\nType: {}", aref.name, aref.artifact_type),
-                                        raw_content: format!("# {}\n\nType: {}", aref.name, aref.artifact_type),
-                                        mime_type: "text/markdown".to_string(),
-                                        data_url: None,
-                                    }));
-                                    preview_view_mode.set(PreviewViewMode::Rendered);
-                                    preview_open.set(true);
-                                },
-                            }
-                        }
+                }
+
+                // Detail panel
+                if detail_open {
+                    DetailPanel {
+                        active_tab: active_detail_tab,
+                        on_tab_change: on_detail_tab_change,
+                        on_close: on_detail_close,
+                        properties: properties,
+                        audience: audience_members,
+                        heat_entries: heat_entries.clone(),
+                        trail_events: trail_events,
+                        references: references,
+                        artifact_id_display: "Doc(7f2a...e891)".to_string(),
+                        refs_count: refs_count,
+                        steward_name: player_name.clone(),
+                        steward_letter: player_letter.clone(),
+                        is_own_steward: true,
+                        sync_entries: sync_entries,
+                        combined_heat: 0.56,
                     }
-                    ViewType::Quest => {
-                        if let Some(qd) = current_quest_data {
-                            let current_token_picker_open = *token_picker_open.read();
-                            let current_attention_items = attention_items.clone();
-                            rsx! {
-                                QuestView {
-                                    kind: qd.kind,
-                                    title: qd.title,
-                                    description: qd.description,
-                                    status: qd.status,
-                                    steward_name: qd.steward_name,
-                                    audience_count: qd.audience_count,
-                                    proofs: qd.proofs,
-                                    posted_ago: qd.posted_ago,
-                                    token_picker_open: current_token_picker_open,
-                                    on_open_token_picker: move |_: ()| {
-                                        token_picker_open.set(true);
-                                    },
-                                    on_close_token_picker: move |_: ()| {
-                                        token_picker_open.set(false);
-                                    },
-                                    attention_items: current_attention_items,
-                                }
-                            }
-                        } else {
-                            rsx! {
-                                div {
-                                    class: "view active",
-                                    div {
-                                        class: "content-scroll",
-                                        div {
-                                            class: "content-body",
-                                            div { class: "doc-title", "Select a quest" }
-                                        }
+                }
+
+                // Slash menu overlay
+                SlashMenu {
+                    visible: slash_menu_open,
+                    on_select: on_slash_select,
+                    on_close: on_slash_close,
+                }
+
+                // Preview overlay
+                MarkdownPreviewOverlay {
+                    is_open: preview_open,
+                    file: preview_file,
+                    view_mode: preview_view_mode,
+                }
+
+                // PassStory overlay
+                PassStoryOverlay {
+                    visible: *pass_story_open.read(),
+                    on_close: move |_| pass_story_open.set(false),
+                    on_protect: move |slots: [String; 23]| {
+                        // Build PassStory and apply to network
+                        let nh_signal = network_handle;
+                        spawn(async move {
+                            if let Some(_nh) = nh_signal.read().as_ref() {
+                                match indras_crypto::PassStory::from_normalized(slots) {
+                                    Ok(story) => {
+                                        tracing::info!("PassStory created with {} slots", story.slots().len());
+                                        // Future: rebuild network with .pass_story(story)
+                                    }
+                                    Err(e) => {
+                                        tracing::error!("Failed to create PassStory: {}", e);
                                     }
                                 }
                             }
+                        });
+                        pass_story_open.set(false);
+                    },
+                }
+
+                // Contact invite overlay
+                ContactInviteOverlay {
+                    is_open: contact_invite_open,
+                    invite_uri: ci_uri,
+                    display_name: ci_name,
+                    member_id_short: ci_mid,
+                    connect_input: contact_invite_input,
+                    connect_status: ci_status,
+                    parsed_inviter_name: ci_parsed,
+                    on_connect: move |uri: String| {
+                        contact_invite_status.set(None);
+                        let vh_signal = vault_handle.clone();
+                        spawn(async move {
+                            // Parse identity code to extract peer info
+                            let (code, peer_name) = match IdentityCode::parse_uri(&uri) {
+                                Ok(parsed) => parsed,
+                                Err(e) => {
+                                    contact_invite_status.set(Some(format!("error:Invalid code: {}", e)));
+                                    return;
+                                }
+                            };
+                            let peer_id = code.member_id();
+
+                            // Register as peer artifact in the vault
+                            if let Some(vh) = vh_signal.read().as_ref() {
+                                let mut vault = vh.vault.lock().await;
+                                let now = chrono::Utc::now().timestamp_millis();
+
+                                // Add peer to vault's peer registry
+                                if let Err(e) = vault.peer(peer_id, peer_name.clone(), now) {
+                                    tracing::warn!("Failed to register peer in vault: {}", e);
+                                }
+
+                                // Create a Contact tree artifact for this peer
+                                let audience = vec![vh.player_id, peer_id];
+                                match vault.place_tree(TreeType::Custom("Contact".to_string()), audience, now) {
+                                    Ok(contact_tree) => {
+                                        // Store the identity code as a leaf
+                                        let contact_payload = serde_json::json!({
+                                            "identity_code": uri,
+                                            "display_name": peer_name,
+                                        }).to_string();
+
+                                        if let Ok(leaf) = vault.place_leaf(
+                                            contact_payload.as_bytes(),
+                                            LeafType::Custom("ContactCard".to_string()),
+                                            now,
+                                        ) {
+                                            let label = peer_name.clone().unwrap_or_else(|| "Unknown".to_string());
+                                            let _ = vault.compose(
+                                                &contact_tree.id,
+                                                leaf.id,
+                                                0,
+                                                Some(label),
+                                            );
+                                        }
+
+                                        // Add contact tree to root vault
+                                        let root_id = vault.root.id.clone();
+                                        let position = match vault.get_artifact(&root_id) {
+                                            Ok(Some(Artifact::Tree(t))) => t.references.len() as u64,
+                                            _ => 0,
+                                        };
+                                        let contact_label = peer_name.unwrap_or_else(|| "Unknown Contact".to_string());
+                                        let _ = vault.compose(
+                                            &root_id,
+                                            contact_tree.id,
+                                            position,
+                                            Some(contact_label),
+                                        );
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!("Failed to create contact artifact: {}", e);
+                                    }
+                                }
+                            }
+
+                            // Also connect via network layer
+                            if let Some(nh) = network_handle.read().as_ref() {
+                                match nh.network.connect_by_code(&uri).await {
+                                    Ok(_realm) => {
+                                        contact_invite_status.set(Some("success:Connected!".into()));
+                                    }
+                                    Err(e) => {
+                                        contact_invite_status.set(Some(format!("error:{}", e)));
+                                    }
+                                }
+                            } else {
+                                // No network handle, but vault peer was registered
+                                contact_invite_status.set(Some("success:Contact added!".into()));
+                            }
+                        });
+                    },
+                    on_parse_input: move |input: String| {
+                        let trimmed = input.trim().to_string();
+                        if trimmed.is_empty() {
+                            contact_parsed_name.set(None);
+                            return;
                         }
-                    }
+                        match IdentityCode::parse_uri(&trimmed) {
+                            Ok((_code, name)) => contact_parsed_name.set(name),
+                            Err(_) => contact_parsed_name.set(None),
+                        }
+                    },
+                    copy_feedback: ci_copied,
+                    on_copy: move |_| {
+                        if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                            let uri = contact_invite_uri.read().clone();
+                            let _ = clipboard.set_text(uri);
+                        }
+                        contact_copy_feedback.set(true);
+                        spawn(async move {
+                            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                            contact_copy_feedback.set(false);
+                        });
+                    },
+                }
+
+                // Floating action button (mobile)
+                Fab { on_click: on_fab_click }
+
+                // Bottom navigation (mobile)
+                BottomNav {
+                    active_tab: current_active_tab,
+                    on_tab_change: on_tab_change,
                 }
             }
-
-            // Detail panel
-            if detail_open {
-                DetailPanel {
-                    active_tab: active_detail_tab,
-                    on_tab_change: on_detail_tab_change,
-                    on_close: on_detail_close,
-                    properties: properties,
-                    audience: audience_members,
-                    heat_entries: heat_entries.clone(),
-                    trail_events: trail_events,
-                    references: references,
-                    artifact_id_display: "Doc(7f2a...e891)".to_string(),
-                    refs_count: refs_count,
-                    steward_name: player_name.clone(),
-                    steward_letter: player_letter.clone(),
-                    is_own_steward: true,
-                    sync_entries: sync_entries,
-                    combined_heat: 0.56,
-                }
-            }
-
-            // Slash menu overlay
-            SlashMenu {
-                visible: slash_menu_open,
-                on_select: on_slash_select,
-                on_close: on_slash_close,
-            }
-
-            // Preview overlay
-            MarkdownPreviewOverlay {
-                is_open: preview_open,
-                file: preview_file,
-                view_mode: preview_view_mode,
-            }
-
-            // Floating action button (mobile)
-            Fab { on_click: on_fab_click }
-
-            // Bottom navigation (mobile)
-            BottomNav {
-                active_tab: current_active_tab,
-                on_tab_change: on_tab_change,
-            }
-        }
+        },
     }
 }
 
