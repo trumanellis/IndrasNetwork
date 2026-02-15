@@ -2,6 +2,7 @@
 //!
 //! Provides a human-shareable format for realm invitations.
 
+use crate::artifact::ArtifactId;
 use crate::error::{IndraError, Result};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use indras_core::InterfaceId;
@@ -11,6 +12,13 @@ use std::str::FromStr;
 
 /// The URI scheme prefix for invite codes.
 const INVITE_PREFIX: &str = "indra:realm:";
+
+/// Internal serialization format for invites (supports artifact-backed realms).
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct InvitePayload {
+    key: InviteKey,
+    artifact_id: Option<ArtifactId>,
+}
 
 /// A human-shareable invite code for joining a realm.
 ///
@@ -35,12 +43,23 @@ const INVITE_PREFIX: &str = "indra:realm:";
 #[derive(Clone)]
 pub struct InviteCode {
     inner: InviteKey,
+    artifact_id: Option<ArtifactId>,
 }
 
 impl InviteCode {
     /// Create a new invite code from an invite key.
     pub fn new(key: InviteKey) -> Self {
-        Self { inner: key }
+        Self { inner: key, artifact_id: None }
+    }
+
+    /// Create a new invite code with an artifact ID for artifact-backed realms.
+    pub fn new_with_artifact(key: InviteKey, artifact_id: ArtifactId) -> Self {
+        Self { inner: key, artifact_id: Some(artifact_id) }
+    }
+
+    /// Get the artifact ID if this is an artifact-backed realm.
+    pub fn artifact_id(&self) -> Option<&ArtifactId> {
+        self.artifact_id.as_ref()
     }
 
     /// Parse an invite code from a string.
@@ -64,12 +83,20 @@ impl InviteCode {
         // Decode base64
         let bytes = URL_SAFE_NO_PAD.decode(base64_part)?;
 
-        // Deserialize the invite key
+        // Try new format first (InvitePayload with optional artifact_id)
+        if let Ok(payload) = postcard::from_bytes::<InvitePayload>(&bytes) {
+            return Ok(Self {
+                inner: payload.key,
+                artifact_id: payload.artifact_id,
+            });
+        }
+
+        // Fall back to old format (InviteKey only) for backward compatibility
         let key: InviteKey = postcard::from_bytes(&bytes).map_err(|e| IndraError::InvalidInvite {
             reason: format!("Invalid invite data: {}", e),
         })?;
 
-        Ok(Self { inner: key })
+        Ok(Self { inner: key, artifact_id: None })
     }
 
     /// Get the realm ID this invite is for.
@@ -84,7 +111,11 @@ impl InviteCode {
 
     /// Convert to raw base64-encoded format.
     pub fn to_base64(&self) -> String {
-        let bytes = postcard::to_allocvec(&self.inner).expect("serialization should not fail");
+        let payload = InvitePayload {
+            key: self.inner.clone(),
+            artifact_id: self.artifact_id,
+        };
+        let bytes = postcard::to_allocvec(&payload).expect("serialization should not fail");
         URL_SAFE_NO_PAD.encode(&bytes)
     }
 
