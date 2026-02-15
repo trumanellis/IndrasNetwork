@@ -100,8 +100,8 @@
 
 // Modules — generic P2P platform SDK
 pub mod artifact;
-pub mod artifact_sharing;
 pub mod access;
+pub mod encryption;
 pub mod artifact_index;
 pub mod artifact_recovery;
 pub mod chat_message;
@@ -127,10 +127,7 @@ pub mod world_view;
 
 // Re-export main types at crate root
 pub use artifact::{Artifact, ArtifactDownload, ArtifactId, DownloadProgress};
-pub use artifact_sharing::{
-    ArtifactHash, ArtifactKey, ArtifactKeyRegistry, ArtifactTombstone, EncryptedArtifactKey,
-    RecallAcknowledgment, RevocationEntry, SharedArtifact, SharingStatus, ARTIFACT_KEY_SIZE,
-};
+pub use encryption::{ArtifactKey, EncryptedArtifactKey, ARTIFACT_KEY_SIZE};
 pub use access::{
     AccessGrant, AccessMode, ArtifactProvenance, ArtifactStatus, GrantError, HolonicError,
     ProvenanceType, RevokeError, TransferError,

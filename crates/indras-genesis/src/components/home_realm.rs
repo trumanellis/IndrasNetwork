@@ -98,7 +98,7 @@ async fn refresh_home_realm_data(
             let data = doc.read().await;
             let artifacts: Vec<ArtifactDisplayInfo> = data.active_artifacts().map(|a| {
                 ArtifactDisplayInfo {
-                    id: a.id.iter().map(|b| format!("{:02x}", b)).collect(),
+                    id: a.id.bytes().iter().map(|b| format!("{:02x}", b)).collect(),
                     name: a.name.clone(),
                     size: a.size,
                     mime_type: a.mime_type.clone(),

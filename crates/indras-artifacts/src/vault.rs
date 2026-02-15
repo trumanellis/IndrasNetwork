@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 
+use crate::access::{AccessGrant, AccessMode, ArtifactStatus};
 use crate::artifact::*;
 use crate::attention::{compute_heat, AttentionLog, AttentionSwitchEvent, AttentionValue};
 use crate::error::VaultError;
@@ -37,7 +38,15 @@ impl Vault<InMemoryArtifactStore, InMemoryPayloadStore, InMemoryAttentionStore> 
         let root = TreeArtifact {
             id: root_id,
             steward: player,
-            audience: vec![player],
+            grants: vec![AccessGrant {
+                grantee: player,
+                mode: AccessMode::Permanent,
+                granted_at: now,
+                granted_by: player,
+            }],
+            status: ArtifactStatus::Active,
+            parent: None,
+            provenance: None,
             references: Vec::new(),
             metadata: BTreeMap::new(),
             artifact_type: TreeType::Vault,
@@ -76,6 +85,8 @@ impl<A: ArtifactStore, P: PayloadStore, T: AttentionStore> Vault<A, P, T> {
     pub fn place_leaf(
         &mut self,
         payload: &[u8],
+        name: String,
+        mime_type: Option<String>,
         leaf_type: LeafType,
         now: i64,
     ) -> Result<LeafArtifact> {
@@ -83,11 +94,22 @@ impl<A: ArtifactStore, P: PayloadStore, T: AttentionStore> Vault<A, P, T> {
             .payload_store
             .store_payload(payload)
             .map_err(|e| VaultError::StoreError(e.to_string()))?;
+        let player = *self.player();
         let leaf = LeafArtifact {
             id,
+            name,
             size: payload.len() as u64,
-            steward: *self.player(),
-            audience: vec![*self.player()],
+            mime_type,
+            steward: player,
+            grants: vec![AccessGrant {
+                grantee: player,
+                mode: AccessMode::Permanent,
+                granted_at: now,
+                granted_by: player,
+            }],
+            status: ArtifactStatus::Active,
+            parent: None,
+            provenance: None,
             artifact_type: leaf_type,
             created_at: now,
             blessing_history: Vec::new(),
@@ -98,16 +120,23 @@ impl<A: ArtifactStore, P: PayloadStore, T: AttentionStore> Vault<A, P, T> {
     }
 
     /// Create a Tree artifact with given type and audience.
+    ///
+    /// The audience list is converted to Permanent grants for each player.
     pub fn place_tree(
         &mut self,
         tree_type: TreeType,
         audience: Vec<PlayerId>,
         now: i64,
     ) -> Result<TreeArtifact> {
+        let player = *self.player();
+        let grants = audience_to_grants(&audience, now, player);
         let tree = TreeArtifact {
             id: generate_tree_id(),
-            steward: *self.player(),
-            audience,
+            steward: player,
+            grants,
+            status: ArtifactStatus::Active,
+            parent: None,
+            provenance: None,
             references: Vec::new(),
             metadata: BTreeMap::new(),
             artifact_type: tree_type,
@@ -126,10 +155,15 @@ impl<A: ArtifactStore, P: PayloadStore, T: AttentionStore> Vault<A, P, T> {
         audience: Vec<PlayerId>,
         now: i64,
     ) -> Result<TreeArtifact> {
+        let player = *self.player();
+        let grants = audience_to_grants(&audience, now, player);
         let tree = TreeArtifact {
             id,
-            steward: *self.player(),
-            audience,
+            steward: player,
+            grants,
+            status: ArtifactStatus::Active,
+            parent: None,
+            provenance: None,
             references: Vec::new(),
             metadata: BTreeMap::new(),
             artifact_type: tree_type,
@@ -185,10 +219,59 @@ impl<A: ArtifactStore, P: PayloadStore, T: AttentionStore> Vault<A, P, T> {
         self.artifact_store.remove_ref(tree_id, child_id)
     }
 
-    /// Steward-only: set audience for an artifact.
-    pub fn set_audience(&mut self, artifact_id: &ArtifactId, players: Vec<PlayerId>) -> Result<()> {
+    /// Steward-only: grant access to an artifact.
+    pub fn grant_access(
+        &mut self,
+        artifact_id: &ArtifactId,
+        grantee: PlayerId,
+        mode: AccessMode,
+        now: i64,
+    ) -> Result<()> {
         self.require_steward(artifact_id)?;
-        self.artifact_store.update_audience(artifact_id, players)
+        self.require_active(artifact_id)?;
+        // Check for existing grant
+        let artifact = self
+            .artifact_store
+            .get_artifact(artifact_id)?
+            .ok_or(VaultError::ArtifactNotFound)?;
+        if artifact.grants().iter().any(|g| g.grantee == grantee && !g.mode.is_expired(now)) {
+            return Err(VaultError::AlreadyGranted);
+        }
+        let grant = AccessGrant {
+            grantee,
+            mode,
+            granted_at: now,
+            granted_by: *self.player(),
+        };
+        self.artifact_store.add_grant(artifact_id, grant)
+    }
+
+    /// Steward-only: revoke a grantee's access to an artifact.
+    pub fn revoke_access(
+        &mut self,
+        artifact_id: &ArtifactId,
+        grantee: &PlayerId,
+    ) -> Result<()> {
+        self.require_steward(artifact_id)?;
+        self.require_active(artifact_id)?;
+        let artifact = self
+            .artifact_store
+            .get_artifact(artifact_id)?
+            .ok_or(VaultError::ArtifactNotFound)?;
+        let grant = artifact.grants().iter().find(|g| &g.grantee == grantee);
+        match grant {
+            Some(g) if matches!(g.mode, AccessMode::Permanent) => Err(VaultError::CannotRevoke),
+            Some(_) => self.artifact_store.remove_grant(artifact_id, grantee),
+            None => Err(VaultError::ArtifactNotFound),
+        }
+    }
+
+    /// Steward-only: recall an artifact (set status to Recalled).
+    pub fn recall(&mut self, artifact_id: &ArtifactId, now: i64) -> Result<()> {
+        self.require_steward(artifact_id)?;
+        self.require_active(artifact_id)?;
+        self.artifact_store
+            .update_status(artifact_id, ArtifactStatus::Recalled { recalled_at: now })
     }
 
     /// Steward-only: transfer stewardship to another player.
@@ -199,6 +282,7 @@ impl<A: ArtifactStore, P: PayloadStore, T: AttentionStore> Vault<A, P, T> {
         now: i64,
     ) -> Result<()> {
         self.require_steward(artifact_id)?;
+        self.require_active(artifact_id)?;
         let old_steward = *self
             .artifact_store
             .get_artifact(artifact_id)?
@@ -211,7 +295,14 @@ impl<A: ArtifactStore, P: PayloadStore, T: AttentionStore> Vault<A, P, T> {
         };
         self.artifact_store
             .record_stewardship_transfer(artifact_id, record)?;
-        self.artifact_store.update_steward(artifact_id, new_steward)
+        self.artifact_store.update_steward(artifact_id, new_steward)?;
+        self.artifact_store.update_status(
+            artifact_id,
+            ArtifactStatus::Transferred {
+                to: new_steward,
+                transferred_at: now,
+            },
+        )
     }
 
     /// Create an Inbox tree artifact owned by this player.
@@ -289,7 +380,7 @@ impl<A: ArtifactStore, P: PayloadStore, T: AttentionStore> Vault<A, P, T> {
     /// Full attention value computation for an artifact.
     pub fn attention_value(&self, artifact_id: &ArtifactId, now: i64) -> Result<AttentionValue> {
         let audience = match self.artifact_store.get_artifact(artifact_id)? {
-            Some(a) => a.audience().to_vec(),
+            Some(a) => a.audience(now),
             None => return Err(VaultError::ArtifactNotFound),
         };
 
@@ -397,4 +488,158 @@ impl<A: ArtifactStore, P: PayloadStore, T: AttentionStore> Vault<A, P, T> {
         }
         Ok(())
     }
+
+    fn require_active(&self, artifact_id: &ArtifactId) -> Result<()> {
+        let artifact = self
+            .artifact_store
+            .get_artifact(artifact_id)?
+            .ok_or(VaultError::ArtifactNotFound)?;
+        if !artifact.status().is_active() {
+            return Err(VaultError::NotActive);
+        }
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // Holonic composition
+    // -----------------------------------------------------------------------
+
+    /// Attach a child artifact under a parent. Single-parent invariant enforced.
+    pub fn attach_child(
+        &mut self,
+        parent_id: &ArtifactId,
+        child_id: &ArtifactId,
+    ) -> Result<()> {
+        if parent_id == child_id {
+            return Err(VaultError::CycleDetected);
+        }
+        self.require_steward(parent_id)?;
+        self.require_active(parent_id)?;
+
+        let child = self
+            .artifact_store
+            .get_artifact(child_id)?
+            .ok_or(VaultError::ArtifactNotFound)?;
+        if !child.status().is_active() {
+            return Err(VaultError::NotActive);
+        }
+        if child.parent().is_some() {
+            return Err(VaultError::AlreadyHasParent);
+        }
+
+        // Cycle detection: walk parent's ancestor chain
+        if self.is_ancestor_of(child_id, parent_id) {
+            return Err(VaultError::CycleDetected);
+        }
+
+        self.artifact_store.set_parent(child_id, Some(*parent_id))?;
+
+        // Add ref in parent tree if it's a tree
+        if let Some(parent_artifact) = self.artifact_store.get_artifact(parent_id)? {
+            if parent_artifact.is_tree() {
+                let next_pos = parent_artifact
+                    .as_tree()
+                    .map(|t| t.references.len() as u64)
+                    .unwrap_or(0);
+                let child_ref = ArtifactRef {
+                    artifact_id: *child_id,
+                    position: next_pos,
+                    label: None,
+                };
+                self.artifact_store.add_ref(parent_id, child_ref)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Detach a child from its parent, making it top-level.
+    pub fn detach_child(
+        &mut self,
+        parent_id: &ArtifactId,
+        child_id: &ArtifactId,
+    ) -> Result<()> {
+        self.require_steward(parent_id)?;
+        self.require_active(parent_id)?;
+
+        let child = self
+            .artifact_store
+            .get_artifact(child_id)?
+            .ok_or(VaultError::ArtifactNotFound)?;
+        match child.parent() {
+            Some(pid) if pid == parent_id => {}
+            _ => return Err(VaultError::NotAChild),
+        }
+
+        self.artifact_store.set_parent(child_id, None)?;
+        self.artifact_store.remove_ref(parent_id, child_id)?;
+        Ok(())
+    }
+
+    /// Walk up ancestor chain from an artifact.
+    pub fn ancestors(&self, artifact_id: &ArtifactId) -> Result<Vec<ArtifactId>> {
+        let mut result = Vec::new();
+        let mut current = self.artifact_store.get_artifact(artifact_id)?;
+        while let Some(ref art) = current {
+            match art.parent() {
+                Some(pid) => {
+                    result.push(*pid);
+                    current = self.artifact_store.get_artifact(pid)?;
+                }
+                None => break,
+            }
+        }
+        Ok(result)
+    }
+
+    /// Get all descendants of an artifact (depth-first).
+    pub fn descendants(&self, artifact_id: &ArtifactId) -> Result<Vec<ArtifactId>> {
+        let mut result = Vec::new();
+        self.collect_descendants(artifact_id, &mut result)?;
+        Ok(result)
+    }
+
+    fn collect_descendants(
+        &self,
+        id: &ArtifactId,
+        result: &mut Vec<ArtifactId>,
+    ) -> Result<()> {
+        if let Some(artifact) = self.artifact_store.get_artifact(id)? {
+            if let Some(tree) = artifact.as_tree() {
+                for r in &tree.references {
+                    result.push(r.artifact_id);
+                    self.collect_descendants(&r.artifact_id, result)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn is_ancestor_of(&self, candidate: &ArtifactId, descendant: &ArtifactId) -> bool {
+        let mut current = self.artifact_store.get_artifact(descendant).ok().flatten();
+        while let Some(ref art) = current {
+            match art.parent() {
+                Some(pid) => {
+                    if pid == candidate {
+                        return true;
+                    }
+                    current = self.artifact_store.get_artifact(pid).ok().flatten();
+                }
+                None => break,
+            }
+        }
+        false
+    }
+}
+
+/// Convert an audience list to Permanent grants.
+fn audience_to_grants(audience: &[PlayerId], now: i64, granted_by: PlayerId) -> Vec<AccessGrant> {
+    audience
+        .iter()
+        .map(|&player| AccessGrant {
+            grantee: player,
+            mode: AccessMode::Permanent,
+            granted_at: now,
+            granted_by,
+        })
+        .collect()
 }

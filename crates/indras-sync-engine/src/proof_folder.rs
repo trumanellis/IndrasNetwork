@@ -380,11 +380,11 @@ mod tests {
     }
 
     fn test_artifact_id() -> ArtifactId {
-        [42u8; 32]
+        ArtifactId::Blob([42u8; 32])
     }
 
     fn another_artifact_id() -> ArtifactId {
-        [43u8; 32]
+        ArtifactId::Blob([43u8; 32])
     }
 
     #[test]

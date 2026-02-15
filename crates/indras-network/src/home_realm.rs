@@ -12,7 +12,7 @@
 //! Domain-specific document types (quests, notes, etc.) are managed by
 //! the sync-engine layer, not here.
 
-use crate::access::AccessMode;
+use crate::access::{AccessMode, ArtifactStatus};
 use crate::artifact::{Artifact, ArtifactId};
 use crate::artifact_index::{ArtifactIndex, HomeArtifactEntry};
 use crate::document::Document;
@@ -158,7 +158,7 @@ impl HomeRealm {
     ) -> Result<ArtifactId> {
         // Compute BLAKE3 hash for artifact ID
         let hash = blake3::hash(&data);
-        let id: ArtifactId = *hash.as_bytes();
+        let id = ArtifactId::Blob(*hash.as_bytes());
 
         // Store in blob storage
         let _content_ref = self
@@ -169,7 +169,7 @@ impl HomeRealm {
             .map_err(|e| IndraError::Artifact(format!("Failed to store blob: {}", e)))?;
 
         debug!(
-            artifact_id = %hex::encode(&id[..8]),
+            artifact_id = %hex::encode(&id.bytes()[..8]),
             name = %metadata.name,
             size = metadata.size,
             "Stored artifact in home realm"
@@ -223,10 +223,10 @@ impl HomeRealm {
             size,
             mime_type,
             sharer: Member::new(*self.node.identity()),
-            owner: self.node.identity().as_bytes().try_into().expect("identity bytes"),
+            steward: self.node.identity().as_bytes().try_into().expect("identity bytes"),
             shared_at: chrono::Utc::now(),
             is_encrypted: false,
-            sharing_status: crate::artifact_sharing::SharingStatus::Shared,
+            status: ArtifactStatus::Active,
             parent: None,
             children: Vec::new(),
         })
@@ -237,7 +237,7 @@ impl HomeRealm {
     /// Retrieves the raw data for a previously shared artifact.
     pub async fn get_artifact(&self, id: &ArtifactId) -> Result<Vec<u8>> {
         // Create a content reference (we don't know the exact size, use 0 as placeholder)
-        let content_ref = ContentRef::new(*id, 0);
+        let content_ref = ContentRef::new(*id.bytes(), 0);
 
         let data = self
             .node
@@ -276,7 +276,7 @@ impl HomeRealm {
 
         // Compute BLAKE3 hash
         let hash = blake3::hash(&file_data);
-        let id: ArtifactId = *hash.as_bytes();
+        let id = ArtifactId::Blob(*hash.as_bytes());
 
         // Store blob
         let _content_ref = self
@@ -319,7 +319,7 @@ impl HomeRealm {
         .await?;
 
         debug!(
-            artifact_id = %hex::encode(&id[..8]),
+            artifact_id = %hex::encode(&id.bytes()[..8]),
             "Uploaded artifact to home realm filesystem"
         );
 
@@ -373,7 +373,7 @@ impl HomeRealm {
         .await?;
 
         if recalled {
-            let content_ref = indras_storage::ContentRef::new(*id, 0);
+            let content_ref = indras_storage::ContentRef::new(*id.bytes(), 0);
             let _ = self.node.storage().delete_blob(&content_ref).await;
         }
 

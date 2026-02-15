@@ -142,23 +142,23 @@ impl<A: ArtifactStore, P: PayloadStore, T: AttentionStore> IndraFS<A, P, T> {
 
         let now = self.now_ms();
 
-        // Determine the leaf type from the inode's name.
-        let leaf_type = self
+        // Determine the leaf type and name from the inode.
+        let (leaf_name, leaf_type) = self
             .inodes
             .get(inode)
-            .map(|e| leaf_type_from_extension(&e.name))
-            .unwrap_or(LeafType::File);
+            .map(|e| (e.name.clone(), leaf_type_from_extension(&e.name)))
+            .unwrap_or_else(|| ("unnamed".to_string(), LeafType::File));
 
         // Store payload and place leaf.
         let leaf = self
             .vault
-            .place_leaf(&data, leaf_type, now)
+            .place_leaf(&data, leaf_name, None, leaf_type, now)
             .map_err(|e| {
                 error!("place_leaf failed: {e}");
                 libc::EIO
             })?;
 
-        let new_artifact_id = leaf.id.clone();
+        let new_artifact_id = leaf.id;
 
         // Get parent's artifact_id for composing.
         let parent_artifact_id = self

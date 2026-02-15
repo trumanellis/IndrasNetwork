@@ -3,11 +3,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt;
 
+use crate::access::{AccessGrant, ArtifactProvenance, ArtifactStatus};
+
 /// 32-byte player identity, compatible with iroh PublicKey bytes.
 pub type PlayerId = [u8; 32];
 
 /// Identifies an artifact. Variant tells resolution strategy.
-#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ArtifactId {
     /// Leaf artifact — content-addressed by BLAKE3 hash of payload.
     Blob([u8; 32]),
@@ -102,9 +104,14 @@ pub struct ArtifactRef {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LeafArtifact {
     pub id: ArtifactId,
+    pub name: String,
     pub size: u64,
+    pub mime_type: Option<String>,
     pub steward: PlayerId,
-    pub audience: Vec<PlayerId>,
+    pub grants: Vec<AccessGrant>,
+    pub status: ArtifactStatus,
+    pub parent: Option<ArtifactId>,
+    pub provenance: Option<ArtifactProvenance>,
     pub artifact_type: LeafType,
     pub created_at: i64,
     pub blessing_history: Vec<BlessingRecord>,
@@ -114,7 +121,10 @@ pub struct LeafArtifact {
 pub struct TreeArtifact {
     pub id: ArtifactId,
     pub steward: PlayerId,
-    pub audience: Vec<PlayerId>,
+    pub grants: Vec<AccessGrant>,
+    pub status: ArtifactStatus,
+    pub parent: Option<ArtifactId>,
+    pub provenance: Option<ArtifactProvenance>,
     pub references: Vec<ArtifactRef>,
     pub metadata: BTreeMap<String, Vec<u8>>,
     pub artifact_type: TreeType,
@@ -164,11 +174,41 @@ impl Artifact {
         }
     }
 
-    pub fn audience(&self) -> &[PlayerId] {
+    pub fn grants(&self) -> &[AccessGrant] {
         match self {
-            Artifact::Leaf(leaf) => &leaf.audience,
-            Artifact::Tree(tree) => &tree.audience,
+            Artifact::Leaf(leaf) => &leaf.grants,
+            Artifact::Tree(tree) => &tree.grants,
         }
+    }
+
+    pub fn status(&self) -> &ArtifactStatus {
+        match self {
+            Artifact::Leaf(leaf) => &leaf.status,
+            Artifact::Tree(tree) => &tree.status,
+        }
+    }
+
+    pub fn parent(&self) -> Option<&ArtifactId> {
+        match self {
+            Artifact::Leaf(leaf) => leaf.parent.as_ref(),
+            Artifact::Tree(tree) => tree.parent.as_ref(),
+        }
+    }
+
+    pub fn name(&self) -> Option<&str> {
+        match self {
+            Artifact::Leaf(leaf) => Some(&leaf.name),
+            Artifact::Tree(_) => None,
+        }
+    }
+
+    /// Compute audience from active grants (all grantees with non-expired access).
+    pub fn audience(&self, now: i64) -> Vec<PlayerId> {
+        self.grants()
+            .iter()
+            .filter(|g| !g.mode.is_expired(now))
+            .map(|g| g.grantee)
+            .collect()
     }
 
     pub fn is_leaf(&self) -> bool {

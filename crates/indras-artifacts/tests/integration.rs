@@ -54,6 +54,63 @@ fn test_artifact_id_debug_format() {
     assert!(debug_str.ends_with(")"));
 }
 
+#[test]
+fn test_artifact_id_is_copy() {
+    let id = leaf_id(b"test");
+    let id2 = id; // Copy, not move
+    assert_eq!(id, id2);
+}
+
+// ----------------------------------------------------------------------------
+// Helper: build a LeafArtifact
+// ----------------------------------------------------------------------------
+
+fn make_leaf(payload: &[u8], steward: PlayerId, now: i64) -> LeafArtifact {
+    LeafArtifact {
+        id: leaf_id(payload),
+        name: "test".to_string(),
+        size: payload.len() as u64,
+        mime_type: None,
+        steward,
+        grants: vec![AccessGrant {
+            grantee: steward,
+            mode: AccessMode::Permanent,
+            granted_at: now,
+            granted_by: steward,
+        }],
+        status: ArtifactStatus::Active,
+        parent: None,
+        provenance: None,
+        artifact_type: LeafType::Message,
+        created_at: now,
+        blessing_history: Vec::new(),
+    }
+}
+
+fn make_tree(steward: PlayerId, tree_type: TreeType, audience: &[PlayerId], now: i64) -> TreeArtifact {
+    let grants = audience
+        .iter()
+        .map(|&p| AccessGrant {
+            grantee: p,
+            mode: AccessMode::Permanent,
+            granted_at: now,
+            granted_by: steward,
+        })
+        .collect();
+    TreeArtifact {
+        id: generate_tree_id(),
+        steward,
+        grants,
+        status: ArtifactStatus::Active,
+        parent: None,
+        provenance: None,
+        references: vec![],
+        metadata: Default::default(),
+        artifact_type: tree_type,
+        created_at: now,
+    }
+}
+
 // ----------------------------------------------------------------------------
 // InMemoryArtifactStore Tests
 // ----------------------------------------------------------------------------
@@ -61,15 +118,7 @@ fn test_artifact_id_debug_format() {
 #[test]
 fn test_artifact_store_put_get() {
     let mut store = InMemoryArtifactStore::new();
-    let leaf = LeafArtifact {
-        id: leaf_id(b"test"),
-        size: 4,
-        steward: NOVA,
-        audience: vec![NOVA],
-        artifact_type: LeafType::Message,
-        created_at: 1000,
-        blessing_history: Vec::new(),
-    };
+    let leaf = make_leaf(b"test", NOVA, 1000);
 
     store.put_artifact(&Artifact::Leaf(leaf.clone())).unwrap();
     let retrieved = store.get_artifact(&leaf.id).unwrap();
@@ -90,25 +139,8 @@ fn test_artifact_store_get_nonexistent() {
 fn test_artifact_store_list_by_type() {
     let mut store = InMemoryArtifactStore::new();
 
-    let vault_tree = TreeArtifact {
-        id: generate_tree_id(),
-        steward: NOVA,
-        audience: vec![NOVA],
-        references: vec![],
-        metadata: Default::default(),
-        artifact_type: TreeType::Vault,
-        created_at: 1000,
-    };
-
-    let story_tree = TreeArtifact {
-        id: generate_tree_id(),
-        steward: NOVA,
-        audience: vec![NOVA],
-        references: vec![],
-        metadata: Default::default(),
-        artifact_type: TreeType::Story,
-        created_at: 2000,
-    };
+    let vault_tree = make_tree(NOVA, TreeType::Vault, &[NOVA], 1000);
+    let story_tree = make_tree(NOVA, TreeType::Story, &[NOVA], 2000);
 
     store.put_artifact(&Artifact::Tree(vault_tree.clone())).unwrap();
     store.put_artifact(&Artifact::Tree(story_tree.clone())).unwrap();
@@ -126,25 +158,8 @@ fn test_artifact_store_list_by_type() {
 fn test_artifact_store_list_by_steward() {
     let mut store = InMemoryArtifactStore::new();
 
-    let nova_leaf = LeafArtifact {
-        id: leaf_id(b"nova"),
-        size: 4,
-        steward: NOVA,
-        audience: vec![NOVA],
-        artifact_type: LeafType::Message,
-        created_at: 1000,
-        blessing_history: Vec::new(),
-    };
-
-    let zephyr_leaf = LeafArtifact {
-        id: leaf_id(b"zephyr"),
-        size: 6,
-        steward: ZEPHYR,
-        audience: vec![ZEPHYR],
-        artifact_type: LeafType::Message,
-        created_at: 2000,
-        blessing_history: Vec::new(),
-    };
+    let nova_leaf = make_leaf(b"nova", NOVA, 1000);
+    let zephyr_leaf = make_leaf(b"zephyr", ZEPHYR, 2000);
 
     store.put_artifact(&Artifact::Leaf(nova_leaf.clone())).unwrap();
     store.put_artifact(&Artifact::Leaf(zephyr_leaf.clone())).unwrap();
@@ -218,7 +233,7 @@ fn test_attention_store_append_and_events() {
     let event = AttentionSwitchEvent {
         player: NOVA,
         from: None,
-        to: Some(artifact_id.clone()),
+        to: Some(artifact_id),
         timestamp: 1000,
     };
 
@@ -237,13 +252,13 @@ fn test_attention_store_events_since() {
     let event1 = AttentionSwitchEvent {
         player: NOVA,
         from: None,
-        to: Some(artifact_id.clone()),
+        to: Some(artifact_id),
         timestamp: 1000,
     };
 
     let event2 = AttentionSwitchEvent {
         player: NOVA,
-        from: Some(artifact_id.clone()),
+        from: Some(artifact_id),
         to: None,
         timestamp: 2000,
     };
@@ -265,7 +280,7 @@ fn test_attention_store_integrity_consistent() {
         AttentionSwitchEvent {
             player: ZEPHYR,
             from: None,
-            to: Some(artifact_id.clone()),
+            to: Some(artifact_id),
             timestamp: 1000,
         },
         AttentionSwitchEvent {
@@ -291,7 +306,7 @@ fn test_attention_store_integrity_extended() {
         AttentionSwitchEvent {
             player: ZEPHYR,
             from: None,
-            to: Some(artifact_id.clone()),
+            to: Some(artifact_id),
             timestamp: 1000,
         },
     ];
@@ -300,7 +315,7 @@ fn test_attention_store_integrity_extended() {
         AttentionSwitchEvent {
             player: ZEPHYR,
             from: None,
-            to: Some(artifact_id.clone()),
+            to: Some(artifact_id),
             timestamp: 1000,
         },
         AttentionSwitchEvent {
@@ -372,38 +387,28 @@ fn test_attention_store_integrity_no_prior() {
 #[test]
 fn test_add_ref_ordering_by_position() {
     let mut store = InMemoryArtifactStore::new();
-    let tree_id = generate_tree_id();
+    let tree = make_tree(NOVA, TreeType::Story, &[NOVA], 1000);
+    let tree_id = tree.id;
     let child1 = generate_tree_id();
     let child2 = generate_tree_id();
     let child3 = generate_tree_id();
 
-    let tree = TreeArtifact {
-        id: tree_id.clone(),
-        steward: NOVA,
-        audience: vec![NOVA],
-        references: vec![],
-        metadata: Default::default(),
-        artifact_type: TreeType::Story,
-        created_at: 1000,
-    };
-
     store.put_artifact(&Artifact::Tree(tree)).unwrap();
 
-    // Add refs out of order
     store.add_ref(&tree_id, ArtifactRef {
-        artifact_id: child2.clone(),
+        artifact_id: child2,
         position: 2,
         label: None,
     }).unwrap();
 
     store.add_ref(&tree_id, ArtifactRef {
-        artifact_id: child1.clone(),
+        artifact_id: child1,
         position: 1,
         label: None,
     }).unwrap();
 
     store.add_ref(&tree_id, ArtifactRef {
-        artifact_id: child3.clone(),
+        artifact_id: child3,
         position: 3,
         label: None,
     }).unwrap();
@@ -420,30 +425,21 @@ fn test_add_ref_ordering_by_position() {
 #[test]
 fn test_remove_ref() {
     let mut store = InMemoryArtifactStore::new();
-    let tree_id = generate_tree_id();
+    let tree = make_tree(NOVA, TreeType::Story, &[NOVA], 1000);
+    let tree_id = tree.id;
     let child1 = generate_tree_id();
     let child2 = generate_tree_id();
-
-    let tree = TreeArtifact {
-        id: tree_id.clone(),
-        steward: NOVA,
-        audience: vec![NOVA],
-        references: vec![],
-        metadata: Default::default(),
-        artifact_type: TreeType::Story,
-        created_at: 1000,
-    };
 
     store.put_artifact(&Artifact::Tree(tree)).unwrap();
 
     store.add_ref(&tree_id, ArtifactRef {
-        artifact_id: child1.clone(),
+        artifact_id: child1,
         position: 0,
         label: None,
     }).unwrap();
 
     store.add_ref(&tree_id, ArtifactRef {
-        artifact_id: child2.clone(),
+        artifact_id: child2,
         position: 1,
         label: None,
     }).unwrap();
@@ -458,52 +454,57 @@ fn test_remove_ref() {
 }
 
 // ----------------------------------------------------------------------------
-// Audience & Stewardship Tests
+// Grants & Status Tests
 // ----------------------------------------------------------------------------
 
 #[test]
-fn test_update_audience() {
+fn test_update_status() {
     let mut store = InMemoryArtifactStore::new();
-    let leaf_id = leaf_id(b"test");
-
-    let leaf = LeafArtifact {
-        id: leaf_id.clone(),
-        size: 4,
-        steward: NOVA,
-        audience: vec![NOVA],
-        artifact_type: LeafType::Message,
-        created_at: 1000,
-        blessing_history: Vec::new(),
-    };
+    let leaf = make_leaf(b"test", NOVA, 1000);
+    let id = leaf.id;
 
     store.put_artifact(&Artifact::Leaf(leaf)).unwrap();
 
-    let new_audience = vec![NOVA, ZEPHYR, SAGE];
-    store.update_audience(&leaf_id, new_audience.clone()).unwrap();
+    store.update_status(&id, ArtifactStatus::Recalled { recalled_at: 2000 }).unwrap();
 
-    let retrieved = store.get_artifact(&leaf_id).unwrap().unwrap();
-    assert_eq!(retrieved.audience(), &new_audience);
+    let retrieved = store.get_artifact(&id).unwrap().unwrap();
+    assert!(!retrieved.status().is_active());
+}
+
+#[test]
+fn test_add_and_remove_grant() {
+    let mut store = InMemoryArtifactStore::new();
+    let leaf = make_leaf(b"test", NOVA, 1000);
+    let id = leaf.id;
+
+    store.put_artifact(&Artifact::Leaf(leaf)).unwrap();
+
+    let grant = AccessGrant {
+        grantee: ZEPHYR,
+        mode: AccessMode::Revocable,
+        granted_at: 1000,
+        granted_by: NOVA,
+    };
+    store.add_grant(&id, grant).unwrap();
+
+    let retrieved = store.get_artifact(&id).unwrap().unwrap();
+    assert_eq!(retrieved.grants().len(), 2); // NOVA + ZEPHYR
+
+    store.remove_grant(&id, &ZEPHYR).unwrap();
+    let retrieved = store.get_artifact(&id).unwrap().unwrap();
+    assert_eq!(retrieved.grants().len(), 1);
 }
 
 #[test]
 fn test_transfer_stewardship() {
     let mut store = InMemoryArtifactStore::new();
-    let leaf_id = leaf_id(b"test");
-
-    let leaf = LeafArtifact {
-        id: leaf_id.clone(),
-        size: 4,
-        steward: NOVA,
-        audience: vec![NOVA],
-        artifact_type: LeafType::Message,
-        created_at: 1000,
-        blessing_history: Vec::new(),
-    };
+    let leaf = make_leaf(b"test", NOVA, 1000);
+    let id = leaf.id;
 
     store.put_artifact(&Artifact::Leaf(leaf)).unwrap();
-    store.update_steward(&leaf_id, ZEPHYR).unwrap();
+    store.update_steward(&id, ZEPHYR).unwrap();
 
-    let retrieved = store.get_artifact(&leaf_id).unwrap().unwrap();
+    let retrieved = store.get_artifact(&id).unwrap().unwrap();
     assert_eq!(retrieved.steward(), &ZEPHYR);
 }
 
@@ -518,7 +519,7 @@ fn test_vault_creation() {
     assert_eq!(vault.player(), &NOVA);
     assert_eq!(vault.root.artifact_type, TreeType::Vault);
     assert_eq!(vault.root.steward, NOVA);
-    assert_eq!(vault.root.audience, vec![NOVA]);
+    assert!(vault.root.grants.iter().any(|g| g.grantee == NOVA));
 }
 
 #[test]
@@ -526,12 +527,15 @@ fn test_vault_place_leaf() {
     let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
     let payload = b"test message";
 
-    let leaf = vault.place_leaf(payload, LeafType::Message, 1000).unwrap();
+    let leaf = vault.place_leaf(payload, "test.txt".to_string(), Some("text/plain".to_string()), LeafType::Message, 1000).unwrap();
 
     assert_eq!(leaf.steward, NOVA);
-    assert_eq!(leaf.audience, vec![NOVA]);
+    assert_eq!(leaf.name, "test.txt");
+    assert_eq!(leaf.mime_type, Some("text/plain".to_string()));
+    assert!(leaf.grants.iter().any(|g| g.grantee == NOVA));
     assert_eq!(leaf.size, payload.len() as u64);
     assert!(leaf.id.is_blob());
+    assert!(leaf.status.is_active());
 
     // Verify payload is stored
     assert!(vault.has_payload(&leaf.id));
@@ -547,7 +551,9 @@ fn test_vault_place_tree() {
     let tree = vault.place_tree(TreeType::Story, audience.clone(), 2000).unwrap();
 
     assert_eq!(tree.steward, NOVA);
-    assert_eq!(tree.audience, audience);
+    assert_eq!(tree.grants.len(), 2);
+    assert!(tree.grants.iter().any(|g| g.grantee == NOVA));
+    assert!(tree.grants.iter().any(|g| g.grantee == ZEPHYR));
     assert_eq!(tree.artifact_type, TreeType::Story);
     assert!(tree.id.is_doc());
 }
@@ -556,16 +562,7 @@ fn test_vault_place_tree() {
 fn test_vault_compose_requires_steward() {
     let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
 
-    // Create a tree owned by ZEPHYR
-    let tree = TreeArtifact {
-        id: generate_tree_id(),
-        steward: ZEPHYR,
-        audience: vec![ZEPHYR],
-        references: vec![],
-        metadata: Default::default(),
-        artifact_type: TreeType::Story,
-        created_at: 1000,
-    };
+    let tree = make_tree(ZEPHYR, TreeType::Story, &[ZEPHYR], 1000);
 
     vault.artifact_store_mut().put_artifact(&Artifact::Tree(tree.clone())).unwrap();
 
@@ -576,23 +573,14 @@ fn test_vault_compose_requires_steward() {
 }
 
 #[test]
-fn test_vault_set_audience_requires_steward() {
+fn test_vault_grant_access_requires_steward() {
     let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
 
-    // Create a leaf owned by ZEPHYR
-    let leaf = LeafArtifact {
-        id: leaf_id(b"zephyr's message"),
-        size: 16,
-        steward: ZEPHYR,
-        audience: vec![ZEPHYR],
-        artifact_type: LeafType::Message,
-        created_at: 1000,
-        blessing_history: Vec::new(),
-    };
+    let leaf = make_leaf(b"zephyr's message", ZEPHYR, 1000);
 
     vault.artifact_store_mut().put_artifact(&Artifact::Leaf(leaf.clone())).unwrap();
 
-    let result = vault.set_audience(&leaf.id, vec![NOVA, ZEPHYR]);
+    let result = vault.grant_access(&leaf.id, SAGE, AccessMode::Revocable, 2000);
     assert!(matches!(result, Err(VaultError::NotSteward)));
 }
 
@@ -600,17 +588,17 @@ fn test_vault_set_audience_requires_steward() {
 fn test_vault_transfer_stewardship_old_steward_loses_control() {
     let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
 
-    let leaf = vault.place_leaf(b"message", LeafType::Message, 1000).unwrap();
-    let leaf_id = leaf.id.clone();
+    let leaf = vault.place_leaf(b"message", "msg".to_string(), None, LeafType::Message, 1000).unwrap();
+    let leaf_id = leaf.id;
 
-    // Nova can modify it
-    vault.set_audience(&leaf_id, vec![NOVA, ZEPHYR]).unwrap();
+    // Nova can grant access
+    vault.grant_access(&leaf_id, ZEPHYR, AccessMode::Revocable, 1500).unwrap();
 
     // Transfer to Zephyr
     vault.transfer_stewardship(&leaf_id, ZEPHYR, 2000).unwrap();
 
-    // Nova can no longer modify it
-    let result = vault.set_audience(&leaf_id, vec![NOVA]);
+    // Nova can no longer grant access (not steward)
+    let result = vault.grant_access(&leaf_id, SAGE, AccessMode::Revocable, 2500);
     assert!(matches!(result, Err(VaultError::NotSteward)));
 }
 
@@ -623,7 +611,7 @@ fn test_attention_navigate_to() {
     let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
     let artifact_id = generate_tree_id();
 
-    vault.navigate_to(artifact_id.clone(), 1000).unwrap();
+    vault.navigate_to(artifact_id, 1000).unwrap();
 
     assert_eq!(vault.current_focus(), Some(&artifact_id));
 
@@ -640,9 +628,9 @@ fn test_attention_navigate_back() {
     let artifact1 = generate_tree_id();
     let artifact2 = generate_tree_id();
 
-    vault.navigate_to(artifact1.clone(), 1000).unwrap();
-    vault.navigate_to(artifact2.clone(), 2000).unwrap();
-    vault.navigate_back(artifact1.clone(), 3000).unwrap();
+    vault.navigate_to(artifact1, 1000).unwrap();
+    vault.navigate_to(artifact2, 2000).unwrap();
+    vault.navigate_back(artifact1, 3000).unwrap();
 
     assert_eq!(vault.current_focus(), Some(&artifact1));
 
@@ -655,7 +643,7 @@ fn test_attention_navigate_back() {
 #[test]
 fn test_heat_zero_for_no_peer_attention() {
     let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
-    let leaf = vault.place_leaf(b"test", LeafType::Message, 1000).unwrap();
+    let leaf = vault.place_leaf(b"test", "test".to_string(), None, LeafType::Message, 1000).unwrap();
 
     let heat = vault.heat(&leaf.id, 2000).unwrap();
     assert_eq!(heat, 0.0);
@@ -664,18 +652,8 @@ fn test_heat_zero_for_no_peer_attention() {
 #[test]
 fn test_heat_positive_for_peer_activity() {
     let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
-    let artifact_id = generate_tree_id();
-
-    // Create artifact with NOVA and ZEPHYR in audience
-    let tree = TreeArtifact {
-        id: artifact_id.clone(),
-        steward: NOVA,
-        audience: vec![NOVA, ZEPHYR],
-        references: vec![],
-        metadata: Default::default(),
-        artifact_type: TreeType::Story,
-        created_at: 1000,
-    };
+    let tree = make_tree(NOVA, TreeType::Story, &[NOVA, ZEPHYR], 1000);
+    let artifact_id = tree.id;
     vault.artifact_store_mut().put_artifact(&Artifact::Tree(tree)).unwrap();
 
     // Add ZEPHYR as peer
@@ -686,12 +664,12 @@ fn test_heat_positive_for_peer_activity() {
         AttentionSwitchEvent {
             player: ZEPHYR,
             from: None,
-            to: Some(artifact_id.clone()),
+            to: Some(artifact_id),
             timestamp: 1000,
         },
         AttentionSwitchEvent {
             player: ZEPHYR,
-            from: Some(artifact_id.clone()),
+            from: Some(artifact_id),
             to: None,
             timestamp: 61000, // 60 seconds dwell time
         },
@@ -706,34 +684,23 @@ fn test_heat_positive_for_peer_activity() {
 #[test]
 fn test_heat_excludes_non_audience_peers() {
     let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
-    let artifact_id = generate_tree_id();
-
-    // Create artifact with only NOVA in audience (not ZEPHYR)
-    let tree = TreeArtifact {
-        id: artifact_id.clone(),
-        steward: NOVA,
-        audience: vec![NOVA],
-        references: vec![],
-        metadata: Default::default(),
-        artifact_type: TreeType::Story,
-        created_at: 1000,
-    };
+    // Only NOVA in grants (not ZEPHYR)
+    let tree = make_tree(NOVA, TreeType::Story, &[NOVA], 1000);
+    let artifact_id = tree.id;
     vault.artifact_store_mut().put_artifact(&Artifact::Tree(tree)).unwrap();
 
-    // Add ZEPHYR as peer
     vault.peer(ZEPHYR, Some("Zephyr".to_string()), 1000).unwrap();
 
-    // Ingest ZEPHYR's attention even though they're not in audience
     let peer_events = vec![
         AttentionSwitchEvent {
             player: ZEPHYR,
             from: None,
-            to: Some(artifact_id.clone()),
+            to: Some(artifact_id),
             timestamp: 1000,
         },
         AttentionSwitchEvent {
             player: ZEPHYR,
-            from: Some(artifact_id.clone()),
+            from: Some(artifact_id),
             to: None,
             timestamp: 61000,
         },
@@ -832,7 +799,7 @@ fn test_story_create() {
     let tree = artifact.as_tree().unwrap();
 
     assert_eq!(tree.artifact_type, TreeType::Story);
-    assert_eq!(tree.audience, audience);
+    assert_eq!(tree.grants.len(), 2);
 }
 
 #[test]
@@ -840,11 +807,11 @@ fn test_story_append() {
     let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
     let story = Story::create(&mut vault, vec![NOVA], 1000).unwrap();
 
-    let leaf1 = vault.place_leaf(b"message 1", LeafType::Message, 1000).unwrap();
-    let leaf2 = vault.place_leaf(b"message 2", LeafType::Message, 2000).unwrap();
+    let leaf1 = vault.place_leaf(b"message 1", "msg1".to_string(), None, LeafType::Message, 1000).unwrap();
+    let leaf2 = vault.place_leaf(b"message 2", "msg2".to_string(), None, LeafType::Message, 2000).unwrap();
 
-    story.append(&mut vault, leaf1.id.clone(), None).unwrap();
-    story.append(&mut vault, leaf2.id.clone(), None).unwrap();
+    story.append(&mut vault, leaf1.id, None).unwrap();
+    story.append(&mut vault, leaf2.id, None).unwrap();
 
     assert_eq!(story.entry_count(&vault).unwrap(), 2);
 }
@@ -868,13 +835,13 @@ fn test_story_entries_ordered_by_position() {
     let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
     let story = Story::create(&mut vault, vec![NOVA], 1000).unwrap();
 
-    let leaf1 = vault.place_leaf(b"first", LeafType::Message, 1000).unwrap();
-    let leaf2 = vault.place_leaf(b"second", LeafType::Message, 2000).unwrap();
-    let leaf3 = vault.place_leaf(b"third", LeafType::Message, 3000).unwrap();
+    let leaf1 = vault.place_leaf(b"first", "first".to_string(), None, LeafType::Message, 1000).unwrap();
+    let leaf2 = vault.place_leaf(b"second", "second".to_string(), None, LeafType::Message, 2000).unwrap();
+    let leaf3 = vault.place_leaf(b"third", "third".to_string(), None, LeafType::Message, 3000).unwrap();
 
-    story.append(&mut vault, leaf1.id.clone(), None).unwrap();
-    story.append(&mut vault, leaf2.id.clone(), None).unwrap();
-    story.append(&mut vault, leaf3.id.clone(), None).unwrap();
+    story.append(&mut vault, leaf1.id, None).unwrap();
+    story.append(&mut vault, leaf2.id, None).unwrap();
+    story.append(&mut vault, leaf3.id, None).unwrap();
 
     let entries = story.entries(&vault).unwrap();
 
@@ -894,10 +861,8 @@ fn test_story_branch() {
 
     let branch = main_story.branch(&mut vault, 1, vec![NOVA, ZEPHYR], 3000).unwrap();
 
-    // Branch should be a separate Story
     assert_ne!(branch.id, main_story.id);
 
-    // Branch should be referenced in main story
     let entries = main_story.entries(&vault).unwrap();
     let branch_ref = entries.iter().find(|(r, _)| r.artifact_id == branch.id);
     assert!(branch_ref.is_some());
@@ -913,13 +878,13 @@ fn test_story_branch() {
 fn test_exchange_propose() {
     let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
 
-    let my_artifact = vault.place_leaf(b"my item", LeafType::Token, 1000).unwrap();
-    let their_artifact_id = generate_tree_id(); // Pretend this exists elsewhere
+    let my_artifact = vault.place_leaf(b"my item", "my_item".to_string(), None, LeafType::Token, 1000).unwrap();
+    let their_artifact_id = generate_tree_id();
 
     let exchange = Exchange::propose(
         &mut vault,
-        my_artifact.id.clone(),
-        their_artifact_id.clone(),
+        my_artifact.id,
+        their_artifact_id,
         vec![NOVA, ZEPHYR],
         1000,
     ).unwrap();
@@ -928,27 +893,26 @@ fn test_exchange_propose() {
     let tree = artifact.as_tree().unwrap();
 
     assert_eq!(tree.artifact_type, TreeType::Exchange);
-    assert_eq!(tree.references.len(), 3); // offered, requested, conversation
+    assert_eq!(tree.references.len(), 3);
 }
 
 #[test]
 fn test_exchange_conversation() {
     let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
 
-    let my_artifact = vault.place_leaf(b"my item", LeafType::Token, 1000).unwrap();
+    let my_artifact = vault.place_leaf(b"my item", "my_item".to_string(), None, LeafType::Token, 1000).unwrap();
     let their_artifact_id = generate_tree_id();
 
     let exchange = Exchange::propose(
         &mut vault,
-        my_artifact.id.clone(),
-        their_artifact_id.clone(),
+        my_artifact.id,
+        their_artifact_id,
         vec![NOVA, ZEPHYR],
         1000,
     ).unwrap();
 
     let conversation = exchange.conversation(&vault).unwrap();
 
-    // Should be a Story
     let conv_artifact = vault.get_artifact(&conversation.id).unwrap().unwrap();
     assert_eq!(conv_artifact.as_tree().unwrap().artifact_type, TreeType::Story);
 }
@@ -957,13 +921,13 @@ fn test_exchange_conversation() {
 fn test_exchange_offered_and_requested() {
     let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
 
-    let my_artifact = vault.place_leaf(b"my item", LeafType::Token, 1000).unwrap();
-    let their_artifact = vault.place_leaf(b"their item", LeafType::Token, 2000).unwrap();
+    let my_artifact = vault.place_leaf(b"my item", "my_item".to_string(), None, LeafType::Token, 1000).unwrap();
+    let their_artifact = vault.place_leaf(b"their item", "their_item".to_string(), None, LeafType::Token, 2000).unwrap();
 
     let exchange = Exchange::propose(
         &mut vault,
-        my_artifact.id.clone(),
-        their_artifact.id.clone(),
+        my_artifact.id,
+        their_artifact.id,
         vec![NOVA, ZEPHYR],
         1000,
     ).unwrap();
@@ -979,13 +943,13 @@ fn test_exchange_offered_and_requested() {
 fn test_exchange_accept() {
     let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
 
-    let my_artifact = vault.place_leaf(b"my item", LeafType::Token, 1000).unwrap();
+    let my_artifact = vault.place_leaf(b"my item", "my_item".to_string(), None, LeafType::Token, 1000).unwrap();
     let their_artifact_id = generate_tree_id();
 
     let exchange = Exchange::propose(
         &mut vault,
-        my_artifact.id.clone(),
-        their_artifact_id.clone(),
+        my_artifact.id,
+        their_artifact_id,
         vec![NOVA, ZEPHYR],
         1000,
     ).unwrap();
@@ -1000,14 +964,23 @@ fn test_exchange_accept() {
 fn test_exchange_complete_requires_both_accept() {
     let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
 
-    let my_artifact = vault.place_leaf(b"my item", LeafType::Token, 1000).unwrap();
+    let my_artifact = vault.place_leaf(b"my item", "my_item".to_string(), None, LeafType::Token, 1000).unwrap();
 
-    // Create an artifact owned by ZEPHYR
     let their_artifact = LeafArtifact {
         id: leaf_id(b"their item"),
+        name: "their_item".to_string(),
         size: 10,
+        mime_type: None,
         steward: ZEPHYR,
-        audience: vec![ZEPHYR],
+        grants: vec![AccessGrant {
+            grantee: ZEPHYR,
+            mode: AccessMode::Permanent,
+            granted_at: 1000,
+            granted_by: ZEPHYR,
+        }],
+        status: ArtifactStatus::Active,
+        parent: None,
+        provenance: None,
         artifact_type: LeafType::Token,
         created_at: 1000,
         blessing_history: Vec::new(),
@@ -1016,16 +989,14 @@ fn test_exchange_complete_requires_both_accept() {
 
     let exchange = Exchange::propose(
         &mut vault,
-        my_artifact.id.clone(),
-        their_artifact.id.clone(),
+        my_artifact.id,
+        their_artifact.id,
         vec![NOVA, ZEPHYR],
         1000,
     ).unwrap();
 
-    // Only NOVA accepts
     exchange.accept(&mut vault).unwrap();
 
-    // Complete should fail
     let result = exchange.complete(&mut vault, 2000);
     assert!(matches!(result, Err(VaultError::ExchangeNotFullyAccepted)));
 }
@@ -1034,14 +1005,23 @@ fn test_exchange_complete_requires_both_accept() {
 fn test_exchange_complete_transfers_stewardship() {
     let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
 
-    let my_artifact = vault.place_leaf(b"my item", LeafType::Token, 1000).unwrap();
+    let my_artifact = vault.place_leaf(b"my item", "my_item".to_string(), None, LeafType::Token, 1000).unwrap();
 
-    // Create an artifact owned by ZEPHYR
     let their_artifact = LeafArtifact {
         id: leaf_id(b"their item"),
+        name: "their_item".to_string(),
         size: 10,
+        mime_type: None,
         steward: ZEPHYR,
-        audience: vec![ZEPHYR],
+        grants: vec![AccessGrant {
+            grantee: ZEPHYR,
+            mode: AccessMode::Permanent,
+            granted_at: 1000,
+            granted_by: ZEPHYR,
+        }],
+        status: ArtifactStatus::Active,
+        parent: None,
+        provenance: None,
         artifact_type: LeafType::Token,
         created_at: 1000,
         blessing_history: Vec::new(),
@@ -1050,26 +1030,22 @@ fn test_exchange_complete_transfers_stewardship() {
 
     let exchange = Exchange::propose(
         &mut vault,
-        my_artifact.id.clone(),
-        their_artifact.id.clone(),
+        my_artifact.id,
+        their_artifact.id,
         vec![NOVA, ZEPHYR],
         1000,
     ).unwrap();
 
-    // Manually mark both as accepted (simulating ZEPHYR's acceptance)
     exchange.accept(&mut vault).unwrap();
 
-    // Manually set ZEPHYR's acceptance in metadata
     let mut exch_artifact = vault.get_artifact(&exchange.id).unwrap().unwrap();
     let exch_tree = exch_artifact.as_tree_mut().unwrap();
     let key = format!("accept:{}", ZEPHYR.iter().map(|b| format!("{b:02x}")).collect::<String>());
     exch_tree.metadata.insert(key, b"true".to_vec());
     vault.artifact_store_mut().put_artifact(&exch_artifact).unwrap();
 
-    // Now complete should work
     exchange.complete(&mut vault, 3000).unwrap();
 
-    // Verify stewardship transferred
     let my_after = vault.get_artifact(&my_artifact.id).unwrap().unwrap();
     let their_after = vault.get_artifact(&their_artifact.id).unwrap().unwrap();
 
@@ -1078,16 +1054,15 @@ fn test_exchange_complete_transfers_stewardship() {
 }
 
 // ----------------------------------------------------------------------------
-// Feature 1: Stewardship Transfer History Tests
+// Stewardship Transfer History Tests
 // ----------------------------------------------------------------------------
 
 #[test]
 fn test_steward_history_records_transfers() {
     let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
-    let leaf = vault.place_leaf(b"token", LeafType::Token, 1000).unwrap();
-    let leaf_id = leaf.id.clone();
+    let leaf = vault.place_leaf(b"token", "token".to_string(), None, LeafType::Token, 1000).unwrap();
+    let leaf_id = leaf.id;
 
-    // Transfer once: Nova -> Zephyr
     vault.transfer_stewardship(&leaf_id, ZEPHYR, 2000).unwrap();
 
     let history = vault.steward_history(&leaf_id).unwrap();
@@ -1100,15 +1075,11 @@ fn test_steward_history_records_transfers() {
 #[test]
 fn test_steward_history_multiple_transfers() {
     let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
-    let leaf = vault.place_leaf(b"token", LeafType::Token, 1000).unwrap();
-    let leaf_id = leaf.id.clone();
+    let leaf = vault.place_leaf(b"token", "token".to_string(), None, LeafType::Token, 1000).unwrap();
+    let leaf_id = leaf.id;
 
-    // Transfer Nova -> Zephyr
     vault.transfer_stewardship(&leaf_id, ZEPHYR, 2000).unwrap();
 
-    // Now Zephyr is steward, but vault is Nova's — so we need to
-    // directly update via store to simulate Zephyr transferring.
-    // In a real system, Zephyr's vault would do this.
     vault.artifact_store_mut().record_stewardship_transfer(
         &leaf_id,
         StewardshipRecord { from: ZEPHYR, to: SAGE, timestamp: 3000 },
@@ -1124,18 +1095,18 @@ fn test_steward_history_multiple_transfers() {
 }
 
 // ----------------------------------------------------------------------------
-// Feature 2: Exchange Rejection Tests
+// Exchange Rejection Tests
 // ----------------------------------------------------------------------------
 
 #[test]
 fn test_exchange_reject() {
     let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
-    let my_artifact = vault.place_leaf(b"my item", LeafType::Token, 1000).unwrap();
+    let my_artifact = vault.place_leaf(b"my item", "my_item".to_string(), None, LeafType::Token, 1000).unwrap();
     let their_artifact_id = generate_tree_id();
 
     let exchange = Exchange::propose(
         &mut vault,
-        my_artifact.id.clone(),
+        my_artifact.id,
         their_artifact_id,
         vec![NOVA, ZEPHYR],
         1000,
@@ -1151,12 +1122,12 @@ fn test_exchange_reject() {
 #[test]
 fn test_exchange_accept_fails_after_rejection() {
     let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
-    let my_artifact = vault.place_leaf(b"my item", LeafType::Token, 1000).unwrap();
+    let my_artifact = vault.place_leaf(b"my item", "my_item".to_string(), None, LeafType::Token, 1000).unwrap();
     let their_artifact_id = generate_tree_id();
 
     let exchange = Exchange::propose(
         &mut vault,
-        my_artifact.id.clone(),
+        my_artifact.id,
         their_artifact_id,
         vec![NOVA, ZEPHYR],
         1000,
@@ -1171,12 +1142,12 @@ fn test_exchange_accept_fails_after_rejection() {
 #[test]
 fn test_exchange_complete_fails_after_rejection() {
     let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
-    let my_artifact = vault.place_leaf(b"my item", LeafType::Token, 1000).unwrap();
+    let my_artifact = vault.place_leaf(b"my item", "my_item".to_string(), None, LeafType::Token, 1000).unwrap();
     let their_artifact_id = generate_tree_id();
 
     let exchange = Exchange::propose(
         &mut vault,
-        my_artifact.id.clone(),
+        my_artifact.id,
         their_artifact_id,
         vec![NOVA, ZEPHYR],
         1000,
@@ -1191,13 +1162,23 @@ fn test_exchange_complete_fails_after_rejection() {
 #[test]
 fn test_exchange_complete_sets_completed_status() {
     let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
-    let my_artifact = vault.place_leaf(b"my item", LeafType::Token, 1000).unwrap();
+    let my_artifact = vault.place_leaf(b"my item", "my_item".to_string(), None, LeafType::Token, 1000).unwrap();
 
     let their_artifact = LeafArtifact {
         id: leaf_id(b"their item for complete test"),
+        name: "their_item".to_string(),
         size: 10,
+        mime_type: None,
         steward: ZEPHYR,
-        audience: vec![ZEPHYR],
+        grants: vec![AccessGrant {
+            grantee: ZEPHYR,
+            mode: AccessMode::Permanent,
+            granted_at: 1000,
+            granted_by: ZEPHYR,
+        }],
+        status: ArtifactStatus::Active,
+        parent: None,
+        provenance: None,
         artifact_type: LeafType::Token,
         created_at: 1000,
         blessing_history: Vec::new(),
@@ -1206,13 +1187,12 @@ fn test_exchange_complete_sets_completed_status() {
 
     let exchange = Exchange::propose(
         &mut vault,
-        my_artifact.id.clone(),
-        their_artifact.id.clone(),
+        my_artifact.id,
+        their_artifact.id,
         vec![NOVA, ZEPHYR],
         1000,
     ).unwrap();
 
-    // Both accept
     exchange.accept(&mut vault).unwrap();
     let mut exch_artifact = vault.get_artifact(&exchange.id).unwrap().unwrap();
     let exch_tree = exch_artifact.as_tree_mut().unwrap();
@@ -1222,16 +1202,14 @@ fn test_exchange_complete_sets_completed_status() {
 
     exchange.complete(&mut vault, 3000).unwrap();
 
-    // Should now be closed
     assert!(exchange.is_closed(&vault).unwrap());
 
-    // Cannot complete again
     let result = exchange.complete(&mut vault, 4000);
     assert!(matches!(result, Err(VaultError::ExchangeClosed)));
 }
 
 // ----------------------------------------------------------------------------
-// Feature 3: Deterministic DM Story ID Tests
+// Deterministic DM Story ID Tests
 // ----------------------------------------------------------------------------
 
 #[test]
@@ -1255,20 +1233,18 @@ fn test_story_create_dm() {
 
     let story = Story::create_dm(&mut vault, ZEPHYR, 1000).unwrap();
 
-    // ID should match the deterministic DM ID
     let expected_id = dm_story_id(NOVA, ZEPHYR);
     assert_eq!(story.id, expected_id);
 
-    // Verify it's a Story tree with both players in audience
     let artifact = vault.get_artifact(&story.id).unwrap().unwrap();
     let tree = artifact.as_tree().unwrap();
     assert_eq!(tree.artifact_type, TreeType::Story);
-    assert!(tree.audience.contains(&NOVA));
-    assert!(tree.audience.contains(&ZEPHYR));
+    assert!(tree.grants.iter().any(|g| g.grantee == NOVA));
+    assert!(tree.grants.iter().any(|g| g.grantee == ZEPHYR));
 }
 
 // ----------------------------------------------------------------------------
-// Feature 4: Request Wrapper Tests
+// Request Wrapper Tests
 // ----------------------------------------------------------------------------
 
 #[test]
@@ -1286,7 +1262,6 @@ fn test_request_create() {
     let tree = artifact.as_tree().unwrap();
     assert_eq!(tree.artifact_type, TreeType::Request);
 
-    // Should have description
     let desc = request.description(&vault).unwrap();
     assert!(desc.is_some());
     assert!(desc.unwrap().is_leaf());
@@ -1303,21 +1278,19 @@ fn test_request_add_offers() {
         1000,
     ).unwrap();
 
-    // Create 3 offer artifacts
-    let offer1 = vault.place_leaf(b"offer 1", LeafType::Token, 2000).unwrap();
-    let offer2 = vault.place_leaf(b"offer 2", LeafType::Token, 3000).unwrap();
-    let offer3 = vault.place_leaf(b"offer 3", LeafType::Token, 4000).unwrap();
+    let offer1 = vault.place_leaf(b"offer 1", "offer1".to_string(), None, LeafType::Token, 2000).unwrap();
+    let offer2 = vault.place_leaf(b"offer 2", "offer2".to_string(), None, LeafType::Token, 3000).unwrap();
+    let offer3 = vault.place_leaf(b"offer 3", "offer3".to_string(), None, LeafType::Token, 4000).unwrap();
 
-    request.add_offer(&mut vault, offer1.id.clone()).unwrap();
-    request.add_offer(&mut vault, offer2.id.clone()).unwrap();
-    request.add_offer(&mut vault, offer3.id.clone()).unwrap();
+    request.add_offer(&mut vault, offer1.id).unwrap();
+    request.add_offer(&mut vault, offer2.id).unwrap();
+    request.add_offer(&mut vault, offer3.id).unwrap();
 
     assert_eq!(request.offer_count(&vault).unwrap(), 3);
 
     let offers = request.offers(&vault).unwrap();
     assert_eq!(offers.len(), 3);
 
-    // All should have "offer" label
     for (r, _) in &offers {
         assert_eq!(r.label.as_deref(), Some("offer"));
     }
@@ -1342,7 +1315,7 @@ fn test_request_description_content() {
 }
 
 // ----------------------------------------------------------------------------
-// Feature 5: Inbox Tests
+// Inbox Tests
 // ----------------------------------------------------------------------------
 
 #[test]
@@ -1353,7 +1326,7 @@ fn test_create_inbox() {
 
     assert_eq!(inbox.artifact_type, TreeType::Inbox);
     assert_eq!(inbox.steward, NOVA);
-    assert_eq!(inbox.audience, vec![NOVA]);
+    assert!(inbox.grants.iter().any(|g| g.grantee == NOVA));
 }
 
 #[test]
@@ -1361,14 +1334,12 @@ fn test_add_connection_request_to_inbox() {
     let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
 
     let inbox = vault.create_inbox(1000).unwrap();
-    let inbox_id = inbox.id.clone();
+    let inbox_id = inbox.id;
 
-    // Create an artifact to reference in the connection request
-    let artifact = vault.place_leaf(b"hello from Zephyr", LeafType::Message, 2000).unwrap();
+    let artifact = vault.place_leaf(b"hello from Zephyr", "greeting".to_string(), None, LeafType::Message, 2000).unwrap();
 
-    vault.add_connection_request(&inbox_id, ZEPHYR, artifact.id.clone(), 2000).unwrap();
+    vault.add_connection_request(&inbox_id, ZEPHYR, artifact.id, 2000).unwrap();
 
-    // Verify the ref appears
     let inbox_artifact = vault.get_artifact(&inbox_id).unwrap().unwrap();
     let tree = inbox_artifact.as_tree().unwrap();
     assert_eq!(tree.references.len(), 1);
@@ -1382,16 +1353,21 @@ fn test_add_connection_request_to_inbox() {
 }
 
 // ----------------------------------------------------------------------------
-// Feature 6: Token Valuation / Blessing History Tests
+// Token Valuation / Blessing History Tests
 // ----------------------------------------------------------------------------
 
 #[test]
 fn test_compute_token_value_zero() {
     let token = LeafArtifact {
         id: leaf_id(b"cold token"),
+        name: "cold_token".to_string(),
         size: 10,
+        mime_type: None,
         steward: NOVA,
-        audience: vec![NOVA],
+        grants: vec![],
+        status: ArtifactStatus::Active,
+        parent: None,
+        provenance: None,
         artifact_type: LeafType::Token,
         created_at: 1000,
         blessing_history: Vec::new(),
@@ -1405,9 +1381,14 @@ fn test_compute_token_value_zero() {
 fn test_compute_token_value_with_blessings() {
     let token = LeafArtifact {
         id: leaf_id(b"blessed token"),
+        name: "blessed_token".to_string(),
         size: 10,
+        mime_type: None,
         steward: NOVA,
-        audience: vec![NOVA],
+        grants: vec![],
+        status: ArtifactStatus::Active,
+        parent: None,
+        provenance: None,
         artifact_type: LeafType::Token,
         created_at: 1000,
         blessing_history: vec![
@@ -1434,9 +1415,14 @@ fn test_compute_token_value_with_blessings() {
 fn test_compute_token_value_with_steward_history() {
     let token = LeafArtifact {
         id: leaf_id(b"traveled token"),
+        name: "traveled_token".to_string(),
         size: 10,
+        mime_type: None,
         steward: SAGE,
-        audience: vec![SAGE],
+        grants: vec![],
+        status: ArtifactStatus::Active,
+        parent: None,
+        provenance: None,
         artifact_type: LeafType::Token,
         created_at: 1000,
         blessing_history: Vec::new(),
@@ -1455,9 +1441,14 @@ fn test_compute_token_value_with_steward_history() {
 fn test_compute_token_value_all_components() {
     let token = LeafArtifact {
         id: leaf_id(b"hot blessed traveled token"),
+        name: "hot_token".to_string(),
         size: 10,
+        mime_type: None,
         steward: SAGE,
-        audience: vec![SAGE],
+        grants: vec![],
+        status: ArtifactStatus::Active,
+        parent: None,
+        provenance: None,
         artifact_type: LeafType::Token,
         created_at: 1000,
         blessing_history: vec![
@@ -1478,4 +1469,60 @@ fn test_compute_token_value_all_components() {
     let value = compute_token_value(&token, &history, 0.8);
     assert!(value > 0.3, "Token with heat + blessings + history should have significant value");
     assert!(value <= 1.0);
+}
+
+// ----------------------------------------------------------------------------
+// Grant & Access Control Tests (new)
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_vault_grant_and_revoke_access() {
+    let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
+    let leaf = vault.place_leaf(b"test", "test".to_string(), None, LeafType::Message, 1000).unwrap();
+
+    vault.grant_access(&leaf.id, ZEPHYR, AccessMode::Revocable, 2000).unwrap();
+
+    let artifact = vault.get_artifact(&leaf.id).unwrap().unwrap();
+    assert_eq!(artifact.grants().len(), 2); // NOVA (permanent) + ZEPHYR (revocable)
+
+    vault.revoke_access(&leaf.id, &ZEPHYR).unwrap();
+
+    let artifact = vault.get_artifact(&leaf.id).unwrap().unwrap();
+    assert_eq!(artifact.grants().len(), 1);
+}
+
+#[test]
+fn test_vault_cannot_revoke_permanent() {
+    let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
+    let leaf = vault.place_leaf(b"test", "test".to_string(), None, LeafType::Message, 1000).unwrap();
+
+    vault.grant_access(&leaf.id, ZEPHYR, AccessMode::Permanent, 2000).unwrap();
+
+    let result = vault.revoke_access(&leaf.id, &ZEPHYR);
+    assert!(matches!(result, Err(VaultError::CannotRevoke)));
+}
+
+#[test]
+fn test_vault_recall() {
+    let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
+    let leaf = vault.place_leaf(b"test", "test".to_string(), None, LeafType::Message, 1000).unwrap();
+
+    vault.recall(&leaf.id, 2000).unwrap();
+
+    let artifact = vault.get_artifact(&leaf.id).unwrap().unwrap();
+    assert!(!artifact.status().is_active());
+}
+
+#[test]
+fn test_vault_audience_from_grants() {
+    let mut vault = Vault::in_memory(NOVA, 1000).unwrap();
+    let leaf = vault.place_leaf(b"test", "test".to_string(), None, LeafType::Message, 1000).unwrap();
+
+    vault.grant_access(&leaf.id, ZEPHYR, AccessMode::Revocable, 2000).unwrap();
+
+    let artifact = vault.get_artifact(&leaf.id).unwrap().unwrap();
+    let audience = artifact.audience(2000);
+    assert_eq!(audience.len(), 2);
+    assert!(audience.contains(&NOVA));
+    assert!(audience.contains(&ZEPHYR));
 }

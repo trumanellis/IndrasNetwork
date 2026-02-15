@@ -3252,8 +3252,6 @@ version = "1.0.0"
 dependencies = [
  "blake3",
  "bytes",
- "chrono",
- "postcard",
  "rand 0.9.2",
  "serde",
  "thiserror 2.0.18",
@@ -3517,6 +3515,7 @@ dependencies = [
  "derive_more 2.1.1",
  "futures",
  "image",
+ "indras-artifacts",
  "indras-core",
  "indras-crypto",
  "indras-messaging",

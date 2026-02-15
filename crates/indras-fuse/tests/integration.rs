@@ -73,8 +73,7 @@ fn test_create_and_flush_file() {
 
     // Create a leaf artifact and compose it into vault root
     let data = b"test file content";
-    let leaf = vault
-        .place_leaf(data, LeafType::File, now)
+    let leaf = vault.place_leaf(data, "test".to_string(), None, LeafType::File, now)
         .expect("place_leaf should succeed");
     let leaf_id = leaf.id.clone();
 
@@ -200,8 +199,7 @@ fn test_attention_fires_on_open() {
 
     // Create a file artifact
     let data = b"attention test";
-    let leaf = vault
-        .place_leaf(data, LeafType::File, now)
+    let leaf = vault.place_leaf(data, "test".to_string(), None, LeafType::File, now)
         .expect("place_leaf should succeed");
     let leaf_id = leaf.id.clone();
 
@@ -293,15 +291,13 @@ fn test_populate_artifact_children() {
     // Create multiple files in the vault root
     let vault_root_id = vault.root.id.clone();
 
-    let leaf1 = vault
-        .place_leaf(b"content1", LeafType::File, now)
+    let leaf1 = vault.place_leaf(b"content1", "test".to_string(), None, LeafType::File, now)
         .expect("place_leaf should succeed");
     vault
         .compose(&vault_root_id, leaf1.id.clone(), 0, Some("file1.txt".to_string()))
         .expect("compose should succeed");
 
-    let leaf2 = vault
-        .place_leaf(b"content2", LeafType::File, now)
+    let leaf2 = vault.place_leaf(b"content2", "test".to_string(), None, LeafType::File, now)
         .expect("place_leaf should succeed");
     vault
         .compose(&vault_root_id, leaf2.id.clone(), 1, Some("file2.txt".to_string()))
@@ -378,8 +374,7 @@ fn test_write_buffer_preserves_existing_content() {
 
     // Create a file with existing content
     let original_data = b"original content here";
-    let leaf = vault
-        .place_leaf(original_data, LeafType::File, now)
+    let leaf = vault.place_leaf(original_data, "test".to_string(), None, LeafType::File, now)
         .expect("place_leaf should succeed");
     let leaf_id = leaf.id.clone();
 
@@ -415,8 +410,7 @@ fn test_inode_allocation_and_deduplication() {
     let mut vault = Vault::in_memory(player, now).expect("Failed to create vault");
 
     // Create a file
-    let leaf = vault
-        .place_leaf(b"test", LeafType::File, now)
+    let leaf = vault.place_leaf(b"test", "test".to_string(), None, LeafType::File, now)
         .expect("place_leaf should succeed");
     let leaf_id = leaf.id.clone();
 
