@@ -15,9 +15,11 @@ use crate::components::quest::{QuestView, QuestKind, ProofEntry, ProofArtifact, 
 use crate::components::settings::SettingsView;
 use crate::components::setup::SetupView;
 use crate::components::pass_story::PassStoryOverlay;
+use crate::components::event_log::EventLogView;
+use crate::state::workspace::{EventDirection, log_event};
 use crate::components::bottom_nav::{BottomNav, NavTab};
 use crate::components::fab::Fab;
-use crate::state::workspace::{WorkspaceState, ViewType, AppPhase};
+use crate::state::workspace::{WorkspaceState, ViewType, AppPhase, PeerDisplayInfo};
 use crate::state::navigation::{NavigationState, VaultTreeNode};
 use crate::state::editor::{EditorState, DocumentMeta};
 
@@ -96,18 +98,104 @@ pub fn RootApp() -> Element {
                                     player_id,
                                     player_name: player_name.clone(),
                                 }));
+                                let net = Arc::clone(&nh.network);
                                 network_handle.set(Some(nh));
-                                workspace.write().phase = AppPhase::Workspace;
+                                {
+                                    let mut ws = workspace.write();
+                                    ws.phase = AppPhase::Workspace;
+                                    log_event(&mut ws, EventDirection::System, format!("Identity loaded: {}", player_name));
+                                }
+
+                                // Start the network (enables inbox listener for incoming connections)
+                                log_event(&mut workspace.write(), EventDirection::System, "Starting network...".to_string());
+                                if let Err(e) = net.start().await {
+                                    tracing::warn!(error = %e, "Failed to start network (non-fatal)");
+                                    log_event(&mut workspace.write(), EventDirection::System, format!("Network start warning: {}", e));
+                                } else {
+                                    log_event(&mut workspace.write(), EventDirection::System, "Network started \u{2014} listening for connections".to_string());
+                                }
+
+                                // Join contacts realm so inbox listener can store contacts
+                                if let Err(e) = net.join_contacts_realm().await {
+                                    tracing::warn!(error = %e, "Failed to join contacts realm (non-fatal)");
+                                }
                             }
                             Err(e) => {
                                 tracing::error!("Vault creation failed: {}", e);
-                                workspace.write().phase = AppPhase::Setup;
+                                {
+                                    let mut ws = workspace.write();
+                                    ws.phase = AppPhase::Setup;
+                                    log_event(&mut ws, EventDirection::System, format!("ERROR: Vault creation failed: {}", e));
+                                }
                             }
                         }
                     }
                     Err(e) => {
                         tracing::error!("Failed to load identity: {}", e);
-                        workspace.write().phase = AppPhase::Setup;
+                        {
+                            let mut ws = workspace.write();
+                            ws.phase = AppPhase::Setup;
+                            log_event(&mut ws, EventDirection::System, format!("ERROR: Failed to load identity: {}", e));
+                        }
+                    }
+                }
+            }
+        });
+    });
+
+    // Poll contacts realm every 2 seconds to detect new connections
+    let peer_colors = [
+        "peer-dot-sage", "peer-dot-zeph", "peer-dot-rose",
+        "peer-dot-sage", "peer-dot-zeph", "peer-dot-rose",
+    ];
+    use_effect(move || {
+        spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+                // Only poll when in Workspace phase
+                if workspace.read().phase != AppPhase::Workspace {
+                    continue;
+                }
+
+                let net = {
+                    let guard = network_handle.read();
+                    guard.as_ref().map(|nh| nh.network.clone())
+                };
+                let Some(net) = net else { continue; };
+
+                if let Some(contacts_realm) = net.contacts_realm().await {
+                    if let Ok(doc) = contacts_realm.contacts().await {
+                        let data = doc.read().await;
+                        let current_count = workspace.read().peers.entries.len();
+                        let new_count = data.contacts.len();
+
+                        if new_count != current_count {
+                            let entries: Vec<PeerDisplayInfo> = data.contacts.iter().enumerate().map(|(i, (mid, entry))| {
+                                let name = entry.display_name.clone().unwrap_or_else(|| {
+                                    mid.iter().take(4).map(|b| format!("{:02x}", b)).collect()
+                                });
+                                let letter = name.chars().next().unwrap_or('?').to_string();
+                                let color = peer_colors[i % peer_colors.len()].to_string();
+                                PeerDisplayInfo {
+                                    name,
+                                    letter,
+                                    color_class: color,
+                                    online: true,
+                                    player_id: *mid,
+                                }
+                            }).collect();
+
+                            // Log new contacts
+                            for entry in &entries {
+                                let already_known = workspace.read().peers.entries.iter().any(|p| p.player_id == entry.player_id);
+                                if !already_known {
+                                    log_event(&mut workspace.write(), EventDirection::Received, format!("Contact confirmed: {}", entry.name));
+                                }
+                            }
+
+                            workspace.write().peers.entries = entries;
+                        }
                     }
                 }
             }
@@ -567,6 +655,9 @@ pub fn RootApp() -> Element {
                         for node in &mut ws_signal.write().nav.vault_tree {
                             node.active = node.id == new_node_id;
                         }
+
+                        // Log artifact creation
+                        log_event(&mut ws_signal.write(), EventDirection::System, format!("Created: {}", label));
                     }
 
                     // Leaf block actions - add to currently active tree
@@ -869,8 +960,27 @@ pub fn RootApp() -> Element {
                                             player_id,
                                             player_name: name.clone(),
                                         }));
+                                        let net = Arc::clone(&nh.network);
                                         network_handle.set(Some(nh));
-                                        workspace.write().phase = AppPhase::Workspace;
+                                        {
+                                            let mut ws = workspace.write();
+                                            ws.phase = AppPhase::Workspace;
+                                            log_event(&mut ws, EventDirection::System, format!("Identity created: {}", name));
+                                        }
+
+                                        // Start the network (enables inbox listener for incoming connections)
+                                        log_event(&mut workspace.write(), EventDirection::System, "Starting network...".to_string());
+                                        if let Err(e) = net.start().await {
+                                            tracing::warn!(error = %e, "Failed to start network (non-fatal)");
+                                            log_event(&mut workspace.write(), EventDirection::System, format!("Network start warning: {}", e));
+                                        } else {
+                                            log_event(&mut workspace.write(), EventDirection::System, "Network started \u{2014} listening for connections".to_string());
+                                        }
+
+                                        // Join contacts realm so inbox listener can store contacts
+                                        if let Err(e) = net.join_contacts_realm().await {
+                                            tracing::warn!(error = %e, "Failed to join contacts realm (non-fatal)");
+                                        }
                                     }
                                     Err(e) => setup_error.set(Some(format!("{}", e))),
                                 }
@@ -997,26 +1107,9 @@ pub fn RootApp() -> Element {
                         }
                         ViewType::Document => {
                             if editor.blocks.is_empty() && editor.title.is_empty() {
-                                // Welcome placeholder
+                                let event_log = workspace.read().event_log.clone();
                                 rsx! {
-                                    div {
-                                        class: "view active",
-                                        div {
-                                            class: "content-scroll",
-                                            div {
-                                                class: "content-body",
-                                                div { class: "doc-title", "Welcome to Indras Workspace" }
-                                                div {
-                                                    class: "doc-meta",
-                                                    span { class: "doc-meta-tag type-document", "Document" }
-                                                }
-                                                div {
-                                                    class: "block",
-                                                    p { "Select an item from the sidebar, or press / to create something new." }
-                                                }
-                                            }
-                                        }
-                                    }
+                                    EventLogView { event_log: event_log }
                                 }
                             } else {
                                 rsx! {
@@ -1164,8 +1257,9 @@ pub fn RootApp() -> Element {
                     parsed_inviter_name: ci_parsed,
                     on_connect: move |uri: String| {
                         contact_invite_status.set(None);
-                        let vh_signal = vault_handle.clone();
                         spawn(async move {
+                            tracing::info!(uri = %uri, "on_connect: parsing identity/invite code");
+
                             // Parse identity code to extract peer info
                             let (code, peer_name) = match IdentityCode::parse_uri(&uri) {
                                 Ok(parsed) => parsed,
@@ -1175,22 +1269,35 @@ pub fn RootApp() -> Element {
                                 }
                             };
                             let peer_id = code.member_id();
+                            let peer_display = peer_name.clone().unwrap_or_else(|| "peer".to_string());
+
+                            // Clone Arcs from signals BEFORE any .await to avoid
+                            // holding Signal read guards across await points
+                            let net = {
+                                let guard = network_handle.read();
+                                guard.as_ref().map(|nh| nh.network.clone())
+                            };
+                            let vh = {
+                                let guard = vault_handle.read();
+                                guard.clone()
+                            };
 
                             // Register as peer artifact in the vault
-                            if let Some(vh) = vh_signal.read().as_ref() {
+                            if let Some(vh) = vh.as_ref() {
                                 let mut vault = vh.vault.lock().await;
                                 let now = chrono::Utc::now().timestamp_millis();
 
                                 // Add peer to vault's peer registry
                                 if let Err(e) = vault.peer(peer_id, peer_name.clone(), now) {
                                     tracing::warn!("Failed to register peer in vault: {}", e);
+                                } else {
+                                    log_event(&mut workspace.write(), EventDirection::System, format!("Peer registered: {}", peer_display));
                                 }
 
                                 // Create a Contact tree artifact for this peer
                                 let audience = vec![vh.player_id, peer_id];
                                 match vault.place_tree(TreeType::Custom("Contact".to_string()), audience, now) {
                                     Ok(contact_tree) => {
-                                        // Store the identity code as a leaf
                                         let contact_payload = serde_json::json!({
                                             "identity_code": uri,
                                             "display_name": peer_name,
@@ -1210,7 +1317,6 @@ pub fn RootApp() -> Element {
                                             );
                                         }
 
-                                        // Add contact tree to root vault
                                         let root_id = vault.root.id.clone();
                                         let position = match vault.get_artifact(&root_id) {
                                             Ok(Some(Artifact::Tree(t))) => t.references.len() as u64,
@@ -1230,19 +1336,37 @@ pub fn RootApp() -> Element {
                                 }
                             }
 
-                            // Also connect via network layer
-                            if let Some(nh) = network_handle.read().as_ref() {
-                                match nh.network.connect_by_code(&uri).await {
-                                    Ok(_realm) => {
-                                        contact_invite_status.set(Some("success:Connected!".into()));
-                                    }
-                                    Err(e) => {
-                                        contact_invite_status.set(Some(format!("error:{}", e)));
-                                    }
+                            // Connect via network layer
+                            let Some(net) = net else {
+                                tracing::error!("on_connect: network is None");
+                                contact_invite_status.set(Some("error:Network not ready".into()));
+                                return;
+                            };
+
+                            tracing::info!("on_connect: connecting to {}...", peer_display);
+                            match net.connect_by_code(&uri).await {
+                                Ok(_realm) => {
+                                    tracing::info!("on_connect: connection established with {}", peer_display);
+                                    log_event(&mut workspace.write(), EventDirection::Sent, format!("Connected to {}", peer_display));
+                                    contact_invite_status.set(Some("success:Connected!".into()));
+                                    // Clear input and close overlay on success
+                                    contact_invite_input.set(String::new());
+                                    contact_parsed_name.set(None);
+                                    // Close overlay after a brief moment so user sees success
+                                    tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+                                    contact_invite_open.set(false);
+                                    contact_invite_status.set(None);
                                 }
-                            } else {
-                                // No network handle, but vault peer was registered
-                                contact_invite_status.set(Some("success:Contact added!".into()));
+                                Err(e) => {
+                                    let err_str = e.to_string();
+                                    tracing::error!(error = %err_str, "on_connect: connect failed");
+                                    log_event(&mut workspace.write(), EventDirection::System, format!("ERROR: Connection failed: {}", err_str));
+                                    contact_invite_status.set(Some(format!("error:Connection failed: {}", err_str)));
+                                    // Close overlay after showing error briefly
+                                    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+                                    contact_invite_open.set(false);
+                                    contact_invite_status.set(None);
+                                }
                             }
                         });
                     },
@@ -1265,8 +1389,9 @@ pub fn RootApp() -> Element {
                         }
                         contact_copy_feedback.set(true);
                         spawn(async move {
-                            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                            tokio::time::sleep(std::time::Duration::from_millis(800)).await;
                             contact_copy_feedback.set(false);
+                            contact_invite_open.set(false);
                         });
                     },
                 }
