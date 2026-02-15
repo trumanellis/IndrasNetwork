@@ -1,4 +1,4 @@
-//! Omni V2 - Live Multi-Screen Dashboard Components
+//! Omni Viewer - Live Multi-Screen Dashboard Components
 //!
 //! Each column is a live viewport into what one member is currently seeing.
 //! As events stream in, members "flip between screens" and we watch it
@@ -27,31 +27,31 @@ struct ContactProfileContext {
 }
 
 // ============================================================================
-// OMNI V2 APP - Top-level component
+// OMNI APP - Top-level component
 // ============================================================================
 
-/// Top-level V2 omni viewer component
+/// Top-level omni viewer component
 #[component]
-pub fn OmniV2App(state: Signal<AppState>) -> Element {
+pub fn OmniApp(state: Signal<AppState>) -> Element {
     let narrative = state.read().generate_narrative();
 
     rsx! {
         document::Title { "{narrative}" }
         ThemedRoot {
             ThemeSwitcher {}
-            OmniV2Dashboard { state }
+            OmniDashboard { state }
             FloatingControlBar { state }
         }
     }
 }
 
 // ============================================================================
-// OMNI V2 DASHBOARD - CSS Grid layout
+// OMNI DASHBOARD - CSS Grid layout
 // ============================================================================
 
 /// Grid layout showing all member columns
 #[component]
-fn OmniV2Dashboard(state: Signal<AppState>) -> Element {
+fn OmniDashboard(state: Signal<AppState>) -> Element {
     let members = state.read().all_members();
     let column_count = members.len().max(1);
 
@@ -235,13 +235,13 @@ fn ColumnBody(state: Signal<AppState>, member: String) -> Element {
     rsx! {
         div { class: "column-body",
             match screen {
-                MemberScreen::Home => rsx! { V2HomeScreen { state, member: member.clone() } },
-                MemberScreen::QuestBoard => rsx! { V2QuestScreen { state, member: member.clone() } },
-                MemberScreen::Chat => rsx! { V2ChatScreen { state, member: member.clone() } },
-                MemberScreen::ProofEditor => rsx! { V2ProofScreen { state, member: member.clone() } },
-                MemberScreen::Artifacts => rsx! { V2ArtifactScreen { state, member: member.clone() } },
-                MemberScreen::Realms => rsx! { V2RealmsScreen { state, member: member.clone() } },
-                MemberScreen::Activity => rsx! { V2HomeScreen { state, member: member.clone() } },
+                MemberScreen::Home => rsx! { HomeScreen { state, member: member.clone() } },
+                MemberScreen::QuestBoard => rsx! { QuestScreen { state, member: member.clone() } },
+                MemberScreen::Chat => rsx! { ChatScreen { state, member: member.clone() } },
+                MemberScreen::ProofEditor => rsx! { ProofScreen { state, member: member.clone() } },
+                MemberScreen::Artifacts => rsx! { ArtifactScreen { state, member: member.clone() } },
+                MemberScreen::Realms => rsx! { RealmsScreen { state, member: member.clone() } },
+                MemberScreen::Activity => rsx! { HomeScreen { state, member: member.clone() } },
             }
         }
     }
@@ -278,12 +278,12 @@ fn ColumnFooter(state: Signal<AppState>, member: String) -> Element {
 }
 
 // ============================================================================
-// V2 HOME SCREEN - Profile + focus + contacts + tokens
+//HOME SCREEN - Profile + focus + contacts + tokens
 // ============================================================================
 
 /// Home screen: profile card with avatar, name, headline, bio, contacts, tokens
 #[component]
-fn V2HomeScreen(state: Signal<AppState>, member: String) -> Element {
+fn HomeScreen(state: Signal<AppState>, member: String) -> Element {
     let name = member_name(&member);
     let initial = name.chars().next().unwrap_or('?');
     let color_class = member_color_class(&member);
@@ -491,12 +491,12 @@ fn ContactProfileOverlay(state: Signal<AppState>, viewing: Signal<Option<String>
 }
 
 // ============================================================================
-// V2 QUEST SCREEN - Quest list + create form + claim buttons
+//QUEST SCREEN - Quest list + create form + claim buttons
 // ============================================================================
 
 /// Quest screen: quest list with attention bars, create form, claim buttons
 #[component]
-fn V2QuestScreen(state: Signal<AppState>, member: String) -> Element {
+fn QuestScreen(state: Signal<AppState>, member: String) -> Element {
     let mut show_create_form = use_signal(|| false);
     let mut quest_title_draft = use_signal(String::new);
 
@@ -608,11 +608,11 @@ fn V2QuestScreen(state: Signal<AppState>, member: String) -> Element {
 }
 
 // ============================================================================
-// V2 CHAT SCREEN - Messages + input + action menu
+//CHAT SCREEN - Messages + input + action menu
 // ============================================================================
 
-/// Enriched chat content for V2 rendering
-enum V2ChatContent {
+/// Enriched chat content for rendering
+enum ChatContent {
     Text(String),
     ProofFolder {
         quest_id: String,
@@ -627,19 +627,19 @@ enum V2ChatContent {
     },
 }
 
-/// A single chat message ready for V2 rendering
-struct V2ChatMsg {
+/// A single chat message ready for rendering
+struct ChatMsg {
     tick: u32,
     sender: String,
     #[allow(dead_code)]
     sender_id: String,
     color_class: String,
-    content: V2ChatContent,
+    content: ChatContent,
 }
 
 /// Chat screen: scrollable messages, input row, action menu
 #[component]
-fn V2ChatScreen(state: Signal<AppState>, member: String) -> Element {
+fn ChatScreen(state: Signal<AppState>, member: String) -> Element {
     let mut draft = use_signal(String::new);
     let mut show_action_menu = use_signal(|| false);
     let mut showing_quest_selector = use_signal(|| false);
@@ -654,7 +654,7 @@ fn V2ChatScreen(state: Signal<AppState>, member: String) -> Element {
     let realm_ids: Vec<String> = member_realms.iter().map(|r| r.realm_id.clone()).collect();
 
     // Collect messages with rich content types
-    let mut messages: Vec<V2ChatMsg> = Vec::new();
+    let mut messages: Vec<ChatMsg> = Vec::new();
     let mut seen_ids: std::collections::HashSet<&str> = std::collections::HashSet::new();
 
     for realm_id in &realm_ids {
@@ -664,12 +664,12 @@ fn V2ChatScreen(state: Signal<AppState>, member: String) -> Element {
                     seen_ids.insert(&msg.id);
                     let sender = member_name(&msg.member);
                     let content = match &msg.message_type {
-                        crate::state::ChatMessageType::Text => V2ChatContent::Text(msg.content.clone()),
+                        crate::state::ChatMessageType::Text => ChatContent::Text(msg.content.clone()),
                         crate::state::ChatMessageType::ProofSubmitted { quest_title, .. } => {
-                            V2ChatContent::Text(format!("[Proof: {}]", quest_title))
+                            ChatContent::Text(format!("[Proof: {}]", quest_title))
                         }
                         crate::state::ChatMessageType::ProofFolderSubmitted { quest_id, quest_title, artifact_count, folder_id, .. } => {
-                            V2ChatContent::ProofFolder {
+                            ChatContent::ProofFolder {
                                 quest_id: quest_id.clone(),
                                 quest_title: quest_title.clone(),
                                 claimant: msg.member.clone(),
@@ -678,7 +678,7 @@ fn V2ChatScreen(state: Signal<AppState>, member: String) -> Element {
                             }
                         }
                         crate::state::ChatMessageType::BlessingGiven { claimant, attention_millis, .. } => {
-                            V2ChatContent::Blessing {
+                            ChatContent::Blessing {
                                 claimant_name: member_name(claimant),
                                 duration_text: format_duration_millis(*attention_millis),
                             }
@@ -686,15 +686,15 @@ fn V2ChatScreen(state: Signal<AppState>, member: String) -> Element {
                         crate::state::ChatMessageType::Image { alt_text, filename, .. } => {
                             let desc = alt_text.as_ref().or(filename.as_ref())
                                 .map(|s| s.as_str()).unwrap_or("image");
-                            V2ChatContent::Text(format!("[Image: {}]", desc))
+                            ChatContent::Text(format!("[Image: {}]", desc))
                         }
                         crate::state::ChatMessageType::Gallery { title, items, .. } => {
                             let desc = title.as_deref().unwrap_or("gallery");
-                            V2ChatContent::Text(format!("[Gallery: {} ({} items)]", desc, items.len()))
+                            ChatContent::Text(format!("[Gallery: {} ({} items)]", desc, items.len()))
                         }
                     };
                     let color_class = member_color_class(&msg.member).to_string();
-                    messages.push(V2ChatMsg {
+                    messages.push(ChatMsg {
                         tick: msg.tick,
                         sender,
                         sender_id: msg.member.clone(),
@@ -711,11 +711,11 @@ fn V2ChatScreen(state: Signal<AppState>, member: String) -> Element {
         if !msg.is_deleted && msg.member == member && !seen_ids.contains(msg.id.as_str()) {
             let sender = member_name(&msg.member);
             let content = match &msg.message_type {
-                crate::state::ChatMessageType::Text => V2ChatContent::Text(msg.content.clone()),
-                _ => V2ChatContent::Text(msg.content.chars().take(50).collect()),
+                crate::state::ChatMessageType::Text => ChatContent::Text(msg.content.clone()),
+                _ => ChatContent::Text(msg.content.chars().take(50).collect()),
             };
             let color_class = member_color_class(&msg.member).to_string();
-            messages.push(V2ChatMsg {
+            messages.push(ChatMsg {
                 tick: msg.tick,
                 sender,
                 sender_id: msg.member.clone(),
@@ -734,7 +734,7 @@ fn V2ChatScreen(state: Signal<AppState>, member: String) -> Element {
     // unreleased attention on that quest who haven't blessed yet
     let gratitude_data: std::collections::HashMap<String, Vec<(String, String, u64)>> = messages.iter()
         .filter_map(|msg| {
-            if let V2ChatContent::ProofFolder { quest_id, claimant, folder_id, .. } = &msg.content {
+            if let ChatContent::ProofFolder { quest_id, claimant, folder_id, .. } = &msg.content {
                 // Get attention on this quest per member
                 let quest_attention = state_read.attention.attention.get(quest_id.as_str());
                 // Get existing blessings for this proof
@@ -794,7 +794,7 @@ fn V2ChatScreen(state: Signal<AppState>, member: String) -> Element {
                 for msg in messages.iter().rev() {
                     {
                         match &msg.content {
-                            V2ChatContent::Text(text) => {
+                            ChatContent::Text(text) => {
                                 let sender = &msg.sender;
                                 let color_class = &msg.color_class;
                                 rsx! {
@@ -804,7 +804,7 @@ fn V2ChatScreen(state: Signal<AppState>, member: String) -> Element {
                                     }
                                 }
                             }
-                            V2ChatContent::ProofFolder { quest_title, artifact_count, folder_id, .. } => {
+                            ChatContent::ProofFolder { quest_title, artifact_count, folder_id, .. } => {
                                 let sender = &msg.sender;
                                 let color_class = &msg.color_class;
                                 let label = format!("[Proof Folder: {} ({} files)]", quest_title, artifact_count);
@@ -832,7 +832,7 @@ fn V2ChatScreen(state: Signal<AppState>, member: String) -> Element {
                                     }
                                 }
                             }
-                            V2ChatContent::Blessing { claimant_name, duration_text } => {
+                            ChatContent::Blessing { claimant_name, duration_text } => {
                                 let sender = &msg.sender;
                                 let color_class = &msg.color_class;
                                 let text = format!("[Blessed {} ({})]", claimant_name, duration_text);
@@ -926,12 +926,12 @@ fn V2ChatScreen(state: Signal<AppState>, member: String) -> Element {
 }
 
 // ============================================================================
-// V2 PROOF SCREEN - Markdown narrative + artifact grid + submit
+//PROOF SCREEN - Markdown narrative + artifact grid + submit
 // ============================================================================
 
 /// Proof editor screen: shows active draft with rendered Markdown or submitted proofs
 #[component]
-fn V2ProofScreen(state: Signal<AppState>, member: String) -> Element {
+fn ProofScreen(state: Signal<AppState>, member: String) -> Element {
     let mut view_mode = use_signal(|| super::PreviewViewMode::Rendered);
 
     let state_read = state.read();
@@ -1140,12 +1140,12 @@ fn format_artifact_size(size: u64) -> String {
 }
 
 // ============================================================================
-// V2 ARTIFACT SCREEN - Shared files with recall/share buttons
+//ARTIFACT SCREEN - Shared files with recall/share buttons
 // ============================================================================
 
 /// Artifact screen: shared files with interactive recall/share buttons
 #[component]
-fn V2ArtifactScreen(state: Signal<AppState>, member: String) -> Element {
+fn ArtifactScreen(state: Signal<AppState>, member: String) -> Element {
     let mut preview_ctx: PreviewContext = use_context();
     let state_read = state.read();
 
@@ -1412,12 +1412,12 @@ fn V2ArtifactScreen(state: Signal<AppState>, member: String) -> Element {
 }
 
 // ============================================================================
-// V2 REALMS SCREEN - Realm cards with editable alias + leave button
+//REALMS SCREEN - Realm cards with editable alias + leave button
 // ============================================================================
 
 /// Realms screen: realm cards with click-to-edit alias and leave button
 #[component]
-fn V2RealmsScreen(state: Signal<AppState>, member: String) -> Element {
+fn RealmsScreen(state: Signal<AppState>, member: String) -> Element {
     let mut editing_realm = use_signal(|| None::<String>);
     let mut alias_draft = use_signal(String::new);
 
@@ -1489,12 +1489,12 @@ fn V2RealmsScreen(state: Signal<AppState>, member: String) -> Element {
 }
 
 // ============================================================================
-// V2 ACTIVITY SCREEN - Recent events (kept for completeness)
+//ACTIVITY SCREEN - Recent events (kept for completeness)
 // ============================================================================
 
 /// Activity screen: recent events involving this member
 #[component]
-fn V2ActivityScreen(state: Signal<AppState>, member: String) -> Element {
+fn ActivityScreen(state: Signal<AppState>, member: String) -> Element {
     let state_read = state.read();
     let events: Vec<_> = state_read
         .events_for_member(&member)

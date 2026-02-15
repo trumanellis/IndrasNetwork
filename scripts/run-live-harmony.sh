@@ -7,7 +7,7 @@
 #
 # Usage:
 #   ./scripts/run-live-harmony.sh                    # CLI output
-#   ./scripts/run-live-harmony.sh --viewer            # pipe to omni-viewer-v2
+#   ./scripts/run-live-harmony.sh --viewer            # pipe to omni-viewer
 #   RUST_LOG=debug ./scripts/run-live-harmony.sh
 
 cargo run --bin lua_runner --manifest-path simulation/Cargo.toml \
