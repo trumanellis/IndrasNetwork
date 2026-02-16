@@ -91,6 +91,7 @@ impl NavigationState {
             TreeType::Need => "🌱",
             TreeType::Offering => "🎁",
             TreeType::Intention => "✨",
+            TreeType::Custom(s) if s == "Contact" => "👤",
             TreeType::Custom(_) => "📦",
         }
     }
@@ -100,6 +101,7 @@ impl NavigationState {
         match tree_type {
             TreeType::Story => "story",
             TreeType::Quest | TreeType::Need | TreeType::Offering | TreeType::Intention => "quest",
+            TreeType::Custom(s) if s == "Contact" => "story",
             _ => "document",
         }
     }

@@ -31,9 +31,10 @@ use indras_ui::{
     DetailPanel, PropertyRow, AudienceMember, HeatEntry, TrailEvent, ReferenceItem, SyncEntry,
     MarkdownPreviewOverlay, PreviewFile, PreviewViewMode,
     ContactInviteOverlay,
+    ChatPanel,
 };
 use indras_ui::PeerDisplayInfo as UiPeerDisplayInfo;
-use indras_network::IdentityCode;
+use indras_network::{IdentityCode, IndrasNetwork};
 
 /// Root application component.
 #[component]
@@ -56,6 +57,7 @@ pub fn RootApp() -> Element {
     let mut contact_invite_status = use_signal(|| None::<String>);
     let mut contact_parsed_name = use_signal(|| None::<String>);
     let mut contact_copy_feedback = use_signal(|| false);
+    let mut network_for_chat = use_signal(|| None::<Arc<IndrasNetwork>>);
     let mut contact_invite_uri = use_signal(String::new);
     let mut contact_display_name_sig = use_signal(String::new);
     let mut contact_member_id_short_sig = use_signal(String::new);
@@ -99,6 +101,7 @@ pub fn RootApp() -> Element {
                                     player_name: player_name.clone(),
                                 }));
                                 let net = Arc::clone(&nh.network);
+                                network_for_chat.set(Some(Arc::clone(&net)));
                                 network_handle.set(Some(nh));
                                 {
                                     let mut ws = workspace.write();
@@ -186,11 +189,137 @@ pub fn RootApp() -> Element {
                                 }
                             }).collect();
 
-                            // Log new contacts
+                            // Log new contacts and create Contact trees for receiving side
+                            let mut sidebar_needs_rebuild = false;
                             for entry in &entries {
                                 let already_known = workspace.read().peers.entries.iter().any(|p| p.player_id == entry.player_id);
                                 if !already_known {
                                     log_event(&mut workspace.write(), EventDirection::Received, format!("Contact confirmed: {}", entry.name));
+
+                                    // Create/find Contact tree and add event leaf
+                                    let vh = vault_handle.read().clone();
+                                    if let Some(vh) = vh {
+                                        let mut vault = vh.vault.lock().await;
+                                        let now = chrono::Utc::now().timestamp_millis();
+                                        let root_id = vault.root.id.clone();
+
+                                        // Check if Contact tree already exists for this peer
+                                        let existing_contact = if let Ok(Some(Artifact::Tree(root))) = vault.get_artifact(&root_id) {
+                                            root.references.iter().find_map(|aref| {
+                                                if aref.label.as_deref() == Some(&entry.name) {
+                                                    if let Ok(Some(Artifact::Tree(t))) = vault.get_artifact(&aref.artifact_id) {
+                                                        if matches!(&t.artifact_type, TreeType::Custom(s) if s == "Contact") {
+                                                            return Some((aref.artifact_id.clone(), t.references.len() as u64));
+                                                        }
+                                                    }
+                                                }
+                                                None
+                                            })
+                                        } else {
+                                            None
+                                        };
+
+                                        let contact_id_and_pos = if let Some(info) = existing_contact {
+                                            Some(info)
+                                        } else {
+                                            // Create Contact tree (receiving side)
+                                            let audience = vec![vh.player_id, entry.player_id];
+                                            if let Ok(contact_tree) = vault.place_tree(TreeType::Custom("Contact".to_string()), audience, now) {
+                                                let ct_id = contact_tree.id.clone();
+                                                let position = if let Ok(Some(Artifact::Tree(root))) = vault.get_artifact(&root_id) {
+                                                    root.references.len() as u64
+                                                } else {
+                                                    0
+                                                };
+                                                let _ = vault.compose(&root_id, ct_id.clone(), position, Some(entry.name.clone()));
+                                                sidebar_needs_rebuild = true;
+                                                Some((ct_id, 0))
+                                            } else {
+                                                None
+                                            }
+                                        };
+
+                                        // Add "Connection confirmed" event leaf
+                                        if let Some((contact_id, pos)) = contact_id_and_pos {
+                                            if let Ok(event_leaf) = vault.place_leaf(
+                                                b"Connection confirmed",
+                                                LeafType::Message,
+                                                now,
+                                            ) {
+                                                let _ = vault.compose(
+                                                    &contact_id,
+                                                    event_leaf.id,
+                                                    pos,
+                                                    Some("msg:System".to_string()),
+                                                );
+                                            }
+                                        }
+
+                                        // Rebuild sidebar if new Contact tree was created
+                                        if sidebar_needs_rebuild {
+                                            if let Ok(Some(Artifact::Tree(rebuilt_root))) = vault.get_artifact(&vault.root.id) {
+                                                let mut nodes = Vec::new();
+                                                let mut quest_section_added = false;
+                                                let mut exchange_section_added = false;
+                                                let mut tokens_section_added = false;
+                                                let mut contacts_section_added = false;
+
+                                                for aref in &rebuilt_root.references {
+                                                    if let Ok(Some(artifact)) = vault.get_artifact(&aref.artifact_id) {
+                                                        if let Artifact::Tree(tree) = &artifact {
+                                                            let view_type_str = NavigationState::view_type_for_tree(&tree.artifact_type);
+                                                            let icon = NavigationState::icon_for_tree_type(&tree.artifact_type);
+                                                            let heat_val = vault.heat(&aref.artifact_id, now).unwrap_or(0.0);
+                                                            let heat_lvl = indras_ui::heat_level(heat_val);
+                                                            let label_str = aref.label.clone().unwrap_or_default();
+
+                                                            let is_quest_type = matches!(
+                                                                tree.artifact_type,
+                                                                TreeType::Quest | TreeType::Need | TreeType::Offering | TreeType::Intention
+                                                            );
+                                                            let is_contact = matches!(&tree.artifact_type, TreeType::Custom(s) if s == "Contact");
+                                                            let section = if nodes.is_empty() {
+                                                                Some("Vault".to_string())
+                                                            } else if is_contact && !contacts_section_added {
+                                                                contacts_section_added = true;
+                                                                Some("Contacts".to_string())
+                                                            } else if is_quest_type && !quest_section_added {
+                                                                quest_section_added = true;
+                                                                Some("Intentions & Quests".to_string())
+                                                            } else if tree.artifact_type == TreeType::Exchange && !exchange_section_added {
+                                                                exchange_section_added = true;
+                                                                Some("Exchanges".to_string())
+                                                            } else if tree.artifact_type == TreeType::Collection && !tokens_section_added {
+                                                                tokens_section_added = true;
+                                                                Some("Tokens".to_string())
+                                                            } else {
+                                                                None
+                                                            };
+
+                                                            let node_id = format!("{:?}", aref.artifact_id);
+                                                            let has_children = !tree.references.is_empty();
+
+                                                            nodes.push(VaultTreeNode {
+                                                                id: node_id,
+                                                                artifact_id: Some(aref.artifact_id.clone()),
+                                                                label: label_str,
+                                                                icon: icon.to_string(),
+                                                                heat_level: heat_lvl,
+                                                                depth: 0,
+                                                                has_children,
+                                                                expanded: has_children,
+                                                                active: false,
+                                                                section,
+                                                                view_type: view_type_str.to_string(),
+                                                            });
+                                                        }
+                                                    }
+                                                }
+
+                                                workspace.write().nav.vault_tree = nodes;
+                                            }
+                                        }
+                                    }
                                 }
                             }
 
@@ -204,7 +333,7 @@ pub fn RootApp() -> Element {
 
     // --- Event handlers ---
 
-    let on_tree_click = {
+    let mut on_tree_click = {
         let vault_handle = vault_handle.clone();
         move |node_id: String| {
             // Find the node in the tree to get its artifact_id and view_type
@@ -457,6 +586,14 @@ pub fn RootApp() -> Element {
         }
     };
 
+    // Peer click → find Contact tree by label and navigate to it
+    let on_peer_click_handler = move |peer_name: String| {
+        let tree = workspace.read().nav.vault_tree.clone();
+        if let Some(node) = tree.iter().find(|n| n.label == peer_name) {
+            on_tree_click(node.id.clone());
+        }
+    };
+
     let on_tree_toggle = move |node_id: String| {
         workspace.write().nav.toggle_expand(&node_id);
         // Update the expanded state in the vault tree nodes
@@ -567,6 +704,7 @@ pub fn RootApp() -> Element {
                         let mut quest_section_added = false;
                         let mut exchange_section_added = false;
                         let mut tokens_section_added = false;
+                        let mut contacts_section_added = false;
 
                         for aref in root_refs {
                             if let Ok(Some(artifact)) = vault.get_artifact(&aref.artifact_id) {
@@ -581,8 +719,12 @@ pub fn RootApp() -> Element {
                                         tree.artifact_type,
                                         TreeType::Quest | TreeType::Need | TreeType::Offering | TreeType::Intention
                                     );
+                                    let is_contact = matches!(&tree.artifact_type, TreeType::Custom(s) if s == "Contact");
                                     let section = if nodes.is_empty() {
                                         Some("Vault".to_string())
+                                    } else if is_contact && !contacts_section_added {
+                                        contacts_section_added = true;
+                                        Some("Contacts".to_string())
                                     } else if is_quest_type && !quest_section_added {
                                         quest_section_added = true;
                                         Some("Intentions & Quests".to_string())
@@ -961,6 +1103,7 @@ pub fn RootApp() -> Element {
                                             player_name: name.clone(),
                                         }));
                                         let net = Arc::clone(&nh.network);
+                                        network_for_chat.set(Some(Arc::clone(&net)));
                                         network_handle.set(Some(nh));
                                         {
                                             let mut ws = workspace.write();
@@ -1030,6 +1173,7 @@ pub fn RootApp() -> Element {
 
                     PeerStrip {
                         peers: ui_peers,
+                        on_peer_click: on_peer_click_handler,
                         on_add_contact: move |_| {
                             // Populate signals from current network handle
                             if let Some(nh) = network_handle.read().as_ref() {
@@ -1122,26 +1266,55 @@ pub fn RootApp() -> Element {
                             }
                         }
                         ViewType::Story => {
-                            let title = editor.title.clone();
-                            let audience_count = editor.meta.audience_count;
-                            let message_count = current_story_messages.len();
-                            rsx! {
-                                StoryView {
-                                    title: title,
-                                    audience_count: audience_count,
-                                    message_count: message_count,
-                                    messages: current_story_messages,
-                                    on_artifact_click: move |aref: StoryArtifactRef| {
-                                        preview_file.set(Some(PreviewFile {
-                                            name: aref.name.clone(),
-                                            content: format!("# {}\n\nType: {}", aref.name, aref.artifact_type),
-                                            raw_content: format!("# {}\n\nType: {}", aref.name, aref.artifact_type),
-                                            mime_type: "text/markdown".to_string(),
-                                            data_url: None,
-                                        }));
-                                        preview_view_mode.set(PreviewViewMode::Rendered);
-                                        preview_open.set(true);
-                                    },
+                            // Check if this is a Contact (relationship story) or regular story
+                            let is_contact = workspace.read().nav.vault_tree.iter()
+                                .find(|n| n.active)
+                                .map_or(false, |n| n.icon == "\u{1F464}");
+
+                            if is_contact {
+                                // Use ChatPanel for Contact relationship stories
+                                let peer_name = editor.title.clone();
+                                let chat_peer_id = workspace.read().peers.entries.iter()
+                                    .find(|p| p.name == peer_name)
+                                    .map(|p| p.player_id)
+                                    .unwrap_or([0u8; 32]);
+                                let chat_my_id = vault_handle.read().as_ref()
+                                    .map(|vh| vh.player_id)
+                                    .unwrap_or([0u8; 32]);
+                                rsx! {
+                                    div {
+                                        class: "view active",
+                                        ChatPanel {
+                                            network: network_for_chat,
+                                            peer_id: chat_peer_id,
+                                            my_id: chat_my_id,
+                                            peer_name: peer_name,
+                                        }
+                                    }
+                                }
+                            } else {
+                                // Regular story view
+                                let title = editor.title.clone();
+                                let audience_count = editor.meta.audience_count;
+                                let message_count = current_story_messages.len();
+                                rsx! {
+                                    StoryView {
+                                        title: title,
+                                        audience_count: audience_count,
+                                        message_count: message_count,
+                                        messages: current_story_messages,
+                                        on_artifact_click: move |aref: StoryArtifactRef| {
+                                            preview_file.set(Some(PreviewFile {
+                                                name: aref.name.clone(),
+                                                content: format!("# {}\n\nType: {}", aref.name, aref.artifact_type),
+                                                raw_content: format!("# {}\n\nType: {}", aref.name, aref.artifact_type),
+                                                mime_type: "text/markdown".to_string(),
+                                                data_url: None,
+                                            }));
+                                            preview_view_mode.set(PreviewViewMode::Rendered);
+                                            preview_open.set(true);
+                                        },
+                                    }
                                 }
                             }
                         }
@@ -1298,6 +1471,7 @@ pub fn RootApp() -> Element {
                                 let audience = vec![vh.player_id, peer_id];
                                 match vault.place_tree(TreeType::Custom("Contact".to_string()), audience, now) {
                                     Ok(contact_tree) => {
+                                        let contact_tree_id = contact_tree.id.clone();
                                         let contact_payload = serde_json::json!({
                                             "identity_code": uri,
                                             "display_name": peer_name,
@@ -1310,10 +1484,24 @@ pub fn RootApp() -> Element {
                                         ) {
                                             let label = peer_name.clone().unwrap_or_else(|| "Unknown".to_string());
                                             let _ = vault.compose(
-                                                &contact_tree.id,
+                                                &contact_tree_id,
                                                 leaf.id,
                                                 0,
                                                 Some(label),
+                                            );
+                                        }
+
+                                        // Add connection event leaf to Contact tree
+                                        if let Ok(event_leaf) = vault.place_leaf(
+                                            format!("Connected to {}", peer_display).as_bytes(),
+                                            LeafType::Message,
+                                            now,
+                                        ) {
+                                            let _ = vault.compose(
+                                                &contact_tree_id,
+                                                event_leaf.id,
+                                                1,
+                                                Some("msg:System".to_string()),
                                             );
                                         }
 
@@ -1325,10 +1513,103 @@ pub fn RootApp() -> Element {
                                         let contact_label = peer_name.unwrap_or_else(|| "Unknown Contact".to_string());
                                         let _ = vault.compose(
                                             &root_id,
-                                            contact_tree.id,
+                                            contact_tree_id,
                                             position,
                                             Some(contact_label),
                                         );
+
+                                        // Rebuild sidebar tree so Contact appears immediately
+                                        if let Ok(Some(Artifact::Tree(rebuilt_root))) = vault.get_artifact(&vault.root.id) {
+                                            let mut nodes = Vec::new();
+                                            let root_refs = &rebuilt_root.references;
+                                            let mut quest_section_added = false;
+                                            let mut exchange_section_added = false;
+                                            let mut tokens_section_added = false;
+                                            let mut contacts_section_added = false;
+
+                                            for aref in root_refs {
+                                                if let Ok(Some(artifact)) = vault.get_artifact(&aref.artifact_id) {
+                                                    if let Artifact::Tree(tree) = &artifact {
+                                                        let view_type_str = NavigationState::view_type_for_tree(&tree.artifact_type);
+                                                        let icon = NavigationState::icon_for_tree_type(&tree.artifact_type);
+                                                        let heat_val = vault.heat(&aref.artifact_id, now).unwrap_or(0.0);
+                                                        let heat_lvl = indras_ui::heat_level(heat_val);
+                                                        let label_str = aref.label.clone().unwrap_or_default();
+
+                                                        let is_quest_type = matches!(
+                                                            tree.artifact_type,
+                                                            TreeType::Quest | TreeType::Need | TreeType::Offering | TreeType::Intention
+                                                        );
+                                                        let is_contact = matches!(&tree.artifact_type, TreeType::Custom(s) if s == "Contact");
+                                                        let section = if nodes.is_empty() {
+                                                            Some("Vault".to_string())
+                                                        } else if is_contact && !contacts_section_added {
+                                                            contacts_section_added = true;
+                                                            Some("Contacts".to_string())
+                                                        } else if is_quest_type && !quest_section_added {
+                                                            quest_section_added = true;
+                                                            Some("Intentions & Quests".to_string())
+                                                        } else if tree.artifact_type == TreeType::Exchange && !exchange_section_added {
+                                                            exchange_section_added = true;
+                                                            Some("Exchanges".to_string())
+                                                        } else if tree.artifact_type == TreeType::Collection && !tokens_section_added {
+                                                            tokens_section_added = true;
+                                                            Some("Tokens".to_string())
+                                                        } else {
+                                                            None
+                                                        };
+
+                                                        let node_id = format!("{:?}", aref.artifact_id);
+                                                        let has_children = !tree.references.is_empty();
+
+                                                        nodes.push(VaultTreeNode {
+                                                            id: node_id.clone(),
+                                                            artifact_id: Some(aref.artifact_id.clone()),
+                                                            label: label_str,
+                                                            icon: icon.to_string(),
+                                                            heat_level: heat_lvl,
+                                                            depth: 0,
+                                                            has_children,
+                                                            expanded: has_children,
+                                                            active: false,
+                                                            section,
+                                                            view_type: view_type_str.to_string(),
+                                                        });
+
+                                                        if has_children {
+                                                            for child_ref in &tree.references {
+                                                                if let Ok(Some(child_artifact)) = vault.get_artifact(&child_ref.artifact_id) {
+                                                                    if let Artifact::Tree(child_tree) = &child_artifact {
+                                                                        let child_vt = NavigationState::view_type_for_tree(&child_tree.artifact_type);
+                                                                        let child_icon = NavigationState::icon_for_tree_type(&child_tree.artifact_type);
+                                                                        let child_heat = vault.heat(&child_ref.artifact_id, now).unwrap_or(0.0);
+                                                                        let child_heat_lvl = indras_ui::heat_level(child_heat);
+                                                                        let child_label = child_ref.label.clone().unwrap_or_default();
+                                                                        let child_node_id = format!("{:?}", child_ref.artifact_id);
+
+                                                                        nodes.push(VaultTreeNode {
+                                                                            id: child_node_id,
+                                                                            artifact_id: Some(child_ref.artifact_id.clone()),
+                                                                            label: child_label,
+                                                                            icon: child_icon.to_string(),
+                                                                            heat_level: child_heat_lvl,
+                                                                            depth: 1,
+                                                                            has_children: false,
+                                                                            expanded: false,
+                                                                            active: false,
+                                                                            section: None,
+                                                                            view_type: child_vt.to_string(),
+                                                                        });
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            workspace.write().nav.vault_tree = nodes;
+                                        }
                                     }
                                     Err(e) => {
                                         tracing::warn!("Failed to create contact artifact: {}", e);
