@@ -36,6 +36,13 @@ use indras_ui::{
 use indras_ui::PeerDisplayInfo as UiPeerDisplayInfo;
 use indras_network::{IdentityCode, IndrasNetwork};
 
+#[cfg(feature = "lua-scripting")]
+use crate::scripting::channels::AppTestChannels;
+#[cfg(feature = "lua-scripting")]
+use crate::scripting::dispatcher::spawn_dispatcher;
+#[cfg(feature = "lua-scripting")]
+use crate::scripting::event::AppEvent;
+
 /// Root application component.
 #[component]
 pub fn RootApp() -> Element {
@@ -61,6 +68,33 @@ pub fn RootApp() -> Element {
     let mut contact_invite_uri = use_signal(String::new);
     let mut contact_display_name_sig = use_signal(String::new);
     let mut contact_member_id_short_sig = use_signal(String::new);
+
+    // --- Lua scripting dispatcher (feature-gated) ---
+    #[cfg(feature = "lua-scripting")]
+    let mut lua_event_tx = use_signal(|| None::<tokio::sync::broadcast::Sender<AppEvent>>);
+    #[cfg(not(feature = "lua-scripting"))]
+    let _lua_event_tx = use_signal(|| None::<()>);
+
+    #[cfg(feature = "lua-scripting")]
+    {
+        let test_channels: Option<Arc<tokio::sync::Mutex<AppTestChannels>>> =
+            use_context::<Option<Arc<tokio::sync::Mutex<AppTestChannels>>>>();
+
+        use_effect(move || {
+            if let Some(ref channels) = test_channels {
+                // Extract event_tx for use in other closures
+                if let Ok(guard) = channels.try_lock() {
+                    lua_event_tx.set(Some(guard.event_tx.clone()));
+                }
+                spawn_dispatcher(
+                    Arc::clone(channels),
+                    workspace,
+                    contact_invite_open,
+                    contact_invite_input,
+                );
+            }
+        });
+    }
 
     // Memo wrappers for ReadSignal props
     let ci_uri = use_memo(move || contact_invite_uri.read().clone());
@@ -107,6 +141,12 @@ pub fn RootApp() -> Element {
                                     let mut ws = workspace.write();
                                     ws.phase = AppPhase::Workspace;
                                     log_event(&mut ws, EventDirection::System, format!("Identity loaded: {}", player_name));
+                                }
+
+                                // Emit AppReady event for Lua scripting
+                                #[cfg(feature = "lua-scripting")]
+                                if let Some(ref tx) = *lua_event_tx.read() {
+                                    let _ = tx.send(AppEvent::AppReady);
                                 }
 
                                 // Start the network (enables inbox listener for incoming connections)
@@ -189,7 +229,7 @@ pub fn RootApp() -> Element {
                                 }
                             }).collect();
 
-                            // Log new contacts and create Contact trees for receiving side
+                            // Log new contacts, create Contact trees, and emit events
                             let mut sidebar_needs_rebuild = false;
                             for entry in &entries {
                                 let already_known = workspace.read().peers.entries.iter().any(|p| p.player_id == entry.player_id);
@@ -319,6 +359,11 @@ pub fn RootApp() -> Element {
                                                 workspace.write().nav.vault_tree = nodes;
                                             }
                                         }
+                                    }
+
+                                    #[cfg(feature = "lua-scripting")]
+                                    if let Some(ref tx) = *lua_event_tx.read() {
+                                        let _ = tx.send(AppEvent::PeerConnected(entry.name.clone()));
                                     }
                                 }
                             }
@@ -1109,6 +1154,13 @@ pub fn RootApp() -> Element {
                                             let mut ws = workspace.write();
                                             ws.phase = AppPhase::Workspace;
                                             log_event(&mut ws, EventDirection::System, format!("Identity created: {}", name));
+                                        }
+
+                                        // Emit events for Lua scripting
+                                        #[cfg(feature = "lua-scripting")]
+                                        if let Some(ref tx) = *lua_event_tx.read() {
+                                            let _ = tx.send(AppEvent::IdentityCreated(name.clone()));
+                                            let _ = tx.send(AppEvent::AppReady);
                                         }
 
                                         // Start the network (enables inbox listener for incoming connections)
