@@ -1,11 +1,18 @@
 //! Entry point for the Indras Workspace desktop app.
 
 use std::path::PathBuf;
+#[cfg(feature = "lua-scripting")]
+use std::sync::Arc;
 
 use dioxus::desktop::{Config, LogicalPosition, LogicalSize, WindowBuilder};
 
 use indras_workspace::components::app::RootApp;
 use indras_ui::ThemedRoot;
+
+#[cfg(feature = "lua-scripting")]
+use indras_workspace::scripting::channels::{create_test_channels, AppTestChannels};
+#[cfg(feature = "lua-scripting")]
+use indras_workspace::scripting::lua_runtime::LuaTestRuntime;
 
 /// Workspace-specific CSS embedded at compile time.
 const WORKSPACE_CSS: &str = include_str!("../assets/workspace.css");
@@ -72,6 +79,76 @@ fn main() {
 
     tracing::info!("Starting Indras Workspace");
 
+    // --- Lua scripting support (feature-gated) ---
+    #[cfg(feature = "lua-scripting")]
+    let test_channels: Option<Arc<tokio::sync::Mutex<AppTestChannels>>> = {
+        // Only allow in debug builds
+        #[cfg(not(debug_assertions))]
+        {
+            eprintln!("WARNING: Lua scripting is only available in debug builds");
+            None
+        }
+        #[cfg(debug_assertions)]
+        {
+            let script_path = args
+                .iter()
+                .find(|a| a.starts_with("--script="))
+                .map(|a| a.trim_start_matches("--script=").to_string());
+
+            if let Some(path) = script_path {
+                tracing::info!("Lua script: {}", path);
+                let (app_channels, lua_channels) = create_test_channels();
+                let identity_name = name.clone();
+
+                // Parse optional script timeout (default: 120s)
+                let timeout_secs: u64 = args.iter()
+                    .find(|a| a.starts_with("--timeout="))
+                    .and_then(|a| a.trim_start_matches("--timeout=").parse().ok())
+                    .unwrap_or(120);
+
+                // Spawn timeout watchdog thread
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(timeout_secs));
+                    tracing::error!("Script timeout after {}s", timeout_secs);
+                    std::process::exit(2); // Exit code 2 = timeout
+                });
+
+                // Spawn Lua thread (mlua's Lua is !Send, needs dedicated OS thread)
+                std::thread::spawn(move || {
+                    let rt = LuaTestRuntime::new(
+                        lua_channels.action_tx,
+                        lua_channels.event_rx,
+                        lua_channels.query_tx,
+                        identity_name,
+                    );
+                    match rt.exec_file(&path) {
+                        Ok(()) => {
+                            tracing::info!("Lua script completed successfully");
+                            std::process::exit(0); // 0 = pass
+                        }
+                        Err(e) => {
+                            let msg = e.to_string();
+                            if msg.contains("Assertion failed") {
+                                tracing::error!("Assertion failure: {}", msg);
+                                std::process::exit(1); // 1 = assertion failure
+                            } else if msg.contains("Timeout") {
+                                tracing::error!("Script timeout: {}", msg);
+                                std::process::exit(2); // 2 = timeout
+                            } else {
+                                tracing::error!("Script error: {}", msg);
+                                std::process::exit(3); // 3 = runtime error
+                            }
+                        }
+                    }
+                });
+
+                Some(Arc::new(tokio::sync::Mutex::new(app_channels)))
+            } else {
+                None
+            }
+        }
+    };
+
     // Read optional window geometry from env (set by ./se for tiling)
     let win_x = std::env::var("INDRAS_WIN_X").ok().and_then(|v| v.parse::<f64>().ok());
     let win_y = std::env::var("INDRAS_WIN_Y").ok().and_then(|v| v.parse::<f64>().ok());
@@ -90,6 +167,12 @@ fn main() {
 
     if let (Some(x), Some(y)) = (win_x, win_y) {
         wb = wb.with_position(LogicalPosition::new(x, y));
+    }
+
+    // Store test channels for the Dioxus App component to pick up
+    #[cfg(feature = "lua-scripting")]
+    if let Some(channels) = test_channels {
+        *TEST_CHANNELS.lock().unwrap() = Some(channels);
     }
 
     dioxus::LaunchBuilder::desktop()
@@ -115,9 +198,21 @@ use dioxus::prelude::*;
 
 #[component]
 fn App() -> Element {
+    // Provide test channels to the component tree if lua-scripting is enabled
+    #[cfg(feature = "lua-scripting")]
+    {
+        // This is set as a static in main() and read here.
+        // We use use_hook to provide it once.
+        use_context_provider(|| TEST_CHANNELS.lock().unwrap().take());
+    }
+
     rsx! {
         ThemedRoot {
             RootApp {}
         }
     }
 }
+
+#[cfg(feature = "lua-scripting")]
+static TEST_CHANNELS: std::sync::Mutex<Option<Arc<tokio::sync::Mutex<AppTestChannels>>>> =
+    std::sync::Mutex::new(None);

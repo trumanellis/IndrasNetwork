@@ -3807,6 +3807,7 @@ dependencies = [
  "indras-crypto",
  "indras-network",
  "indras-ui",
+ "mlua",
  "rand 0.9.2",
  "serde",
  "serde_json",

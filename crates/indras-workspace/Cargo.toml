@@ -9,6 +9,10 @@ description = "P2P collaborative workspace for Indras Network"
 name = "indras-workspace"
 path = "src/main.rs"
 
+[features]
+default = []
+lua-scripting = ["mlua"]
+
 [dependencies]
 # UI framework
 dioxus = { version = "0.7", features = ["desktop"] }
@@ -35,3 +39,6 @@ tracing = "0.1"
 tracing-subscriber = "0.3"
 chrono = "0.4"
 rand = "0.9"
+
+# Lua scripting (test automation only)
+mlua = { version = "0.10", features = ["lua54", "vendored", "serialize"], optional = true }

@@ -1,259 +1,757 @@
-# Plan: Indras Workspace — Dioxus Desktop App with Real P2P
+# Plan: Lua Scripting for indras-workspace GUI Automation
 
 ## Context
 
-A frontend designer created `refs/indras_workspace.html` — a polished 3-panel workspace mockup showing how users interact with `indras-artifacts`. This plan implements it as a real Dioxus 0.7 desktop app connected to `indras-artifacts` for data and `indras-network` for P2P sync. Every navigation click generates a real `AttentionSwitchEvent`, heat is computed from real peer attention logs, and artifacts are stored/retrieved via the Vault API.
+indras-workspace is a Dioxus 0.7 desktop app with 12 UI components, P2P networking, and artifact management — but zero automated UI tests. The project already has a mature Lua testing stack in the `simulation` crate (mlua 0.10, 92 scenarios, assertion helpers, structured logging). This plan extends Lua scripting into the workspace app for action-driven GUI testing and multi-instance scenario automation.
+
+## Design Decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Integration model | Embedded Lua runtime | Direct access, no IPC protocol needed, reuses existing mlua infra |
+| Action model | Semantic actions via ActionBus | Tests real UI dispatch paths without coupling to DOM/CSS |
+| Multi-instance | Shared script, branch on identity | Matches existing `INDRAS_NAME` multi-launch pattern |
+| Activation | `--script` flag / `INDRAS_SCRIPT` env | Zero overhead when not testing |
 
 ## Architecture
 
 ```
-indras-workspace (new crate)          indras-ui (shared components)
-├── main.rs         launch + config   ├── vault_sidebar.rs    (NEW)
-├── state/                            ├── peer_strip.rs       (NEW)
-│   ├── mod.rs                        ├── identity_row.rs     (NEW)
-│   ├── workspace.rs   root state     ├── heat_display.rs     (NEW)
-│   ├── navigation.rs  tree + crumbs  ├── detail_panel.rs     (NEW)
-│   └── editor.rs      blocks + doc   ├── slash_menu.rs       (NEW)
-├── components/                       └── (existing: theme, chat, gallery...)
-│   ├── app.rs          3-panel grid
-│   ├── topbar.rs       breadcrumbs
-│   ├── document.rs     block editor
-│   ├── blocks/         per-block-type renderers
-│   │   ├── mod.rs
-│   │   ├── text.rs
-│   │   ├── heading.rs
-│   │   ├── code.rs
-│   │   ├── callout.rs
-│   │   ├── todo.rs
-│   │   ├── image.rs
-│   │   └── divider.rs
-│   ├── bottom_nav.rs   mobile nav
-│   └── fab.rs          mobile FAB
-├── bridge/
-│   ├── mod.rs
-│   ├── vault_bridge.rs  Vault ↔ Signal
-│   └── network_bridge.rs  IndrasNetwork ↔ Signal
-├── assets/
-│   └── workspace.css   workspace-specific styles
-└── Cargo.toml
+┌─────────────────────────────────────────────────────┐
+│  Dioxus Process (one per instance)                  │
+│                                                     │
+│  ┌──────────┐    ActionBus     ┌──────────────────┐ │
+│  │ Lua      │───(mpsc tx)────▶│ RootApp          │ │
+│  │ Runtime  │                  │ dispatcher       │ │
+│  │ (thread) │◀──(broadcast)───│ (polls each tick)│ │
+│  │          │   EventBus       │                  │ │
+│  └──────────┘                  └──────────────────┘ │
+│       │                              │              │
+│       │ indras.query()               │ fires real   │
+│       ▼                              ▼ handlers     │
+│  ┌──────────┐                  ┌──────────────────┐ │
+│  │ State    │                  │ Signals, Vault,  │ │
+│  │ Snapshot │                  │ Network, etc.    │ │
+│  └──────────┘                  └──────────────────┘ │
+└─────────────────────────────────────────────────────┘
 ```
 
-## Critical Files to Modify/Reference
+### Three Communication Channels
 
-| File | Role |
-|------|------|
-| `/Cargo.toml` | Add `crates/indras-workspace` to workspace members |
-| `crates/indras-ui/src/lib.rs` | Export 6 new shared components |
-| `crates/indras-ui/assets/shared.css` | Add workspace theme variant + new component styles |
-| `crates/indras-artifacts/src/vault.rs` | `Vault::in_memory()`, `navigate_to()`, `heat()`, `compose()` |
-| `crates/indras-artifacts/src/attention.rs` | `compute_heat()`, `AttentionSwitchEvent` |
-| `crates/indras-network/src/network.rs` | `IndrasNetwork::new()`, `.events()`, `.connect()` |
-| `crates/indras-home-viewer/src/main.rs` | Reference pattern for Dioxus launch + async bridge |
-| `refs/indras_workspace.html` | Visual specification (816 lines) |
+1. **ActionBus** (`tokio::sync::mpsc`): Lua thread → Dioxus main thread. Carries semantic `Action` values like `ClickSidebar("Love")`, `SendMessage("hello")`.
 
-## Mockup → Real API Mapping
+2. **EventBus** (`tokio::sync::broadcast`): Dioxus main thread → Lua thread. Emits observable events like `PeerConnected("Love")`, `MessageReceived { from, text }`. Lua's `wait_for()` subscribes to this.
 
-### Sidebar
+3. **QueryBus** (`tokio::sync::oneshot` per query): Lua sends a query + oneshot sender → RootApp reads state and replies on the oneshot → Lua receives the snapshot. Used for `indras.query("chat_message_count")`.
 
-| Mockup Element | Component | Real API |
-|----------------|-----------|----------|
-| Identity avatar + name + ID | `IdentityRow` (indras-ui) | `network.identity_code()` → bech32m, `Member::name()` |
-| Peer dots with online indicator | `PeerStrip` (indras-ui) | `vault.peers()` → `Vec<PeerEntry>`, `PeerEvent::Discovered/Lost` for online |
-| Vault tree with folders/files | `VaultSidebar` (indras-ui) | `vault.root.references` → recursive traversal, `get_artifact()` per ref |
-| Heat dots on tree items | `HeatDot` (indras-ui) | `vault.heat(&artifact_id, now)` → 0.0-1.0 → map to heat-0..heat-5 |
-| Tree item click | Navigation handler | `vault.navigate_to(artifact_id, now)` → generates `AttentionSwitchEvent` |
-| "New" button | Opens `SlashMenu` | — |
+### Threading Model
 
-### Main Content
+- **Lua thread**: Dedicated OS thread via `std::thread::spawn`. mlua's `Lua` instance is `!Send` so it must stay on one thread. The Lua script runs synchronously on this thread, blocking on `wait_for()` and `query()` via channel recv.
+- **Dioxus thread**: Main thread, runs the normal Dioxus event loop. Polls ActionBus in a `use_future` hook (non-blocking `try_recv`).
+- **Bridge**: All three channels are created before spawning the Lua thread. The Dioxus side holds `ActionRx`, `EventTx`, `QueryRx`. The Lua side holds `ActionTx`, `EventRx`, `QueryTx`.
 
-| Mockup Element | Component | Real API |
-|----------------|-----------|----------|
-| Breadcrumbs | `Topbar` (workspace) | Maintained in `NavigationState` from attention log history |
-| Steward badge | `Topbar` | `artifact.steward == my_player_id` |
-| Document title | `DocumentEditor` | `tree.metadata.get("title")` or first Message leaf |
-| Doc meta (type, audience count, edited) | `DocumentEditor` | `artifact.artifact_type`, `artifact.audience.len()`, `artifact.created_at` |
-| Content blocks | `blocks/*` renderers | Each `ArtifactRef` in `tree.references` → load child → render by `LeafType`/label |
-| Slash menu | `SlashMenu` (indras-ui) | `vault.place_leaf()` / `vault.place_tree()` then `vault.compose()` |
-| Todo checkboxes | `blocks/todo.rs` | Metadata toggle on the leaf's parent ref label |
+### Activation
 
-### Detail Panel
-
-| Mockup Element | Component | Real API |
-|----------------|-----------|----------|
-| Type, ID, Steward, Created, Refs | `DetailPanel` (indras-ui) | `artifact.artifact_type`, `.id`, `.steward`, `.created_at`, `.references.len()` |
-| Audience list with roles | `DetailPanel` | `artifact.audience` → lookup each `PlayerId` in peer registry for name |
-| Per-peer heat bars | `HeatBar` (indras-ui) | `vault.attention_value()` → per-peer dwell times from `peer_attention` |
-| Combined heat bar | `HeatBar` | `vault.heat()` → combined f32 |
-| Recent attention trail | `DetailPanel` | `attention_store.events_since(player, since)` → recent 5 events |
-| References list | `DetailPanel` | `tree.references` → first few with type labels |
-
-## State Design
+The Lua runtime is only initialized when the app detects a test script:
 
 ```rust
-// Shared via Signal<WorkspaceState> at root
-pub struct WorkspaceState {
-    pub nav: NavigationState,
-    pub editor: EditorState,
-    pub peers: PeerState,
-    pub ui: UiState,
-}
+// main.rs
+let script_path = std::env::var("INDRAS_SCRIPT").ok()
+    .or_else(|| args.iter().find(|a| a.starts_with("--script="))
+        .map(|a| a.trim_start_matches("--script=").to_string()));
 
-pub struct NavigationState {
-    pub breadcrumbs: Vec<BreadcrumbEntry>,  // (ArtifactId, label)
-    pub current_artifact: Option<ArtifactId>,
-    pub expanded_nodes: HashSet<ArtifactId>,
-    pub vault_tree: Vec<TreeNode>,          // Flattened tree for sidebar
-}
+if let Some(path) = script_path {
+    let (action_tx, action_rx) = mpsc::channel(256);
+    let (event_tx, _) = broadcast::channel(256);
+    let (query_tx, query_rx) = mpsc::channel(64);
 
-pub struct EditorState {
-    pub title: String,
-    pub blocks: Vec<Block>,
-    pub meta: DocumentMeta,  // type, audience_count, steward, created_at
-}
+    // Spawn Lua thread
+    let event_rx = event_tx.subscribe();
+    std::thread::spawn(move || {
+        let rt = LuaTestRuntime::new(action_tx, event_rx, query_tx);
+        rt.exec_file(&path);
+    });
 
-pub struct PeerState {
-    pub entries: Vec<PeerDisplayInfo>,  // id, name, online, color
-    pub heat_values: HashMap<ArtifactId, Vec<PeerHeat>>,  // per-artifact, per-peer
-}
-
-pub struct UiState {
-    pub sidebar_open: bool,       // mobile
-    pub detail_open: bool,
-    pub slash_menu_open: bool,
+    // Pass channels to Dioxus app via context
+    app_channels = Some(AppTestChannels { action_rx, event_tx, query_rx });
 }
 ```
 
-### Block Model
+When no script is specified, no channels are created, no thread is spawned — zero overhead.
+
+---
+
+## Action Enum
+
+All semantic actions the Lua API can trigger:
 
 ```rust
-pub enum Block {
-    Text { content: String, artifact_id: ArtifactId },
-    Heading { level: u8, content: String, artifact_id: ArtifactId },
-    Code { language: Option<String>, content: String, artifact_id: ArtifactId },
-    Callout { content: String, artifact_id: ArtifactId },
-    Todo { text: String, done: bool, artifact_id: ArtifactId },
-    Image { caption: Option<String>, blob_id: ArtifactId, artifact_id: ArtifactId },
-    Divider,
-    Placeholder,
+pub enum Action {
+    // Navigation
+    ClickSidebar(String),          // by label: "Love", "My Journal"
+    ClickTab(String),              // "vault", "quest", "settings"
+    ClickPeerDot(String),          // by peer name
+    ClickBreadcrumb(usize),        // by depth index
+
+    // Contact flow
+    OpenContacts,                  // opens the contact invite overlay
+    PasteConnectCode(String),      // sets the connect input field
+    ClickConnect,                  // presses the connect button
+    CloseOverlay,                  // closes any open overlay
+
+    // Messaging
+    TypeMessage(String),           // sets the compose text
+    SendMessage,                   // clicks send
+    // Future: EditMessage(id, text), DeleteMessage(id)
+
+    // Document editing
+    ClickBlock(usize),             // click block at index
+    TypeInBlock(usize, String),    // set block content
+    AddBlock(String),              // add block of type: "text", "heading", "code"
+
+    // Slash menu
+    OpenSlashMenu,
+    SelectSlashAction(String),     // "new-story", "new-quest", etc.
+
+    // Setup / onboarding
+    SetDisplayName(String),
+    ClickCreateIdentity,
+
+    // Utility
+    Wait(f64),                     // seconds
+    Screenshot(String),            // save screenshot to path (future)
 }
 ```
 
-Blocks are derived from `tree.references` — each `ArtifactRef` label encodes the block type:
-- `"text"` / `None` → Text block (load `LeafType::Message` payload as UTF-8)
-- `"heading:2"` → Heading level 2
-- `"code:rust"` → Code block with language
-- `"callout"` → Callout
-- `"todo"` / `"todo:done"` → Todo with checked state
-- `"image"` → Image (load via `PayloadStore`)
-- `"divider"` → Divider (no artifact, just a marker ref)
+### Dispatcher (in RootApp)
 
-## Vault Bridge (async → signals)
+The dispatcher runs in a `use_future` that polls the ActionBus:
 
 ```rust
-// crates/indras-workspace/src/bridge/vault_bridge.rs
-pub type InMemoryVault = Vault<InMemoryArtifactStore, InMemoryPayloadStore, InMemoryAttentionStore>;
+// In RootApp, after all signals are created:
+if let Some(channels) = use_context::<AppTestChannels>() {
+    use_future(move || {
+        let mut action_rx = channels.action_rx;
+        let event_tx = channels.event_tx;
+        async move {
+            while let Some(action) = action_rx.recv().await {
+                match action {
+                    Action::ClickSidebar(label) => {
+                        // Find node by label, call on_tree_click
+                        if let Some(node) = workspace.read().nav.vault_tree
+                            .iter().find(|n| n.label == label) {
+                            on_tree_click(node.id.clone());
+                        }
+                    }
+                    Action::OpenContacts => {
+                        contact_invite_open.set(true);
+                    }
+                    Action::PasteConnectCode(code) => {
+                        contact_invite_input.set(code);
+                    }
+                    Action::ClickConnect => {
+                        // Trigger the on_connect handler with current input
+                        let uri = contact_invite_input.read().clone();
+                        on_connect(uri);
+                    }
+                    Action::TypeMessage(text) => {
+                        // Set compose text signal
+                        compose_text.set(text);
+                    }
+                    Action::SendMessage => {
+                        // Trigger send handler
+                        on_send(compose_text.read().clone());
+                    }
+                    Action::Wait(secs) => {
+                        tokio::time::sleep(Duration::from_secs_f64(secs)).await;
+                    }
+                    // ... etc
+                }
+            }
+        }
+    });
+}
+```
 
-// Shared across components via context
-pub struct VaultHandle {
-    vault: Arc<tokio::sync::Mutex<InMemoryVault>>,
-    player_id: PlayerId,
+---
+
+## Event Bus
+
+Events emitted by the app that Lua can wait on:
+
+```rust
+pub enum AppEvent {
+    // Lifecycle
+    AppReady,                              // workspace phase reached
+    IdentityCreated(String),               // display name
+
+    // Peers
+    PeerConnected(String),                 // peer display name
+    PeerDisconnected(String),
+
+    // Navigation
+    ViewChanged(String),                   // "document", "story", "quest", "settings"
+    SidebarItemActive(String),             // label of active item
+
+    // Messaging
+    MessageReceived { from: String, text: String },
+    MessageSent { text: String },
+
+    // Overlay
+    OverlayOpened(String),                 // "contacts", "preview", "pass_story"
+    OverlayClosed(String),
+
+    // Errors
+    ActionFailed { action: String, error: String },
+}
+```
+
+### Emission Points
+
+Events are emitted at the same points where `log_event()` is currently called, plus a few new ones:
+
+| Emission Point | Event | Location |
+|----------------|-------|----------|
+| After `ws.phase = AppPhase::Workspace` | `AppReady` | app.rs boot effect |
+| After `connect_by_code()` succeeds | `PeerConnected(name)` | on_connect handler |
+| Polling loop detects new contact | `PeerConnected(name)` | polling effect |
+| After `realm.send_chat()` | `MessageSent { text }` | ChatPanel send |
+| Chat stream receives message | `MessageReceived { from, text }` | ChatPanel stream |
+| `workspace.write().ui.active_view = vt` | `ViewChanged(type)` | on_tree_click |
+
+---
+
+## Query System
+
+Lua can synchronously query app state for assertions:
+
+```rust
+pub enum Query {
+    Identity,              // → { name: String, id_short: String }
+    ActiveView,            // → String ("document", "story", etc.)
+    ActiveSidebarItem,     // → String (label)
+    PeerCount,             // → u64
+    PeerNames,             // → Vec<String>
+    ChatMessageCount,      // → u64
+    ChatMessages,          // → Vec<{ from: String, text: String }>
+    SidebarItems,          // → Vec<{ label: String, icon: String }>
+    EventLog,              // → Vec<{ direction: String, text: String }>
+    OverlayOpen,           // → Option<String>
+    Custom(String),        // extensible
 }
 
-// Initialization in RootApp:
-// 1. Generate random PlayerId (or load from disk)
-// 2. Vault::in_memory(player_id, now)
-// 3. Seed initial vault structure (root tree + sample documents)
-// 4. Wrap in Arc<Mutex<>> and provide via use_context_provider
+pub enum QueryResult {
+    String(String),
+    Number(f64),
+    StringList(Vec<String>),
+    Json(serde_json::Value),  // for complex results
+    Error(String),
+}
 ```
 
-## Network Bridge (P2P → signals)
+The dispatcher reads the relevant signals and replies on the oneshot:
 
 ```rust
-// crates/indras-workspace/src/bridge/network_bridge.rs
-// Following ChatPanel pattern from indras-ui
-
-// In RootApp use_effect:
-// 1. IndrasNetwork::new("~/.indras-workspace").await
-// 2. network.start().await
-// 3. Spawn event loop:
-//    let mut events = network.events();
-//    while let Some(global_event) = events.next().await {
-//        match global_event.event {
-//            InterfaceEvent::Custom { event_type: "attention_sync", payload, sender, .. } => {
-//                // Deserialize Vec<AttentionSwitchEvent> from payload
-//                // vault.ingest_peer_log(sender_player_id, events)
-//                // Recompute heat for visible artifacts
-//                // Update PeerState signal
-//            }
-//            InterfaceEvent::Presence { peer, status, .. } => {
-//                // Update peer online/offline in PeerState
-//            }
-//            _ => {}
-//        }
-//    }
+Query::PeerCount => {
+    let count = workspace.read().peers.entries.len() as f64;
+    reply.send(QueryResult::Number(count)).ok();
+}
+Query::ChatMessages => {
+    let msgs = chat_state.read().messages.iter().map(|m| {
+        serde_json::json!({ "from": m.sender, "text": m.content })
+    }).collect();
+    reply.send(QueryResult::Json(serde_json::Value::Array(msgs))).ok();
+}
 ```
+
+---
+
+## Lua API Surface
+
+### Global Table: `indras`
+
+```lua
+-- Identity
+indras.identity()          -- returns { name = "Joy", id = "a1b2c3d4" }
+indras.my_name()           -- shorthand: returns "Joy"
+
+-- Actions (async — blocks until dispatched)
+indras.action(name, ...)   -- dispatch a semantic action
+-- Convenience wrappers:
+indras.click_sidebar(label)
+indras.click_tab(name)
+indras.click_peer(name)
+indras.open_contacts()
+indras.paste_code(uri)
+indras.click_connect()
+indras.type_message(text)
+indras.send_message()
+indras.set_name(name)
+indras.create_identity()
+indras.wait(seconds)
+
+-- Events (blocking wait)
+indras.wait_for(event_name, filter, timeout_secs)
+-- Examples:
+indras.wait_for("app_ready")
+indras.wait_for("peer_connected", "Love")
+indras.wait_for("message_received", { from = "Joy" }, 10)
+
+-- Queries (synchronous)
+indras.query(name)
+-- Examples:
+indras.query("peer_count")          -- → 1
+indras.query("active_view")         -- → "story"
+indras.query("chat_messages")       -- → [{from="Joy", text="hello"}]
+indras.query("sidebar_items")       -- → [{label="My Journal", icon="📖"}, ...]
+
+-- Assertions (reuses simulation pattern)
+indras.assert.eq(actual, expected, msg)
+indras.assert.ne(actual, expected, msg)
+indras.assert.gt(actual, expected, msg)
+indras.assert.contains(list, item, msg)
+indras.assert.truthy(val, msg)
+
+-- Logging (reuses simulation pattern)
+indras.log.info(msg, fields)
+indras.log.debug(msg, fields)
+indras.log.warn(msg, fields)
+indras.log.error(msg, fields)
+```
+
+### Registration (in Rust)
+
+```rust
+impl LuaTestRuntime {
+    pub fn new(action_tx: Sender<Action>, event_rx: broadcast::Receiver<AppEvent>,
+               query_tx: Sender<(Query, oneshot::Sender<QueryResult>)>) -> Self {
+        let lua = mlua::Lua::new();
+
+        let indras = lua.create_table().unwrap();
+
+        // indras.action(name, ...)
+        let tx = action_tx.clone();
+        indras.set("action", lua.create_function(move |_, (name, arg): (String, Option<mlua::Value>)| {
+            let action = parse_action(&name, arg)?;
+            tx.blocking_send(action).map_err(mlua::Error::external)?;
+            Ok(())
+        }).unwrap()).unwrap();
+
+        // indras.wait_for(event, filter, timeout)
+        let rx = Mutex::new(event_rx);
+        indras.set("wait_for", lua.create_function(move |_, (event, filter, timeout): (String, Option<mlua::Value>, Option<f64>)| {
+            let timeout = Duration::from_secs_f64(timeout.unwrap_or(30.0));
+            let deadline = Instant::now() + timeout;
+            loop {
+                match rx.lock().unwrap().try_recv() {
+                    Ok(evt) if matches_event(&evt, &event, &filter) => return Ok(true),
+                    Err(broadcast::error::TryRecvError::Empty) => {
+                        if Instant::now() > deadline {
+                            return Err(mlua::Error::external(format!(
+                                "Timeout waiting for event '{}' after {:.1}s", event, timeout.as_secs_f64()
+                            )));
+                        }
+                        std::thread::sleep(Duration::from_millis(50));
+                    }
+                    _ => continue,
+                }
+            }
+        }).unwrap()).unwrap();
+
+        // indras.query(name)
+        let qtx = query_tx.clone();
+        indras.set("query", lua.create_function(move |lua, name: String| {
+            let (tx, rx) = oneshot::channel();
+            let query = parse_query(&name)?;
+            qtx.blocking_send((query, tx)).map_err(mlua::Error::external)?;
+            let result = rx.blocking_recv().map_err(mlua::Error::external)?;
+            query_result_to_lua(lua, result)
+        }).unwrap()).unwrap();
+
+        lua.globals().set("indras", indras).unwrap();
+        Self { lua }
+    }
+}
+```
+
+---
+
+## Example Scenarios
+
+### Scenario 1: Two-peer connect and chat
+
+```lua
+-- scripts/scenarios/two_peer_chat.lua
+local me = indras.my_name()
+indras.log.info("Starting as " .. me)
+
+-- Both instances wait for app to be ready
+indras.wait_for("app_ready")
+
+if me == "Joy" then
+    -- Joy has Love's code (passed via env or hardcoded for test)
+    local love_code = os.getenv("LOVE_CODE") or "indras://test-love-code"
+
+    indras.wait(2)  -- let Love's instance fully start
+    indras.open_contacts()
+    indras.paste_code(love_code)
+    indras.click_connect()
+    indras.wait_for("peer_connected", "Love", 15)
+    indras.log.info("Connected to Love!")
+
+    -- Navigate to Love's contact and send a message
+    indras.click_sidebar("Love")
+    indras.wait(1)
+    indras.type_message("Hello from Joy!")
+    indras.send_message()
+    indras.wait_for("message_sent", nil, 5)
+
+    -- Verify
+    local count = indras.query("chat_message_count")
+    indras.assert.ge(count, 1, "Should have at least 1 message")
+    indras.log.info("Test passed: Joy sent message")
+
+elseif me == "Love" then
+    -- Love waits for Joy to connect
+    indras.wait_for("peer_connected", "Joy", 20)
+    indras.log.info("Joy connected!")
+
+    -- Navigate to Joy's contact
+    indras.click_sidebar("Joy")
+
+    -- Wait for Joy's message to arrive
+    indras.wait_for("message_received", { from = "Joy" }, 15)
+
+    -- Verify
+    local msgs = indras.query("chat_messages")
+    indras.assert.eq(#msgs, 1, "Should have 1 message")
+    indras.assert.eq(msgs[1].text, "Hello from Joy!", "Message content should match")
+    indras.log.info("Test passed: Love received message")
+end
+```
+
+### Scenario 2: Onboarding flow
+
+```lua
+-- scripts/scenarios/onboarding.lua
+indras.wait_for("app_ready")
+
+-- Should start in Setup phase
+local view = indras.query("app_phase")
+indras.assert.eq(view, "setup", "New user should see setup")
+
+-- Create identity
+indras.set_name("Zephyr")
+indras.create_identity()
+indras.wait_for("identity_created", "Zephyr", 10)
+
+-- Should now be in Workspace phase
+local phase = indras.query("app_phase")
+indras.assert.eq(phase, "workspace", "Should enter workspace after identity creation")
+
+-- Sidebar should have default items
+local items = indras.query("sidebar_items")
+indras.assert.gt(#items, 0, "Should have at least one sidebar item")
+
+indras.log.info("Onboarding test passed")
+```
+
+### Scenario 3: Navigation smoke test
+
+```lua
+-- scripts/scenarios/navigation_smoke.lua
+indras.wait_for("app_ready")
+
+local items = indras.query("sidebar_items")
+indras.log.info("Found " .. #items .. " sidebar items")
+
+-- Click each sidebar item and verify view changes
+for _, item in ipairs(items) do
+    indras.click_sidebar(item.label)
+    indras.wait(0.3)
+    local active = indras.query("active_sidebar_item")
+    indras.assert.eq(active, item.label, "Active item should be " .. item.label)
+    indras.log.info("Verified: " .. item.label .. " (" .. item.icon .. ")")
+end
+
+indras.log.info("Navigation smoke test passed")
+```
+
+---
+
+## File Structure
+
+```
+crates/indras-workspace/
+├── src/
+│   ├── main.rs                    # Add --script flag, channel setup, Lua thread spawn
+│   ├── lib.rs                     # Add `scripting` module
+│   ├── scripting/
+│   │   ├── mod.rs                 # Module exports
+│   │   ├── action.rs              # Action enum + parser
+│   │   ├── event.rs               # AppEvent enum + matcher
+│   │   ├── query.rs               # Query enum + QueryResult
+│   │   ├── channels.rs            # AppTestChannels struct, channel constructors
+│   │   ├── dispatcher.rs          # Action dispatcher (called from RootApp)
+│   │   └── lua_runtime.rs         # LuaTestRuntime — mlua setup, bindings
+│   ├── components/
+│   │   └── app.rs                 # Add dispatcher hook, event emissions
+│   └── ...
+├── Cargo.toml                     # Add mlua dependency (optional feature)
+└── scripts/
+    └── scenarios/
+        ├── two_peer_chat.lua      # Multi-instance chat test
+        ├── onboarding.lua         # Setup flow test
+        └── navigation_smoke.lua   # Sidebar navigation test
+
+scripts/
+└── run-lua-test.sh               # Helper to launch N instances with a shared script
+```
+
+### Cargo.toml Changes
+
+```toml
+[features]
+default = []
+lua-scripting = ["mlua"]
+
+[dependencies]
+mlua = { version = "0.10", features = ["lua54", "vendored", "serialize"], optional = true }
+```
+
+The `lua-scripting` feature keeps mlua out of production builds. Test builds use:
+```bash
+cargo build -p indras-workspace --features lua-scripting
+```
+
+---
+
+## Test Runner Script
+
+```bash
+#!/bin/bash
+# scripts/run-lua-test.sh
+# Usage: ./scripts/run-lua-test.sh scripts/scenarios/two_peer_chat.lua
+
+SCRIPT="${1:?Usage: run-lua-test.sh <script.lua>}"
+FEATURES="--features lua-scripting"
+
+# Build once
+cargo build -p indras-workspace $FEATURES 2>&1
+
+# Export identity codes for multi-instance scenarios
+export JOY_CODE="indras://joy-test-code"
+export LOVE_CODE="indras://love-test-code"
+
+# Launch instances in parallel
+INDRAS_NAME=Joy INDRAS_SCRIPT="$SCRIPT" \
+  INDRAS_WIN_X=100 INDRAS_WIN_Y=100 \
+  cargo run -p indras-workspace $FEATURES &
+PID_JOY=$!
+
+INDRAS_NAME=Love INDRAS_SCRIPT="$SCRIPT" \
+  INDRAS_WIN_X=700 INDRAS_WIN_Y=100 \
+  cargo run -p indras-workspace $FEATURES &
+PID_LOVE=$!
+
+# Wait for both to finish
+wait $PID_JOY
+EXIT_JOY=$?
+wait $PID_LOVE
+EXIT_LOVE=$?
+
+if [ $EXIT_JOY -eq 0 ] && [ $EXIT_LOVE -eq 0 ]; then
+    echo "ALL TESTS PASSED"
+    exit 0
+else
+    echo "TESTS FAILED (Joy=$EXIT_JOY, Love=$EXIT_LOVE)"
+    exit 1
+fi
+```
+
+---
 
 ## Implementation Phases
 
-### Phase 1: Skeleton (crate + static layout)
+### Phase 1: Foundation (ActionBus + Dispatcher)
 
-1. **Create `crates/indras-workspace/`** — Cargo.toml with deps: `dioxus 0.7 (desktop)`, `indras-artifacts`, `indras-network`, `indras-ui`, `tokio`, `serde`, `tracing`
-2. **Add to workspace** — `Cargo.toml` members list
-3. **`main.rs`** — Dioxus desktop launch with window config (1400x900), embedded CSS, Google Fonts
-4. **`assets/workspace.css`** — Port the mockup's CSS (adapted to use `shared.css` design tokens where possible, keep workspace-specific styles like block editor, slash menu, mobile breakpoints)
-5. **`components/app.rs`** — Static 3-panel grid layout matching mockup's `.app` grid
+**Goal**: Lua scripts can trigger UI actions in a single instance.
 
-### Phase 2: Shared components in indras-ui
+1. Add `scripting/` module with `Action`, `AppEvent`, `Query`, `channels.rs`
+2. Add `mlua` optional dependency
+3. Create `LuaTestRuntime` with `indras.action()` and `indras.wait()`
+4. Wire `--script` / `INDRAS_SCRIPT` in `main.rs`
+5. Add dispatcher `use_future` in `RootApp`
+6. Implement 5 core actions: `ClickSidebar`, `ClickTab`, `Wait`, `OpenContacts`, `SetDisplayName`
+7. Write `navigation_smoke.lua` scenario
 
-6. **`indras-ui/src/identity_row.rs`** — `IdentityRow { avatar_letter, name, short_id }` component
-7. **`indras-ui/src/peer_strip.rs`** — `PeerStrip { peers: Vec<PeerDisplayInfo> }` with online dots
-8. **`indras-ui/src/heat_display.rs`** — `HeatDot { level: u8 }` (0-5) and `HeatBar { label, value: f32, color }` components
-9. **`indras-ui/src/vault_sidebar.rs`** — `VaultSidebar` with tree items, section labels, heat dots, expand/collapse, active selection
-10. **`indras-ui/src/slash_menu.rs`** — `SlashMenu { visible, on_select: EventHandler<SlashAction> }` with all block types from mockup
-11. **`indras-ui/src/detail_panel.rs`** — `DetailPanel` with properties, audience, heat bars, attention trail, references sections
-12. **Update `indras-ui/src/lib.rs`** — Export all 6 new modules
+**Verify**: Run single instance with `--script`, sidebar clicks work.
 
-### Phase 3: State + Vault integration
+### Phase 2: Events + Queries
 
-13. **`state/workspace.rs`** — `WorkspaceState` with all sub-states
-14. **`state/navigation.rs`** — `NavigationState` with `rebuild_tree(&vault)`, `navigate(&vault, id, now)`, breadcrumb management
-15. **`state/editor.rs`** — `EditorState` with `load_document(&vault, tree_id)` → parses refs into blocks
-16. **`bridge/vault_bridge.rs`** — `VaultHandle` with `Arc<Mutex<InMemoryVault>>`, context provider, seed data
+**Goal**: Lua scripts can wait for events and assert state.
 
-### Phase 4: Wire sidebar + navigation
+1. Add `EventBus` (broadcast channel)
+2. Emit events at key points in `app.rs` (PeerConnected, ViewChanged, etc.)
+3. Implement `indras.wait_for()` in Lua bindings
+4. Add `QueryBus` (oneshot per query)
+5. Implement `indras.query()` for: `active_view`, `peer_count`, `sidebar_items`, `app_phase`
+6. Port assertion helpers from `simulation/src/lua/assertions.rs`
+7. Write `onboarding.lua` scenario
 
-17. **Wire `VaultSidebar`** — populate from `nav.vault_tree`, clicking calls `vault.navigate_to()` + rebuilds state
-18. **Wire `Topbar`** — breadcrumbs from `nav.breadcrumbs`, steward badge from current artifact
-19. **Wire `DetailPanel`** — properties, audience, heat from current artifact
+**Verify**: Onboarding test passes — create identity, verify workspace phase.
 
-### Phase 5: Document editor + blocks
+### Phase 3: Contact Flow Actions
 
-20. **`components/document.rs`** — Loads current Tree(Document) children, renders block list
-21. **`components/blocks/*.rs`** — 7 block renderers matching mockup's CSS classes (`.block`, `.block-code`, `.block-callout`, `.block-todo`, `.block-image`, etc.)
-22. **Wire slash menu** — Creating artifacts via `vault.place_leaf()` + `vault.compose()`, adding blocks to current document
+**Goal**: Lua can drive the full connect flow.
 
-### Phase 6: P2P network integration
+1. Add actions: `PasteConnectCode`, `ClickConnect`, `CloseOverlay`
+2. Add events: `PeerConnected`, `OverlayOpened`, `OverlayClosed`
+3. Add queries: `peer_names`, `overlay_open`
+4. Create `run-lua-test.sh` runner script
+5. Write single-instance connect test (mock peer code)
 
-23. **`bridge/network_bridge.rs`** — `IndrasNetwork` init, event stream, attention sync protocol
-24. **Wire peer strip** — Real peer discovery, online/offline from `PeerEvent`
-25. **Wire heat** — `vault.ingest_peer_log()` from network events, recompute heat on attention sync
-26. **Attention broadcast** — Periodically send own attention log to peers via `realm.send()` Custom events
+**Verify**: Connect flow scripted end-to-end in single instance.
 
-### Phase 7: Mobile + polish
+### Phase 4: Chat Actions + Multi-Instance
 
-27. **`components/bottom_nav.rs`** — Mobile bottom navigation bar
-28. **`components/fab.rs`** — Floating action button (opens slash menu)
-29. **Responsive CSS** — Port all 4 breakpoints from mockup (1024px, 768px, 400px)
-30. **Animations** — `fadeUp` stagger on content blocks, heat pulse, slide transitions
+**Goal**: Two instances can script a full chat conversation.
 
-## Verification
+1. Add actions: `TypeMessage`, `SendMessage`
+2. Add events: `MessageSent`, `MessageReceived`
+3. Add queries: `chat_message_count`, `chat_messages`
+4. Emit chat events from ChatPanel (requires threading EventTx through)
+5. Write `two_peer_chat.lua` scenario
+6. Test with `run-lua-test.sh`
 
-1. `cargo build -p indras-workspace` compiles cleanly
-2. `cargo build -p indras-ui` compiles with new components
-3. `cargo test -p indras-artifacts` still passes (no modifications to artifacts crate)
-4. `cargo run -p indras-workspace` launches desktop window with 3-panel layout
-5. Clicking vault tree items generates `AttentionSwitchEvent` (verify via tracing logs)
-6. Heat dots update when peer attention is ingested
-7. Slash menu creates real artifacts visible in vault tree
-8. Detail panel shows real properties from artifact store
-9. Mobile breakpoints work when resizing window below 768px
+**Verify**: Joy sends message, Love receives it — fully automated.
+
+### Phase 5: Polish + CI
+
+**Goal**: Reliable test suite ready for CI.
+
+1. Add timeout handling (script-level timeout, per-action timeout)
+2. Add JSONL structured logging (reuse simulation's logging infra)
+3. Add `--headless` mode (skip window creation, run faster)
+4. Exit codes: 0 = pass, 1 = assertion failure, 2 = timeout, 3 = error
+5. Add CI script that runs all scenarios
+6. Document the Lua API in `docs/lua-testing.md`
+
+**Verify**: `./scripts/run-all-lua-tests.sh` runs suite, reports pass/fail.
+
+---
+
+## Security
+
+### Threat Model
+
+This is **test infrastructure**, not a user-facing plugin system. The Lua runtime only exists in test builds and only activates with an explicit flag. The threat model is accidental misuse, not adversarial attack.
+
+### Defense in Depth (Three Layers)
+
+**Layer 1: Compile-time gate (feature flag)**
+
+The `lua-scripting` feature excludes all Lua code from production binaries:
+
+```toml
+[features]
+lua-scripting = ["mlua"]
+```
+
+No feature flag = no Lua code in the binary. Zero attack surface.
+
+**Layer 2: Runtime gate (debug assertions)**
+
+Even if someone enables the feature in a release build, the scripting module refuses to initialize:
+
+```rust
+// In main.rs, before spawning Lua thread:
+#[cfg(not(debug_assertions))]
+{
+    eprintln!("WARNING: Lua scripting is only available in debug builds");
+    std::process::exit(1);
+}
+```
+
+**Layer 3: Lua sandbox (stripped globals)**
+
+The Lua environment removes dangerous standard libraries at initialization:
+
+```rust
+fn sandbox_lua(lua: &mlua::Lua) {
+    let globals = lua.globals();
+
+    // Remove dangerous standard libraries
+    globals.set("os", mlua::Nil).ok();       // no os.execute()
+    globals.set("io", mlua::Nil).ok();       // no file I/O
+    globals.set("loadfile", mlua::Nil).ok(); // no loading arbitrary Lua files
+    globals.set("dofile", mlua::Nil).ok();   // no executing arbitrary Lua files
+    globals.set("require", mlua::Nil).ok();  // no C module loading
+
+    // Re-add safe os functions only
+    let safe_os = lua.create_table().unwrap();
+    safe_os.set("getenv", lua.create_function(|_, key: String| {
+        Ok(std::env::var(key).ok())
+    }).unwrap()).unwrap();
+    safe_os.set("clock", lua.create_function(|_, ()| {
+        Ok(std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap().as_secs_f64())
+    }).unwrap()).unwrap();
+    globals.set("os", safe_os).ok();
+}
+```
+
+Scripts can only interact with the app through the `indras.*` API — no filesystem access, no process spawning, no arbitrary code loading.
+
+### Activation: CLI flag only (no env var)
+
+To prevent env var injection from sibling processes, activation requires a CLI flag:
+
+```rust
+// Only --script flag, NOT INDRAS_SCRIPT env var
+let script_path = args.iter()
+    .find(|a| a.starts_with("--script="))
+    .map(|a| a.trim_start_matches("--script=").to_string());
+```
+
+The `INDRAS_SCRIPT` env var mentioned elsewhere in this plan is removed in favor of `--script` only.
+
+### What this does NOT protect against
+
+| Scenario | Protected? | Why |
+|----------|------------|-----|
+| Production user runs malicious Lua | Yes | Feature flag + debug gate = code doesn't exist |
+| Dev runs untrusted `.lua` file | Partially | Sandbox blocks `os`/`io`, but `indras.*` API can still send messages, connect to peers |
+| Attacker with local shell access | No | They don't need Lua — they already own the machine |
+
+### Future: If Lua becomes a plugin system
+
+If Lua scripting is ever exposed to end users (plugins, automation), it would need:
+- Capability-based permissions (`indras.request_permission("network")`)
+- Resource limits (memory, CPU time via `mlua::HookTriggers`)
+- Script signing or allowlisting
+- Per-action user consent prompts
+
+That is a fundamentally different design. This plan is strictly test infrastructure.
+
+---
+
+## Risks and Mitigations
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| mlua `!Send` constraint | Can't share Lua instance across threads | Dedicated Lua thread with channel bridge (already in design) |
+| Dioxus signal access from dispatcher | Dispatcher needs access to all signals | Dispatcher runs inside RootApp's scope where signals are available |
+| Timing sensitivity in multi-instance | Tests may be flaky if events arrive late | `wait_for` with configurable timeouts + retry in runner script |
+| Feature-gated mlua bloats compile | Slower CI builds | Only build with `--features lua-scripting` in test CI jobs |
+| Action enum grows large | Maintenance burden | Group actions by module, use trait-based dispatch |
+| ChatPanel event emission | ChatPanel is in `indras-ui`, separate from workspace | Pass `EventTx` via Dioxus context, ChatPanel checks for it optionally |
+
+---
+
+## Open Questions
+
+1. **Headless mode**: Can Dioxus desktop skip window creation? If not, we may need a `--minimized` flag or run under Xvfb on CI.
+2. **Identity exchange**: For multi-instance tests, how do we pass identity codes between instances? Options: shared file or a coordination temp directory.
+3. **Screenshot capture**: Worth adding `indras.screenshot("path")` for visual regression? Dioxus desktop uses webview which supports screenshot APIs.
+4. **Reuse simulation's LuaRuntime**: Should we extend `simulation::lua::LuaRuntime` or create a new one? The simulation bindings are network-sim specific, so a new runtime that shares assertion/logging helpers is cleaner.
