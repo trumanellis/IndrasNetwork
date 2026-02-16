@@ -37,9 +37,12 @@ pub fn StoryView(
     message_count: usize,
     messages: Vec<StoryMessage>,
     on_artifact_click: Option<EventHandler<StoryArtifactRef>>,
+    #[props(optional)]
+    on_send: Option<EventHandler<String>>,
 ) -> Element {
     let audience_text = format!("{} audience", audience_count);
     let msg_text = format!("{} messages", message_count);
+    let mut compose_text = use_signal(String::new);
 
     rsx! {
         div {
@@ -69,22 +72,6 @@ pub fn StoryView(
                         }
                         {render_message(msg, &on_artifact_click)}
                     }
-                    // Typing indicator
-                    div {
-                        class: "typing-indicator",
-                        div {
-                            class: "msg-avatar peer-dot-zeph",
-                            style: "width:20px;height:20px;font-size:8px",
-                            "Z"
-                        }
-                        div {
-                            class: "typing-dots",
-                            span {}
-                            span {}
-                            span {}
-                        }
-                        span { "Zephyr is composing..." }
-                    }
                 }
             }
             // Compose bar
@@ -95,8 +82,24 @@ pub fn StoryView(
                     class: "compose-input",
                     placeholder: "Send a message...",
                     rows: "1",
+                    value: "{compose_text}",
+                    oninput: move |evt| {
+                        compose_text.set(evt.value().clone());
+                    },
                 }
-                button { class: "compose-btn", "\u{27A4}" }
+                button {
+                    class: "compose-btn",
+                    onclick: move |_| {
+                        let text = compose_text.read().trim().to_string();
+                        if !text.is_empty() {
+                            if let Some(handler) = &on_send {
+                                handler.call(text);
+                            }
+                            compose_text.set(String::new());
+                        }
+                    },
+                    "\u{27A4}"
+                }
             }
         }
     }

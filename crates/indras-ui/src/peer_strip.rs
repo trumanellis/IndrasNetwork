@@ -17,6 +17,8 @@ pub fn PeerStrip(
     peers: Vec<PeerDisplayInfo>,
     #[props(optional)]
     on_add_contact: Option<EventHandler<()>>,
+    #[props(optional)]
+    on_peer_click: Option<EventHandler<String>>,
 ) -> Element {
     rsx! {
         div {
@@ -26,10 +28,17 @@ pub fn PeerStrip(
                 {
                     let online_class = if peer.online { " online" } else { "" };
                     let class_str = format!("peer-dot {}{}", peer.color_class, online_class);
+                    let peer_name = peer.name.clone();
+                    let click_handler = on_peer_click.clone();
                     rsx! {
                         div {
                             class: "{class_str}",
                             title: "{peer.name}",
+                            onclick: move |_| {
+                                if let Some(handler) = &click_handler {
+                                    handler.call(peer_name.clone());
+                                }
+                            },
                             "{peer.letter}"
                         }
                     }

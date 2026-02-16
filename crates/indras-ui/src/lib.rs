@@ -31,6 +31,7 @@ pub use heat_display::{HeatDot, HeatBar, heat_level};
 pub use vault_sidebar::{VaultSidebar, TreeNode};
 pub use slash_menu::{SlashMenu, SlashAction};
 pub use detail_panel::{DetailPanel, PropertyRow, AudienceMember, HeatEntry, TrailEvent, ReferenceItem, SyncEntry};
+pub use chat::ChatPanel;
 
 /// Shared CSS containing design tokens, theme definitions, and base styles.
 pub const SHARED_CSS: &str = include_str!("../assets/shared.css");
