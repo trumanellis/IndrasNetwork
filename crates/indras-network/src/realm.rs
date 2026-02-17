@@ -321,9 +321,8 @@ impl Realm {
     pub async fn mark_read(&self, member: MemberId) -> Result<()> {
         use crate::read_tracker::ReadTrackerDocument;
 
-        // Get the current event count as the sequence number
-        let events = self.node.events_since(&self.id, 0).await?;
-        let seq = events.len() as u64;
+        // Use all_messages() to get accurate count including CRDT-synced messages
+        let seq = self.all_messages().await?.len() as u64;
 
         let doc = self.document::<ReadTrackerDocument>("read_tracker").await?;
         doc.update(|d| {
@@ -358,22 +357,10 @@ impl Realm {
         let doc = self.document::<ReadTrackerDocument>("read_tracker").await?;
         let last_read = doc.read().await.last_read_seq(member);
 
-        let events = self.node.events_since(&self.id, last_read).await?;
-        let realm_id = self.id;
+        // Use all_messages() to include CRDT-synced messages from remote peers
+        let total = self.all_messages().await?.len() as u64;
 
-        // Count only message events (not membership changes, sync markers, etc.)
-        let count = events
-            .into_iter()
-            .filter_map(|event| {
-                let received = ReceivedEvent {
-                    interface_id: realm_id,
-                    event,
-                };
-                convert_event_to_message(received, realm_id)
-            })
-            .count();
-
-        Ok(count)
+        Ok(total.saturating_sub(last_read) as usize)
     }
 
     /// Get the sequence number of the last message read by a member.

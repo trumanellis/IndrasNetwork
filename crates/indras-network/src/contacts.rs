@@ -320,6 +320,11 @@ impl ContactsRealm {
         self.document.read_blocking().len()
     }
 
+    /// Get the number of contacts (async-safe).
+    pub async fn contact_count_async(&self) -> usize {
+        self.document.read().await.len()
+    }
+
     /// Update sentiment for a contact. Clamps to [-1, 1].
     pub async fn update_sentiment(&self, member_id: &MemberId, sentiment: i8) -> Result<()> {
         let mid = *member_id;
@@ -340,6 +345,11 @@ impl ContactsRealm {
     /// Get sentiment for a contact.
     pub fn get_sentiment(&self, member_id: &MemberId) -> Option<i8> {
         self.document.read_blocking().get_sentiment(member_id)
+    }
+
+    /// Get sentiment for a contact (async-safe).
+    pub async fn get_sentiment_async(&self, member_id: &MemberId) -> Option<i8> {
+        self.document.read().await.get_sentiment(member_id)
     }
 
     /// Get the full contact entry for a member.
@@ -397,6 +407,11 @@ impl ContactsRealm {
     /// Get the connection status for a contact.
     pub fn get_status(&self, member_id: &MemberId) -> Option<ContactStatus> {
         self.document.read_blocking().get_status(member_id)
+    }
+
+    /// Get the connection status for a contact (async-safe).
+    pub async fn get_status_async(&self, member_id: &MemberId) -> Option<ContactStatus> {
+        self.document.read().await.get_status(member_id)
     }
 
     /// Access the underlying node.

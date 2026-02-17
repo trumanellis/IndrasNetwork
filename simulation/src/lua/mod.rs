@@ -77,6 +77,9 @@ pub fn register_indras_module(lua: &Lua) -> Result<()> {
     // Register LiveNode bindings (real P2P nodes)
     bindings::live_node::register(lua, &indras)?;
 
+    // Register LiveNetwork bindings (high-level indras-network API)
+    bindings::live_network::register(lua, &indras)?;
+
     // Register assertion helpers
     assertions::register(lua, &indras)?;
 
