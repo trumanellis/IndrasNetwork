@@ -46,6 +46,28 @@ pub trait RealmChat {
     ///
     /// Returns `true` if the delete was applied.
     async fn delete_chat(&self, id: &str, author: &str, tick: u64) -> Result<bool>;
+
+    /// Send a reply to an existing message.
+    ///
+    /// Returns the new message ID on success.
+    async fn send_chat_reply(
+        &self,
+        realm_id: &str,
+        author: &str,
+        content: String,
+        tick: u64,
+        reply_to: &str,
+    ) -> Result<ChatMessageId>;
+
+    /// Add a reaction to a message.
+    ///
+    /// Returns true if the reaction was added (false if duplicate).
+    async fn react_chat(&self, msg_id: &str, author: &str, emoji: &str) -> Result<bool>;
+
+    /// Remove a reaction from a message.
+    ///
+    /// Returns true if the reaction was removed.
+    async fn unreact_chat(&self, msg_id: &str, author: &str, emoji: &str) -> Result<bool>;
 }
 
 impl RealmChat for Realm {
@@ -122,6 +144,76 @@ impl RealmChat for Realm {
             .await?;
 
         debug!(msg_id = %id, deleted = result, "Delete chat result");
+        Ok(result)
+    }
+
+    async fn send_chat_reply(
+        &self,
+        realm_id: &str,
+        author: &str,
+        content: String,
+        tick: u64,
+        reply_to: &str,
+    ) -> Result<ChatMessageId> {
+        let msg_id = format!("{}-{}-{}", realm_id, tick, &author[..8.min(author.len())]);
+        debug!(
+            msg_id = %msg_id,
+            author = %&author[..16.min(author.len())],
+            reply_to = %reply_to,
+            "Sending chat reply"
+        );
+
+        let msg = EditableChatMessage::new_reply(
+            msg_id.clone(),
+            realm_id.to_string(),
+            author.to_string(),
+            content,
+            tick,
+            EditableMessageType::Text,
+            reply_to.to_string(),
+        );
+
+        let doc = self.chat_document().await?;
+        doc.update(|d| {
+            d.add_message(msg);
+        })
+        .await?;
+
+        debug!(msg_id = %msg_id, "Chat reply sent");
+        Ok(msg_id)
+    }
+
+    async fn react_chat(&self, msg_id: &str, author: &str, emoji: &str) -> Result<bool> {
+        debug!(
+            msg_id = %msg_id,
+            author = %&author[..16.min(author.len())],
+            emoji = %emoji,
+            "Adding reaction"
+        );
+
+        let doc = self.chat_document().await?;
+        let result = doc
+            .transaction(|d| d.add_reaction(msg_id, author, emoji))
+            .await?;
+
+        debug!(msg_id = %msg_id, added = result, "React result");
+        Ok(result)
+    }
+
+    async fn unreact_chat(&self, msg_id: &str, author: &str, emoji: &str) -> Result<bool> {
+        debug!(
+            msg_id = %msg_id,
+            author = %&author[..16.min(author.len())],
+            emoji = %emoji,
+            "Removing reaction"
+        );
+
+        let doc = self.chat_document().await?;
+        let result = doc
+            .transaction(|d| d.remove_reaction(msg_id, author, emoji))
+            .await?;
+
+        debug!(msg_id = %msg_id, removed = result, "Unreact result");
         Ok(result)
     }
 }
