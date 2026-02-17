@@ -59,6 +59,14 @@ Standard git workflow. Use `git commit`, `git push`, etc. normally.
 This entire project is greenfield. Do not maintain backward compatibility unless explicitly told
 to. Feel free to delete, replace, and rewrite modules without preserving old interfaces.
 
+## Documentation Convention
+
+- Every public type and function must have a `///` doc comment
+- Every `lib.rs` should have `//!` module docs with purpose, key types, and architecture
+- When adding a new module to a crate, update that crate's `AGENTS.md`
+- When changing `indras-network` public API, update the developer guide (`articles/indras-network-developers-guide.md`)
+- `AGENTS.md` files should be 50–150 lines — architectural context, not API reference
+
 ## Cargo Commands Reference
 
 ```bash
