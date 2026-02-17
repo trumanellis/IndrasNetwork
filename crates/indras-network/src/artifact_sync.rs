@@ -12,7 +12,8 @@ use crate::member::MemberId;
 use dashmap::DashMap;
 use indras_core::InterfaceId;
 use indras_node::IndrasNode;
-use std::sync::Arc;
+use indras_sync::{ArtifactDocument, HeadTracker, ArtifactSyncPayload, RawSync};
+use std::sync::{Arc, RwLock};
 use tracing::{debug, info, warn};
 
 /// Derive a deterministic InterfaceId from an ArtifactId.
@@ -49,6 +50,10 @@ pub struct ArtifactSyncRegistry {
     self_id: MemberId,
     /// Active artifact → interface mappings.
     active: DashMap<ArtifactId, InterfaceId>,
+    /// Per-artifact Automerge documents for CRDT sync.
+    documents: DashMap<ArtifactId, ArtifactDocument>,
+    /// Per-peer head tracking for incremental sync.
+    head_tracker: RwLock<HeadTracker>,
 }
 
 impl ArtifactSyncRegistry {
@@ -58,6 +63,8 @@ impl ArtifactSyncRegistry {
             node,
             self_id,
             active: DashMap::new(),
+            documents: DashMap::new(),
+            head_tracker: RwLock::new(HeadTracker::new()),
         }
     }
 
@@ -75,9 +82,14 @@ impl ArtifactSyncRegistry {
 
         if audience.is_empty() {
             // No grantees — tear down interface if it exists
+            self.documents.remove(artifact_id);
+            if let Ok(mut tracker) = self.head_tracker.write() {
+                tracker.remove_artifact(artifact_id);
+            }
             self.teardown(artifact_id).await
         } else {
             // Has grantees — ensure interface exists and members are correct
+            self.get_or_create_document(artifact_id, entry)?;
             self.ensure(artifact_id, &audience).await
         }
     }
@@ -179,6 +191,112 @@ impl ArtifactSyncRegistry {
     /// Get the number of actively syncing artifacts.
     pub fn active_count(&self) -> usize {
         self.active.len()
+    }
+
+    /// Get or create the Automerge document for an artifact.
+    ///
+    /// If the document doesn't exist, creates a new one from the entry's metadata.
+    pub fn get_or_create_document(&self, artifact_id: &ArtifactId, entry: &HomeArtifactEntry) -> Result<()> {
+        if !self.documents.contains_key(artifact_id) {
+            let doc = ArtifactDocument::new(
+                artifact_id,
+                &self.self_id,
+                &indras_artifacts::TreeType::Collection,
+                entry.created_at,
+            );
+            self.documents.insert(*artifact_id, doc);
+            debug!(artifact = %artifact_id, "Created Automerge document for artifact");
+        }
+        Ok(())
+    }
+
+    /// After a local mutation, prepare sync payloads for all audience members.
+    ///
+    /// Returns a list of (recipient, payload) pairs ready for transport dispatch.
+    pub fn on_local_mutation(
+        &self,
+        artifact_id: &ArtifactId,
+        audience: &[MemberId],
+    ) -> Result<Vec<(MemberId, ArtifactSyncPayload)>> {
+        let mut doc = self.documents.get_mut(artifact_id).ok_or_else(|| {
+            IndraError::Artifact(format!("No document for artifact {artifact_id}"))
+        })?;
+        let tracker = self.head_tracker.read().map_err(|_| {
+            IndraError::Artifact("Head tracker lock poisoned".to_string())
+        })?;
+        let payloads = RawSync::broadcast_payloads(
+            &mut *doc,
+            &tracker,
+            artifact_id,
+            audience,
+            &self.self_id,
+        );
+        Ok(payloads)
+    }
+
+    /// Handle an incoming sync payload from a peer.
+    ///
+    /// Applies the changes to the local document and updates the head tracker.
+    pub fn on_incoming_payload(
+        &self,
+        sender: &MemberId,
+        payload: ArtifactSyncPayload,
+    ) -> Result<()> {
+        let artifact_id = payload.artifact_id;
+        let mut doc = self.documents.get_mut(&artifact_id).ok_or_else(|| {
+            IndraError::Artifact(format!("No document for artifact {artifact_id}"))
+        })?;
+        let mut tracker = self.head_tracker.write().map_err(|_| {
+            IndraError::Artifact("Head tracker lock poisoned".to_string())
+        })?;
+        RawSync::apply_payload(&mut *doc, &mut tracker, payload, sender).map_err(|e| {
+            IndraError::Artifact(format!("Failed to apply sync payload: {e}"))
+        })?;
+        info!(
+            artifact = %artifact_id,
+            sender = %hex::encode(&sender[..4]),
+            "Applied incoming sync payload"
+        );
+        Ok(())
+    }
+
+    /// Serialize the head tracker for persistence.
+    pub fn persist_tracker(&self) -> Result<Vec<u8>> {
+        let tracker = self.head_tracker.read().map_err(|_| {
+            IndraError::Artifact("Head tracker lock poisoned".to_string())
+        })?;
+        tracker.save().map_err(|e| {
+            IndraError::Artifact(format!("Failed to persist tracker: {e}"))
+        })
+    }
+
+    /// Load head tracker state from persisted bytes.
+    pub fn load_tracker(&self, bytes: &[u8]) -> Result<()> {
+        let loaded = HeadTracker::load(bytes).map_err(|e| {
+            IndraError::Artifact(format!("Failed to load tracker: {e}"))
+        })?;
+        let mut tracker = self.head_tracker.write().map_err(|_| {
+            IndraError::Artifact("Head tracker lock poisoned".to_string())
+        })?;
+        *tracker = loaded;
+        Ok(())
+    }
+
+    /// Persist a single artifact document as bytes.
+    pub fn persist_document(&self, artifact_id: &ArtifactId) -> Result<Option<Vec<u8>>> {
+        match self.documents.get_mut(artifact_id) {
+            Some(mut doc) => Ok(Some(doc.save())),
+            None => Ok(None),
+        }
+    }
+
+    /// Load a document from persisted bytes.
+    pub fn load_document(&self, artifact_id: &ArtifactId, bytes: &[u8]) -> Result<()> {
+        let doc = ArtifactDocument::load(bytes).map_err(|e| {
+            IndraError::Artifact(format!("Failed to load document: {e}"))
+        })?;
+        self.documents.insert(*artifact_id, doc);
+        Ok(())
     }
 }
 

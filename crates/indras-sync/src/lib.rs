@@ -52,15 +52,21 @@
 //! );
 //! ```
 
+pub mod artifact_document;
 pub mod document;
 pub mod error;
 pub mod event_store;
+pub mod head_tracker;
 pub mod n_interface;
+pub mod raw_sync;
 pub mod sync_protocol;
 
 // Re-exports
+pub use artifact_document::ArtifactDocument;
 pub use document::InterfaceDocument;
 pub use error::{SyncError, SyncResult};
 pub use event_store::EventStore;
+pub use head_tracker::HeadTracker;
 pub use n_interface::NInterface;
+pub use raw_sync::{ArtifactSyncPayload, RawSync};
 pub use sync_protocol::{PeerSyncState, PendingDelivery, SyncProtocol, SyncState};
