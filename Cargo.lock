@@ -3628,6 +3628,7 @@ dependencies = [
  "indras-dtn",
  "indras-iot",
  "indras-logging",
+ "indras-network",
  "indras-node",
  "indras-routing",
  "indras-storage",
