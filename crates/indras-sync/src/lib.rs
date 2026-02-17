@@ -1,13 +1,13 @@
 //! # Indras Sync
 //!
-//! CRDT-based document synchronization using Yrs for N-peer interfaces.
+//! CRDT-based document synchronization for N-peer interfaces.
 //!
 //! This crate provides the synchronization layer for the Indras Network,
-//! combining Yrs document sync with store-and-forward event delivery.
+//! combining document sync with store-and-forward event delivery.
 //!
 //! ## Key Components
 //!
-//! - [`InterfaceDocument`]: Yrs document backing an N-peer interface
+//! - [`InterfaceDocument`]: Document backing an N-peer interface
 //! - [`EventStore`]: Store-and-forward event storage with delivery tracking
 //! - [`SyncProtocol`]: Sync protocol handlers and state management
 //!
@@ -18,9 +18,9 @@
 //! 1. **Events (Store-and-Forward)**: Lightweight, real-time delivery of events.
 //!    Events are held for offline peers until they reconnect and confirm receipt.
 //!
-//! 2. **Documents (Yrs Sync)**: Full state synchronization using Yrs's
-//!    sync protocol. Handles membership, settings, and shared data with automatic
-//!    conflict resolution.
+//! 2. **Documents (State Sync)**: Full state synchronization using postcard-serialized
+//!    documents with union-based merge. Handles membership, settings, and shared data
+//!    with automatic conflict resolution.
 //!
 //! ## Example
 //!

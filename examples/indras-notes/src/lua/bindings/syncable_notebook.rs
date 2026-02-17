@@ -1,6 +1,6 @@
 //! Lua bindings for SyncableNotebook type
 //!
-//! Provides UserData implementation for SyncableNotebook with real Yrs sync.
+//! Provides UserData implementation for SyncableNotebook with document sync.
 
 use mlua::{Lua, Result, Table, UserData, UserDataMethods};
 use std::sync::Arc;
@@ -13,7 +13,7 @@ use crate::syncable_notebook::SyncableNotebook;
 use super::note::LuaNote;
 use super::operations::LuaNoteOperation;
 
-/// Lua wrapper for SyncableNotebook with real Yrs sync
+/// Lua wrapper for SyncableNotebook with document sync
 pub struct LuaSyncableNotebook {
     inner: Arc<Mutex<SyncableNotebook>>,
 }
@@ -125,7 +125,7 @@ impl UserData for LuaSyncableNotebook {
             Ok(notebook.is_empty())
         });
 
-        // ===== Yrs Sync Methods =====
+        // ===== Sync Methods =====
 
         // state_vector() -> hex string
         methods.add_method("state_vector", |_, this, ()| {

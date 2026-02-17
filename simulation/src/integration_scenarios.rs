@@ -251,7 +251,7 @@ async fn test_partition_recovery() {
     let alice_sync = NInterfaceTrait::generate_sync(&alice_interface, &bob);
     let bob_sync = NInterfaceTrait::generate_sync(&bob_interface, &alice);
 
-    // Apply syncs - Yrs will merge the concurrent changes
+    // Apply syncs - merge the concurrent changes
     bob_interface.merge_sync(alice_sync).await.unwrap();
     alice_interface.merge_sync(bob_sync).await.unwrap();
 

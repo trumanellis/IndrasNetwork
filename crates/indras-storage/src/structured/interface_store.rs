@@ -306,6 +306,27 @@ impl InterfaceStore {
     pub fn delete_document_data(&self, key: &[u8]) -> Result<bool, StorageError> {
         self.storage.delete(SNAPSHOTS, key)
     }
+
+    /// List all stored documents for a given interface.
+    ///
+    /// Returns `(document_name, raw_data)` pairs. The name is extracted
+    /// from the storage key after the `"doc:"` prefix and 32-byte interface ID.
+    pub fn list_documents(&self, interface_id: &InterfaceId) -> Result<Vec<(String, Vec<u8>)>, StorageError> {
+        let mut prefix = Vec::with_capacity(4 + 32);
+        prefix.extend_from_slice(b"doc:");
+        prefix.extend_from_slice(interface_id.as_bytes());
+
+        let results = self.storage.scan_prefix(SNAPSHOTS, &prefix)?;
+
+        let prefix_len = prefix.len();
+        Ok(results
+            .into_iter()
+            .map(|(key, value)| {
+                let name = String::from_utf8_lossy(&key[prefix_len..]).to_string();
+                (name, value)
+            })
+            .collect())
+    }
 }
 
 #[cfg(test)]

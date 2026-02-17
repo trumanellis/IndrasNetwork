@@ -96,6 +96,24 @@ pub fn RootApp() -> Element {
         });
     }
 
+    // Save world view on shutdown
+    let network_for_cleanup = network_handle;
+    use_drop(move || {
+        if let Some(nh) = network_for_cleanup.read().as_ref() {
+            let net = nh.network.clone();
+            std::thread::spawn(move || {
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                rt.block_on(async {
+                    if let Err(e) = net.save_world_view().await {
+                        tracing::error!(error = %e, "Failed to save world view on shutdown");
+                    }
+                });
+            })
+            .join()
+            .ok();
+        }
+    });
+
     // Memo wrappers for ReadSignal props
     let ci_uri = use_memo(move || contact_invite_uri.read().clone());
     let ci_name = use_memo(move || contact_display_name_sig.read().clone());
@@ -193,6 +211,7 @@ pub fn RootApp() -> Element {
     ];
     use_effect(move || {
         spawn(async move {
+            let mut tick: u64 = 0;
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
@@ -372,6 +391,14 @@ pub fn RootApp() -> Element {
                         }
                     }
                 }
+
+                // Periodic world view save every ~30 seconds
+                if tick % 15 == 0 {
+                    if let Some(nh) = network_handle.read().as_ref() {
+                        let _ = nh.network.save_world_view().await;
+                    }
+                }
+                tick += 1;
             }
         });
     });

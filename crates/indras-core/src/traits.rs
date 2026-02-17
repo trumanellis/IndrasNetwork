@@ -177,16 +177,16 @@ impl From<TopicId> for InterfaceId {
     }
 }
 
-/// Sync message for Yrs document synchronization
+/// Sync message for document synchronization.
 ///
-/// This wraps Yrs sync protocol messages for exchange between peers.
+/// Wraps sync protocol messages for exchange between peers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncMessage {
     /// The interface this sync is for
     pub interface_id: InterfaceId,
-    /// Yrs update bytes (encoded with Update V1 encoding)
+    /// Sync data bytes (serialized document state)
     pub sync_data: Vec<u8>,
-    /// Our current state vector (encoded with StateVector V1 encoding)
+    /// Our current state vector (encoded)
     pub state_vector: Vec<u8>,
     /// Whether this is a request (true) or response (false)
     pub is_request: bool,
@@ -218,12 +218,12 @@ impl SyncMessage {
 ///
 /// An N-peer interface is a shared space where N peers can communicate.
 /// It uses an append-only event log with store-and-forward delivery,
-/// backed by a Yrs CRDT document for state synchronization.
+/// backed by a document for state synchronization.
 ///
 /// Key features:
 /// - Events are broadcast to all members via gossip
 /// - Offline peers receive missed events on reconnect (store-and-forward)
-/// - Document state is synchronized via Yrs sync protocol
+/// - Document state is synchronized via sync protocol
 /// - Two peers is just a special case of N peers
 #[async_trait]
 pub trait NInterfaceTrait<I: PeerIdentity>: Send + Sync {
@@ -271,12 +271,12 @@ pub trait NInterfaceTrait<I: PeerIdentity>: Send + Sync {
 
     /// Merge incoming sync state
     ///
-    /// Applies a Yrs sync message from a peer, updating our document state.
+    /// Applies a sync message from a peer, updating our document state.
     async fn merge_sync(&mut self, sync_msg: SyncMessage) -> Result<(), InterfaceError>;
 
     /// Generate sync state for a peer
     ///
-    /// Creates a Yrs sync message to send to a peer for synchronization.
+    /// Creates a sync message to send to a peer for synchronization.
     fn generate_sync(&self, for_peer: &I) -> SyncMessage;
 
     /// Get the current state vector (for sync protocol)

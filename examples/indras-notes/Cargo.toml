@@ -31,9 +31,6 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = "1.0"
 postcard.workspace = true
 
-# CRDT
-yrs.workspace = true
-
 # Lua scripting
 mlua = { version = "0.10", features = ["lua54", "vendored", "serialize"] }
 

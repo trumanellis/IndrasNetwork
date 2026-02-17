@@ -1,7 +1,7 @@
 //! Sync protocol for N-peer interfaces
 //!
 //! This module handles the synchronization protocol between peers,
-//! combining Yrs document sync with store-and-forward event delivery.
+//! combining document sync with store-and-forward event delivery.
 
 use std::collections::HashMap;
 

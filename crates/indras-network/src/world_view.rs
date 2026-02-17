@@ -12,6 +12,7 @@ use indras_core::transport::Transport;
 use indras_core::PeerIdentity;
 use indras_transport::IrohIdentity;
 
+use crate::chat_message::RealmChatDocument;
 use crate::error::{IndraError, Result};
 use crate::network::IndrasNetwork;
 
@@ -46,6 +47,18 @@ pub struct InterfaceInfo {
     pub created_at_millis: i64,
     pub last_activity_millis: i64,
     pub members: Vec<MemberViewInfo>,
+    pub documents: Vec<DocumentInfo>,
+}
+
+/// A document stored within an interface (realm).
+#[derive(Debug, Serialize)]
+pub struct DocumentInfo {
+    pub name: String,
+    pub data_size_bytes: usize,
+    /// Number of chat messages (only populated for "chat" documents).
+    pub chat_message_count: Option<usize>,
+    /// Hex-encoded IDs of the last few messages (for diffing across instances).
+    pub recent_message_ids: Option<Vec<String>>,
 }
 
 /// A member within an interface.
@@ -122,6 +135,41 @@ impl WorldView {
                     Err(_) => Vec::new(),
                 };
 
+                // Load documents for this interface
+                let documents = match storage.interface_store().list_documents(&iface_id) {
+                    Ok(docs) => docs
+                        .into_iter()
+                        .map(|(name, data)| {
+                            let mut info = DocumentInfo {
+                                data_size_bytes: data.len(),
+                                chat_message_count: None,
+                                recent_message_ids: None,
+                                name: name.clone(),
+                            };
+
+                            // For chat documents, try to deserialize and extract message info
+                            if name == "chat" {
+                                if let Ok(chat_doc) = postcard::from_bytes::<RealmChatDocument>(&data) {
+                                    let msg_count = chat_doc.messages.len();
+                                    info.chat_message_count = Some(msg_count);
+                                    // Include last 5 message IDs for easy diffing
+                                    let recent: Vec<String> = chat_doc
+                                        .messages
+                                        .iter()
+                                        .rev()
+                                        .take(5)
+                                        .map(|m| m.id.clone())
+                                        .collect();
+                                    info.recent_message_ids = Some(recent);
+                                }
+                            }
+
+                            info
+                        })
+                        .collect(),
+                    Err(_) => Vec::new(),
+                };
+
                 interfaces.push(InterfaceInfo {
                     id: hex(&record.interface_id),
                     name: record.name,
@@ -131,6 +179,7 @@ impl WorldView {
                     created_at_millis: record.created_at_millis,
                     last_activity_millis: record.last_activity_millis,
                     members,
+                    documents,
                 });
             }
         }

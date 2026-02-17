@@ -27,9 +27,12 @@ struct DocumentEnvelope {
     payload: Vec<u8>,
 }
 
-/// Marker trait for document schemas.
+/// Trait for document schemas that can be stored in a `Document<T>`.
 ///
-/// Types that implement this trait can be used as document data.
+/// Provides a `merge` method for reconciling local and remote state.
+/// The default implementation does full replacement (last-writer-wins).
+/// Override `merge` for document types that support set-union semantics
+/// (e.g. chat messages keyed by unique ID).
 ///
 /// # Example
 ///
@@ -41,10 +44,23 @@ struct DocumentEnvelope {
 ///
 /// impl DocumentSchema for QuestLog {}
 /// ```
-pub trait DocumentSchema: Default + Clone + Serialize + DeserializeOwned + Send + Sync + 'static {}
+pub trait DocumentSchema: Default + Clone + Serialize + DeserializeOwned + Send + Sync + 'static {
+    /// Merge remote state into this document.
+    ///
+    /// Default: full replacement (last-writer-wins).
+    /// Override for types that support set-union merge.
+    fn merge(&mut self, remote: Self) {
+        *self = remote;
+    }
+}
 
-// Blanket implementation for any compatible type
-impl<T> DocumentSchema for T where T: Default + Clone + Serialize + DeserializeOwned + Send + Sync + 'static {}
+/// Convenience macro to implement `DocumentSchema` with default merge (replacement).
+#[macro_export]
+macro_rules! impl_document_schema {
+    ($($t:ty),* $(,)?) => {
+        $(impl $crate::document::DocumentSchema for $t {})*
+    };
+}
 
 /// A typed, reactive CRDT document.
 ///
@@ -209,19 +225,20 @@ impl<T: DocumentSchema> Document<T> {
                             if envelope.doc_name != name {
                                 continue; // Different document
                             }
-                            if let Ok(new_state) = postcard::from_bytes::<T>(&envelope.payload) {
-                                // Update in-memory state
-                                {
+                            if let Ok(remote_state) = postcard::from_bytes::<T>(&envelope.payload) {
+                                // Merge remote state into local (union, not replace)
+                                let merged = {
                                     let mut guard = state.write().await;
-                                    *guard = new_state.clone();
-                                }
-                                // Persist to redb (best-effort)
-                                if let Ok(data) = postcard::to_allocvec(&new_state) {
+                                    guard.merge(remote_state);
+                                    guard.clone()
+                                };
+                                // Persist merged state to redb (best-effort)
+                                if let Ok(data) = postcard::to_allocvec(&merged) {
                                     let _ = node.storage().interface_store().set_document_data(&storage_key, &data);
                                 }
-                                // Fire changes() stream
+                                // Fire changes() stream with merged state
                                 let _ = change_tx.send(DocumentChange {
-                                    new_state,
+                                    new_state: merged,
                                     author: Some(Member::new(*sender)),
                                     is_remote: true,
                                 });
@@ -230,16 +247,17 @@ impl<T: DocumentSchema> Document<T> {
                         }
 
                         // Fallback: try raw format (backward compat)
-                        if let Ok(new_state) = postcard::from_bytes::<T>(content) {
-                            {
+                        if let Ok(remote_state) = postcard::from_bytes::<T>(content) {
+                            let merged = {
                                 let mut guard = state.write().await;
-                                *guard = new_state.clone();
-                            }
-                            if let Ok(data) = postcard::to_allocvec(&new_state) {
+                                guard.merge(remote_state);
+                                guard.clone()
+                            };
+                            if let Ok(data) = postcard::to_allocvec(&merged) {
                                 let _ = node.storage().interface_store().set_document_data(&storage_key, &data);
                             }
                             let _ = change_tx.send(DocumentChange {
-                                new_state,
+                                new_state: merged,
                                 author: Some(Member::new(*sender)),
                                 is_remote: true,
                             });
@@ -401,15 +419,16 @@ impl<T: DocumentSchema> Document<T> {
                             "Found DocumentEnvelope in Automerge"
                         );
                         if env.doc_name == self.name {
-                            if let Ok(new_state) = postcard::from_bytes::<T>(&env.payload) {
+                            if let Ok(remote_state) = postcard::from_bytes::<T>(&env.payload) {
                                 debug!(
                                     doc_name = %self.name,
                                     "Successfully deserialized document state from Automerge"
                                 );
                                 let mut state = self.state.write().await;
-                                *state = new_state.clone();
+                                state.merge(remote_state);
+                                let merged = state.clone();
                                 drop(state);
-                                self.persist(&new_state).await?;
+                                self.persist(&merged).await?;
                                 return Ok(true);
                             } else {
                                 debug!(
@@ -420,15 +439,16 @@ impl<T: DocumentSchema> Document<T> {
                         }
                         continue;
                     }
-                    if let Ok(new_state) = postcard::from_bytes::<T>(content) {
+                    if let Ok(remote_state) = postcard::from_bytes::<T>(content) {
                         debug!(
                             doc_name = %self.name,
                             "Found raw (non-envelope) document state in Automerge"
                         );
                         let mut state = self.state.write().await;
-                        *state = new_state.clone();
+                        state.merge(remote_state);
+                        let merged = state.clone();
                         drop(state);
-                        self.persist(&new_state).await?;
+                        self.persist(&merged).await?;
                         return Ok(true);
                     }
                 }
@@ -458,29 +478,31 @@ impl<T: DocumentSchema> Document<T> {
                             "Found DocumentEnvelope in EventStore"
                         );
                         if env.doc_name == self.name {
-                            if let Ok(new_state) = postcard::from_bytes::<T>(&env.payload) {
+                            if let Ok(remote_state) = postcard::from_bytes::<T>(&env.payload) {
                                 debug!(
                                     doc_name = %self.name,
                                     "Successfully deserialized document state from EventStore"
                                 );
                                 let mut state = self.state.write().await;
-                                *state = new_state.clone();
+                                state.merge(remote_state);
+                                let merged = state.clone();
                                 drop(state);
-                                self.persist(&new_state).await?;
+                                self.persist(&merged).await?;
                                 return Ok(true);
                             }
                         }
                         continue;
                     }
-                    if let Ok(new_state) = postcard::from_bytes::<T>(content) {
+                    if let Ok(remote_state) = postcard::from_bytes::<T>(content) {
                         debug!(
                             doc_name = %self.name,
                             "Found raw document state in EventStore"
                         );
                         let mut state = self.state.write().await;
-                        *state = new_state.clone();
+                        state.merge(remote_state);
+                        let merged = state.clone();
                         drop(state);
-                        self.persist(&new_state).await?;
+                        self.persist(&merged).await?;
                         return Ok(true);
                     }
                 }

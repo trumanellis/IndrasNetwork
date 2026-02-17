@@ -40,19 +40,22 @@ async fn reload_messages(
     }
 }
 
-/// Get the DM realm for a peer.
-fn get_peer_realm(
+/// Get or lazily create the DM realm for a peer.
+///
+/// First checks the in-memory cache. If the realm isn't there (e.g. after
+/// restart), falls back to `connect()` which is idempotent — it re-creates
+/// the DM realm from the deterministic seed and re-caches it.
+async fn get_or_create_peer_realm(
     net: &Arc<IndrasNetwork>,
     my_id: [u8; 32],
     peer_id: [u8; 32],
 ) -> Result<indras_network::Realm, indras_network::IndraError> {
     let dm_id = dm_realm_id(my_id, peer_id);
-    net.get_realm_by_id(&dm_id).ok_or_else(|| {
-        indras_network::IndraError::InvalidOperation(format!(
-            "DM realm not found for peer {:?}",
-            &peer_id[..4]
-        ))
-    })
+    if let Some(realm) = net.get_realm_by_id(&dm_id) {
+        return Ok(realm);
+    }
+    // DM realm not in memory — create it (handles restart + race conditions)
+    net.connect(peer_id).await
 }
 
 /// Hex-encode a 32-byte ID.
@@ -97,7 +100,7 @@ pub fn ChatPanel(
                 };
                 let Some(net) = net else { return; };
 
-                let realm = match get_peer_realm(&net, my_id, peer_id) {
+                let realm = match get_or_create_peer_realm(&net, my_id, peer_id).await {
                     Ok(r) => r,
                     Err(e) => {
                         debug!(error = %e, "ChatPanel: failed to get peer realm");
@@ -204,7 +207,7 @@ pub fn ChatPanel(
                     return;
                 };
 
-                let realm = match get_peer_realm(&net, my_id, peer_id) {
+                let realm = match get_or_create_peer_realm(&net, my_id, peer_id).await {
                     Ok(r) => r,
                     Err(e) => {
                         chat.write().draft = text;
@@ -252,7 +255,7 @@ pub fn ChatPanel(
                 };
                 let Some(net) = net else { return; };
 
-                let realm = match get_peer_realm(&net, my_id, peer_id) {
+                let realm = match get_or_create_peer_realm(&net, my_id, peer_id).await {
                     Ok(r) => r,
                     Err(e) => {
                         chat.write().error = Some(e.to_string());
@@ -298,7 +301,7 @@ pub fn ChatPanel(
                 };
                 let Some(net) = net else { return; };
 
-                let realm = match get_peer_realm(&net, my_id, peer_id) {
+                let realm = match get_or_create_peer_realm(&net, my_id, peer_id).await {
                     Ok(r) => r,
                     Err(e) => {
                         chat.write().error = Some(e.to_string());
