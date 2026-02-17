@@ -1,15 +1,17 @@
-//! Chat message list with auto-scroll and message grouping.
+//! Chat message list with auto-scroll, message grouping, and typing indicator.
 
 use dioxus::prelude::*;
 
-use super::chat_message::ChatMessageItem;
-use super::chat_state::{ChatMessageView, ChatStatus};
+use super::chat_bubble::ChatBubble;
+use super::chat_state::{ChatMessageView, ChatStatus, TypingPeerView};
 
-/// Message list component with auto-scroll and grouping.
+/// Message list component with auto-scroll, bubble layout, and typing indicator.
 #[component]
 pub fn ChatMessageList(
     messages: Vec<ChatMessageView>,
     status: ChatStatus,
+    on_reply: EventHandler<String>,
+    on_react: EventHandler<(String, String)>,
     on_edit_start: EventHandler<(String, String)>,
     on_edit_save: EventHandler<(String, String)>,
     on_edit_cancel: EventHandler<()>,
@@ -18,12 +20,14 @@ pub fn ChatMessageList(
     edit_draft: String,
     on_edit_draft_change: EventHandler<String>,
     should_scroll_bottom: bool,
+    typing_peers: Vec<TypingPeerView>,
+    reaction_picker_msg_id: Option<String>,
+    on_reaction_picker_toggle: EventHandler<String>,
 ) -> Element {
     // Auto-scroll effect
     use_effect(move || {
         if should_scroll_bottom {
             spawn(async move {
-                // Small delay to let DOM update
                 tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                 let js = r#"document.getElementById('chat-scroll-anchor')?.scrollIntoView({behavior:'smooth'})"#;
                 document::eval(js);
@@ -51,7 +55,6 @@ pub fn ChatMessageList(
 
             for (i, msg) in messages.iter().enumerate() {
                 {
-                    // Message grouping: same author within 2 minutes
                     let is_grouped = if i > 0 {
                         let prev = &messages[i - 1];
                         prev.author_id == msg.author_id
@@ -60,11 +63,15 @@ pub fn ChatMessageList(
                         false
                     };
 
+                    let picker_open = reaction_picker_msg_id.as_deref() == Some(&msg.id);
+
                     rsx! {
-                        ChatMessageItem {
+                        ChatBubble {
                             key: "{msg.id}",
                             msg: msg.clone(),
                             is_grouped,
+                            on_reply: on_reply,
+                            on_react: on_react,
                             on_edit_start: on_edit_start,
                             on_edit_save: on_edit_save,
                             on_edit_cancel: on_edit_cancel,
@@ -72,8 +79,27 @@ pub fn ChatMessageList(
                             editing_id: editing_id.clone(),
                             edit_draft: edit_draft.clone(),
                             on_edit_draft_change: on_edit_draft_change,
+                            on_reaction_picker_toggle: on_reaction_picker_toggle,
+                            reaction_picker_open: picker_open,
                         }
                     }
+                }
+            }
+
+            // Typing indicator
+            if !typing_peers.is_empty() {
+                div {
+                    class: "typing-indicator",
+                    for peer in typing_peers.iter() {
+                        span {
+                            class: "typing-name {peer.color_class}",
+                            "{peer.name}"
+                        }
+                    }
+                    span { class: "typing-text",
+                        if typing_peers.len() == 1 { " is typing" } else { " are typing" }
+                    }
+                    span { class: "typing-dots", "..." }
                 }
             }
 

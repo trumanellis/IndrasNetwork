@@ -14,7 +14,7 @@ use tracing::debug;
 
 use super::chat_input::ChatInput;
 use super::chat_messages::ChatMessageList;
-use super::chat_state::{convert_editable_to_view, ChatState, ChatStatus};
+use super::chat_state::{convert_editable_to_view, ChatState, ChatStatus, ReplyPreview};
 
 /// Re-read messages from the chat document and update the signal.
 ///
@@ -33,7 +33,7 @@ async fn reload_messages(
         let views: Vec<_> = data
             .visible_messages()
             .iter()
-            .map(|m| convert_editable_to_view(m, my_id_hex, peer_name))
+            .map(|m| convert_editable_to_view(m, my_id_hex, peer_name, Some(&data), None))
             .collect();
         let mut s = chat.write();
         s.messages = views;
@@ -126,7 +126,7 @@ pub fn ChatPanel(
                     let views: Vec<_> = data
                         .visible_messages()
                         .iter()
-                        .map(|m| convert_editable_to_view(m, &my_id_hex, &peer_name))
+                        .map(|m| convert_editable_to_view(m, &my_id_hex, &peer_name, Some(&data), None))
                         .collect();
                     let mut s = chat.write();
                     s.messages = views;
@@ -152,7 +152,7 @@ pub fn ChatPanel(
                         .new_state
                         .visible_messages()
                         .iter()
-                        .map(|m| convert_editable_to_view(m, &my_id_hex, &peer_name))
+                        .map(|m| convert_editable_to_view(m, &my_id_hex, &peer_name, Some(&change.new_state), None))
                         .collect();
                     let mut s = chat.write();
                     s.messages = views;
@@ -186,6 +186,10 @@ pub fn ChatPanel(
     let editing_id = s.editing_id.clone();
     let edit_draft = s.edit_draft.clone();
     let should_scroll = s.should_scroll_bottom;
+    let replying_to = s.replying_to.clone();
+    let typing_peers = s.typing_peers.clone();
+    let emoji_picker_open = s.emoji_picker_open;
+    let reaction_picker_msg_id = s.reaction_picker_msg_id.clone();
     drop(s);
 
     // Event handlers
@@ -224,6 +228,56 @@ pub fn ChatPanel(
 
                 match realm.send_chat(&realm_id_hex, &my_id_hex, text.clone(), tick).await {
                     Ok(_) => {
+                        chat.write().replying_to = None;
+                        reload_messages(&mut chat, &realm, &my_id_hex, &peer_name).await;
+                        chat.write().status = ChatStatus::Idle;
+                    }
+                    Err(e) => {
+                        chat.write().draft = text;
+                        chat.write().error = Some(e.to_string());
+                        chat.write().status = ChatStatus::Idle;
+                    }
+                }
+            });
+        }
+    };
+
+    let on_send_reply = {
+        let my_id_hex = my_id_hex.clone();
+        let peer_name = peer_name.clone();
+        move |(text, reply_to_id): (String, String)| {
+            let my_id_hex = my_id_hex.clone();
+            let peer_name = peer_name.clone();
+            spawn(async move {
+                chat.write().status = ChatStatus::Sending;
+                chat.write().draft.clear();
+
+                let net = {
+                    let guard = network.read();
+                    guard.as_ref().cloned()
+                };
+                let Some(net) = net else {
+                    chat.write().status = ChatStatus::Idle;
+                    return;
+                };
+
+                let realm = match get_or_create_peer_realm(&net, my_id, peer_id).await {
+                    Ok(r) => r,
+                    Err(e) => {
+                        chat.write().draft = text;
+                        chat.write().error = Some(e.to_string());
+                        chat.write().status = ChatStatus::Idle;
+                        return;
+                    }
+                };
+
+                let dm_id = artifact_interface_id(&dm_story_id(my_id, peer_id));
+                let realm_id_hex: String = dm_id.as_bytes().iter().map(|b| format!("{:02x}", b)).collect();
+                let tick = current_tick();
+
+                match realm.send_chat_reply(&realm_id_hex, &my_id_hex, text.clone(), tick, &reply_to_id).await {
+                    Ok(_) => {
+                        chat.write().replying_to = None;
                         reload_messages(&mut chat, &realm, &my_id_hex, &peer_name).await;
                         chat.write().status = ChatStatus::Idle;
                     }
@@ -340,6 +394,92 @@ pub fn ChatPanel(
         chat.write().action_menu_open = false;
     };
 
+    let on_reply = move |msg_id: String| {
+        let s = chat.read();
+        if let Some(msg) = s.messages.iter().find(|m| m.id == msg_id) {
+            let preview = ReplyPreview {
+                original_id: msg.id.clone(),
+                author_name: msg.author_name.clone(),
+                author_color_class: msg.author_color_class.clone(),
+                content_snippet: if msg.content.len() > 100 {
+                    format!("{}...", &msg.content[..97])
+                } else {
+                    msg.content.clone()
+                },
+            };
+            drop(s);
+            chat.write().replying_to = Some(preview);
+        }
+    };
+
+    let on_cancel_reply = move |_: ()| {
+        chat.write().replying_to = None;
+    };
+
+    let on_react = {
+        let my_id_hex = my_id_hex.clone();
+        let peer_name = peer_name.clone();
+        move |(msg_id, emoji): (String, String)| {
+            let my_id_hex = my_id_hex.clone();
+            let peer_name = peer_name.clone();
+            spawn(async move {
+                let net = {
+                    let guard = network.read();
+                    guard.as_ref().cloned()
+                };
+                let Some(net) = net else { return; };
+
+                let realm = match get_or_create_peer_realm(&net, my_id, peer_id).await {
+                    Ok(r) => r,
+                    Err(e) => {
+                        chat.write().error = Some(e.to_string());
+                        return;
+                    }
+                };
+
+                // Toggle: check if already reacted
+                let already_reacted = {
+                    let s = chat.read();
+                    s.messages.iter()
+                        .find(|m| m.id == msg_id)
+                        .map(|m| m.reactions.iter().any(|r| r.emoji == emoji && r.includes_me))
+                        .unwrap_or(false)
+                };
+
+                if already_reacted {
+                    let _ = realm.unreact_chat(&msg_id, &my_id_hex, &emoji).await;
+                } else {
+                    let _ = realm.react_chat(&msg_id, &my_id_hex, &emoji).await;
+                }
+
+                // Close reaction picker
+                chat.write().reaction_picker_msg_id = None;
+
+                reload_messages(&mut chat, &realm, &my_id_hex, &peer_name).await;
+            });
+        }
+    };
+
+    let on_reaction_picker_toggle = move |msg_id: String| {
+        let mut s = chat.write();
+        if s.reaction_picker_msg_id.as_deref() == Some(&msg_id) {
+            s.reaction_picker_msg_id = None;
+        } else {
+            s.reaction_picker_msg_id = Some(msg_id);
+        }
+    };
+
+    let on_emoji_toggle = move |_: ()| {
+        let mut s = chat.write();
+        s.emoji_picker_open = !s.emoji_picker_open;
+    };
+
+    let on_emoji_select = move |emoji: String| {
+        let mut s = chat.write();
+        s.draft.push_str(&emoji);
+        s.emoji_picker_open = false;
+    };
+
     rsx! {
         div {
             class: "chat-panel-header",
@@ -350,6 +490,8 @@ pub fn ChatPanel(
         ChatMessageList {
             messages,
             status: status.clone(),
+            on_reply,
+            on_react,
             on_edit_start,
             on_edit_save,
             on_edit_cancel,
@@ -358,6 +500,9 @@ pub fn ChatPanel(
             edit_draft,
             on_edit_draft_change,
             should_scroll_bottom: should_scroll,
+            typing_peers,
+            reaction_picker_msg_id,
+            on_reaction_picker_toggle,
         }
 
         ChatInput {
@@ -369,6 +514,12 @@ pub fn ChatPanel(
             action_menu_open,
             on_action_toggle,
             on_action_close,
+            replying_to,
+            on_send_reply,
+            on_cancel_reply,
+            emoji_picker_open,
+            on_emoji_toggle,
+            on_emoji_select,
         }
     }
 }

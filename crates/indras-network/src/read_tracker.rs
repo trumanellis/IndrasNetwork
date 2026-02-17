@@ -3,6 +3,7 @@
 //! Tracks the last-read position per member in a realm, enabling
 //! unread count calculations for chat UIs.
 
+use crate::document::DocumentSchema;
 use crate::member::MemberId;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -58,6 +59,27 @@ impl ReadTrackerDocument {
     pub fn last_read_seq(&self, member: &MemberId) -> u64 {
         self.last_read.get(member).copied().unwrap_or(0)
     }
+
+    /// Get all members who have read up to or past a given sequence number.
+    pub fn readers_at(&self, seq: u64) -> Vec<MemberId> {
+        self.last_read
+            .iter()
+            .filter(|&(_, &s)| s >= seq)
+            .map(|(m, _)| *m)
+            .collect()
+    }
+}
+
+impl DocumentSchema for ReadTrackerDocument {
+    /// Max-wins merge: for each member, keep the higher sequence number.
+    fn merge(&mut self, remote: Self) {
+        for (member, remote_seq) in remote.last_read {
+            let entry = self.last_read.entry(member).or_insert(0);
+            if remote_seq > *entry {
+                *entry = remote_seq;
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -103,5 +125,37 @@ mod tests {
 
         assert_eq!(tracker.last_read_seq(&member_a()), 10);
         assert_eq!(tracker.last_read_seq(&member_b()), 5);
+    }
+
+    #[test]
+    fn test_readers_at() {
+        let mut tracker = ReadTrackerDocument::new();
+        tracker.mark_read(member_a(), 10);
+        tracker.mark_read(member_b(), 5);
+
+        let readers = tracker.readers_at(5);
+        assert_eq!(readers.len(), 2); // both >= 5
+
+        let readers = tracker.readers_at(10);
+        assert_eq!(readers.len(), 1); // only member_a >= 10
+
+        let readers = tracker.readers_at(11);
+        assert!(readers.is_empty()); // nobody >= 11
+    }
+
+    #[test]
+    fn test_merge_max_wins() {
+        let mut local = ReadTrackerDocument::new();
+        local.mark_read(member_a(), 10);
+        local.mark_read(member_b(), 20);
+
+        let mut remote = ReadTrackerDocument::new();
+        remote.mark_read(member_a(), 15); // remote is ahead
+        remote.mark_read(member_b(), 5);  // local is ahead
+
+        local.merge(remote);
+
+        assert_eq!(local.last_read_seq(&member_a()), 15); // took remote
+        assert_eq!(local.last_read_seq(&member_b()), 20); // kept local
     }
 }

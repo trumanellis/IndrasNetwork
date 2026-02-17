@@ -163,7 +163,6 @@ pub use world_view::WorldView;
 // RealmChatDocument has a custom impl with merge (in chat_message.rs).
 impl_document_schema!(
     ContactsDocument,
-    ReadTrackerDocument,
     DocumentRegistryDocument,
     RealmAliasDocument,
     ArtifactIndex,

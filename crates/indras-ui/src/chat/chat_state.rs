@@ -3,7 +3,8 @@
 //! Provides UI-layer types for rendering chat messages, plus conversion
 //! from the backend `EditableChatMessage` to the view-layer `ChatMessageView`.
 
-use indras_network::chat_message::{EditableChatMessage, EditableMessageType};
+use indras_network::chat_message::{EditableChatMessage, EditableMessageType, RealmChatDocument};
+use crate::identity::{member_name, member_color_class};
 
 /// View model for a single chat message.
 #[derive(Debug, Clone, PartialEq)]
@@ -30,6 +31,16 @@ pub struct ChatMessageView {
     pub is_deleted: bool,
     /// Number of versions (current + history).
     pub version_count: usize,
+    /// Single-letter author display (e.g., "A", "B").
+    pub author_letter: String,
+    /// CSS color class for the author (e.g., "member-love").
+    pub author_color_class: String,
+    /// Preview of the message being replied to, if any.
+    pub reply_preview: Option<ReplyPreview>,
+    /// Reactions on this message.
+    pub reactions: Vec<ReactionView>,
+    /// Delivery status (for sent messages).
+    pub delivery_status: DeliveryStatus,
 }
 
 /// Message type for view-layer rendering.
@@ -55,6 +66,52 @@ pub enum ChatViewType {
     },
     ArtifactRecalled,
     Deleted,
+}
+
+/// Preview of a replied-to message.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReplyPreview {
+    /// ID of the original message.
+    pub original_id: String,
+    /// Display name of the original author.
+    pub author_name: String,
+    /// CSS color class for the original author.
+    pub author_color_class: String,
+    /// Truncated content of the original message.
+    pub content_snippet: String,
+}
+
+/// View model for a reaction on a message.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReactionView {
+    /// The emoji.
+    pub emoji: String,
+    /// Number of reactors.
+    pub count: usize,
+    /// Whether the current user reacted with this emoji.
+    pub includes_me: bool,
+    /// Display names of all reactors.
+    pub author_names: Vec<String>,
+}
+
+/// Delivery status for sent messages.
+#[derive(Debug, Clone, PartialEq)]
+pub enum DeliveryStatus {
+    /// No status (received messages).
+    None,
+    /// Message sent but not yet read.
+    Sent,
+    /// Message read by peer.
+    Read,
+}
+
+/// View model for a typing peer.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypingPeerView {
+    /// Display name of the typing peer.
+    pub name: String,
+    /// CSS color class.
+    pub color_class: String,
 }
 
 /// Status of the chat panel.
@@ -84,6 +141,14 @@ pub struct ChatState {
     pub error: Option<String>,
     /// Whether to scroll to bottom on next render.
     pub should_scroll_bottom: bool,
+    /// Active reply compose state.
+    pub replying_to: Option<ReplyPreview>,
+    /// Peers currently typing.
+    pub typing_peers: Vec<TypingPeerView>,
+    /// Whether the emoji picker is open.
+    pub emoji_picker_open: bool,
+    /// Message ID for which the reaction picker is open.
+    pub reaction_picker_msg_id: Option<String>,
 }
 
 impl Default for ChatState {
@@ -97,6 +162,10 @@ impl Default for ChatState {
             status: ChatStatus::Loading,
             error: None,
             should_scroll_bottom: true,
+            replying_to: None,
+            typing_peers: Vec::new(),
+            emoji_picker_open: false,
+            reaction_picker_msg_id: None,
         }
     }
 }
@@ -106,6 +175,8 @@ pub fn convert_editable_to_view(
     msg: &EditableChatMessage,
     my_id: &str,
     peer_name: &str,
+    doc: Option<&RealmChatDocument>,
+    peer_last_read: Option<u64>,
 ) -> ChatMessageView {
     let is_me = msg.author == my_id;
 
@@ -162,6 +233,44 @@ pub fn convert_editable_to_view(
         .map(|dt| dt.format("%H:%M").to_string())
         .unwrap_or_default();
 
+    let author_letter = member_name(&msg.author);
+    let author_color_class = member_color_class(&msg.author).to_string();
+
+    // Build reply preview if this is a reply
+    let reply_preview = msg.reply_to.as_ref().and_then(|reply_id| {
+        doc.and_then(|d| {
+            d.reply_preview(reply_id).map(|(author, snippet)| ReplyPreview {
+                original_id: reply_id.clone(),
+                author_name: member_name(&author),
+                author_color_class: member_color_class(&author).to_string(),
+                content_snippet: snippet,
+            })
+        })
+    });
+
+    // Build reaction views
+    let reactions: Vec<ReactionView> = msg
+        .reactions
+        .iter()
+        .map(|(emoji, authors)| ReactionView {
+            emoji: emoji.clone(),
+            count: authors.len(),
+            includes_me: authors.iter().any(|a| a == my_id),
+            author_names: authors.iter().map(|a| member_name(a)).collect(),
+        })
+        .collect();
+
+    // Delivery status
+    let delivery_status = if is_me {
+        match peer_last_read {
+            Some(seq) if msg.created_at <= seq => DeliveryStatus::Read,
+            Some(_) => DeliveryStatus::Sent,
+            None => DeliveryStatus::Sent,
+        }
+    } else {
+        DeliveryStatus::None
+    };
+
     ChatMessageView {
         id: msg.id.clone(),
         author_id: msg.author.clone(),
@@ -174,5 +283,10 @@ pub fn convert_editable_to_view(
         is_edited: msg.is_edited(),
         is_deleted: msg.is_deleted,
         version_count: msg.version_count(),
+        author_letter,
+        author_color_class,
+        reply_preview,
+        reactions,
+        delivery_status,
     }
 }

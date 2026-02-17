@@ -124,6 +124,12 @@ pub struct EditableChatMessage {
     pub is_deleted: bool,
     /// Type of message (text, proof, blessing, etc.).
     pub message_type: EditableMessageType,
+    /// Optional reference to a parent message (for replies).
+    #[serde(default)]
+    pub reply_to: Option<ChatMessageId>,
+    /// Reactions on this message: emoji string -> list of author IDs.
+    #[serde(default)]
+    pub reactions: HashMap<String, Vec<String>>,
 }
 
 impl EditableChatMessage {
@@ -145,6 +151,8 @@ impl EditableChatMessage {
             versions: Vec::new(),
             is_deleted: false,
             message_type,
+            reply_to: None,
+            reactions: HashMap::new(),
         }
     }
 
@@ -164,6 +172,23 @@ impl EditableChatMessage {
             created_at,
             EditableMessageType::Text,
         )
+    }
+
+    /// Create a new reply message.
+    ///
+    /// Reply messages are always text type.
+    pub fn new_reply(
+        id: ChatMessageId,
+        realm_id: String,
+        author: String,
+        content: String,
+        created_at: u64,
+        message_type: EditableMessageType,
+        reply_to: ChatMessageId,
+    ) -> Self {
+        let mut msg = Self::new(id, realm_id, author, content, created_at, message_type);
+        msg.reply_to = Some(reply_to);
+        msg
     }
 
     /// Create an artifact recalled tombstone message.
@@ -341,6 +366,36 @@ impl EditableChatMessage {
         }
         all
     }
+
+    /// Add a reaction from an author.
+    ///
+    /// Returns false if the author already reacted with this emoji.
+    pub fn add_reaction(&mut self, emoji: &str, author: &str) -> bool {
+        let authors = self.reactions.entry(emoji.to_string()).or_default();
+        if authors.iter().any(|a| a == author) {
+            return false;
+        }
+        authors.push(author.to_string());
+        true
+    }
+
+    /// Remove a reaction from an author.
+    ///
+    /// Returns false if the author hadn't reacted with this emoji.
+    /// Cleans up empty emoji entries.
+    pub fn remove_reaction(&mut self, emoji: &str, author: &str) -> bool {
+        let Some(authors) = self.reactions.get_mut(emoji) else {
+            return false;
+        };
+        let Some(pos) = authors.iter().position(|a| a == author) else {
+            return false;
+        };
+        authors.swap_remove(pos);
+        if authors.is_empty() {
+            self.reactions.remove(emoji);
+        }
+        true
+    }
 }
 
 /// The realm chat document containing all messages.
@@ -409,6 +464,36 @@ impl RealmChatDocument {
     pub fn visible_count(&self) -> usize {
         self.messages.iter().filter(|m| !m.is_deleted).count()
     }
+
+    /// Get a preview of a message for reply display.
+    ///
+    /// Returns (author, truncated content) or None if not found.
+    pub fn reply_preview(&self, msg_id: &str) -> Option<(String, String)> {
+        self.get_message(msg_id).map(|m| {
+            let snippet = if m.current_content.len() > 100 {
+                format!("{}...", &m.current_content[..97])
+            } else {
+                m.current_content.clone()
+            };
+            (m.author.clone(), snippet)
+        })
+    }
+
+    /// Add a reaction to a message.
+    pub fn add_reaction(&mut self, msg_id: &str, author: &str, emoji: &str) -> bool {
+        if let Some(msg) = self.get_message_mut(msg_id) {
+            return msg.add_reaction(emoji, author);
+        }
+        false
+    }
+
+    /// Remove a reaction from a message.
+    pub fn remove_reaction(&mut self, msg_id: &str, author: &str, emoji: &str) -> bool {
+        if let Some(msg) = self.get_message_mut(msg_id) {
+            return msg.remove_reaction(emoji, author);
+        }
+        false
+    }
 }
 
 impl DocumentSchema for RealmChatDocument {
@@ -425,11 +510,28 @@ impl DocumentSchema for RealmChatDocument {
         for remote_msg in remote.messages {
             match by_id.get(&remote_msg.id) {
                 Some(local_msg) => {
-                    // Both sides have this message — keep the more advanced version
+                    // Union reactions from both sides
+                    let mut merged_reactions = local_msg.reactions.clone();
+                    for (emoji, remote_authors) in &remote_msg.reactions {
+                        let authors = merged_reactions.entry(emoji.clone()).or_default();
+                        for ra in remote_authors {
+                            if !authors.iter().any(|a| a == ra) {
+                                authors.push(ra.clone());
+                            }
+                        }
+                    }
+
+                    // Choose which message version to keep
                     let prefer_remote = remote_msg.is_deleted && !local_msg.is_deleted
                         || remote_msg.version_count() > local_msg.version_count();
                     if prefer_remote {
-                        by_id.insert(remote_msg.id.clone(), remote_msg);
+                        let mut winner = remote_msg;
+                        winner.reactions = merged_reactions;
+                        by_id.insert(winner.id.clone(), winner);
+                    } else {
+                        let mut winner = local_msg.clone();
+                        winner.reactions = merged_reactions;
+                        by_id.insert(winner.id.clone(), winner);
                     }
                 }
                 None => {
@@ -805,4 +907,107 @@ mod tests {
             joy_state.messages.iter().map(|m| &m.id).collect::<Vec<_>>(),
         );
     }
+
+    #[test]
+    fn test_new_reply() {
+        let msg = EditableChatMessage::new_reply(
+            "reply-1".into(),
+            "realm-1".into(),
+            "alice".into(),
+            "This is a reply".into(),
+            200,
+            EditableMessageType::Text,
+            "msg-1".into(),
+        );
+        assert_eq!(msg.reply_to, Some("msg-1".to_string()));
+        assert_eq!(msg.current_content, "This is a reply");
+    }
+
+    #[test]
+    fn test_add_remove_reaction() {
+        let mut msg = EditableChatMessage::new_text(
+            "msg-1".into(), "realm".into(), "alice".into(), "Hello".into(), 100,
+        );
+
+        // Add reaction
+        assert!(msg.add_reaction("👍", "alice"));
+        assert!(msg.add_reaction("👍", "bob"));
+        assert_eq!(msg.reactions["👍"].len(), 2);
+
+        // Duplicate is rejected
+        assert!(!msg.add_reaction("👍", "alice"));
+        assert_eq!(msg.reactions["👍"].len(), 2);
+
+        // Remove reaction
+        assert!(msg.remove_reaction("👍", "alice"));
+        assert_eq!(msg.reactions["👍"].len(), 1);
+
+        // Remove last reaction cleans up entry
+        assert!(msg.remove_reaction("👍", "bob"));
+        assert!(!msg.reactions.contains_key("👍"));
+
+        // Remove non-existent
+        assert!(!msg.remove_reaction("❤️", "alice"));
+    }
+
+    #[test]
+    fn test_reply_preview() {
+        let mut doc = RealmChatDocument::new();
+        doc.add_message(EditableChatMessage::new_text(
+            "msg-1".into(), "realm".into(), "alice".into(), "Hello world".into(), 100,
+        ));
+
+        let preview = doc.reply_preview("msg-1");
+        assert_eq!(preview, Some(("alice".to_string(), "Hello world".to_string())));
+
+        assert!(doc.reply_preview("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_merge_unions_reactions() {
+        let mut local = RealmChatDocument::new();
+        let mut msg = EditableChatMessage::new_text(
+            "msg-1".into(), "realm".into(), "alice".into(), "Hello".into(), 100,
+        );
+        msg.add_reaction("👍", "alice");
+        local.add_message(msg);
+
+        let mut remote = RealmChatDocument::new();
+        let mut msg = EditableChatMessage::new_text(
+            "msg-1".into(), "realm".into(), "alice".into(), "Hello".into(), 100,
+        );
+        msg.add_reaction("👍", "bob");
+        msg.add_reaction("❤️", "bob");
+        remote.add_message(msg);
+
+        local.merge(remote);
+
+        let merged = local.get_message("msg-1").unwrap();
+        assert_eq!(merged.reactions["👍"].len(), 2); // alice + bob
+        assert_eq!(merged.reactions["❤️"].len(), 1); // bob
+    }
+
+    #[test]
+    fn test_default_fields_backward_compat() {
+        // Verify serde(default) works for new fields
+        let json = r#"{"id":"msg-1","realm_id":"r","author":"a","created_at":0,"current_content":"hi","versions":[],"is_deleted":false,"message_type":"Text"}"#;
+        let msg: EditableChatMessage = serde_json::from_str(json).unwrap();
+        assert_eq!(msg.reply_to, None);
+        assert!(msg.reactions.is_empty());
+    }
+}
+
+/// Extension type identifier for typing indicators.
+pub const TYPING_EXTENSION_TYPE: &str = "indras-chat/typing/v1";
+
+/// Ephemeral typing indicator payload.
+///
+/// Sent via `Content::Extension { type_id: TYPING_EXTENSION_TYPE, payload }`.
+/// Not persisted in CRDT — the UI handles 5-second auto-expiry client-side.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TypingIndicator {
+    /// Whether the user is currently typing.
+    pub is_typing: bool,
+    /// The realm this typing event belongs to.
+    pub realm_id: String,
 }
