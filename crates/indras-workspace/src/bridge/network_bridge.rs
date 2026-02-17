@@ -1,12 +1,19 @@
 //! Network bridge — connects IndrasNetwork to Dioxus signals.
 
 use std::sync::Arc;
-use indras_network::IndrasNetwork;
+use indras_network::{IndrasNetwork, HomeRealm};
 
 /// Handle to the running IndrasNetwork instance.
 #[derive(Clone)]
 pub struct NetworkHandle {
     pub network: Arc<IndrasNetwork>,
+}
+
+impl NetworkHandle {
+    /// Initialize and return the home realm (creates if needed).
+    pub async fn home_realm(&self) -> Result<HomeRealm, String> {
+        self.network.home_realm().await.map_err(|e| format!("{}", e))
+    }
 }
 
 /// Platform-specific data directory for identity persistence.

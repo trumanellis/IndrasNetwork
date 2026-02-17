@@ -16,6 +16,10 @@ pub fn SettingsView(
     let mut connect_input = use_signal(String::new);
     let mut connect_status = use_signal(|| None::<String>);
     let mut copied = use_signal(|| false);
+    let mut encounter_code = use_signal(|| None::<String>);
+    let mut encounter_status = use_signal(|| None::<String>);
+    let mut encounter_input = use_signal(String::new);
+    let mut export_status = use_signal(|| None::<String>);
 
     rsx! {
         div {
@@ -68,6 +72,82 @@ pub fn SettingsView(
                         }
                     }
 
+                    // Quick Connect (Encounter)
+                    div {
+                        class: "settings-section",
+                        div { class: "settings-section-title", "Quick Connect" }
+                        div {
+                            class: "settings-connect-row",
+                            button {
+                                class: "settings-action-btn",
+                                onclick: move |_| {
+                                    let nh_signal = network_handle;
+                                    spawn(async move {
+                                        let nh = nh_signal.read().clone();
+                                        if let Some(nh) = nh {
+                                            match nh.network.create_encounter().await {
+                                                Ok((code, _handle)) => {
+                                                    encounter_code.set(Some(code));
+                                                    encounter_status.set(Some("Share this code with your peer".into()));
+                                                }
+                                                Err(e) => {
+                                                    encounter_status.set(Some(format!("Error: {}", e)));
+                                                }
+                                            }
+                                        }
+                                    });
+                                },
+                                "Create Code"
+                            }
+                        }
+                        if let Some(ref code) = *encounter_code.read() {
+                            div {
+                                class: "settings-uri-display",
+                                code { class: "settings-uri-code", style: "font-size: 1.5rem; letter-spacing: 0.2em;", "{code}" }
+                            }
+                        }
+                        div {
+                            class: "settings-connect-row",
+                            input {
+                                class: "settings-connect-input",
+                                placeholder: "Enter 6-digit code...",
+                                maxlength: "6",
+                                value: "{encounter_input}",
+                                oninput: move |evt| encounter_input.set(evt.value()),
+                            }
+                            button {
+                                class: "settings-connect-btn",
+                                disabled: encounter_input.read().trim().len() < 6,
+                                onclick: move |_| {
+                                    let code = encounter_input.read().trim().to_string();
+                                    if code.len() < 6 {
+                                        return;
+                                    }
+                                    let nh_signal = network_handle;
+                                    spawn(async move {
+                                        let nh = nh_signal.read().clone();
+                                        if let Some(nh) = nh {
+                                            match nh.network.join_encounter(&code).await {
+                                                Ok(peer_id) => {
+                                                    let short = peer_id.iter().take(4).map(|b| format!("{:02x}", b)).collect::<String>();
+                                                    encounter_status.set(Some(format!("Connected to peer {}", short)));
+                                                    encounter_input.set(String::new());
+                                                }
+                                                Err(e) => {
+                                                    encounter_status.set(Some(format!("Error: {}", e)));
+                                                }
+                                            }
+                                        }
+                                    });
+                                },
+                                "Join"
+                            }
+                        }
+                        if let Some(ref status) = *encounter_status.read() {
+                            div { class: "settings-connect-status", "{status}" }
+                        }
+                    }
+
                     // Connect section
                     div {
                         class: "settings-section",
@@ -115,6 +195,38 @@ pub fn SettingsView(
                             class: "settings-action-btn",
                             onclick: move |_| on_open_pass_story.call(()),
                             "Protect Identity with PassStory"
+                        }
+                    }
+
+                    // Identity Backup section
+                    div {
+                        class: "settings-section",
+                        div { class: "settings-section-title", "Identity Backup" }
+                        div {
+                            class: "settings-connect-row",
+                            button {
+                                class: "settings-action-btn",
+                                onclick: move |_| {
+                                    let nh_signal = network_handle;
+                                    spawn(async move {
+                                        let nh = nh_signal.read().clone();
+                                        if let Some(nh) = nh {
+                                            match nh.network.export_identity().await {
+                                                Ok(backup) => {
+                                                    export_status.set(Some(format!("{} bytes exported", backup.len())));
+                                                }
+                                                Err(e) => {
+                                                    export_status.set(Some(format!("Export failed: {}", e)));
+                                                }
+                                            }
+                                        }
+                                    });
+                                },
+                                "Export Identity"
+                            }
+                        }
+                        if let Some(ref status) = *export_status.read() {
+                            div { class: "settings-connect-status", "{status}" }
                         }
                     }
 

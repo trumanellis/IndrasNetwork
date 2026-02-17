@@ -1,6 +1,8 @@
 //! Editor state — document blocks and content model.
 
 use indras_artifacts::ArtifactId;
+use serde::{Serialize, Deserialize};
+use indras_network::DocumentSchema;
 
 /// A content block in the document editor.
 #[derive(Clone, Debug, PartialEq)]
@@ -132,5 +134,60 @@ impl Block {
             Block::Todo { done, artifact_id, .. } => Block::Todo { text: new_content, done: *done, artifact_id: artifact_id.clone() },
             other => other.clone(),
         }
+    }
+}
+
+/// CRDT document schema for syncing block content across peers.
+/// Uses last-writer-wins merge — concurrent edits pick the latest version.
+#[derive(Clone, Default, Debug, Serialize, Deserialize)]
+pub struct BlockDocumentSchema {
+    pub blocks: Vec<BlockEntry>,
+}
+
+/// A single block entry for CRDT sync.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BlockEntry {
+    /// Block type label (e.g. "text", "heading:2", "code:rust")
+    pub label: String,
+    /// Block content text
+    pub content: String,
+}
+
+impl DocumentSchema for BlockDocumentSchema {}
+
+impl BlockDocumentSchema {
+    /// Convert from editor blocks to CRDT schema.
+    pub fn from_blocks(blocks: &[Block]) -> Self {
+        Self {
+            blocks: blocks.iter().map(|b| {
+                let label = match b {
+                    Block::Text { .. } => "text".to_string(),
+                    Block::Heading { level, .. } => format!("heading:{}", level),
+                    Block::Code { language: Some(lang), .. } => format!("code:{}", lang),
+                    Block::Code { language: None, .. } => "code".to_string(),
+                    Block::Callout { .. } => "callout".to_string(),
+                    Block::Todo { done: true, .. } => "todo:done".to_string(),
+                    Block::Todo { done: false, .. } => "todo".to_string(),
+                    Block::Image { .. } => "image".to_string(),
+                    Block::Divider => "divider".to_string(),
+                    Block::Placeholder => "placeholder".to_string(),
+                };
+                BlockEntry {
+                    label,
+                    content: b.content().to_string(),
+                }
+            }).collect(),
+        }
+    }
+
+    /// Convert CRDT schema back to editor blocks.
+    pub fn to_blocks(&self) -> Vec<Block> {
+        self.blocks.iter().map(|entry| {
+            EditorState::parse_block_from_label(
+                &Some(entry.label.clone()),
+                entry.content.clone(),
+                None,
+            )
+        }).collect()
     }
 }
