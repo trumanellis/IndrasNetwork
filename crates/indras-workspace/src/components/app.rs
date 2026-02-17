@@ -189,8 +189,108 @@ pub fn RootApp() -> Element {
                                 // Initialize home realm for persistent artifact storage
                                 match net.home_realm().await {
                                     Ok(hr) => {
+                                        let hr_clone = hr.clone();
                                         home_realm_handle.set(Some(hr));
                                         log_event(&mut workspace.write(), EventDirection::System, "Home realm initialized".to_string());
+
+                                        // Restore sidebar from HomeRealm artifact index
+                                        match hr_clone.artifact_index().await {
+                                            Ok(doc) => {
+                                                let data = doc.read().await;
+                                                let entries: Vec<_> = data.active_artifacts().collect();
+                                                if !entries.is_empty() {
+                                                    // Build realm lookup: artifact_id -> Realm
+                                                    let mut art_to_realm = std::collections::HashMap::new();
+                                                    for rid in net.realms() {
+                                                        if let Some(realm) = net.get_realm_by_id(&rid) {
+                                                            if let Some(art_id) = realm.artifact_id() {
+                                                                art_to_realm.insert(*art_id, realm);
+                                                            }
+                                                        }
+                                                    }
+
+                                                    let mut nodes = Vec::new();
+                                                    // Top-level entries (no parent)
+                                                    let top_level: Vec<_> = entries.iter().filter(|e| e.parent.is_none()).collect();
+                                                    for entry in &top_level {
+                                                        let node_id = format!("{:?}", entry.id);
+                                                        let section = if nodes.is_empty() {
+                                                            Some("Vault".to_string())
+                                                        } else {
+                                                            None
+                                                        };
+                                                        let children: Vec<_> = data.children_of(&entry.id);
+                                                        let has_children = !children.is_empty();
+
+                                                        // Use realm alias as label if available
+                                                        let label = if let Some(realm) = art_to_realm.get(&entry.id) {
+                                                            match realm.get_alias().await {
+                                                                Ok(Some(alias)) => alias,
+                                                                _ => entry.name.clone(),
+                                                            }
+                                                        } else {
+                                                            entry.name.clone()
+                                                        };
+
+                                                        nodes.push(VaultTreeNode {
+                                                            id: node_id.clone(),
+                                                            artifact_id: Some(entry.id),
+                                                            label,
+                                                            icon: "\u{1F4C4}".to_string(),
+                                                            heat_level: 0,
+                                                            depth: 0,
+                                                            has_children,
+                                                            expanded: has_children,
+                                                            active: false,
+                                                            section,
+                                                            view_type: "document".to_string(),
+                                                        });
+
+                                                        // Insert realm into realm_map if found
+                                                        if let Some(realm) = art_to_realm.remove(&entry.id) {
+                                                            realm_map.write().insert(node_id, realm);
+                                                        }
+
+                                                        // Add children at depth 1
+                                                        for child in &children {
+                                                            let child_node_id = format!("{:?}", child.id);
+                                                            let child_label = if let Some(realm) = art_to_realm.get(&child.id) {
+                                                                match realm.get_alias().await {
+                                                                    Ok(Some(alias)) => alias,
+                                                                    _ => child.name.clone(),
+                                                                }
+                                                            } else {
+                                                                child.name.clone()
+                                                            };
+                                                            nodes.push(VaultTreeNode {
+                                                                id: child_node_id.clone(),
+                                                                artifact_id: Some(child.id),
+                                                                label: child_label,
+                                                                icon: "\u{1F4C4}".to_string(),
+                                                                heat_level: 0,
+                                                                depth: 1,
+                                                                has_children: false,
+                                                                expanded: false,
+                                                                active: false,
+                                                                section: None,
+                                                                view_type: "document".to_string(),
+                                                            });
+                                                            if let Some(realm) = art_to_realm.remove(&child.id) {
+                                                                realm_map.write().insert(child_node_id, realm);
+                                                            }
+                                                        }
+                                                    }
+
+                                                    if !nodes.is_empty() {
+                                                        workspace.write().nav.vault_tree = nodes;
+                                                        log_event(&mut workspace.write(), EventDirection::System, format!("Restored {} artifacts from home realm", entries.len()));
+                                                    }
+                                                }
+                                            }
+                                            Err(e) => {
+                                                tracing::warn!(error = %e, "Failed to read artifact index (non-fatal)");
+                                            }
+                                        }
                                     }
                                     Err(e) => {
                                         tracing::warn!(error = %e, "Failed to initialize home realm (non-fatal)");
@@ -578,6 +678,7 @@ pub fn RootApp() -> Element {
                                                                 icon: "\u{1F4C4}".to_string(),
                                                                 name: art_name,
                                                                 artifact_type: art_type,
+                                                                artifact_id: None,
                                                             });
                                                             j += 3;
                                                         }
@@ -608,6 +709,9 @@ pub fn RootApp() -> Element {
                                                     image_ref,
                                                     branch_label,
                                                     day_separator,
+                                                    message_id: None,
+                                                    reactions: vec![],
+                                                    reply_to_preview: None,
                                                 });
                                             }
                                             story_messages.set(msgs);
@@ -724,6 +828,7 @@ pub fn RootApp() -> Element {
                             }
 
                             // If this tree has an associated realm, load realm messages.
+                            // For stories, realm is authoritative — replace vault messages entirely.
                             let realm = realm_map.read().get(&tree_node_id).cloned();
                             if let Some(realm) = realm {
                                 match realm.all_messages().await {
@@ -733,12 +838,13 @@ pub fn RootApp() -> Element {
                                             guard.as_ref().map(|nh| nh.network.clone())
                                         };
                                         let my_id = net.as_ref().map(|n| n.id());
-                                        let mut additional: Vec<StoryMessage> = realm_msgs.into_iter().filter_map(|msg| {
+                                        let realm_messages: Vec<StoryMessage> = realm_msgs.into_iter().filter_map(|msg| {
                                             let text = msg.content.as_text()?.to_string();
                                             let sender_name = msg.sender.name();
                                             let is_self = my_id.map_or(false, |mid| msg.sender.id() == mid);
                                             let letter = sender_name.chars().next().unwrap_or('?').to_string();
                                             let time = msg.timestamp.format("%H:%M").to_string();
+                                            let reply_to_preview = msg.reply_to.map(|_| "(reply)".to_string());
                                             Some(StoryMessage {
                                                 sender_name,
                                                 sender_letter: letter,
@@ -750,16 +856,38 @@ pub fn RootApp() -> Element {
                                                 image_ref: None,
                                                 branch_label: None,
                                                 day_separator: None,
+                                                message_id: Some(msg.id),
+                                                reactions: vec![],
+                                                reply_to_preview,
                                             })
                                         }).collect();
-                                        if !additional.is_empty() {
+                                        if vt == ViewType::Story {
+                                            // Realm is authoritative for stories — replace entirely
+                                            story_messages.set(realm_messages);
+                                        } else if !realm_messages.is_empty() {
                                             let mut current = story_messages.read().clone();
-                                            current.append(&mut additional);
+                                            current.extend(realm_messages);
                                             story_messages.set(current);
                                         }
                                     }
                                     Err(e) => {
                                         tracing::warn!(error = %e, "Failed to load realm messages");
+                                    }
+                                }
+                            }
+
+                            // Mark messages as read for stories
+                            if vt == ViewType::Story {
+                                let realm_for_read = realm_map.read().get(&tree_node_id).cloned();
+                                if let Some(realm) = realm_for_read {
+                                    let my_id = {
+                                        let guard = network_handle.read();
+                                        guard.as_ref().map(|nh| nh.network.id())
+                                    };
+                                    if let Some(mid) = my_id {
+                                        if let Err(e) = realm.mark_read(mid).await {
+                                            tracing::warn!(error = %e, "Failed to mark messages as read");
+                                        }
                                     }
                                 }
                             }
@@ -793,6 +921,50 @@ pub fn RootApp() -> Element {
                                     if !entries.is_empty() {
                                         workspace.write().peers.entries = entries;
                                     }
+                                }
+
+                                // Subscribe to live member events for presence updates
+                                let realm_for_events = realm_map.read().get(&tree_node_id).cloned();
+                                if let Some(realm) = realm_for_events {
+                                    let my_id = {
+                                        let guard = network_handle.read();
+                                        guard.as_ref().map(|nh| nh.network.id())
+                                    };
+                                    spawn(async move {
+                                        use futures::StreamExt;
+                                        let mut stream = Box::pin(realm.member_events());
+                                        let peer_colors = [
+                                            "peer-dot-sage", "peer-dot-zeph", "peer-dot-rose",
+                                        ];
+                                        while let Some(event) = stream.next().await {
+                                            match event {
+                                                indras_network::MemberEvent::Joined(member) => {
+                                                    if my_id.map_or(true, |mid| member.id() != mid) {
+                                                        let name = member.name();
+                                                        let letter = name.chars().next().unwrap_or('?').to_string();
+                                                        let mut peers = workspace.read().peers.entries.clone();
+                                                        if !peers.iter().any(|p| p.player_id == member.id()) {
+                                                            let idx = peers.len();
+                                                            peers.push(PeerDisplayInfo {
+                                                                name,
+                                                                letter,
+                                                                color_class: peer_colors[idx % peer_colors.len()].to_string(),
+                                                                online: true,
+                                                                player_id: member.id(),
+                                                            });
+                                                            workspace.write().peers.entries = peers;
+                                                        }
+                                                    }
+                                                }
+                                                indras_network::MemberEvent::Left(member) => {
+                                                    let mut peers = workspace.read().peers.entries.clone();
+                                                    peers.retain(|p| p.player_id != member.id());
+                                                    workspace.write().peers.entries = peers;
+                                                }
+                                                _ => {}
+                                            }
+                                        }
+                                    });
                                 }
                             }
                         });
@@ -1522,6 +1694,7 @@ pub fn RootApp() -> Element {
                                         editor: editor,
                                         vault_handle: vault_handle,
                                         workspace: workspace,
+                                        realm_map: realm_map,
                                     }
                                 }
                             }
@@ -1565,6 +1738,7 @@ pub fn RootApp() -> Element {
                                         message_count: message_count,
                                         messages: current_story_messages,
                                         on_artifact_click: move |aref: StoryArtifactRef| {
+                                            // Show preview immediately
                                             preview_file.set(Some(PreviewFile {
                                                 name: aref.name.clone(),
                                                 content: format!("# {}\n\nType: {}", aref.name, aref.artifact_type),
@@ -1574,6 +1748,11 @@ pub fn RootApp() -> Element {
                                             }));
                                             preview_view_mode.set(PreviewViewMode::Rendered);
                                             preview_open.set(true);
+
+                                            // Log download request (full download pipeline requires ArtifactId propagation)
+                                            if let Some(ref aid_str) = aref.artifact_id {
+                                                tracing::info!(artifact = %aid_str, name = %aref.name, "Artifact download requested");
+                                            }
                                         },
                                         on_send: move |text: String| {
                                             let node_id = workspace.read().nav.current_id.clone();
@@ -1606,7 +1785,140 @@ pub fn RootApp() -> Element {
                                                     image_ref: None,
                                                     branch_label: None,
                                                     day_separator: None,
+                                                    message_id: None,
+                                                    reactions: vec![],
+                                                    reply_to_preview: None,
                                                 });
+                                            });
+                                        },
+                                        on_reply: move |(msg_id, text): (indras_network::MessageId, String)| {
+                                            let node_id = workspace.read().nav.current_id.clone();
+                                            let realm = node_id.as_ref().and_then(|id| realm_map.read().get(id).cloned());
+                                            spawn(async move {
+                                                if let Some(realm) = realm {
+                                                    if let Err(e) = realm.reply(msg_id, text).await {
+                                                        tracing::error!(error = %e, "Failed to send reply");
+                                                    }
+                                                }
+                                            });
+                                        },
+                                        on_react: move |(msg_id, emoji): (indras_network::MessageId, String)| {
+                                            let node_id = workspace.read().nav.current_id.clone();
+                                            let realm = node_id.as_ref().and_then(|id| realm_map.read().get(id).cloned());
+                                            spawn(async move {
+                                                if let Some(realm) = realm {
+                                                    if let Err(e) = realm.react(msg_id, emoji).await {
+                                                        tracing::error!(error = %e, "Failed to send reaction");
+                                                    }
+                                                }
+                                            });
+                                        },
+                                        on_search: move |query: String| {
+                                            let node_id = workspace.read().nav.current_id.clone();
+                                            let realm = node_id.as_ref().and_then(|id| realm_map.read().get(id).cloned());
+                                            let net = network_handle.read().as_ref().map(|nh| nh.network.clone());
+                                            spawn(async move {
+                                                if let Some(realm) = realm {
+                                                    if query.is_empty() {
+                                                        // Empty query — reload all messages
+                                                        if let Ok(all_msgs) = realm.all_messages().await {
+                                                            let my_id = net.as_ref().map(|n| n.id());
+                                                            let messages: Vec<StoryMessage> = all_msgs.into_iter().filter_map(|msg| {
+                                                                let text = msg.content.as_text()?.to_string();
+                                                                let sender_name = msg.sender.name();
+                                                                let is_self = my_id.map_or(false, |mid| msg.sender.id() == mid);
+                                                                let letter = sender_name.chars().next().unwrap_or('?').to_string();
+                                                                let time = msg.timestamp.format("%H:%M").to_string();
+                                                                Some(StoryMessage {
+                                                                    sender_name, sender_letter: letter,
+                                                                    sender_color_class: String::new(),
+                                                                    content: text, time, is_self,
+                                                                    artifact_ref: None, image_ref: None,
+                                                                    branch_label: None, day_separator: None,
+                                                                    message_id: Some(msg.id),
+                                                                    reactions: vec![], reply_to_preview: None,
+                                                                })
+                                                            }).collect();
+                                                            story_messages.set(messages);
+                                                        }
+                                                    } else if let Ok(results) = realm.search_messages(&query).await {
+                                                        let my_id = net.as_ref().map(|n| n.id());
+                                                        let messages: Vec<StoryMessage> = results.into_iter().filter_map(|msg| {
+                                                            let text = msg.content.as_text()?.to_string();
+                                                            let sender_name = msg.sender.name();
+                                                            let is_self = my_id.map_or(false, |mid| msg.sender.id() == mid);
+                                                            let letter = sender_name.chars().next().unwrap_or('?').to_string();
+                                                            let time = msg.timestamp.format("%H:%M").to_string();
+                                                            Some(StoryMessage {
+                                                                sender_name, sender_letter: letter,
+                                                                sender_color_class: String::new(),
+                                                                content: text, time, is_self,
+                                                                artifact_ref: None, image_ref: None,
+                                                                branch_label: None, day_separator: None,
+                                                                message_id: Some(msg.id),
+                                                                reactions: vec![], reply_to_preview: None,
+                                                            })
+                                                        }).collect();
+                                                        story_messages.set(messages);
+                                                    }
+                                                }
+                                            });
+                                        },
+                                        on_attach: move |_: ()| {
+                                            let node_id = workspace.read().nav.current_id.clone();
+                                            let realm = node_id.as_ref().and_then(|id| realm_map.read().get(id).cloned());
+                                            let net = network_handle.read().as_ref().map(|nh| nh.network.clone());
+                                            spawn(async move {
+                                                // Open native file picker
+                                                let file = rfd::AsyncFileDialog::new()
+                                                    .set_title("Share a file")
+                                                    .pick_file()
+                                                    .await;
+                                                let Some(file) = file else { return; };
+                                                let path = file.path().to_path_buf();
+                                                let file_name = file.file_name();
+
+                                                if let Some(realm) = realm {
+                                                    match realm.share_artifact(&path).await {
+                                                        Ok(_artifact_id) => {
+                                                            // Send a message with artifact reference
+                                                            let msg_text = format!("Shared: {}", file_name);
+                                                            if let Err(e) = realm.send(msg_text.clone()).await {
+                                                                tracing::error!(error = %e, "Failed to send share message");
+                                                                return;
+                                                            }
+                                                            // Add to local UI
+                                                            let my_name = net.as_ref()
+                                                                .and_then(|n| n.display_name().map(|s| s.to_string()))
+                                                                .unwrap_or_else(|| "Me".to_string());
+                                                            let letter = my_name.chars().next().unwrap_or('?').to_string();
+                                                            let now = chrono::Local::now().format("%H:%M").to_string();
+                                                            story_messages.write().push(StoryMessage {
+                                                                sender_name: my_name,
+                                                                sender_letter: letter,
+                                                                sender_color_class: String::new(),
+                                                                content: msg_text,
+                                                                time: now,
+                                                                is_self: true,
+                                                                artifact_ref: Some(StoryArtifactRef {
+                                                                    icon: "\u{1F4CE}".to_string(),
+                                                                    name: file_name,
+                                                                    artifact_type: "File".to_string(),
+                                                                    artifact_id: Some(format!("{:?}", _artifact_id)),
+                                                                }),
+                                                                image_ref: None,
+                                                                branch_label: None,
+                                                                day_separator: None,
+                                                                message_id: None,
+                                                                reactions: vec![],
+                                                                reply_to_preview: None,
+                                                            });
+                                                        }
+                                                        Err(e) => {
+                                                            tracing::error!(error = %e, "Failed to share artifact");
+                                                        }
+                                                    }
+                                                }
                                             });
                                         },
                                     }
@@ -1750,6 +2062,9 @@ pub fn RootApp() -> Element {
                                 guard.clone()
                             };
 
+                            // Track the contact tree node key for realm_map insertion
+                            let mut contact_node_key = None::<String>;
+
                             // Register as peer artifact in the vault
                             if let Some(vh) = vh.as_ref() {
                                 let mut vault = vh.vault.lock().await;
@@ -1767,6 +2082,7 @@ pub fn RootApp() -> Element {
                                 match vault.place_tree(TreeType::Custom("Contact".to_string()), audience, now) {
                                     Ok(contact_tree) => {
                                         let contact_tree_id = contact_tree.id.clone();
+                                        contact_node_key = Some(format!("{:?}", contact_tree_id));
                                         let contact_payload = serde_json::json!({
                                             "identity_code": uri,
                                             "display_name": peer_name,
@@ -1925,8 +2241,11 @@ pub fn RootApp() -> Element {
 
                             tracing::info!("on_connect: connecting to {}...", peer_display);
                             match net.connect_by_code(&uri).await {
-                                Ok(_realm) => {
+                                Ok(realm) => {
                                     tracing::info!("on_connect: connection established with {}", peer_display);
+                                    if let Some(key) = contact_node_key.as_ref() {
+                                        realm_map.write().insert(key.clone(), realm);
+                                    }
                                     log_event(&mut workspace.write(), EventDirection::Sent, format!("Connected to {}", peer_display));
                                     contact_invite_status.set(Some("success:Connected!".into()));
                                     // Clear input and close overlay on success
