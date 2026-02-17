@@ -148,30 +148,20 @@ impl ArtifactSyncRegistry {
     /// Tear down the sync interface for an artifact.
     async fn teardown(&self, artifact_id: &ArtifactId) -> Result<()> {
         if let Some((_, interface_id)) = self.active.remove(artifact_id) {
-            // TODO: Add remove_interface method to IndrasNode
-            // For now, we just remove from our tracking map
-            // The interface will remain in the node until manually cleaned up
-            debug!(
-                artifact = %artifact_id,
-                interface = %interface_id,
-                "Removed artifact from sync tracking (interface cleanup pending)"
-            );
-
-            // TODO: Implement proper teardown:
-            // if let Err(e) = self.node.remove_interface(&interface_id).await {
-            //     warn!(
-            //         artifact = %artifact_id,
-            //         interface = %interface_id,
-            //         error = %e,
-            //         "Failed to remove sync interface"
-            //     );
-            // } else {
-            //     info!(
-            //         artifact = %artifact_id,
-            //         interface = %interface_id,
-            //         "Torn down sync interface for artifact"
-            //     );
-            // }
+            if let Err(e) = self.node.leave_interface(&interface_id).await {
+                warn!(
+                    artifact = %artifact_id,
+                    interface = %interface_id,
+                    error = %e,
+                    "Failed to leave sync interface"
+                );
+            } else {
+                info!(
+                    artifact = %artifact_id,
+                    interface = %interface_id,
+                    "Torn down sync interface for artifact"
+                );
+            }
         }
         Ok(())
     }
