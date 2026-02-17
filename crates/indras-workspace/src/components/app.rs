@@ -966,6 +966,49 @@ pub fn RootApp() -> Element {
                                         }
                                     });
                                 }
+
+                                // Subscribe to live incoming messages for real-time chat
+                                let realm_for_messages = realm_map.read().get(&tree_node_id).cloned();
+                                if let Some(realm) = realm_for_messages {
+                                    let my_id = {
+                                        let guard = network_handle.read();
+                                        guard.as_ref().map(|nh| nh.network.id())
+                                    };
+                                    spawn(async move {
+                                        use futures::StreamExt;
+                                        let mut stream = Box::pin(realm.messages());
+                                        while let Some(msg) = stream.next().await {
+                                            // Skip own messages — already shown via optimistic push in on_send
+                                            let is_self = my_id.map_or(false, |mid| msg.sender.id() == mid);
+                                            if is_self {
+                                                continue;
+                                            }
+                                            let text = match msg.content.as_text() {
+                                                Some(t) => t.to_string(),
+                                                None => continue,
+                                            };
+                                            let sender_name = msg.sender.name();
+                                            let letter = sender_name.chars().next().unwrap_or('?').to_string();
+                                            let time = msg.timestamp.format("%H:%M").to_string();
+                                            let reply_to_preview = msg.reply_to.map(|_| "(reply)".to_string());
+                                            story_messages.write().push(StoryMessage {
+                                                sender_name,
+                                                sender_letter: letter,
+                                                sender_color_class: String::new(),
+                                                content: text,
+                                                time,
+                                                is_self: false,
+                                                artifact_ref: None,
+                                                image_ref: None,
+                                                branch_label: None,
+                                                day_separator: None,
+                                                message_id: Some(msg.id),
+                                                reactions: vec![],
+                                                reply_to_preview,
+                                            });
+                                        }
+                                    });
+                                }
                             }
                         });
                     }
@@ -1095,6 +1138,21 @@ pub fn RootApp() -> Element {
                                     tracing::info!("Created realm for tree: {}", label);
                                     log_event(&mut ws_signal.write(), EventDirection::System, format!("Realm created: {}", label));
                                     realm_map.write().insert(tree_node_id.clone(), realm);
+
+                                    // Attach child in HomeRealm if we're inside a parent node
+                                    let parent_id = ws_signal.read().nav.current_id.clone();
+                                    if let Some(parent_node_id) = parent_id {
+                                        let parent_art = ws_signal.read().nav.vault_tree.iter()
+                                            .find(|n| n.id == parent_node_id)
+                                            .and_then(|n| n.artifact_id);
+                                        if let Some(parent_art_id) = parent_art {
+                                            if let Some(hr) = home_realm_handle.read().as_ref() {
+                                                if let Err(e) = hr.attach_child(&parent_art_id, &tree.id).await {
+                                                    tracing::warn!(error = %e, "Failed to attach child in HomeRealm");
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                                 Err(e) => {
                                     tracing::warn!(error = %e, "Failed to create realm for tree (non-fatal)");
@@ -1349,21 +1407,38 @@ pub fn RootApp() -> Element {
         Some(ws.editor.meta.steward_name.clone())
     };
 
-    // Convert VaultTreeNode -> indras_ui::TreeNode for sidebar
-    let sidebar_nodes: Vec<TreeNode> = ws.nav.vault_tree.iter().map(|n| {
-        TreeNode {
-            id: n.id.clone(),
-            label: n.label.clone(),
-            icon: n.icon.clone(),
-            heat_level: n.heat_level,
-            depth: n.depth,
-            has_children: n.has_children,
-            expanded: n.expanded,
-            active: n.active,
-            section: n.section.clone(),
-            view_type: n.view_type.clone(),
+    // Convert VaultTreeNode -> indras_ui::TreeNode for sidebar, filtering collapsed children
+    let sidebar_nodes: Vec<TreeNode> = {
+        let mut nodes = Vec::new();
+        let mut skip_depth: Option<usize> = None;
+        for n in ws.nav.vault_tree.iter() {
+            // Skip children of collapsed parents
+            if let Some(sd) = skip_depth {
+                if n.depth > sd {
+                    continue;
+                } else {
+                    skip_depth = None;
+                }
+            }
+            // If this node has children but is collapsed, skip its children
+            if n.has_children && !n.expanded {
+                skip_depth = Some(n.depth);
+            }
+            nodes.push(TreeNode {
+                id: n.id.clone(),
+                label: n.label.clone(),
+                icon: n.icon.clone(),
+                heat_level: n.heat_level,
+                depth: n.depth,
+                has_children: n.has_children,
+                expanded: n.expanded,
+                active: n.active,
+                section: n.section.clone(),
+                view_type: n.view_type.clone(),
+            });
         }
-    }).collect();
+        nodes
+    };
 
     // Build peer strip data
     let ui_peers: Vec<UiPeerDisplayInfo> = ws.peers.entries.iter().map(|p| {
@@ -1410,32 +1485,47 @@ pub fn RootApp() -> Element {
             role: "steward".to_string(),
             short_id: player_short_id.clone(),
         }];
-        let peer_ids = ["indra1m4kp...a7n2", "indra1j9wx...d5e8"];
-        let peer_roles = ["syncing", "peer"];
-        for (i, peer) in ws.peers.entries.iter().enumerate() {
+        for peer in ws.peers.entries.iter() {
+            let short_id = peer.player_id.iter().take(4).map(|b| format!("{:02x}", b)).collect::<String>();
             members.push(AudienceMember {
                 name: peer.name.clone(),
                 letter: peer.letter.clone(),
                 color_class: peer.color_class.clone(),
-                role: peer_roles.get(i).unwrap_or(&"peer").to_string(),
-                short_id: peer_ids.get(i).unwrap_or(&"").to_string(),
+                role: "peer".to_string(),
+                short_id,
             });
         }
         members
     };
 
-    let references = vec![
-        ReferenceItem { icon: "\u{1F4C4}".into(), name: "The new ontology reduces...".into(), ref_type: "msg".into() },
-        ReferenceItem { icon: "\u{1F4BB}".into(), name: "pub enum Artifact { ... }".into(), ref_type: "code".into() },
-        ReferenceItem { icon: "\u{1F5FA}".into(), name: "system_diagram.png".into(), ref_type: "image".into() },
-    ];
-    let refs_count = 14usize;
+    // Build references from current editor blocks
+    let references: Vec<ReferenceItem> = ws.editor.blocks.iter().take(5).map(|block| {
+        let (icon, ref_type) = match block {
+            crate::state::editor::Block::Code { .. } => ("\u{1F4BB}", "code"),
+            crate::state::editor::Block::Image { .. } => ("\u{1F5FA}", "image"),
+            crate::state::editor::Block::Heading { .. } => ("\u{1F4D1}", "heading"),
+            _ => ("\u{1F4C4}", "text"),
+        };
+        let content = block.content();
+        let name = if content.len() > 40 { format!("{}...", &content[..40]) } else { content.to_string() };
+        ReferenceItem { icon: icon.into(), name, ref_type: ref_type.into() }
+    }).collect();
+    let refs_count = ws.editor.blocks.len();
 
-    let sync_entries = vec![
-        SyncEntry { name: "Nova (local)".into(), status: "synced".into(), status_text: "up to date".into() },
-        SyncEntry { name: "Sage".into(), status: "syncing".into(), status_text: "syncing 3 refs".into() },
-        SyncEntry { name: "Zephyr".into(), status: "offline".into(), status_text: "last seen 4m ago".into() },
-    ];
+    // Build sync entries from real peers
+    let sync_entries: Vec<SyncEntry> = {
+        let mut entries = vec![
+            SyncEntry { name: format!("{} (local)", player_name), status: "synced".into(), status_text: "up to date".into() },
+        ];
+        for peer in ws.peers.entries.iter() {
+            entries.push(SyncEntry {
+                name: peer.name.clone(),
+                status: if peer.online { "syncing" } else { "offline" }.into(),
+                status_text: if peer.online { "connected".into() } else { "offline".into() },
+            });
+        }
+        entries
+    };
 
     let heat_entries = vec![
         HeatEntry { label: player_name.clone(), value: 0.7, color: "var(--accent-teal)".to_string() },
@@ -1978,13 +2068,46 @@ pub fn RootApp() -> Element {
                         heat_entries: heat_entries.clone(),
                         trail_events: trail_events,
                         references: references,
-                        artifact_id_display: "Doc(7f2a...e891)".to_string(),
+                        artifact_id_display: workspace.read().nav.current_id.clone().unwrap_or_else(|| "root".to_string()),
                         refs_count: refs_count,
                         steward_name: player_name.clone(),
                         steward_letter: player_letter.clone(),
                         is_own_steward: true,
                         sync_entries: sync_entries,
                         combined_heat: 0.56,
+                        on_revoke: move |member_short_id: String| {
+                            // Find the full member ID from the short_id
+                            let peer = workspace.read().peers.entries.iter()
+                                .find(|p| {
+                                    let short = p.player_id.iter().take(4).map(|b| format!("{:02x}", b)).collect::<String>();
+                                    short == member_short_id
+                                })
+                                .map(|p| p.player_id);
+                            if let Some(member_id) = peer {
+                                let net = network_handle.read().as_ref().map(|nh| nh.network.clone());
+                                spawn(async move {
+                                    if let Some(net) = net {
+                                        if let Some(contacts_realm) = net.contacts_realm().await {
+                                            match contacts_realm.remove_contact(&member_id).await {
+                                                Ok(true) => {
+                                                    tracing::info!("Removed contact {}", member_short_id);
+                                                }
+                                                Ok(false) => {
+                                                    tracing::warn!("Contact not found: {}", member_short_id);
+                                                }
+                                                Err(e) => {
+                                                    tracing::error!(error = %e, "Failed to remove contact");
+                                                }
+                                            }
+                                        }
+                                    }
+                                });
+                            }
+                        },
+                        on_transfer: move |_: ()| {
+                            tracing::info!("Transfer stewardship requested");
+                            // Transfer requires selecting a target member — log for now
+                        },
                     }
                 }
 

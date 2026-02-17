@@ -3,6 +3,7 @@
 use dioxus::prelude::*;
 use indras_ui::ThemeSwitcher;
 use crate::bridge::network_bridge::NetworkHandle;
+use indras_network::EncounterHandle;
 
 #[component]
 pub fn SettingsView(
@@ -19,7 +20,9 @@ pub fn SettingsView(
     let mut encounter_code = use_signal(|| None::<String>);
     let mut encounter_status = use_signal(|| None::<String>);
     let mut encounter_input = use_signal(String::new);
+    let mut encounter_handle = use_signal(|| None::<EncounterHandle>);
     let mut export_status = use_signal(|| None::<String>);
+    let mut import_status = use_signal(|| None::<String>);
 
     rsx! {
         div {
@@ -86,7 +89,8 @@ pub fn SettingsView(
                                         let nh = nh_signal.read().clone();
                                         if let Some(nh) = nh {
                                             match nh.network.create_encounter().await {
-                                                Ok((code, _handle)) => {
+                                                Ok((code, handle)) => {
+                                                    encounter_handle.set(Some(handle));
                                                     encounter_code.set(Some(code));
                                                     encounter_status.set(Some("Share this code with your peer".into()));
                                                 }
@@ -213,7 +217,16 @@ pub fn SettingsView(
                                         if let Some(nh) = nh {
                                             match nh.network.export_identity().await {
                                                 Ok(backup) => {
-                                                    export_status.set(Some(format!("{} bytes exported", backup.len())));
+                                                    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+                                                    let path = std::path::PathBuf::from(&home).join("indras-backup.bin");
+                                                    match tokio::fs::write(&path, &backup).await {
+                                                        Ok(()) => {
+                                                            export_status.set(Some(format!("Exported {} bytes to {}", backup.len(), path.display())));
+                                                        }
+                                                        Err(e) => {
+                                                            export_status.set(Some(format!("Write failed: {}", e)));
+                                                        }
+                                                    }
                                                 }
                                                 Err(e) => {
                                                     export_status.set(Some(format!("Export failed: {}", e)));
@@ -226,6 +239,36 @@ pub fn SettingsView(
                             }
                         }
                         if let Some(ref status) = *export_status.read() {
+                            div { class: "settings-connect-status", "{status}" }
+                        }
+                        div {
+                            class: "settings-connect-row",
+                            button {
+                                class: "settings-action-btn",
+                                onclick: move |_| {
+                                    spawn(async move {
+                                        let file = rfd::AsyncFileDialog::new()
+                                            .set_title("Select identity backup")
+                                            .add_filter("Backup", &["bin"])
+                                            .pick_file()
+                                            .await;
+                                        let Some(file) = file else { return; };
+                                        let bytes = file.read().await;
+                                        let data_dir = crate::bridge::network_bridge::default_data_dir();
+                                        match indras_network::IndrasNetwork::import_identity(&data_dir, &bytes).await {
+                                            Ok(()) => {
+                                                import_status.set(Some(format!("Imported {} bytes — restart to use", bytes.len())));
+                                            }
+                                            Err(e) => {
+                                                import_status.set(Some(format!("Import failed: {}", e)));
+                                            }
+                                        }
+                                    });
+                                },
+                                "Import Identity"
+                            }
+                        }
+                        if let Some(ref status) = *import_status.read() {
                             div { class: "settings-connect-status", "{status}" }
                         }
                     }

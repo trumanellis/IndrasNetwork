@@ -20,6 +20,7 @@ pub fn DocumentView(
     editor: EditorState,
     vault_handle: Signal<Option<VaultHandle>>,
     workspace: Signal<WorkspaceState>,
+    realm_map: Signal<std::collections::HashMap<String, Realm>>,
 ) -> Element {
     let mut editing_index: Signal<Option<usize>> = use_signal(|| None);
     let mut draft_content: Signal<String> = use_signal(String::new);
@@ -84,7 +85,7 @@ pub fn DocumentView(
                                                     onkeydown: move |evt: KeyboardEvent| {
                                                         handle_edit_keydown(
                                                             evt, index, editing_index,
-                                                            draft_content, vault_handle, workspace,
+                                                            draft_content, vault_handle, workspace, realm_map,
                                                         );
                                                     },
                                                 }
@@ -107,7 +108,7 @@ pub fn DocumentView(
                                                 onkeydown: move |evt: KeyboardEvent| {
                                                     handle_edit_keydown(
                                                         evt, index, editing_index,
-                                                        draft_content, vault_handle, workspace,
+                                                        draft_content, vault_handle, workspace, realm_map,
                                                     );
                                                 },
                                             }
@@ -150,6 +151,7 @@ fn handle_edit_keydown(
     mut draft_content: Signal<String>,
     vault_handle: Signal<Option<VaultHandle>>,
     workspace: Signal<WorkspaceState>,
+    realm_map: Signal<std::collections::HashMap<String, Realm>>,
 ) {
     evt.stop_propagation();
     let key = evt.key();
@@ -160,7 +162,7 @@ fn handle_edit_keydown(
             let content = draft_content.read().clone();
             let tree_id = workspace.read().editor.tree_id.clone();
             spawn(async move {
-                save_block(index, content, tree_id, vault_handle, workspace).await;
+                save_block(index, content, tree_id, vault_handle, workspace, realm_map).await;
                 editing_index.set(None);
                 draft_content.set(String::new());
             });
@@ -180,6 +182,7 @@ async fn save_block(
     tree_id: Option<indras_artifacts::ArtifactId>,
     vault_handle: Signal<Option<VaultHandle>>,
     mut workspace: Signal<WorkspaceState>,
+    realm_map: Signal<std::collections::HashMap<String, Realm>>,
 ) {
     let vh = match vault_handle.read().clone() {
         Some(h) => h,
@@ -241,7 +244,13 @@ async fn save_block(
             );
             blocks.push(block);
         }
-        workspace.write().editor.blocks = blocks;
+        workspace.write().editor.blocks = blocks.clone();
+
+        // Sync to realm CRDT if a realm exists for this tree
+        let node_key = format!("{:?}", tree_id);
+        if let Some(realm) = realm_map.read().get(&node_key) {
+            sync_blocks_to_realm(realm, &blocks).await;
+        }
     }
 }
 
