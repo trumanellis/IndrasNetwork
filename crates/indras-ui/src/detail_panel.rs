@@ -78,6 +78,18 @@ pub fn DetailPanel(
     sync_entries: Vec<SyncEntry>,
     #[props(default = 0.0)]
     combined_heat: f32,
+    /// Callback when "Transfer Stewardship" is clicked.
+    #[props(optional)]
+    on_transfer: Option<EventHandler<()>>,
+    /// Callback when "Remove" is clicked on an audience member (member_id string).
+    #[props(optional)]
+    on_revoke: Option<EventHandler<String>>,
+    /// Callback when "Add peer to audience" is clicked.
+    #[props(optional)]
+    on_grant: Option<EventHandler<()>>,
+    /// Callback when "Recall" is clicked.
+    #[props(optional)]
+    on_recall: Option<EventHandler<()>>,
 ) -> Element {
     let tab_names = ["Properties", "Audience", "Heat"];
 
@@ -223,7 +235,15 @@ pub fn DetailPanel(
                                     }
                                 }
                             }
-                            button { class: "transfer-btn", "\u{1F504} Transfer Stewardship..." }
+                            button {
+                                class: "transfer-btn",
+                                onclick: move |_| {
+                                    if let Some(handler) = &on_transfer {
+                                        handler.call(());
+                                    }
+                                },
+                                "\u{1F504} Transfer Stewardship..."
+                            }
                         }
                     }
 
@@ -249,10 +269,21 @@ pub fn DetailPanel(
                                 class: "audience-member-actions",
                                 span { class: "audience-badge {member.role}", "{member.role}" }
                                 if member.role != "steward" {
-                                    button {
-                                        class: "audience-remove-btn",
-                                        title: "Remove from audience",
-                                        "\u{2715}"
+                                    {
+                                        let member_id = member.short_id.clone();
+                                        let handler = on_revoke.clone();
+                                        rsx! {
+                                            button {
+                                                class: "audience-remove-btn",
+                                                title: "Remove from audience",
+                                                onclick: move |_| {
+                                                    if let Some(ref h) = handler {
+                                                        h.call(member_id.clone());
+                                                    }
+                                                },
+                                                "\u{2715}"
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -262,6 +293,11 @@ pub fn DetailPanel(
                     // Add peer row
                     div {
                         class: "audience-add",
+                        onclick: move |_| {
+                            if let Some(handler) = &on_grant {
+                                handler.call(());
+                            }
+                        },
                         div { class: "audience-add-icon", "+" }
                         div { class: "audience-add-text", "Add peer to audience..." }
                     }
