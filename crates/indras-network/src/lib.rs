@@ -128,7 +128,7 @@ pub(crate) mod util;
 pub mod world_view;
 
 // Re-export main types at crate root
-pub use artifact::{ArtifactDownload, ArtifactId, DownloadProgress};
+pub use artifact::{ArtifactDownload, ArtifactId, DownloadProgress, generate_tree_id, leaf_id, dm_story_id};
 pub use encryption::{ArtifactKey, EncryptedArtifactKey, ARTIFACT_KEY_SIZE};
 pub use access::{
     AccessGrant, AccessMode, ArtifactProvenance, ArtifactStatus, GrantError, TreeError,
@@ -158,6 +158,23 @@ pub use network::{GlobalEvent, IdentityBackup};
 pub use realm::Realm;
 pub use realm_alias::{RealmAlias, RealmAliasDocument, MAX_ALIAS_LENGTH};
 pub use world_view::WorldView;
+
+/// Full artifact domain model re-exported from indras-artifacts.
+pub use indras_artifacts;
+
+// Rich artifact types re-exported for ergonomic imports
+pub use indras_artifacts::{
+    Artifact, LeafArtifact, TreeArtifact, ArtifactRef, LeafType, TreeType,
+    BlessingRecord, StewardshipRecord,
+    AttentionLog, AttentionSwitchEvent, AttentionValue, compute_heat,
+    PeerEntry, PeerRegistry, MutualPeering,
+    ArtifactStore, PayloadStore, AttentionStore,
+    InMemoryArtifactStore, InMemoryAttentionStore, InMemoryPayloadStore,
+    IntegrityResult,
+    Vault, Story, Exchange, Request,
+    VaultError,
+    compute_token_value,
+};
 
 /// Prelude module for convenient imports.
 ///

@@ -13,7 +13,7 @@ use crate::identity_code::IdentityCode;
 use crate::invite::InviteCode;
 use crate::member::{Member, MemberId};
 use crate::realm::Realm;
-use indras_artifacts::generate_tree_id;
+use crate::artifact::{generate_tree_id, dm_story_id};
 
 use dashmap::DashMap;
 use indras_core::InterfaceId;
@@ -111,6 +111,7 @@ pub struct IndrasNetwork {
 /// Internal realm state.
 struct RealmState {
     name: Option<String>,
+    artifact_id: Option<crate::artifact::ArtifactId>,
 }
 
 impl IndrasNetwork {
@@ -330,6 +331,7 @@ impl IndrasNetwork {
             realm_id,
             RealmState {
                 name: Some("Inbox".to_string()),
+                artifact_id: None,
             },
         );
 
@@ -398,7 +400,7 @@ impl IndrasNetwork {
                     };
 
                     let peer_id = notify.sender_id;
-                    let dm_artifact_id = indras_artifacts::dm_story_id(my_id, peer_id);
+                    let dm_artifact_id = dm_story_id(my_id, peer_id);
                     let dm_realm_id = crate::artifact_sync::artifact_interface_id(&dm_artifact_id);
 
                     // Check if we already have this DM realm (idempotent)
@@ -450,6 +452,7 @@ impl IndrasNetwork {
                                 interface_id,
                                 RealmState {
                                     name: Some("DM".to_string()),
+                                    artifact_id: Some(dm_artifact_id),
                                 },
                             );
 
@@ -580,6 +583,7 @@ impl IndrasNetwork {
             interface_id,
             RealmState {
                 name: Some(name.to_string()),
+                artifact_id: Some(artifact_id),
             },
         );
 
@@ -589,6 +593,7 @@ impl IndrasNetwork {
         Ok(Realm::new(
             interface_id,
             Some(name.to_string()),
+            Some(artifact_id),
             invite_code,
             Arc::clone(&self.inner),
         ))
@@ -624,11 +629,12 @@ impl IndrasNetwork {
         }
 
         // Cache the realm state
-        self.realms.insert(interface_id, RealmState { name: None });
+        self.realms.insert(interface_id, RealmState { name: None, artifact_id: invite_code.artifact_id().cloned() });
 
         Ok(Realm::new(
             interface_id,
             None,
+            invite_code.artifact_id().cloned(),
             invite_code,
             Arc::clone(&self.inner),
         ))
@@ -641,7 +647,7 @@ impl IndrasNetwork {
         self.realms.get(id).map(|state| {
             // We need to reconstruct the invite code, which we may not have
             // For now, return a realm without a valid invite code
-            Realm::from_id(*id, state.name.clone(), Arc::clone(&self.inner))
+            Realm::from_id(*id, state.name.clone(), state.artifact_id.clone(), Arc::clone(&self.inner))
         })
     }
 
@@ -720,12 +726,12 @@ impl IndrasNetwork {
         }
 
         // 1. Use dm_story_id for canonical DM identity, derive interface ID from it
-        let artifact_id = indras_artifacts::dm_story_id(my_id, peer_id);
+        let artifact_id = dm_story_id(my_id, peer_id);
         let realm_id = artifact_interface_id(&artifact_id);
 
         // 2. Check if already loaded
         if let Some(state) = self.realms.get(&realm_id) {
-            return Ok(Realm::from_id(realm_id, state.name.clone(), Arc::clone(&self.inner)));
+            return Ok(Realm::from_id(realm_id, state.name.clone(), state.artifact_id.clone(), Arc::clone(&self.inner)));
         }
 
         // 3. Establish transport connectivity to peer via relay
@@ -763,6 +769,7 @@ impl IndrasNetwork {
             interface_id,
             RealmState {
                 name: Some("DM".to_string()),
+                artifact_id: Some(artifact_id),
             },
         );
 
@@ -791,6 +798,7 @@ impl IndrasNetwork {
         Ok(Realm::new(
             interface_id,
             Some("DM".to_string()),
+            Some(artifact_id),
             InviteCode::new(invite_key),
             Arc::clone(&self.inner),
         ))
@@ -1151,7 +1159,7 @@ impl IndrasNetwork {
 
         // Check if already loaded (skip contact validation for existing realms)
         if let Some(state) = self.realms.get(&realm_id) {
-            return Ok(Realm::from_id(realm_id, state.name.clone(), Arc::clone(&self.inner)));
+            return Ok(Realm::from_id(realm_id, state.name.clone(), state.artifact_id.clone(), Arc::clone(&self.inner)));
         }
 
         // Enforce: all peers must be contacts before creating a new realm
@@ -1196,13 +1204,14 @@ impl IndrasNetwork {
             .await?;
 
         // Cache the realm state
-        self.realms.insert(interface_id, RealmState { name: None });
+        self.realms.insert(interface_id, RealmState { name: None, artifact_id: None });
 
         // Cache the peer mapping
         self.peer_realms.insert(normalized, interface_id);
 
         Ok(Realm::new(
             interface_id,
+            None,
             None,
             InviteCode::new(invite_key),
             Arc::clone(&self.inner),
@@ -1221,7 +1230,7 @@ impl IndrasNetwork {
         let realm_id = Self::compute_realm_id_for_peers(&normalized);
 
         self.realms.get(&realm_id).map(|state| {
-            Realm::from_id(realm_id, state.name.clone(), Arc::clone(&self.inner))
+            Realm::from_id(realm_id, state.name.clone(), state.artifact_id.clone(), Arc::clone(&self.inner))
         })
     }
 
@@ -1324,6 +1333,7 @@ impl IndrasNetwork {
             realm_id,
             RealmState {
                 name: Some("Contacts".to_string()),
+                artifact_id: None,
             },
         );
 
@@ -1408,6 +1418,7 @@ impl IndrasNetwork {
             realm_id,
             RealmState {
                 name: Some("Home".to_string()),
+                artifact_id: None,
             },
         );
 

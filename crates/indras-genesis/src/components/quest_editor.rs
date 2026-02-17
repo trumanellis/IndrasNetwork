@@ -266,7 +266,7 @@ pub fn QuestEditorOverlay(
                                         if let Some(pid) = peer_id {
                                             // Peer realm
                                             let my_id = net.id();
-                                            let dm_id = indras_network::artifact_sync::artifact_interface_id(&indras_artifacts::dm_story_id(my_id, pid));
+                                            let dm_id = indras_network::artifact_sync::artifact_interface_id(&indras_network::dm_story_id(my_id, pid));
                                             if let Some(realm) = net.get_realm_by_id(&dm_id) {
                                                 use indras_sync_engine::RealmQuests;
                                                 match realm.create_quest(title, description, None, my_id).await {
@@ -305,7 +305,7 @@ pub fn QuestEditorOverlay(
                                                 if let Some(pid) = peer_id {
                                                     // Peer realm
                                                     let my_id = net.id();
-                                                    let dm_id = indras_network::artifact_sync::artifact_interface_id(&indras_artifacts::dm_story_id(my_id, pid));
+                                                    let dm_id = indras_network::artifact_sync::artifact_interface_id(&indras_network::dm_story_id(my_id, pid));
                                                     if let Some(realm) = net.get_realm_by_id(&dm_id) {
                                                         use indras_sync_engine::RealmQuests;
                                                         match realm.update_quest(id_bytes, title, description).await {

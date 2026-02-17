@@ -15,6 +15,7 @@ use tokio::sync::watch;
 /// Re-exported from `indras_artifacts`. This is an enum with `Blob` and `Doc` variants,
 /// each wrapping a `[u8; 32]` hash.
 pub use indras_artifacts::ArtifactId;
+pub use indras_artifacts::{generate_tree_id, leaf_id, dm_story_id};
 
 /// Progress of an artifact download.
 #[derive(Debug, Clone, Copy)]

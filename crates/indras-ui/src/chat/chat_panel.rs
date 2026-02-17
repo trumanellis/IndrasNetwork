@@ -8,7 +8,7 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 use indras_network::IndrasNetwork;
 use indras_network::artifact_sync::artifact_interface_id;
-use indras_artifacts::dm_story_id;
+use indras_network::dm_story_id;
 use indras_sync_engine::RealmChat;
 use tracing::debug;
 

@@ -52,6 +52,8 @@ pub struct Realm {
     id: RealmId,
     /// Human-readable name.
     name: Option<String>,
+    /// The artifact ID this realm corresponds to (if known).
+    artifact_id: Option<ArtifactId>,
     /// The invite code for this realm.
     invite: Option<InviteCode>,
     /// Reference to the underlying node.
@@ -63,22 +65,25 @@ impl Realm {
     pub(crate) fn new(
         id: RealmId,
         name: Option<String>,
+        artifact_id: Option<ArtifactId>,
         invite: InviteCode,
         node: Arc<IndrasNode>,
     ) -> Self {
         Self {
             id,
             name,
+            artifact_id,
             invite: Some(invite),
             node,
         }
     }
 
     /// Create a realm from just an ID (used when loading existing realms).
-    pub(crate) fn from_id(id: RealmId, name: Option<String>, node: Arc<IndrasNode>) -> Self {
+    pub(crate) fn from_id(id: RealmId, name: Option<String>, artifact_id: Option<ArtifactId>, node: Arc<IndrasNode>) -> Self {
         Self {
             id,
             name,
+            artifact_id,
             invite: None,
             node,
         }
@@ -96,6 +101,11 @@ impl Realm {
     /// Get the realm's human-readable name.
     pub fn name(&self) -> Option<&str> {
         self.name.as_deref()
+    }
+
+    /// Get the artifact ID for this realm (if known).
+    pub fn artifact_id(&self) -> Option<&ArtifactId> {
+        self.artifact_id.as_ref()
     }
 
     /// Get the invite code for this realm.
@@ -951,6 +961,7 @@ impl Clone for Realm {
         Self {
             id: self.id,
             name: self.name.clone(),
+            artifact_id: self.artifact_id.clone(),
             invite: self.invite.clone(),
             node: Arc::clone(&self.node),
         }
