@@ -78,7 +78,7 @@ pub type LegacyHomeArtifactMetadata = HomeArtifactMetadata;
 ///
 /// The HomeRealm is a personal realm unique to each user, containing:
 /// - Stored artifacts (images, files, etc.)
-/// - An artifact index with access control and holonic composition
+/// - An artifact index with access control and tree composition
 ///
 /// Domain-specific document types (quests, notes, etc.) are managed by
 /// the sync-engine layer.
@@ -305,7 +305,6 @@ impl HomeRealm {
                 grants: Vec::new(),
                 provenance: None,
                 parent: None,
-                children: Vec::new(),
             };
             index.store(entry);
         })
@@ -374,7 +373,6 @@ impl HomeRealm {
                     grants: Vec::new(),
                     provenance: None,
                     parent: None,
-                    children: Vec::new(),
                 };
                 index.store(entry);
             }
@@ -421,7 +419,6 @@ impl HomeRealm {
                     grants: Vec::new(),
                     provenance: None,
                     parent: None,
-                    children: Vec::new(),
                 };
                 index.store(entry);
             }
@@ -524,14 +521,13 @@ impl HomeRealm {
     }
 
     // ============================================================
-    // Holonic composition
+    // Tree composition
     // ============================================================
 
-    /// Compose existing artifacts under a parent holon.
+    /// Attach existing artifacts as children of a parent.
     ///
-    /// Groups the given child artifacts under the specified parent.
     /// All children must exist, be active, and have no existing parent.
-    pub async fn compose_artifact(
+    pub async fn attach_children(
         &self,
         parent_id: &ArtifactId,
         child_ids: &[ArtifactId],
@@ -541,34 +537,34 @@ impl HomeRealm {
         let child_ids = child_ids.to_vec();
         let mut result = Ok(());
         doc.update(|index| {
-            if let Err(e) = index.compose(&parent_id, &child_ids) {
-                result = Err(IndraError::Artifact(format!("Compose failed: {}", e)));
+            if let Err(e) = index.attach_children(&parent_id, &child_ids) {
+                result = Err(IndraError::Artifact(format!("Attach failed: {}", e)));
             }
         })
         .await?;
         result
     }
 
-    /// Decompose a holon — detach all children, making them top-level.
+    /// Detach all children from a parent, making them top-level.
     ///
     /// Inherited grants from the parent are materialized as explicit
     /// grants on each detached child.
-    pub async fn decompose_artifact(
+    pub async fn detach_all_children(
         &self,
         parent_id: &ArtifactId,
     ) -> Result<Vec<ArtifactId>> {
         let doc = self.artifact_index().await?;
         let parent_id = *parent_id;
-        let mut decompose_result: std::result::Result<Vec<ArtifactId>, crate::access::HolonicError> =
-            Err(crate::access::HolonicError::NotFound);
+        let mut decompose_result: std::result::Result<Vec<ArtifactId>, crate::access::TreeError> =
+            Err(crate::access::TreeError::NotFound);
         doc.update(|index| {
-            decompose_result = index.decompose(&parent_id);
+            decompose_result = index.detach_all_children(&parent_id);
         })
         .await?;
-        decompose_result.map_err(|e| IndraError::Artifact(format!("Decompose failed: {}", e)))
+        decompose_result.map_err(|e| IndraError::Artifact(format!("Detach failed: {}", e)))
     }
 
-    /// Attach a single artifact as child of an existing holon.
+    /// Attach a single artifact as a child of a parent.
     pub async fn attach_child(
         &self,
         parent_id: &ArtifactId,
@@ -587,7 +583,7 @@ impl HomeRealm {
         result
     }
 
-    /// Detach a child from a holon, making it top-level.
+    /// Detach a child from its parent, making it top-level.
     ///
     /// Inherited grants are materialized onto the detached child.
     pub async fn detach_child(

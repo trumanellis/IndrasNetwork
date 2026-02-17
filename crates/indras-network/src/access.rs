@@ -1,7 +1,7 @@
 //! Per-artifact access control primitives.
 //!
 //! Re-exports core access types from `indras_artifacts` and defines
-//! network-specific error types for grant/revoke/transfer/holonic operations.
+//! network-specific error types for grant/revoke/transfer/tree operations.
 
 // Re-export canonical types from indras-artifacts
 pub use indras_artifacts::{
@@ -77,9 +77,9 @@ impl std::fmt::Display for TransferError {
 
 impl std::error::Error for TransferError {}
 
-/// Errors when performing holonic operations (compose, attach, detach).
+/// Errors when performing tree operations (attach, detach).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum HolonicError {
+pub enum TreeError {
     /// Artifact not found in the index.
     NotFound,
     /// Artifact is not in Active status.
@@ -92,7 +92,7 @@ pub enum HolonicError {
     NotAChild,
 }
 
-impl std::fmt::Display for HolonicError {
+impl std::fmt::Display for TreeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NotFound => write!(f, "artifact not found"),
@@ -104,7 +104,7 @@ impl std::fmt::Display for HolonicError {
     }
 }
 
-impl std::error::Error for HolonicError {}
+impl std::error::Error for TreeError {}
 
 #[cfg(test)]
 mod tests {
@@ -200,11 +200,11 @@ mod tests {
     }
 
     #[test]
-    fn test_holonic_error_display() {
-        assert_eq!(HolonicError::NotFound.to_string(), "artifact not found");
-        assert_eq!(HolonicError::NotActive.to_string(), "artifact is not active");
-        assert_eq!(HolonicError::CycleDetected.to_string(), "operation would create a cycle");
-        assert_eq!(HolonicError::AlreadyHasParent.to_string(), "artifact already has a parent");
-        assert_eq!(HolonicError::NotAChild.to_string(), "artifact is not a child of the specified parent");
+    fn test_tree_error_display() {
+        assert_eq!(TreeError::NotFound.to_string(), "artifact not found");
+        assert_eq!(TreeError::NotActive.to_string(), "artifact is not active");
+        assert_eq!(TreeError::CycleDetected.to_string(), "operation would create a cycle");
+        assert_eq!(TreeError::AlreadyHasParent.to_string(), "artifact already has a parent");
+        assert_eq!(TreeError::NotAChild.to_string(), "artifact is not a child of the specified parent");
     }
 }

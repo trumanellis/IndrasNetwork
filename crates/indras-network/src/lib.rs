@@ -131,7 +131,7 @@ pub mod world_view;
 pub use artifact::{ArtifactDownload, ArtifactId, DownloadProgress};
 pub use encryption::{ArtifactKey, EncryptedArtifactKey, ARTIFACT_KEY_SIZE};
 pub use access::{
-    AccessGrant, AccessMode, ArtifactProvenance, ArtifactStatus, GrantError, HolonicError,
+    AccessGrant, AccessMode, ArtifactProvenance, ArtifactStatus, GrantError, TreeError,
     ProvenanceType, RevokeError, TransferError,
 };
 pub use artifact_index::{ArtifactIndex, HomeArtifactEntry};
