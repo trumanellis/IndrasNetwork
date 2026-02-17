@@ -21,7 +21,7 @@ use crate::components::bottom_nav::{BottomNav, NavTab};
 use crate::components::fab::Fab;
 use crate::state::workspace::{WorkspaceState, ViewType, AppPhase, PeerDisplayInfo};
 use crate::state::navigation::{NavigationState, VaultTreeNode};
-use crate::state::editor::{EditorState, DocumentMeta};
+use crate::state::editor::{EditorState, DocumentMeta, BlockDocumentSchema};
 
 use indras_artifacts::{Artifact, TreeType, LeafType};
 use indras_ui::{
@@ -34,7 +34,7 @@ use indras_ui::{
     ChatPanel,
 };
 use indras_ui::PeerDisplayInfo as UiPeerDisplayInfo;
-use indras_network::{IdentityCode, IndrasNetwork};
+use indras_network::{IdentityCode, IndrasNetwork, HomeRealm, Realm};
 
 #[cfg(feature = "lua-scripting")]
 use crate::scripting::channels::AppTestChannels;
@@ -68,6 +68,8 @@ pub fn RootApp() -> Element {
     let mut contact_invite_uri = use_signal(String::new);
     let mut contact_display_name_sig = use_signal(String::new);
     let mut contact_member_id_short_sig = use_signal(String::new);
+    let mut home_realm_handle = use_signal(|| None::<HomeRealm>);
+    let mut realm_map = use_signal(|| std::collections::HashMap::<String, Realm>::new());
 
     // --- Lua scripting dispatcher (feature-gated) ---
     #[cfg(feature = "lua-scripting")]
@@ -96,7 +98,7 @@ pub fn RootApp() -> Element {
         });
     }
 
-    // Save world view on shutdown
+    // Save world view and stop network on shutdown
     let network_for_cleanup = network_handle;
     use_drop(move || {
         if let Some(nh) = network_for_cleanup.read().as_ref() {
@@ -106,6 +108,9 @@ pub fn RootApp() -> Element {
                 rt.block_on(async {
                     if let Err(e) = net.save_world_view().await {
                         tracing::error!(error = %e, "Failed to save world view on shutdown");
+                    }
+                    if let Err(e) = net.stop().await {
+                        tracing::error!(error = %e, "Failed to stop network on shutdown");
                     }
                 });
             })
@@ -179,6 +184,18 @@ pub fn RootApp() -> Element {
                                 // Join contacts realm so inbox listener can store contacts
                                 if let Err(e) = net.join_contacts_realm().await {
                                     tracing::warn!(error = %e, "Failed to join contacts realm (non-fatal)");
+                                }
+
+                                // Initialize home realm for persistent artifact storage
+                                match net.home_realm().await {
+                                    Ok(hr) => {
+                                        home_realm_handle.set(Some(hr));
+                                        log_event(&mut workspace.write(), EventDirection::System, "Home realm initialized".to_string());
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(error = %e, "Failed to initialize home realm (non-fatal)");
+                                        log_event(&mut workspace.write(), EventDirection::System, format!("Home realm warning: {}", e));
+                                    }
                                 }
                             }
                             Err(e) => {
@@ -399,6 +416,42 @@ pub fn RootApp() -> Element {
         });
     });
 
+    // Subscribe to global network events and feed into event log
+    use_effect(move || {
+        spawn(async move {
+            use futures::StreamExt;
+
+            // Wait for network to be available
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                if workspace.read().phase == AppPhase::Workspace {
+                    break;
+                }
+            }
+
+            let net = {
+                let guard = network_handle.read();
+                guard.as_ref().map(|nh| nh.network.clone())
+            };
+            let Some(net) = net else { return; };
+
+            let mut events = std::pin::pin!(net.events());
+            while let Some(event) = events.next().await {
+                let description = format!("{:?}", event.event.event);
+                // Extract just the variant name (e.g. "Message", "MembershipChange", "Presence")
+                let event_type = description.split_once('{')
+                    .or_else(|| description.split_once('('))
+                    .map(|(prefix, _)| prefix.trim())
+                    .unwrap_or(&description);
+
+                let realm_short = format!("{}", event.realm_id);
+                let msg = format!("[{}] {}", &realm_short[..8.min(realm_short.len())], event_type);
+
+                log_event(&mut workspace.write(), EventDirection::Received, msg);
+            }
+        });
+    });
+
     // --- Event handlers ---
 
     let mut on_tree_click = {
@@ -428,6 +481,7 @@ pub fn RootApp() -> Element {
                 if let Some(artifact_id) = artifact_id {
                     let vh = vault_handle.read().clone();
                     if let Some(vh) = vh {
+                        let tree_node_id = node_id.clone();
                         spawn(async move {
                             let vault = vh.vault.lock().await;
                             let _now = chrono::Utc::now().timestamp_millis();
@@ -647,6 +701,100 @@ pub fn RootApp() -> Element {
                                     }
                                 }
                             }
+
+                            // If viewing a Document and this tree has a realm, load from CRDT.
+                            // Drop the vault lock first before the async realm call.
+                            drop(vault);
+                            if vt == ViewType::Document {
+                                let realm = realm_map.read().get(&tree_node_id).cloned();
+                                if let Some(realm) = realm {
+                                    match realm.document::<BlockDocumentSchema>("blocks").await {
+                                        Ok(doc) => {
+                                            let data = doc.read().await;
+                                            if !data.blocks.is_empty() {
+                                                let blocks = data.to_blocks();
+                                                workspace.write().editor.blocks = blocks;
+                                            }
+                                        }
+                                        Err(e) => {
+                                            tracing::warn!(error = %e, "Failed to load CRDT document for Document view");
+                                        }
+                                    }
+                                }
+                            }
+
+                            // If this tree has an associated realm, load realm messages.
+                            let realm = realm_map.read().get(&tree_node_id).cloned();
+                            if let Some(realm) = realm {
+                                match realm.all_messages().await {
+                                    Ok(realm_msgs) => {
+                                        let net = {
+                                            let guard = network_handle.read();
+                                            guard.as_ref().map(|nh| nh.network.clone())
+                                        };
+                                        let my_id = net.as_ref().map(|n| n.id());
+                                        let mut additional: Vec<StoryMessage> = realm_msgs.into_iter().filter_map(|msg| {
+                                            let text = msg.content.as_text()?.to_string();
+                                            let sender_name = msg.sender.name();
+                                            let is_self = my_id.map_or(false, |mid| msg.sender.id() == mid);
+                                            let letter = sender_name.chars().next().unwrap_or('?').to_string();
+                                            let time = msg.timestamp.format("%H:%M").to_string();
+                                            Some(StoryMessage {
+                                                sender_name,
+                                                sender_letter: letter,
+                                                sender_color_class: String::new(),
+                                                content: text,
+                                                time,
+                                                is_self,
+                                                artifact_ref: None,
+                                                image_ref: None,
+                                                branch_label: None,
+                                                day_separator: None,
+                                            })
+                                        }).collect();
+                                        if !additional.is_empty() {
+                                            let mut current = story_messages.read().clone();
+                                            current.append(&mut additional);
+                                            story_messages.set(current);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(error = %e, "Failed to load realm messages");
+                                    }
+                                }
+                            }
+
+                            // Load realm members for peer strip
+                            let realm2 = realm_map.read().get(&tree_node_id).cloned();
+                            if let Some(realm) = realm2 {
+                                if let Ok(members) = realm.member_list().await {
+                                    let peer_colors = [
+                                        "peer-dot-sage", "peer-dot-zeph", "peer-dot-rose",
+                                    ];
+                                    let my_id = {
+                                        let guard = network_handle.read();
+                                        guard.as_ref().map(|nh| nh.network.id())
+                                    };
+                                    let entries: Vec<PeerDisplayInfo> = members.iter()
+                                        .filter(|m| my_id.map_or(true, |mid| m.id() != mid))
+                                        .enumerate()
+                                        .map(|(i, m)| {
+                                            let name = m.name();
+                                            let letter = name.chars().next().unwrap_or('?').to_string();
+                                            PeerDisplayInfo {
+                                                name,
+                                                letter,
+                                                color_class: peer_colors[i % peer_colors.len()].to_string(),
+                                                online: true,
+                                                player_id: m.id(),
+                                            }
+                                        })
+                                        .collect();
+                                    if !entries.is_empty() {
+                                        workspace.write().peers.entries = entries;
+                                    }
+                                }
+                            }
                         });
                     }
                 }
@@ -761,6 +909,32 @@ pub fn RootApp() -> Element {
                             tracing::error!("Failed to add tree to root: {}", e);
                             return;
                         }
+
+                        // Create a network Realm for this tree (enables messaging/sync)
+                        let tree_node_id = format!("{:?}", tree.id);
+                        drop(vault); // Release vault lock before async network call
+                        let net = {
+                            let guard = network_handle.read();
+                            guard.as_ref().map(|nh| nh.network.clone())
+                        };
+                        if let Some(net) = net {
+                            match net.create_realm(label).await {
+                                Ok(realm) => {
+                                    tracing::info!("Created realm for tree: {}", label);
+                                    log_event(&mut ws_signal.write(), EventDirection::System, format!("Realm created: {}", label));
+                                    realm_map.write().insert(tree_node_id.clone(), realm);
+                                }
+                                Err(e) => {
+                                    tracing::warn!(error = %e, "Failed to create realm for tree (non-fatal)");
+                                }
+                            }
+                        }
+                        // Re-acquire vault lock for sidebar rebuild
+                        let vh = match vh_signal.read().clone() {
+                            Some(h) => h,
+                            None => return,
+                        };
+                        let vault = vh.vault.lock().await;
 
                         // Rebuild sidebar tree (read from store, not stale root field)
                         let mut nodes = Vec::new();
@@ -1199,6 +1373,18 @@ pub fn RootApp() -> Element {
                                         if let Err(e) = net.join_contacts_realm().await {
                                             tracing::warn!(error = %e, "Failed to join contacts realm (non-fatal)");
                                         }
+
+                                        // Initialize home realm for persistent artifact storage
+                                        match net.home_realm().await {
+                                            Ok(hr) => {
+                                                home_realm_handle.set(Some(hr));
+                                                log_event(&mut workspace.write(), EventDirection::System, "Home realm initialized".to_string());
+                                            }
+                                            Err(e) => {
+                                                tracing::warn!(error = %e, "Failed to initialize home realm (non-fatal)");
+                                                log_event(&mut workspace.write(), EventDirection::System, format!("Home realm warning: {}", e));
+                                            }
+                                        }
                                     }
                                     Err(e) => setup_error.set(Some(format!("{}", e))),
                                 }
@@ -1388,6 +1574,40 @@ pub fn RootApp() -> Element {
                                             }));
                                             preview_view_mode.set(PreviewViewMode::Rendered);
                                             preview_open.set(true);
+                                        },
+                                        on_send: move |text: String| {
+                                            let node_id = workspace.read().nav.current_id.clone();
+                                            let realm = node_id.as_ref().and_then(|id| realm_map.read().get(id).cloned());
+                                            let net = network_handle.read().as_ref().map(|nh| nh.network.clone());
+                                            spawn(async move {
+                                                let my_name = net.as_ref()
+                                                    .and_then(|n| n.display_name().map(|s| s.to_string()))
+                                                    .unwrap_or_else(|| "Me".to_string());
+
+                                                // Send via realm if available
+                                                if let Some(realm) = realm {
+                                                    if let Err(e) = realm.send(text.clone()).await {
+                                                        tracing::error!(error = %e, "Failed to send message");
+                                                        return;
+                                                    }
+                                                }
+
+                                                // Add message to local UI immediately
+                                                let letter = my_name.chars().next().unwrap_or('?').to_string();
+                                                let now = chrono::Local::now().format("%H:%M").to_string();
+                                                story_messages.write().push(StoryMessage {
+                                                    sender_name: my_name,
+                                                    sender_letter: letter,
+                                                    sender_color_class: String::new(),
+                                                    content: text,
+                                                    time: now,
+                                                    is_self: true,
+                                                    artifact_ref: None,
+                                                    image_ref: None,
+                                                    branch_label: None,
+                                                    day_separator: None,
+                                                });
+                                            });
                                         },
                                     }
                                 }

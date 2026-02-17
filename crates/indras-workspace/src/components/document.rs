@@ -1,9 +1,10 @@
 use dioxus::prelude::*;
 use dioxus::prelude::Key;
-use crate::state::editor::{Block, EditorState};
+use crate::state::editor::{Block, EditorState, BlockDocumentSchema};
 use crate::state::workspace::WorkspaceState;
 use crate::bridge::vault_bridge::VaultHandle;
 use indras_artifacts::{Artifact, LeafType};
+use indras_network::Realm;
 use super::blocks::{
     text::TextBlock,
     heading::HeadingBlock,
@@ -241,6 +242,23 @@ async fn save_block(
             blocks.push(block);
         }
         workspace.write().editor.blocks = blocks;
+    }
+}
+
+/// Sync the current editor blocks to the CRDT document in the associated realm.
+pub async fn sync_blocks_to_realm(realm: &Realm, blocks: &[Block]) {
+    let schema = BlockDocumentSchema::from_blocks(blocks);
+    match realm.document::<BlockDocumentSchema>("blocks").await {
+        Ok(doc) => {
+            if let Err(e) = doc.update(|state| {
+                *state = schema.clone();
+            }).await {
+                tracing::warn!(error = %e, "Failed to sync blocks to realm document");
+            }
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "Failed to get realm document for sync");
+        }
     }
 }
 
