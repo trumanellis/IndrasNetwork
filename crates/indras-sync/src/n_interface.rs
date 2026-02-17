@@ -1,7 +1,7 @@
 //! Full N-peer interface implementation
 //!
 //! The NInterface struct combines:
-//! - [`InterfaceDocument`]: Yrs CRDT document for state synchronization
+//! - [`InterfaceDocument`]: Document for state synchronization
 //! - [`EventStore`]: Store-and-forward event tracking with delivery confirmation
 //! - [`SyncState`]: Peer synchronization state management
 //!
@@ -22,22 +22,22 @@ use crate::{EventStore, InterfaceDocument, SyncError, SyncState};
 
 /// Full implementation of an N-peer interface
 ///
-/// Combines InterfaceDocument (Yrs CRDT) + EventStore (pending tracking) + SyncState
+/// Combines InterfaceDocument + EventStore (pending tracking) + SyncState
 /// to provide a complete implementation of the NInterfaceTrait.
 ///
 /// ## Architecture
 ///
 /// The NInterface manages three layers of data:
 ///
-/// 1. **Yrs Document** (`InterfaceDocument`): The source of truth for membership,
-///    metadata, and event history. Uses Yrs's CRDT properties for automatic
+/// 1. **Document** (`InterfaceDocument`): The source of truth for membership,
+///    metadata, and event history. Uses union-based merge for automatic
 ///    conflict resolution when peers sync.
 ///
 /// 2. **Event Store** (`EventStore`): Tracks which events are pending delivery to which
 ///    peers. This enables store-and-forward: when a peer is offline, their pending
 ///    events accumulate and are delivered when they reconnect.
 ///
-/// 3. **Sync State** (`SyncState`): Tracks the Yrs sync progress with each peer,
+/// 3. **Sync State** (`SyncState`): Tracks sync progress with each peer,
 ///    including their known state vectors and whether we're awaiting responses.
 ///
 /// ## Usage
@@ -65,9 +65,7 @@ use crate::{EventStore, InterfaceDocument, SyncError, SyncState};
 pub struct NInterface<I: PeerIdentity> {
     /// Unique identifier for this interface
     interface_id: InterfaceId,
-    /// Yrs document for CRDT synchronization (wrapped in RwLock for thread-safe interior mutability)
-    /// This is needed for concurrent access protection, even though Yrs methods take &self
-    /// (Yrs uses interior mutability internally).
+    /// Document for state synchronization (wrapped in RwLock for thread-safe access).
     document: RwLock<InterfaceDocument>,
     /// Event store for pending delivery tracking
     event_store: EventStore<I>,
@@ -145,7 +143,7 @@ where
         }
     }
 
-    /// Load from existing Yrs document bytes
+    /// Load from existing document bytes
     ///
     /// Reconstructs an NInterface from previously saved document bytes.
     /// The members are loaded from the document.
@@ -153,7 +151,7 @@ where
     /// # Arguments
     ///
     /// * `interface_id` - The InterfaceId for this interface
-    /// * `doc_bytes` - Yrs document bytes from a previous `save()` call
+    /// * `doc_bytes` - Document bytes from a previous `save()` call
     ///
     /// # Returns
     ///
@@ -178,7 +176,7 @@ where
 
     /// Get document bytes for persistence
     ///
-    /// Serializes the Yrs document to bytes that can be saved to disk
+    /// Serializes the document to bytes that can be saved to disk
     /// and later loaded with `load()`.
     ///
     /// # Returns
@@ -190,7 +188,7 @@ where
 
     /// Add a member to the interface
     ///
-    /// Adds the peer to both the Yrs document and the event store.
+    /// Adds the peer to both the document and the event store.
     /// New members will receive all existing events as pending.
     ///
     /// # Arguments
@@ -205,7 +203,7 @@ where
             return Ok(()); // Already a member, no-op
         }
 
-        // Add to Yrs document
+        // Add to document
         self.document.write().map_err(|_| SyncError::LockPoisoned)?.add_member(&peer);
 
         // Add to local members set
@@ -219,7 +217,7 @@ where
 
     /// Remove a member from the interface
     ///
-    /// Removes the peer from both the Yrs document and the event store.
+    /// Removes the peer from both the document and the event store.
     /// Pending events for the removed peer are discarded.
     ///
     /// # Arguments
@@ -230,7 +228,7 @@ where
     ///
     /// Ok(()) on success
     pub fn remove_member(&mut self, peer: &I) -> Result<(), SyncError> {
-        // Remove from Yrs document
+        // Remove from document
         self.document.write().map_err(|_| SyncError::LockPoisoned)?.remove_member(peer);
 
         // Remove from local members set
@@ -259,17 +257,17 @@ where
         &mut self.sync_state
     }
 
-    /// Get the document (for direct Yrs operations)
+    /// Get the document (for direct operations).
     ///
-    /// Provides access to the underlying Yrs document via RwLock.
+    /// Provides access to the underlying document via RwLock.
     /// Returns a read guard for the document.
     pub fn document(&self) -> Result<std::sync::RwLockReadGuard<'_, InterfaceDocument>, SyncError> {
         self.document.read().map_err(|_| SyncError::LockPoisoned)
     }
 
-    /// Get mutable document (for direct Yrs operations)
+    /// Get mutable document (for direct operations).
     ///
-    /// Provides mutable access for advanced Yrs operations.
+    /// Provides mutable access for advanced operations.
     /// Use with caution - modifications may desync the members set.
     /// Returns a write guard for the document.
     pub fn document_mut(&self) -> Result<std::sync::RwLockWriteGuard<'_, InterfaceDocument>, SyncError> {
@@ -332,7 +330,7 @@ where
     ///
     /// The event will be:
     /// 1. Added to the event store (tracks pending for other members)
-    /// 2. Optionally added to the Yrs document for CRDT sync
+    /// 2. Added to the document for state sync
     ///
     /// # Arguments
     ///
@@ -345,7 +343,7 @@ where
         // 1. Append to event store (tracks pending for other members)
         let event_id = self.event_store.append(event.clone());
 
-        // 2. Also add to Yrs document for CRDT sync
+        // 2. Also add to document for state sync
         self.document
             .write()
             .map_err(|_| InterfaceError::AppendFailed("Lock poisoned".to_string()))?
@@ -378,7 +376,7 @@ where
 
     /// Merge incoming sync state
     ///
-    /// Applies a Yrs sync message from a peer, updating our document state.
+    /// Applies a sync message from a peer, updating our document state.
     /// After merging, syncs the internal members set with the document.
     async fn merge_sync(&mut self, sync_msg: SyncMessage) -> Result<(), InterfaceError> {
         // Verify this sync is for our interface
@@ -405,7 +403,7 @@ where
 
     /// Generate sync state for a peer
     ///
-    /// Creates a Yrs sync message to send to a peer for synchronization.
+    /// Creates a sync message to send to a peer for synchronization.
     fn generate_sync(&self, for_peer: &I) -> SyncMessage {
         // generate_sync cannot return Result per trait, unwrap is acceptable
         let doc = self.document.read().unwrap();

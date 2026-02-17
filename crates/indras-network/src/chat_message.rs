@@ -5,6 +5,9 @@
 //! deleted at any time, with edit history accessible via the versions field.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+use crate::document::DocumentSchema;
 
 /// Unique message identifier (realm_id + tick + member_id or UUID).
 pub type ChatMessageId = String;
@@ -408,6 +411,41 @@ impl RealmChatDocument {
     }
 }
 
+impl DocumentSchema for RealmChatDocument {
+    /// Merge remote chat state with local state using set-union on message IDs.
+    ///
+    /// For messages present on both sides, keeps the version with more edits,
+    /// or the deleted version if either side deleted it.
+    fn merge(&mut self, remote: Self) {
+        // Index local messages by ID
+        let mut by_id: HashMap<String, EditableChatMessage> =
+            self.messages.drain(..).map(|m| (m.id.clone(), m)).collect();
+
+        // Merge each remote message
+        for remote_msg in remote.messages {
+            match by_id.get(&remote_msg.id) {
+                Some(local_msg) => {
+                    // Both sides have this message — keep the more advanced version
+                    let prefer_remote = remote_msg.is_deleted && !local_msg.is_deleted
+                        || remote_msg.version_count() > local_msg.version_count();
+                    if prefer_remote {
+                        by_id.insert(remote_msg.id.clone(), remote_msg);
+                    }
+                }
+                None => {
+                    // Remote has a message we don't — add it
+                    by_id.insert(remote_msg.id.clone(), remote_msg);
+                }
+            }
+        }
+
+        // Reconstruct sorted by created_at, then by ID for deterministic order
+        let mut merged: Vec<_> = by_id.into_values().collect();
+        merged.sort_by(|a, b| a.created_at.cmp(&b.created_at).then_with(|| a.id.cmp(&b.id)));
+        self.messages = merged;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -666,5 +704,105 @@ mod tests {
         );
 
         assert_eq!(msg.current_content, "[Gallery: 1 items]");
+    }
+
+    #[test]
+    fn test_merge_union_of_messages() {
+        let mut local = RealmChatDocument::new();
+        local.add_message(EditableChatMessage::new_text(
+            "msg-1".into(), "realm".into(), "zephyr".into(), "Hello".into(), 100,
+        ));
+        local.add_message(EditableChatMessage::new_text(
+            "msg-2".into(), "realm".into(), "zephyr".into(), "Local only".into(), 200,
+        ));
+
+        let mut remote = RealmChatDocument::new();
+        remote.add_message(EditableChatMessage::new_text(
+            "msg-1".into(), "realm".into(), "zephyr".into(), "Hello".into(), 100,
+        ));
+        remote.add_message(EditableChatMessage::new_text(
+            "msg-3".into(), "realm".into(), "nova".into(), "Remote only".into(), 150,
+        ));
+
+        local.merge(remote);
+
+        assert_eq!(local.messages.len(), 3);
+        assert_eq!(local.messages[0].id, "msg-1");
+        assert_eq!(local.messages[1].id, "msg-3"); // sorted by created_at
+        assert_eq!(local.messages[2].id, "msg-2");
+    }
+
+    #[test]
+    fn test_merge_prefers_more_edits() {
+        let mut local = RealmChatDocument::new();
+        local.add_message(EditableChatMessage::new_text(
+            "msg-1".into(), "realm".into(), "zephyr".into(), "Original".into(), 100,
+        ));
+
+        let mut remote = RealmChatDocument::new();
+        let mut edited_msg = EditableChatMessage::new_text(
+            "msg-1".into(), "realm".into(), "zephyr".into(), "Original".into(), 100,
+        );
+        edited_msg.edit("Edited".into(), 200);
+        remote.add_message(edited_msg);
+
+        local.merge(remote);
+
+        assert_eq!(local.messages.len(), 1);
+        assert_eq!(local.messages[0].current_content, "Edited");
+        assert!(local.messages[0].is_edited());
+    }
+
+    #[test]
+    fn test_merge_prefers_deleted() {
+        let mut local = RealmChatDocument::new();
+        local.add_message(EditableChatMessage::new_text(
+            "msg-1".into(), "realm".into(), "zephyr".into(), "Hello".into(), 100,
+        ));
+
+        let mut remote = RealmChatDocument::new();
+        let mut deleted_msg = EditableChatMessage::new_text(
+            "msg-1".into(), "realm".into(), "zephyr".into(), "Hello".into(), 100,
+        );
+        deleted_msg.delete(200);
+        remote.add_message(deleted_msg);
+
+        local.merge(remote);
+
+        assert_eq!(local.messages.len(), 1);
+        assert!(local.messages[0].is_deleted);
+    }
+
+    #[test]
+    fn test_merge_concurrent_messages_both_preserved() {
+        // Simulates the exact bug: Love and Joy each send while disconnected
+        let mut love_state = RealmChatDocument::new();
+        love_state.add_message(EditableChatMessage::new_text(
+            "shared-1".into(), "dm".into(), "nova".into(), "Hey".into(), 100,
+        ));
+        love_state.add_message(EditableChatMessage::new_text(
+            "love-2".into(), "dm".into(), "zephyr".into(), "Love msg".into(), 200,
+        ));
+
+        let mut joy_state = RealmChatDocument::new();
+        joy_state.add_message(EditableChatMessage::new_text(
+            "shared-1".into(), "dm".into(), "nova".into(), "Hey".into(), 100,
+        ));
+        joy_state.add_message(EditableChatMessage::new_text(
+            "joy-2".into(), "dm".into(), "nova".into(), "Joy msg".into(), 210,
+        ));
+
+        // Love receives Joy's state
+        love_state.merge(joy_state.clone());
+        // Joy receives Love's state
+        joy_state.merge(love_state.clone());
+
+        // Both should converge to the same 3 messages
+        assert_eq!(love_state.messages.len(), 3);
+        assert_eq!(joy_state.messages.len(), 3);
+        assert_eq!(
+            love_state.messages.iter().map(|m| &m.id).collect::<Vec<_>>(),
+            joy_state.messages.iter().map(|m| &m.id).collect::<Vec<_>>(),
+        );
     }
 }

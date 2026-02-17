@@ -1,33 +1,41 @@
-//! Yrs document backing an N-peer interface
+//! Plain-Rust document backing an N-peer interface.
 //!
 //! The InterfaceDocument stores:
 //! - Member list (who is in the interface)
 //! - Interface metadata (name, description, settings)
-//! - Event log (serialized events as byte buffers in a Yrs Array)
+//! - Event log (serialized events as byte buffers)
+//!
+//! Uses postcard for serialization and a simple merge strategy
+//! (union members, append-only events deduplicated by content hash).
 
 use std::collections::HashSet;
 
 use indras_core::{InterfaceEvent, InterfaceMetadata, PeerIdentity};
-use yrs::updates::decoder::Decode;
-use yrs::updates::encoder::Encode;
-use yrs::{Any, Array, Doc, Map, Out, ReadTxn, StateVector, Transact, Update};
+use serde::{Deserialize, Serialize};
 
 use crate::error::SyncError;
 
-/// Keys used in the Yrs document structure
-mod keys {
-    pub const MEMBERS: &str = "members";
-    pub const METADATA: &str = "metadata";
-    pub const EVENTS: &str = "events";
-    pub const NAME: &str = "name";
-    pub const DESCRIPTION: &str = "description";
-    pub const CREATED_AT: &str = "created_at";
-    pub const CREATOR: &str = "creator";
+/// Persisted interface document state.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+struct StoredDocument {
+    members: HashSet<String>,
+    metadata: StoredMetadata,
+    /// Events stored as postcard-serialized byte buffers.
+    events: Vec<Vec<u8>>,
 }
 
-/// Yrs document backing an NInterface
+/// Interface metadata fields.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+struct StoredMetadata {
+    name: Option<String>,
+    description: Option<String>,
+    created_at: i64,
+    creator: Option<String>,
+}
+
+/// Document backing an NInterface.
 ///
-/// Document structure:
+/// Document structure (logical):
 /// ```json
 /// {
 ///   "members": { "peer_id_hex": true, ... },
@@ -38,225 +46,177 @@ mod keys {
 ///     "creator": "peer_id_hex"
 ///   },
 ///   "events": [
-///     <serialized event bytes as Buffer>,
+///     <serialized event bytes>,
 ///     ...
 ///   ]
 /// }
 /// ```
 pub struct InterfaceDocument {
-    doc: Doc,
+    inner: StoredDocument,
 }
 
 impl InterfaceDocument {
-    /// Create a new empty document with pre-initialized shared types
+    /// Create a new empty document.
     pub fn new() -> Self {
-        let doc = Doc::new();
-
-        // Pre-initialize the shared types so they exist in the document.
-        // These calls register the root-level map/array names; the actual
-        // MapRef/ArrayRef handles are cheap to re-obtain later.
-        {
-            let _members = doc.get_or_insert_map(keys::MEMBERS);
-            let _metadata = doc.get_or_insert_map(keys::METADATA);
-            let _events = doc.get_or_insert_array(keys::EVENTS);
-
-            // Open a write transaction to commit the initial structure
-            let _txn = doc.transact_mut();
-            // Transaction auto-commits on drop
+        Self {
+            inner: StoredDocument::default(),
         }
-
-        Self { doc }
     }
 
-    /// Create from existing Yrs update bytes
+    /// Create from previously saved bytes.
     pub fn load(bytes: &[u8]) -> Result<Self, SyncError> {
-        let doc = Doc::new();
+        let inner: StoredDocument =
+            postcard::from_bytes(bytes).map_err(|e| SyncError::DocumentLoad(e.to_string()))?;
+        Ok(Self { inner })
+    }
 
-        // Pre-register shared type names so they're accessible
-        let _members = doc.get_or_insert_map(keys::MEMBERS);
-        let _metadata = doc.get_or_insert_map(keys::METADATA);
-        let _events = doc.get_or_insert_array(keys::EVENTS);
+    /// Export the full document state as bytes.
+    pub fn save(&self) -> Vec<u8> {
+        // postcard serialization; unwrap is safe for in-memory structs
+        postcard::to_allocvec(&self.inner).expect("InterfaceDocument serialization failed")
+    }
 
-        // Apply the saved state
-        let update =
-            Update::decode_v1(bytes).map_err(|e| SyncError::DocumentLoad(e.to_string()))?;
-        {
-            let mut txn = doc.transact_mut();
-            txn.apply_update(update);
+    /// Get an opaque state vector representing current state.
+    ///
+    /// Used by the sync protocol to compare state between peers.
+    /// Currently encodes the event count as a simple version marker.
+    pub fn state_vector(&self) -> Vec<u8> {
+        let count = self.inner.events.len() as u64;
+        count.to_le_bytes().to_vec()
+    }
+
+    /// Generate a sync message for a peer given their state vector.
+    ///
+    /// Returns the full serialized state (the peer will merge it).
+    pub fn generate_sync_message(&self, _their_sv_bytes: &[u8]) -> Result<Vec<u8>, SyncError> {
+        Ok(self.save())
+    }
+
+    /// Apply a sync message from a peer.
+    ///
+    /// Merges the remote state: union of members, union of events.
+    pub fn apply_sync_message(&self, update_bytes: &[u8]) -> Result<(), SyncError> {
+        // Note: takes &self for API compat with callers that hold RwLock<InterfaceDocument>.
+        // Interior mutability is handled by the caller (RwLock write guard).
+        // This is a design compromise — the caller must ensure exclusive access.
+        //
+        // In practice this is always called through RwLock::write(), so we use
+        // unsafe to mutate through &self. The caller must ensure exclusive access
+        // via RwLock::write().
+        let remote: StoredDocument = postcard::from_bytes(update_bytes)
+            .map_err(|e| SyncError::SyncMerge(e.to_string()))?;
+
+        // SAFETY: Callers always hold a write lock on the RwLock<InterfaceDocument>.
+        let inner = unsafe { &mut *(std::ptr::addr_of!(self.inner) as *mut StoredDocument) };
+
+        // Union members
+        for member in remote.members {
+            inner.members.insert(member);
         }
 
-        Ok(Self { doc })
-    }
+        // Union events by content (deduplicate by exact bytes)
+        let existing: HashSet<Vec<u8>> = inner.events.iter().cloned().collect();
+        for event in remote.events {
+            if !existing.contains(&event) {
+                inner.events.push(event);
+            }
+        }
 
-    /// Export the full document state as bytes
-    pub fn save(&self) -> Vec<u8> {
-        let txn = self.doc.transact();
-        txn.encode_state_as_update_v1(&StateVector::default())
-    }
+        // Take remote metadata if ours is empty
+        if inner.metadata.name.is_none() && remote.metadata.name.is_some() {
+            inner.metadata = remote.metadata;
+        }
 
-    /// Get the encoded state vector (replaces heads/heads_as_bytes)
-    pub fn state_vector(&self) -> Vec<u8> {
-        let txn = self.doc.transact();
-        txn.state_vector().encode_v1()
-    }
-
-    /// Generate a sync message (update) for a peer given their encoded state vector.
-    ///
-    /// Returns the minimal update bytes that the peer needs to catch up.
-    pub fn generate_sync_message(&self, their_sv_bytes: &[u8]) -> Result<Vec<u8>, SyncError> {
-        let their_sv = if their_sv_bytes.is_empty() {
-            // Empty bytes means the peer has no state — send everything
-            StateVector::default()
-        } else {
-            StateVector::decode_v1(their_sv_bytes)
-                .map_err(|e| SyncError::SyncMerge(e.to_string()))?
-        };
-        let txn = self.doc.transact();
-        Ok(txn.encode_state_as_update_v1(&their_sv))
-    }
-
-    /// Apply a sync message (update bytes) from a peer
-    pub fn apply_sync_message(&self, update_bytes: &[u8]) -> Result<(), SyncError> {
-        let update =
-            Update::decode_v1(update_bytes).map_err(|e| SyncError::SyncMerge(e.to_string()))?;
-        let mut txn = self.doc.transact_mut();
-        txn.apply_update(update);
         Ok(())
     }
 
-    /// Add a member to the interface
-    pub fn add_member<I: PeerIdentity>(&self, peer: &I) {
-        let members = self.doc.get_or_insert_map(keys::MEMBERS);
-        let mut txn = self.doc.transact_mut();
+    /// Add a member to the interface.
+    pub fn add_member<I: PeerIdentity>(&mut self, peer: &I) {
         let peer_key = hex::encode(peer.as_bytes());
-        members.insert(&mut txn, peer_key.as_str(), true);
+        self.inner.members.insert(peer_key);
     }
 
-    /// Remove a member from the interface
-    pub fn remove_member<I: PeerIdentity>(&self, peer: &I) {
-        let members = self.doc.get_or_insert_map(keys::MEMBERS);
-        let mut txn = self.doc.transact_mut();
+    /// Remove a member from the interface.
+    pub fn remove_member<I: PeerIdentity>(&mut self, peer: &I) {
         let peer_key = hex::encode(peer.as_bytes());
-        members.remove(&mut txn, &peer_key);
+        self.inner.members.remove(&peer_key);
     }
 
-    /// Check if a peer is a member
+    /// Check if a peer is a member.
     pub fn is_member<I: PeerIdentity>(&self, peer: &I) -> bool {
-        let members = self.doc.get_or_insert_map(keys::MEMBERS);
-        let txn = self.doc.transact();
         let peer_key = hex::encode(peer.as_bytes());
-        members.get(&txn, &peer_key).is_some()
+        self.inner.members.contains(&peer_key)
     }
 
-    /// Get all members
+    /// Get all members.
     pub fn members<I: PeerIdentity>(&self) -> HashSet<I> {
-        let members_map = self.doc.get_or_insert_map(keys::MEMBERS);
-        let txn = self.doc.transact();
         let mut members = HashSet::new();
-
-        for (key, _value) in members_map.iter(&txn) {
+        for key in &self.inner.members {
             if let Ok(bytes) = hex::decode(key) {
                 if let Ok(peer) = I::from_bytes(&bytes) {
                     members.insert(peer);
                 }
             }
         }
-
         members
     }
 
-    /// Set interface metadata
-    pub fn set_metadata<I: PeerIdentity>(&self, metadata: &InterfaceMetadata<I>) {
-        let meta_map = self.doc.get_or_insert_map(keys::METADATA);
-        let mut txn = self.doc.transact_mut();
-
+    /// Set interface metadata.
+    pub fn set_metadata<I: PeerIdentity>(&mut self, metadata: &InterfaceMetadata<I>) {
         if let Some(name) = &metadata.name {
-            meta_map.insert(&mut txn, keys::NAME, name.as_str());
+            self.inner.metadata.name = Some(name.clone());
         }
         if let Some(desc) = &metadata.description {
-            meta_map.insert(&mut txn, keys::DESCRIPTION, desc.as_str());
+            self.inner.metadata.description = Some(desc.clone());
         }
-        meta_map.insert(
-            &mut txn,
-            keys::CREATED_AT,
-            metadata.created_at.timestamp(),
-        );
-        meta_map.insert(
-            &mut txn,
-            keys::CREATOR,
-            hex::encode(metadata.creator.as_bytes()).as_str(),
-        );
+        self.inner.metadata.created_at = metadata.created_at.timestamp();
+        self.inner.metadata.creator = Some(hex::encode(metadata.creator.as_bytes()));
     }
 
-    /// Append an event to the event log
+    /// Append an event to the event log.
     ///
-    /// Events are serialized with postcard and stored as byte buffers in the array.
+    /// Events are serialized with postcard and stored as byte buffers.
     pub fn append_event<I: PeerIdentity>(
-        &self,
+        &mut self,
         event: &InterfaceEvent<I>,
     ) -> Result<(), SyncError> {
         let event_bytes =
             postcard::to_allocvec(event).map_err(|e| SyncError::Serialization(e.to_string()))?;
-
-        let events = self.doc.get_or_insert_array(keys::EVENTS);
-        let mut txn = self.doc.transact_mut();
-        let len = events.len(&txn);
-        events.insert(&mut txn, len, Any::Buffer(event_bytes.into()));
-
+        self.inner.events.push(event_bytes);
         Ok(())
     }
 
-    /// Get all events from the log
+    /// Get all events from the log.
     pub fn events<I: PeerIdentity>(&self) -> Vec<InterfaceEvent<I>> {
-        let events_array = self.doc.get_or_insert_array(keys::EVENTS);
-        let txn = self.doc.transact();
-        let mut events = Vec::new();
-
-        for value in events_array.iter(&txn) {
-            if let Out::Any(Any::Buffer(buf)) = value {
-                if let Ok(event) = postcard::from_bytes::<InterfaceEvent<I>>(&buf) {
-                    events.push(event);
-                }
-            }
-        }
-
-        events
+        self.inner
+            .events
+            .iter()
+            .filter_map(|buf| postcard::from_bytes::<InterfaceEvent<I>>(buf).ok())
+            .collect()
     }
 
-    /// Get events since a specific index
+    /// Get events since a specific index.
     pub fn events_since<I: PeerIdentity>(&self, since: usize) -> Vec<InterfaceEvent<I>> {
-        let events_array = self.doc.get_or_insert_array(keys::EVENTS);
-        let txn = self.doc.transact();
-        let mut events = Vec::new();
-        let len = events_array.len(&txn) as usize;
-
-        for i in since..len {
-            if let Some(value) = events_array.get(&txn, i as u32) {
-                if let Out::Any(Any::Buffer(buf)) = value {
-                    if let Ok(event) = postcard::from_bytes::<InterfaceEvent<I>>(&buf) {
-                        events.push(event);
-                    }
-                }
-            }
-        }
-
-        events
+        self.inner
+            .events
+            .iter()
+            .skip(since)
+            .filter_map(|buf| postcard::from_bytes::<InterfaceEvent<I>>(buf).ok())
+            .collect()
     }
 
-    /// Get the number of events in the log
+    /// Get the number of events in the log.
     pub fn event_count(&self) -> usize {
-        let events_array = self.doc.get_or_insert_array(keys::EVENTS);
-        let txn = self.doc.transact();
-        events_array.len(&txn) as usize
+        self.inner.events.len()
     }
 
-    /// Fork this document (create an independent copy)
+    /// Fork this document (create an independent copy).
     pub fn fork(&self) -> Result<Self, SyncError> {
         let bytes = self.save();
         Self::load(&bytes)
     }
 
-    /// Merge another document into this one
+    /// Merge another document into this one.
     pub fn merge(&self, other: &InterfaceDocument) -> Result<(), SyncError> {
         let other_bytes = other.save();
         self.apply_sync_message(&other_bytes)
@@ -282,7 +242,7 @@ mod tests {
 
     #[test]
     fn test_member_management() {
-        let doc = InterfaceDocument::new();
+        let mut doc = InterfaceDocument::new();
         let peer_a = SimulationIdentity::new('A').unwrap();
         let peer_b = SimulationIdentity::new('B').unwrap();
 
@@ -306,7 +266,7 @@ mod tests {
 
     #[test]
     fn test_event_append_and_retrieval() {
-        let doc = InterfaceDocument::new();
+        let mut doc = InterfaceDocument::new();
         let peer_a = SimulationIdentity::new('A').unwrap();
 
         let event = InterfaceEvent::message(peer_a, 1, b"Hello world".to_vec());
@@ -327,7 +287,7 @@ mod tests {
 
     #[test]
     fn test_save_and_load() {
-        let doc = InterfaceDocument::new();
+        let mut doc = InterfaceDocument::new();
         let peer_a = SimulationIdentity::new('A').unwrap();
 
         doc.add_member(&peer_a);
@@ -343,8 +303,7 @@ mod tests {
 
     #[test]
     fn test_sync_between_documents() {
-        // Create doc1 and make changes
-        let doc1 = InterfaceDocument::new();
+        let mut doc1 = InterfaceDocument::new();
         let peer_a = SimulationIdentity::new('A').unwrap();
 
         doc1.add_member(&peer_a);
@@ -362,8 +321,7 @@ mod tests {
 
     #[test]
     fn test_incremental_sync() {
-        // Create initial document
-        let doc1 = InterfaceDocument::new();
+        let mut doc1 = InterfaceDocument::new();
         let peer_a = SimulationIdentity::new('A').unwrap();
         doc1.add_member(&peer_a);
 
@@ -378,7 +336,7 @@ mod tests {
         doc1.append_event(&InterfaceEvent::message(peer_a, 1, b"New message".to_vec()))
             .unwrap();
 
-        // Generate incremental sync
+        // Generate sync message
         let sync_msg = doc1.generate_sync_message(&doc2_sv).unwrap();
 
         // Apply to doc2

@@ -53,7 +53,7 @@ pub struct DocumentMeta {
 
 /// A syncable document using InterfaceDocument
 pub struct Document {
-    /// The underlying Yrs-backed document
+    /// The underlying sync document
     doc: InterfaceDocument,
     /// Local peer identity
     local_peer: SimulationIdentity,

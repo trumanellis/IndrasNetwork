@@ -19,9 +19,6 @@ indras-iot.workspace = true
 iroh.workspace = true
 iroh-gossip.workspace = true
 
-# CRDT for synced peer interfaces
-yrs.workspace = true
-
 # Async runtime
 tokio.workspace = true
 n0-future.workspace = true

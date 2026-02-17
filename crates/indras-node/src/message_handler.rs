@@ -156,9 +156,9 @@ impl InterfaceEventMessage {
 pub struct InterfaceSyncRequest {
     /// The interface to sync
     pub interface_id: InterfaceId,
-    /// Our current state vector (Yrs encoded)
+    /// Our current state vector (sync encoded)
     pub state_vector: Vec<u8>,
-    /// Sync data (Yrs update bytes)
+    /// Sync data (sync update bytes)
     pub sync_data: Vec<u8>,
 }
 
@@ -169,7 +169,7 @@ pub struct InterfaceSyncResponse {
     pub interface_id: InterfaceId,
     /// Response sync data
     pub sync_data: Vec<u8>,
-    /// Updated state vector after sync (Yrs encoded)
+    /// Updated state vector after sync (sync encoded)
     pub state_vector: Vec<u8>,
 }
 

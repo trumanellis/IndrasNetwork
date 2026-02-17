@@ -92,6 +92,19 @@ pub use story_auth::{AuthResult, StoryAuth};
 pub use content::SyncContent;
 pub use sync_engine::SyncEngine;
 
+// Explicit DocumentSchema impls for indras-sync-engine types (default merge = replacement).
+indras_network::impl_document_schema!(
+    QuestDocument,
+    NoteDocument,
+    MessageDocument,
+    BlessingDocument,
+    AttentionDocument,
+    TokenOfGratitudeDocument,
+    HumannessDocument,
+    ProofFolderDocument,
+    SentimentRelayDocument,
+);
+
 // Re-export extension traits
 pub use realm_quests::RealmQuests;
 pub use realm_notes::RealmNotes;

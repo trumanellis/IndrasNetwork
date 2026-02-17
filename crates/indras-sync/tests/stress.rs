@@ -9,7 +9,7 @@
 //!    Tests: Pending count accuracy, mark delivered operations, multi-peer coordination
 //!
 //! 3. **test_document_sync_stress**: Generates and applies 1,000+ sync messages
-//!    Tests: Yrs document sync with many events, incremental sync performance
+//!    Tests: Document sync with many events, incremental sync performance
 //!
 //! 4. **test_member_churn**: Rapidly adds/removes members (1,000 operations)
 //!    Tests: Membership change performance, state consistency during churn

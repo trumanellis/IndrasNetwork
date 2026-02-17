@@ -2,15 +2,12 @@
 name = "indras-sync"
 version.workspace = true
 edition.workspace = true
-description = "CRDT-based document synchronization for Indras Network using Yrs"
+description = "CRDT-based document synchronization for Indras Network"
 
 [dependencies]
 indras-core.workspace = true
 indras-transport.workspace = true
 indras-gossip.workspace = true
-
-# CRDT
-yrs.workspace = true
 
 # Serialization
 serde.workspace = true

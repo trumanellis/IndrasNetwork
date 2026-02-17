@@ -159,6 +159,17 @@ pub use realm::Realm;
 pub use realm_alias::{RealmAlias, RealmAliasDocument, MAX_ALIAS_LENGTH};
 pub use world_view::WorldView;
 
+// Explicit DocumentSchema impls for indras-network types.
+// RealmChatDocument has a custom impl with merge (in chat_message.rs).
+impl_document_schema!(
+    ContactsDocument,
+    ReadTrackerDocument,
+    DocumentRegistryDocument,
+    RealmAliasDocument,
+    ArtifactIndex,
+    ArtifactKeyRegistry,
+);
+
 /// Prelude module for convenient imports.
 ///
 /// Import this to get all the commonly used types:

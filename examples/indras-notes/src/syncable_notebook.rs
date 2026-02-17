@@ -1,6 +1,6 @@
-//! Yrs-backed syncable notebook
+//! Syncable notebook
 //!
-//! Uses InterfaceDocument from indras-sync to provide real CRDT sync
+//! Uses InterfaceDocument from indras-sync to provide sync
 //! between multiple notebook instances.
 
 use std::collections::HashMap;
@@ -10,13 +10,13 @@ use indras_sync::InterfaceDocument;
 
 use crate::note::{Note, NoteId, NoteOperation};
 
-/// A notebook backed by Yrs for real CRDT sync
+/// A notebook backed by InterfaceDocument for sync
 pub struct SyncableNotebook {
     /// Notebook name
     pub name: String,
     /// Interface ID for this notebook
     pub interface_id: InterfaceId,
-    /// The underlying Yrs document
+    /// The underlying sync document
     doc: InterfaceDocument,
     /// Local peer identity for signing events
     local_peer: SimulationIdentity,
@@ -78,7 +78,7 @@ impl SyncableNotebook {
         self.doc.save()
     }
 
-    /// Apply a note operation (creates a Yrs event)
+    /// Apply a note operation (creates a sync event)
     pub fn apply(&mut self, op: NoteOperation) -> Option<NoteId> {
         // Serialize the operation
         let op_bytes = match postcard::to_allocvec(&op) {
@@ -221,7 +221,7 @@ impl SyncableNotebook {
 
     /// Fork this notebook (create an independent copy for another peer)
     pub fn fork(&mut self, new_peer: SimulationIdentity) -> Self {
-        let forked_doc = self.doc.fork().expect("Fork failed");
+        let mut forked_doc = self.doc.fork().expect("Fork failed");
         forked_doc.add_member(&new_peer);
 
         let mut forked = Self {
