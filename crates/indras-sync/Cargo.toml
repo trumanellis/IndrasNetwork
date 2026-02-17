@@ -8,6 +8,7 @@ description = "CRDT-based document synchronization for Indras Network using Auto
 indras-core.workspace = true
 indras-transport.workspace = true
 indras-gossip.workspace = true
+indras-artifacts.workspace = true
 
 # CRDT
 automerge.workspace = true
