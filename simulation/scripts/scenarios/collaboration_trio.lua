@@ -1,10 +1,10 @@
 -- Collaboration Trio Scenario
 --
--- A collaborative scenario where 3 named peers (love, joy, peace) work together
+-- A collaborative scenario where 3 peers (A, B, C) work together
 -- in a shared realm called "harmony" on quests and a shared project plan.
 --
 -- Demonstrates:
--- 1. Named peer collaboration
+-- 1. Three-peer collaboration
 -- 2. Quest creation and assignment
 -- 3. Shared document editing (project plan)
 -- 4. Cross-peer synchronization
@@ -17,14 +17,14 @@ ctx = ctx:with_tag("scenario", "collaboration_trio")
 indras.log.info("Starting Collaboration Trio scenario", {
     trace_id = ctx.trace_id,
     scenario = "collaboration_trio",
-    description = "Love, Joy, and Peace collaborate in Harmony"
+    description = "A, B, and C collaborate in Harmony"
 })
 
 -- ============================================================================
 -- CONFIGURATION
 -- ============================================================================
 
-local PEER_NAMES = { "love", "joy", "peace" }
+local PEER_NAMES = { "a", "b", "c" }
 local REALM_NAME = "harmony"
 local SYNC_TICKS = 5  -- Ticks to wait for sync between operations
 
@@ -209,12 +209,12 @@ indras.log.info("Phase 2: Quest creation - Each peer creates 2 quests", {
 
 -- Define quests to create
 local quests_to_create = {
-    { creator = "love", title = "Spread kindness in the community", assignee = "joy" },
-    { creator = "love", title = "Write a gratitude journal", assignee = "love" },
-    { creator = "joy", title = "Organize a celebration event", assignee = "peace" },
-    { creator = "joy", title = "Create a playlist of uplifting songs", assignee = "love" },
-    { creator = "peace", title = "Meditate for inner calm", assignee = "peace" },
-    { creator = "peace", title = "Resolve a conflict with compassion", assignee = "joy" },
+    { creator = "a", title = "Spread kindness in the community", assignee = "b" },
+    { creator = "a", title = "Write a gratitude journal", assignee = "a" },
+    { creator = "b", title = "Organize a celebration event", assignee = "c" },
+    { creator = "b", title = "Create a playlist of uplifting songs", assignee = "a" },
+    { creator = "c", title = "Meditate for inner calm", assignee = "c" },
+    { creator = "c", title = "Resolve a conflict with compassion", assignee = "b" },
 }
 
 -- Create quests
@@ -261,17 +261,17 @@ indras.log.info("Phase 3: Document collaboration - Building project plan", {
 -- Each peer adds content to the project plan
 local contributions = {
     {
-        author = "love",
+        author = "a",
         content = "Our mission is to create a world where compassion guides every action. " ..
                   "Through acts of kindness, we build bridges between hearts."
     },
     {
-        author = "joy",
+        author = "b",
         content = "Celebration is our tool for transformation. " ..
                   "When we find joy in small moments, we amplify positivity for all."
     },
     {
-        author = "peace",
+        author = "c",
         content = "Inner calm creates outer harmony. " ..
                   "Through mindfulness and understanding, conflicts dissolve into cooperation."
     },

@@ -288,7 +288,7 @@ impl InterfaceEventMessage {
 pub struct InterfaceSyncRequestMessage {
     /// The interface to sync
     pub interface_id: InterfaceId,
-    /// Our current state vector (encoded)
+    /// Our current Automerge sync state (encoded bytes)
     pub my_state_vector: Vec<u8>,
     /// Last event ID we've seen (for store-and-forward catchup)
     pub last_event_id: Option<EventId>,
@@ -313,14 +313,14 @@ impl InterfaceSyncRequestMessage {
 
 /// Response with interface sync data
 ///
-/// Contains both Sync document sync data and pending events.
+/// Contains both Automerge document sync data and pending events.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InterfaceSyncResponseMessage {
     /// The interface being synced
     pub interface_id: InterfaceId,
-    /// Sync update bytes (changes since their state vector)
+    /// Automerge sync data bytes
     pub sync_data: Vec<u8>,
-    /// Our current state vector (encoded)
+    /// Our current Automerge state (encoded bytes)
     pub our_state_vector: Vec<u8>,
     /// Pending events (encrypted) that they missed
     pub pending_events: Vec<PendingEventData>,

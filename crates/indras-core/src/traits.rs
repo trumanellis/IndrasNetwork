@@ -177,16 +177,16 @@ impl From<TopicId> for InterfaceId {
     }
 }
 
-/// Sync message for document synchronization.
+/// Sync message for Automerge document synchronization
 ///
-/// Wraps sync protocol messages for exchange between peers.
+/// This wraps Automerge sync protocol messages for exchange between peers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncMessage {
     /// The interface this sync is for
     pub interface_id: InterfaceId,
-    /// Sync data bytes (serialized document state)
+    /// Automerge sync message bytes (encoded with sync::Message::encode)
     pub sync_data: Vec<u8>,
-    /// Our current state vector (encoded)
+    /// Reserved (unused with Automerge sync protocol, kept for wire compat)
     pub state_vector: Vec<u8>,
     /// Whether this is a request (true) or response (false)
     pub is_request: bool,
@@ -218,12 +218,12 @@ impl SyncMessage {
 ///
 /// An N-peer interface is a shared space where N peers can communicate.
 /// It uses an append-only event log with store-and-forward delivery,
-/// backed by a document for state synchronization.
+/// backed by an Automerge CRDT document for state synchronization.
 ///
 /// Key features:
 /// - Events are broadcast to all members via gossip
 /// - Offline peers receive missed events on reconnect (store-and-forward)
-/// - Document state is synchronized via sync protocol
+/// - Document state is synchronized via Automerge sync protocol
 /// - Two peers is just a special case of N peers
 #[async_trait]
 pub trait NInterfaceTrait<I: PeerIdentity>: Send + Sync {
@@ -271,16 +271,16 @@ pub trait NInterfaceTrait<I: PeerIdentity>: Send + Sync {
 
     /// Merge incoming sync state
     ///
-    /// Applies a sync message from a peer, updating our document state.
+    /// Applies an Automerge sync message from a peer, updating our document state.
     async fn merge_sync(&mut self, sync_msg: SyncMessage) -> Result<(), InterfaceError>;
 
     /// Generate sync state for a peer
     ///
-    /// Creates a sync message to send to a peer for synchronization.
-    fn generate_sync(&self, for_peer: &I) -> SyncMessage;
+    /// Creates an Automerge sync message to send to a peer for synchronization.
+    fn generate_sync(&mut self, for_peer: &I) -> SyncMessage;
 
-    /// Get the current state vector (for sync protocol)
-    fn state_vector(&self) -> Vec<u8>;
+    /// Get the current document state as bytes (for sync protocol)
+    fn state_vector(&mut self) -> Vec<u8>;
 
     /// Check if we have pending events for any peer
     fn has_pending(&self) -> bool;

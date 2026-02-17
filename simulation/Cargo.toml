@@ -13,11 +13,15 @@ indras-crypto.workspace = true
 indras-sync.workspace = true
 indras-logging.workspace = true
 indras-dtn.workspace = true
+indras-node.workspace = true
 indras-iot.workspace = true
 
 # Core iroh stack (for future real networking)
 iroh.workspace = true
 iroh-gossip.workspace = true
+
+# CRDT for synced peer interfaces
+automerge.workspace = true
 
 # Async runtime
 tokio.workspace = true
@@ -47,6 +51,7 @@ base64 = "0.22"
 # Crypto helpers for pass story simulation bindings
 blake3 = "1.6"
 hex = "0.4"
+tempfile = "3.24"
 
 [[bin]]
 name = "lua_runner"

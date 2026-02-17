@@ -37,7 +37,7 @@ async fn test_upload_artifact_to_index() {
     let artifact_id = home.upload(&file_path).await.unwrap();
 
     // Verify artifact ID is non-zero
-    assert!(!artifact_id.iter().all(|&b| b == 0));
+    assert!(!artifact_id.bytes().iter().all(|&b| b == 0));
 
     // Verify it's in the artifact index
     let doc = home.artifact_index().await.unwrap();

@@ -204,7 +204,7 @@ async fn save_block(
     };
 
     // Place new leaf with updated content
-    let new_leaf = match vault.place_leaf(new_content.as_bytes(), LeafType::Message, now) {
+    let new_leaf = match vault.place_leaf(new_content.as_bytes(), String::new(), None, LeafType::Message, now) {
         Ok(l) => l,
         Err(e) => {
             tracing::error!("Failed to place leaf: {}", e);

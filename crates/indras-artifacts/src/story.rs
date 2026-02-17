@@ -61,8 +61,14 @@ impl Story {
         text: &str,
         now: i64,
     ) -> Result<ArtifactId> {
-        let leaf = vault.place_leaf(text.as_bytes(), LeafType::Message, now)?;
-        self.append(vault, leaf.id.clone(), None)?;
+        let leaf = vault.place_leaf(
+            text.as_bytes(),
+            "message".to_string(),
+            None,
+            LeafType::Message,
+            now,
+        )?;
+        self.append(vault, leaf.id, None)?;
         Ok(leaf.id)
     }
 

@@ -5,7 +5,8 @@
 use std::sync::Arc;
 
 use dioxus::prelude::*;
-use indras_network::{IndrasNetwork, direct_connect::dm_realm_id};
+use indras_network::{IndrasNetwork, artifact_sync::artifact_interface_id};
+use indras_network::dm_story_id;
 use indras_sync_engine::{RealmQuests, RealmNotes};
 use indras_ui::{ArtifactDisplayInfo, ArtifactDisplayStatus, ArtifactGallery};
 use indras_ui::chat::ChatPanel;
@@ -42,7 +43,7 @@ fn get_peer_realm(
     my_id: [u8; 32],
     peer_id: [u8; 32],
 ) -> Result<indras_network::Realm, indras_network::IndraError> {
-    let dm_id = dm_realm_id(my_id, peer_id);
+    let dm_id = artifact_interface_id(&dm_story_id(my_id, peer_id));
     net.get_realm_by_id(&dm_id).ok_or_else(|| {
         indras_network::IndraError::InvalidOperation(
             format!("DM realm not found for peer {:?}", &peer_id[..4])
@@ -131,30 +132,8 @@ async fn load_shared_realm_data(
                 state.write().peer_realm_notes = notes;
             }
 
-            // Load artifacts from artifact key registry if available
-            if let Ok(doc) = realm.artifact_key_registry().await {
-                // Refresh to pull latest synced state from peers
-                let _ = doc.refresh().await;
-                let data = doc.read().await;
-                let artifacts: Vec<ArtifactDisplayInfo> = data.artifacts.values().map(|a| {
-                    ArtifactDisplayInfo {
-                        id: a.hash.iter().map(|b| format!("{:02x}", b)).collect(),
-                        name: a.name.clone(),
-                        size: a.size,
-                        mime_type: a.mime_type.clone(),
-                        status: if a.status.is_shared() {
-                            ArtifactDisplayStatus::Active
-                        } else {
-                            ArtifactDisplayStatus::Recalled
-                        },
-                        data_url: None,
-                        grant_count: 0,
-                        owner_label: Some(format!("Shared by {}", &a.sharer[..8.min(a.sharer.len())])),
-                    }
-                }).collect();
-                drop(data);
-                state.write().peer_realm_artifacts = artifacts;
-            }
+            // Peer realm artifacts are now managed via grant-based access
+            // through the owner's ArtifactIndex rather than a key registry.
         }
         Err(e) => {
             tracing::error!("load_shared_realm_data: realm() failed: {}", e);

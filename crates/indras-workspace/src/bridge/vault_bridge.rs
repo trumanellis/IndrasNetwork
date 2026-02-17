@@ -83,7 +83,7 @@ pub fn create_seeded_vault() -> Result<VaultHandle, indras_artifacts::VaultError
     ];
 
     for (i, (label, content)) in blocks.iter().enumerate() {
-        let leaf = vault.place_leaf(content.as_bytes(), LeafType::Message, now)?;
+        let leaf = vault.place_leaf(content.as_bytes(), String::new(), None, LeafType::Message, now)?;
         vault.compose(&arch_notes_id, leaf.id, i as u64, Some(label.to_string()))?;
     }
 
@@ -106,7 +106,7 @@ pub fn create_seeded_vault() -> Result<VaultHandle, indras_artifacts::VaultError
     ];
 
     for (i, (_sender, content, label)) in messages.iter().enumerate() {
-        let leaf = vault.place_leaf(content.as_bytes(), LeafType::Message, now + (i as i64 * 60_000))?;
+        let leaf = vault.place_leaf(content.as_bytes(), String::new(), None, LeafType::Message, now + (i as i64 * 60_000))?;
         vault.compose(&team_discussion_id, leaf.id, i as u64, Some(label.to_string()))?;
     }
 
@@ -148,31 +148,19 @@ pub fn create_seeded_vault() -> Result<VaultHandle, indras_artifacts::VaultError
 
     // Build P2P Workspace description
     let quest_desc_text = "Design and implement the IndrasNetwork workspace interface \u{2014} a P2P collaborative environment built on the new artifact ontology. Needs responsive layout, all TreeType views, and working attention heat visualization.";
-    let quest_desc = vault.place_leaf(
-        quest_desc_text.as_bytes(),
-        LeafType::Message, now,
-    )?;
+    let quest_desc = vault.place_leaf(quest_desc_text.as_bytes(), String::new(), None, LeafType::Message, now)?;
     vault.compose(&quest_id, quest_desc.id, 0, Some("description".to_string()))?;
 
     // Need: Logo Design description
-    let need_desc = vault.place_leaf(
-        b"Looking for a designer to create a logo for IndrasNetwork. Should evoke peer-to-peer connectivity, fractal structure, and attention flow. Vector format preferred.",
-        LeafType::Message, now,
-    )?;
+    let need_desc = vault.place_leaf(b"Looking for a designer to create a logo for IndrasNetwork. Should evoke peer-to-peer connectivity, fractal structure, and attention flow. Vector format preferred.", String::new(), None, LeafType::Message, now)?;
     vault.compose(&need.id, need_desc.id, 0, Some("description".to_string()))?;
 
     // Offering: Code Review description
-    let offering_desc = vault.place_leaf(
-        b"Offering code review for Rust projects related to CRDT implementations. Experienced with Yrs, Automerge, and custom operational transform designs.",
-        LeafType::Message, now,
-    )?;
+    let offering_desc = vault.place_leaf(b"Offering code review for Rust projects related to CRDT implementations. Experienced with Yrs, Automerge, and custom operational transform designs.", String::new(), None, LeafType::Message, now)?;
     vault.compose(&offering.id, offering_desc.id, 0, Some("description".to_string()))?;
 
     // Intention: Learn Rust description
-    let intention_desc = vault.place_leaf(
-        b"Personal goal to become proficient in Rust systems programming. Focus areas: async runtime internals, trait-based architecture, and WASM compilation targets.",
-        LeafType::Message, now,
-    )?;
+    let intention_desc = vault.place_leaf(b"Personal goal to become proficient in Rust systems programming. Focus areas: async runtime internals, trait-based architecture, and WASM compilation targets.", String::new(), None, LeafType::Message, now)?;
     vault.compose(&intention_id, intention_desc.id, 0, Some("description".to_string()))?;
 
     // === Exchanges ===

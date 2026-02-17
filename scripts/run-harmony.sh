@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run the Harmony Proof scenario through the Omni V2 viewer
+# Run the Harmony Proof scenario through the Omni Viewer
 #
 # Usage:
 #   ./scripts/run-harmony.sh          # Run with default settings
@@ -11,4 +11,4 @@
 STRESS_LEVEL="${STRESS_LEVEL:-quick}" cargo run --bin lua_runner \
     --manifest-path simulation/Cargo.toml \
     -- "simulation/scripts/scenarios/sync_engine_harmony_proof.lua" \
-    | cargo run -p indras-realm-viewer --bin omni-viewer-v2 -- "$@"
+    | cargo run -p indras-realm-viewer --bin omni-viewer -- "$@"

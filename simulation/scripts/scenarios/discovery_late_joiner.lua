@@ -4,11 +4,11 @@
 -- missing initial discovery broadcasts.
 --
 -- Flow:
--- 1. Alice, Bob, Carol all discover each other (realms {A,B}, {A,C}, {B,C}, {A,B,C} exist)
--- 2. Dave comes online later, misses their broadcasts
--- 3. Dave sends IntroductionRequest
+-- 1. A, B, C all discover each other (realms {A,B}, {A,C}, {B,C}, {A,B,C} exist)
+-- 2. D comes online later, misses their broadcasts
+-- 3. D sends IntroductionRequest
 -- 4. Existing peers respond with IntroductionResponse
--- 5. Dave now knows Alice, Bob, Carol
+-- 5. D now knows A, B, C
 -- 6. New realms available: {D,A}, {D,B}, {D,C}, {D,A,B}, {D,A,C}, {D,B,C}, {D,A,B,C}
 --
 -- This scenario validates the catch-up discovery mechanism.

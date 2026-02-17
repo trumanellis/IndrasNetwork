@@ -248,10 +248,10 @@ async fn test_partition_recovery() {
 
     // After partition heals, exchange sync messages
     // Alice generates sync for Bob (based on Bob's known heads - initially empty/base)
-    let alice_sync = NInterfaceTrait::generate_sync(&alice_interface, &bob);
-    let bob_sync = NInterfaceTrait::generate_sync(&bob_interface, &alice);
+    let alice_sync = NInterfaceTrait::generate_sync(&mut alice_interface, &bob);
+    let bob_sync = NInterfaceTrait::generate_sync(&mut bob_interface, &alice);
 
-    // Apply syncs - merge the concurrent changes
+    // Apply syncs - Automerge will merge the concurrent changes
     bob_interface.merge_sync(alice_sync).await.unwrap();
     alice_interface.merge_sync(bob_sync).await.unwrap();
 

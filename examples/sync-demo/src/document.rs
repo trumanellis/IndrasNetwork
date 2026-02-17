@@ -53,7 +53,7 @@ pub struct DocumentMeta {
 
 /// A syncable document using InterfaceDocument
 pub struct Document {
-    /// The underlying sync document
+    /// The underlying Automerge-backed document
     doc: InterfaceDocument,
     /// Local peer identity
     local_peer: SimulationIdentity,
@@ -182,7 +182,7 @@ impl Document {
     }
 
     /// Export the document as bytes
-    pub fn to_bytes(&self) -> Vec<u8> {
+    pub fn to_bytes(&mut self) -> Vec<u8> {
         self.doc.save()
     }
 
@@ -232,26 +232,19 @@ impl Document {
         }
     }
 
-    /// Get the current state vector for sync
-    pub fn state_vector(&self) -> Vec<u8> {
-        self.doc.state_vector()
-    }
-
-    /// Generate sync message for peer
-    pub fn generate_sync_message(&self, their_sv: &[u8]) -> Vec<u8> {
-        self.doc.generate_sync_message(their_sv).unwrap_or_default()
-    }
-
-    /// Apply sync message from peer
-    pub fn apply_sync_message(&mut self, changes: &[u8]) -> Result<bool, DocumentError> {
-        if changes.is_empty() {
+    /// Apply sync data from another document (Automerge merge)
+    ///
+    /// Merges the given document bytes into this document.
+    /// Returns true if new changes were applied.
+    pub fn apply_sync(&mut self, data: &[u8]) -> Result<bool, DocumentError> {
+        if data.is_empty() {
             return Ok(false);
         }
 
         let old_count = self.doc.event_count();
 
         self.doc
-            .apply_sync_message(changes)
+            .apply_update(data)
             .map_err(|e| DocumentError::Sync(format!("Sync error: {}", e)))?;
 
         let new_count = self.doc.event_count();
@@ -265,7 +258,7 @@ impl Document {
     }
 
     /// Fork this document for another peer
-    pub fn fork(&self, new_peer: SimulationIdentity) -> Self {
+    pub fn fork(&mut self, new_peer: SimulationIdentity) -> Self {
         let mut forked_doc = self.doc.fork().expect("Fork failed");
         forked_doc.add_member(&new_peer);
 
@@ -327,7 +320,7 @@ mod tests {
         let mut doc = Document::new("Test", "Alice");
         doc.set_content("Test content").unwrap();
 
-        let bytes = doc.to_bytes();
+        let bytes = doc.to_bytes(); // to_bytes takes &mut self
         let meta = doc.meta.clone();
         let peer = SimulationIdentity::new('A').unwrap();
 

@@ -1,7 +1,7 @@
 //! Full N-peer interface implementation
 //!
 //! The NInterface struct combines:
-//! - [`InterfaceDocument`]: Document for state synchronization
+//! - [`InterfaceDocument`]: Automerge CRDT document for state synchronization
 //! - [`EventStore`]: Store-and-forward event tracking with delivery confirmation
 //! - [`SyncState`]: Peer synchronization state management
 //!
@@ -22,23 +22,23 @@ use crate::{EventStore, InterfaceDocument, SyncError, SyncState};
 
 /// Full implementation of an N-peer interface
 ///
-/// Combines InterfaceDocument + EventStore (pending tracking) + SyncState
+/// Combines InterfaceDocument (Automerge CRDT) + EventStore (pending tracking) + SyncState
 /// to provide a complete implementation of the NInterfaceTrait.
 ///
 /// ## Architecture
 ///
 /// The NInterface manages three layers of data:
 ///
-/// 1. **Document** (`InterfaceDocument`): The source of truth for membership,
-///    metadata, and event history. Uses union-based merge for automatic
+/// 1. **Automerge Document** (`InterfaceDocument`): The source of truth for membership,
+///    metadata, and event history. Uses Automerge's CRDT properties for automatic
 ///    conflict resolution when peers sync.
 ///
 /// 2. **Event Store** (`EventStore`): Tracks which events are pending delivery to which
 ///    peers. This enables store-and-forward: when a peer is offline, their pending
 ///    events accumulate and are delivered when they reconnect.
 ///
-/// 3. **Sync State** (`SyncState`): Tracks sync progress with each peer,
-///    including their known state vectors and whether we're awaiting responses.
+/// 3. **Sync State** (`SyncState`): Tracks the Automerge sync progress with each peer,
+///    using per-peer `sync::State` objects.
 ///
 /// ## Usage
 ///
@@ -65,7 +65,8 @@ use crate::{EventStore, InterfaceDocument, SyncError, SyncState};
 pub struct NInterface<I: PeerIdentity> {
     /// Unique identifier for this interface
     interface_id: InterfaceId,
-    /// Document for state synchronization (wrapped in RwLock for thread-safe access).
+    /// Automerge document for CRDT synchronization (wrapped in RwLock for thread-safe access)
+    /// Automerge's AutoCommit requires &mut self, so write locks are needed for mutations.
     document: RwLock<InterfaceDocument>,
     /// Event store for pending delivery tracking
     event_store: EventStore<I>,
@@ -143,7 +144,7 @@ where
         }
     }
 
-    /// Load from existing document bytes
+    /// Load from existing Automerge document bytes
     ///
     /// Reconstructs an NInterface from previously saved document bytes.
     /// The members are loaded from the document.
@@ -151,7 +152,7 @@ where
     /// # Arguments
     ///
     /// * `interface_id` - The InterfaceId for this interface
-    /// * `doc_bytes` - Document bytes from a previous `save()` call
+    /// * `doc_bytes` - Automerge document bytes from a previous `save()` call
     ///
     /// # Returns
     ///
@@ -176,19 +177,19 @@ where
 
     /// Get document bytes for persistence
     ///
-    /// Serializes the document to bytes that can be saved to disk
+    /// Serializes the Automerge document to bytes that can be saved to disk
     /// and later loaded with `load()`.
     ///
     /// # Returns
     ///
     /// The serialized document bytes
     pub fn save(&self) -> Result<Vec<u8>, SyncError> {
-        Ok(self.document.read().map_err(|_| SyncError::LockPoisoned)?.save())
+        Ok(self.document.write().map_err(|_| SyncError::LockPoisoned)?.save())
     }
 
     /// Add a member to the interface
     ///
-    /// Adds the peer to both the document and the event store.
+    /// Adds the peer to both the Automerge document and the event store.
     /// New members will receive all existing events as pending.
     ///
     /// # Arguments
@@ -203,7 +204,7 @@ where
             return Ok(()); // Already a member, no-op
         }
 
-        // Add to document
+        // Add to Automerge document
         self.document.write().map_err(|_| SyncError::LockPoisoned)?.add_member(&peer);
 
         // Add to local members set
@@ -217,7 +218,7 @@ where
 
     /// Remove a member from the interface
     ///
-    /// Removes the peer from both the document and the event store.
+    /// Removes the peer from both the Automerge document and the event store.
     /// Pending events for the removed peer are discarded.
     ///
     /// # Arguments
@@ -228,7 +229,7 @@ where
     ///
     /// Ok(()) on success
     pub fn remove_member(&mut self, peer: &I) -> Result<(), SyncError> {
-        // Remove from document
+        // Remove from Automerge document
         self.document.write().map_err(|_| SyncError::LockPoisoned)?.remove_member(peer);
 
         // Remove from local members set
@@ -257,17 +258,17 @@ where
         &mut self.sync_state
     }
 
-    /// Get the document (for direct operations).
+    /// Get the document (for direct Automerge operations)
     ///
-    /// Provides access to the underlying document via RwLock.
+    /// Provides access to the underlying Automerge document via RwLock.
     /// Returns a read guard for the document.
     pub fn document(&self) -> Result<std::sync::RwLockReadGuard<'_, InterfaceDocument>, SyncError> {
         self.document.read().map_err(|_| SyncError::LockPoisoned)
     }
 
-    /// Get mutable document (for direct operations).
+    /// Get mutable document (for direct Automerge operations)
     ///
-    /// Provides mutable access for advanced operations.
+    /// Provides mutable access for advanced Automerge operations.
     /// Use with caution - modifications may desync the members set.
     /// Returns a write guard for the document.
     pub fn document_mut(&self) -> Result<std::sync::RwLockWriteGuard<'_, InterfaceDocument>, SyncError> {
@@ -330,7 +331,7 @@ where
     ///
     /// The event will be:
     /// 1. Added to the event store (tracks pending for other members)
-    /// 2. Added to the document for state sync
+    /// 2. Added to the Automerge document for CRDT sync
     ///
     /// # Arguments
     ///
@@ -343,7 +344,7 @@ where
         // 1. Append to event store (tracks pending for other members)
         let event_id = self.event_store.append(event.clone());
 
-        // 2. Also add to document for state sync
+        // 2. Also add to Automerge document for CRDT sync
         self.document
             .write()
             .map_err(|_| InterfaceError::AppendFailed("Lock poisoned".to_string()))?
@@ -376,7 +377,7 @@ where
 
     /// Merge incoming sync state
     ///
-    /// Applies a sync message from a peer, updating our document state.
+    /// Applies full Automerge document bytes from a peer via load+merge.
     /// After merging, syncs the internal members set with the document.
     async fn merge_sync(&mut self, sync_msg: SyncMessage) -> Result<(), InterfaceError> {
         // Verify this sync is for our interface
@@ -386,12 +387,12 @@ where
             ));
         }
 
-        // Apply the sync data if present
+        // Merge the full document bytes if present
         if !sync_msg.sync_data.is_empty() {
             self.document
                 .write()
                 .map_err(|_| InterfaceError::SyncFailed("Lock poisoned".to_string()))?
-                .apply_sync_message(&sync_msg.sync_data)
+                .apply_update(&sync_msg.sync_data)
                 .map_err(|e| InterfaceError::SyncFailed(e.to_string()))?;
         }
 
@@ -403,28 +404,19 @@ where
 
     /// Generate sync state for a peer
     ///
-    /// Creates a sync message to send to a peer for synchronization.
-    fn generate_sync(&self, for_peer: &I) -> SyncMessage {
+    /// Returns the full document state as bytes for the peer to merge.
+    /// Uses the save/merge pattern (simple, single-round, always correct).
+    /// For more efficient multi-round sync, use `SyncProtocol` directly.
+    fn generate_sync(&mut self, _for_peer: &I) -> SyncMessage {
         // generate_sync cannot return Result per trait, unwrap is acceptable
-        let doc = self.document.read().unwrap();
-
-        // Get our current state vector
-        let our_state_vector = doc.state_vector();
-
-        // Get peer's known state vector from sync state
-        let their_state_vector = self.sync_state.peer_state_vector(for_peer);
-
-        // Generate sync data (changes they don't have)
-        let sync_data = doc.generate_sync_message(&their_state_vector)
-            .unwrap_or_default();
-
-        SyncMessage::request(self.interface_id, sync_data, our_state_vector)
+        let bytes = self.document.write().unwrap().save();
+        SyncMessage::request(self.interface_id, bytes, vec![])
     }
 
-    /// Get the current document state vector (for sync protocol)
-    fn state_vector(&self) -> Vec<u8> {
+    /// Get the current document state as bytes (for sync protocol)
+    fn state_vector(&mut self) -> Vec<u8> {
         // state_vector cannot return Result per trait, unwrap is acceptable
-        self.document.read().unwrap().state_vector()
+        self.document.write().unwrap().state_vector()
     }
 
     /// Check if we have pending events for any peer
@@ -650,14 +642,12 @@ mod tests {
     #[test]
     fn test_generate_sync() {
         let (alice, bob, _) = create_peers();
-        let interface = NInterface::new(alice);
+        let mut interface = NInterface::new(alice);
 
         let sync_msg = interface.generate_sync(&bob);
 
         assert_eq!(sync_msg.interface_id, interface.id());
         assert!(sync_msg.is_request);
-        // State vector should be present
-        assert!(!sync_msg.state_vector.is_empty());
     }
 
     #[tokio::test]
@@ -714,10 +704,10 @@ mod tests {
     #[test]
     fn test_state_vector() {
         let (alice, _, _) = create_peers();
-        let interface = NInterface::new(alice);
+        let mut interface = NInterface::new(alice);
 
         let state_vector = interface.state_vector();
-        // New document should have a state vector
+        // New document should have a state vector (saved document bytes)
         assert!(!state_vector.is_empty());
     }
 

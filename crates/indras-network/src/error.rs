@@ -143,6 +143,12 @@ impl From<base64::DecodeError> for IndraError {
     }
 }
 
+impl From<indras_artifacts::VaultError> for IndraError {
+    fn from(e: indras_artifacts::VaultError) -> Self {
+        IndraError::Artifact(e.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

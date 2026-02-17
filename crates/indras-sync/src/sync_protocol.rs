@@ -1,7 +1,7 @@
 //! Sync protocol for N-peer interfaces
 //!
 //! This module handles the synchronization protocol between peers,
-//! combining document sync with store-and-forward event delivery.
+//! using Automerge's built-in sync protocol with per-peer state.
 
 use std::collections::HashMap;
 
@@ -13,14 +13,47 @@ use crate::document::InterfaceDocument;
 use crate::error::SyncError;
 
 /// State of sync with a particular peer
-#[derive(Debug, Clone, Default)]
+///
+/// Wraps an `automerge::sync::State` along with bookkeeping.
+/// `sync::State` is not Clone or Serialize, so this struct has
+/// manual implementations where needed.
 pub struct PeerSyncState {
-    /// Their last known state vector (encoded bytes)
-    pub their_state_vector: Vec<u8>,
+    /// Automerge per-peer sync state
+    pub sync_state: automerge::sync::State,
     /// Whether we're awaiting a sync response
     pub awaiting_response: bool,
     /// Number of sync rounds completed
     pub rounds: u32,
+}
+
+impl Default for PeerSyncState {
+    fn default() -> Self {
+        Self {
+            sync_state: automerge::sync::State::new(),
+            awaiting_response: false,
+            rounds: 0,
+        }
+    }
+}
+
+impl Clone for PeerSyncState {
+    fn clone(&self) -> Self {
+        // sync::State is not Clone — create a fresh one (will reconverge)
+        Self {
+            sync_state: automerge::sync::State::new(),
+            awaiting_response: self.awaiting_response,
+            rounds: self.rounds,
+        }
+    }
+}
+
+impl std::fmt::Debug for PeerSyncState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PeerSyncState")
+            .field("awaiting_response", &self.awaiting_response)
+            .field("rounds", &self.rounds)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Manages sync state for multiple peers
@@ -48,14 +81,6 @@ impl<I: PeerIdentity> SyncState<I> {
     /// Get or create sync state for a peer
     pub fn peer_state(&mut self, peer: &I) -> &mut PeerSyncState {
         self.peer_states.entry(peer.clone()).or_default()
-    }
-
-    /// Update peer's known state vector
-    pub fn update_peer_state_vector(&mut self, peer: &I, state_vector: Vec<u8>) {
-        let state = self.peer_states.entry(peer.clone()).or_default();
-        state.their_state_vector = state_vector;
-        state.awaiting_response = false;
-        state.rounds += 1;
     }
 
     /// Mark that we're awaiting a response from a peer
@@ -87,105 +112,80 @@ impl<I: PeerIdentity> SyncState<I> {
     pub fn peers(&self) -> Vec<&I> {
         self.peer_states.keys().collect()
     }
-
-    /// Get peer's known state vector (returns empty if peer not tracked)
-    pub fn peer_state_vector(&self, peer: &I) -> Vec<u8> {
-        self.peer_states
-            .get(peer)
-            .map(|s| s.their_state_vector.clone())
-            .unwrap_or_default()
-    }
 }
 
-/// Protocol handler for interface synchronization
+/// Protocol handler for interface synchronization using Automerge sync protocol
 pub struct SyncProtocol;
 
 impl SyncProtocol {
-    /// Generate a sync request for a peer
+    /// Generate a sync message for a peer.
     ///
-    /// This creates a SyncMessage that can be sent to a peer to request
-    /// their latest changes.
+    /// Uses Automerge's built-in sync protocol. Returns `None` when
+    /// the peer is fully up-to-date (nothing to send).
     #[instrument(skip(doc, sync_state, peer), fields(interface_id = %interface_id))]
-    pub fn generate_sync_request<I: PeerIdentity>(
+    pub fn generate_sync_message<I: PeerIdentity>(
         interface_id: InterfaceId,
-        doc: &InterfaceDocument,
+        doc: &mut InterfaceDocument,
         sync_state: &mut SyncState<I>,
         peer: &I,
-    ) -> SyncMessage {
-        let our_state_vector = doc.state_vector();
-        let peer_state = sync_state.peer_state(peer);
-
-        // Generate update containing changes they don't have
-        let sync_data = doc
-            .generate_sync_message(&peer_state.their_state_vector)
-            .unwrap_or_default();
-
-        sync_state.mark_awaiting(peer);
-
-        SyncMessage::request(interface_id, sync_data, our_state_vector)
+    ) -> Option<SyncMessage> {
+        let peer_sync = sync_state.peer_state(peer);
+        let msg = doc.generate_sync_message(&mut peer_sync.sync_state)?;
+        peer_sync.awaiting_response = true;
+        Some(SyncMessage::request(interface_id, msg.encode(), vec![]))
     }
 
-    /// Generate a sync response for a peer
+    /// Receive and process a sync message from a peer.
     ///
-    /// Called when we receive a sync request from a peer.
-    #[instrument(skip(doc, their_state_vector), fields(interface_id = %interface_id, their_sv_len = their_state_vector.len()))]
-    pub fn generate_sync_response<I: PeerIdentity>(
-        interface_id: InterfaceId,
-        doc: &InterfaceDocument,
-        their_state_vector: &[u8],
-    ) -> SyncMessage {
-        let our_state_vector = doc.state_vector();
-
-        // Generate changes they don't have
-        let sync_data = doc
-            .generate_sync_message(their_state_vector)
-            .unwrap_or_default();
-
-        SyncMessage::response(interface_id, sync_data, our_state_vector)
-    }
-
-    /// Process an incoming sync message
-    ///
-    /// Returns true if the sync resulted in changes to our document.
-    #[instrument(skip(doc, sync_state, peer, msg), fields(interface_id = %msg.interface_id, is_request = msg.is_request, sync_data_len = msg.sync_data.len()))]
-    pub fn process_sync_message<I: PeerIdentity>(
-        doc: &InterfaceDocument,
+    /// Decodes the Automerge sync message and applies it to the document.
+    #[instrument(skip(doc, sync_state, peer, msg), fields(interface_id = %msg.interface_id, sync_data_len = msg.sync_data.len()))]
+    pub fn receive_sync_message<I: PeerIdentity>(
+        doc: &mut InterfaceDocument,
         sync_state: &mut SyncState<I>,
         peer: &I,
         msg: SyncMessage,
-    ) -> Result<bool, SyncError> {
-        // Update peer's known state vector
-        sync_state.update_peer_state_vector(peer, msg.state_vector);
-
-        // Apply their changes if any
-        if !msg.sync_data.is_empty() {
-            let before_sv = doc.state_vector();
-            doc.apply_sync_message(&msg.sync_data)?;
-            let after_sv = doc.state_vector();
-
-            // Check if we got new changes
-            Ok(before_sv != after_sv)
-        } else {
-            Ok(false)
+    ) -> Result<(), SyncError> {
+        if msg.sync_data.is_empty() {
+            return Ok(());
         }
+        let peer_sync = sync_state.peer_state(peer);
+        let incoming = automerge::sync::Message::decode(&msg.sync_data)
+            .map_err(|e| SyncError::SyncMerge(e.to_string()))?;
+        doc.receive_sync_message(&mut peer_sync.sync_state, incoming)?;
+        peer_sync.awaiting_response = false;
+        peer_sync.rounds += 1;
+        Ok(())
     }
 
-    /// Check if sync is complete with a peer (bidirectional).
+    /// Handle an incoming sync message and generate a response.
     ///
-    /// Sync is complete when:
-    /// 1. Our state vector equals theirs (we have the same state)
-    /// 2. We're not awaiting a response from them
+    /// Responder-side pattern: receive a message from a peer, then
+    /// generate a response for them. Returns `None` when fully synced.
+    #[instrument(skip(doc, sync_state, peer, incoming), fields(interface_id = %interface_id))]
+    pub fn handle_sync_message<I: PeerIdentity>(
+        interface_id: InterfaceId,
+        doc: &mut InterfaceDocument,
+        sync_state: &mut SyncState<I>,
+        peer: &I,
+        incoming: SyncMessage,
+    ) -> Result<Option<SyncMessage>, SyncError> {
+        Self::receive_sync_message(doc, sync_state, peer, incoming)?;
+        Ok(Self::generate_sync_message(
+            interface_id, doc, sync_state, peer,
+        ))
+    }
+
+    /// Check if sync is complete with a peer.
+    ///
+    /// Sync is considered complete when we're not awaiting a response
+    /// and we've completed at least one round.
     pub fn is_sync_complete<I: PeerIdentity>(
-        doc: &InterfaceDocument,
         sync_state: &SyncState<I>,
         peer: &I,
     ) -> bool {
-        if let Some(state) = sync_state.peer_states.get(peer) {
-            let our_sv = doc.state_vector();
-            // If our state vector equals theirs and we're not waiting, we're in sync
-            our_sv == state.their_state_vector && !state.awaiting_response
-        } else {
-            false
+        match sync_state.peer_states.get(peer) {
+            Some(state) => !state.awaiting_response && state.rounds > 0,
+            None => false,
         }
     }
 }
@@ -253,28 +253,26 @@ mod tests {
         assert_eq!(state.rounds(&peer_a), 0);
 
         // Create peer state
-        let peer_state = state.peer_state(&peer_a);
-        assert!(peer_state.their_state_vector.is_empty());
+        let _peer_state = state.peer_state(&peer_a);
 
         // Mark awaiting and verify
         state.mark_awaiting(&peer_a);
         assert!(state.is_awaiting(&peer_a));
-
-        // Update state vector (simulates receiving sync)
-        state.update_peer_state_vector(&peer_a, vec![]);
-        assert!(!state.is_awaiting(&peer_a));
-        assert_eq!(state.rounds(&peer_a), 1);
     }
 
     #[test]
-    fn test_sync_request_generation() {
+    fn test_sync_message_generation() {
         let id = test_interface_id();
-        let doc = InterfaceDocument::new();
+        let mut doc = InterfaceDocument::new();
         let mut sync_state: SyncState<SimulationIdentity> = SyncState::new(id);
         let peer_a = SimulationIdentity::new('A').unwrap();
 
-        let msg = SyncProtocol::generate_sync_request(id, &doc, &mut sync_state, &peer_a);
+        // First message should always be Some (initial sync)
+        let msg =
+            SyncProtocol::generate_sync_message(id, &mut doc, &mut sync_state, &peer_a);
 
+        assert!(msg.is_some());
+        let msg = msg.unwrap();
         assert_eq!(msg.interface_id, id);
         assert!(msg.is_request);
         assert!(sync_state.is_awaiting(&peer_a));
@@ -308,14 +306,6 @@ mod tests {
         state.peer_state(&peer_c);
 
         assert_eq!(state.peers().len(), 3);
-
-        // Update different peers
-        state.update_peer_state_vector(&peer_a, vec![]);
-        state.update_peer_state_vector(&peer_b, vec![]);
-
-        assert_eq!(state.rounds(&peer_a), 1);
-        assert_eq!(state.rounds(&peer_b), 1);
-        assert_eq!(state.rounds(&peer_c), 0);
     }
 
     #[test]
@@ -338,24 +328,17 @@ mod tests {
     }
 
     #[test]
-    fn test_sync_state_peer_state_vector() {
+    fn test_peer_sync_state_default() {
+        let state = PeerSyncState::default();
+        assert!(!state.awaiting_response);
+        assert_eq!(state.rounds, 0);
+    }
+
+    #[test]
+    fn test_pending_delivery_interface_id() {
         let id = test_interface_id();
-        let mut state: SyncState<SimulationIdentity> = SyncState::new(id);
-        let peer_a = SimulationIdentity::new('A').unwrap();
-
-        // Unknown peer should return empty state vector
-        assert!(state.peer_state_vector(&peer_a).is_empty());
-
-        // Create peer state
-        state.peer_state(&peer_a);
-        assert!(state.peer_state_vector(&peer_a).is_empty());
-
-        // Update with a state vector
-        let sv = vec![1, 2, 3, 4];
-        state.update_peer_state_vector(&peer_a, sv.clone());
-
-        let retrieved_sv = state.peer_state_vector(&peer_a);
-        assert_eq!(retrieved_sv, sv);
+        let pending = PendingDelivery::new(id);
+        assert_eq!(pending.interface_id, id);
     }
 
     #[test]
@@ -387,86 +370,88 @@ mod tests {
     }
 
     #[test]
-    fn test_sync_response_generation() {
-        let id = test_interface_id();
-        let doc = InterfaceDocument::new();
-
-        // Empty state vector
-        let msg = SyncProtocol::generate_sync_response::<SimulationIdentity>(id, &doc, &[]);
-
-        assert_eq!(msg.interface_id, id);
-        assert!(!msg.is_request); // It's a response
-    }
-
-    #[test]
-    fn test_sync_response_with_known_state_vector() {
-        let id = test_interface_id();
-        let doc = InterfaceDocument::new();
-
-        // Provide some state vector bytes
-        let their_sv = vec![1, 2, 3, 4, 5];
-        let msg = SyncProtocol::generate_sync_response::<SimulationIdentity>(id, &doc, &their_sv);
-
-        assert_eq!(msg.interface_id, id);
-        assert!(!msg.is_request);
-    }
-
-    #[test]
-    fn test_peer_sync_state_default() {
-        let state = PeerSyncState::default();
-        assert!(state.their_state_vector.is_empty());
-        assert!(!state.awaiting_response);
-        assert_eq!(state.rounds, 0);
-    }
-
-    #[test]
-    fn test_pending_delivery_interface_id() {
-        let id = test_interface_id();
-        let pending = PendingDelivery::new(id);
-        assert_eq!(pending.interface_id, id);
-    }
-
-    #[test]
-    fn test_sync_state_multiple_rounds() {
-        let id = test_interface_id();
-        let mut state: SyncState<SimulationIdentity> = SyncState::new(id);
-        let peer_a = SimulationIdentity::new('A').unwrap();
-
-        state.peer_state(&peer_a);
-
-        // Simulate multiple sync rounds
-        for expected_round in 1..=5 {
-            state.update_peer_state_vector(&peer_a, vec![]);
-            assert_eq!(state.rounds(&peer_a), expected_round);
-        }
-    }
-
-    #[test]
     fn test_is_sync_complete_unknown_peer() {
         let id = test_interface_id();
-        let doc = InterfaceDocument::new();
         let sync_state: SyncState<SimulationIdentity> = SyncState::new(id);
         let unknown = SimulationIdentity::new('X').unwrap();
 
         // Unknown peer should not be considered synced
-        assert!(!SyncProtocol::is_sync_complete(&doc, &sync_state, &unknown));
+        assert!(!SyncProtocol::is_sync_complete(&sync_state, &unknown));
     }
 
     #[test]
     fn test_is_sync_complete_awaiting_blocks() {
         let id = test_interface_id();
-        let doc = InterfaceDocument::new();
         let mut sync_state: SyncState<SimulationIdentity> = SyncState::new(id);
         let peer_a = SimulationIdentity::new('A').unwrap();
 
-        // Peer has empty state vector (matches our empty doc) but we're awaiting
+        // Peer exists but we're awaiting
         sync_state.peer_state(&peer_a);
         sync_state.mark_awaiting(&peer_a);
-        assert!(!SyncProtocol::is_sync_complete(&doc, &sync_state, &peer_a));
+        assert!(!SyncProtocol::is_sync_complete(
+            &sync_state,
+            &peer_a
+        ));
+    }
 
-        // Clear awaiting by updating state vector
-        let our_sv = doc.state_vector();
-        sync_state.update_peer_state_vector(&peer_a, our_sv);
-        assert!(SyncProtocol::is_sync_complete(&doc, &sync_state, &peer_a));
+    #[test]
+    fn test_full_sync_protocol_roundtrip() {
+        let id = test_interface_id();
+        let peer_a = SimulationIdentity::new('A').unwrap();
+        let peer_b = SimulationIdentity::new('B').unwrap();
+
+        // Create a shared base document, then fork so both share the same
+        // root Automerge objects (members map, events list).
+        let mut doc_a = InterfaceDocument::new();
+        doc_a.add_member(&peer_a);
+        doc_a.add_member(&peer_b);
+
+        let mut doc_b = doc_a.fork().unwrap();
+
+        // Each appends an event independently (simulating partition)
+        doc_a
+            .append_event(&indras_core::InterfaceEvent::message(
+                peer_a,
+                1,
+                b"From A".to_vec(),
+            ))
+            .unwrap();
+
+        doc_b
+            .append_event(&indras_core::InterfaceEvent::message(
+                peer_b,
+                1,
+                b"From B".to_vec(),
+            ))
+            .unwrap();
+
+        let mut sync_a: SyncState<SimulationIdentity> = SyncState::new(id);
+        let mut sync_b: SyncState<SimulationIdentity> = SyncState::new(id);
+
+        // Sync loop
+        for _ in 0..10 {
+            let msg_a =
+                SyncProtocol::generate_sync_message(id, &mut doc_a, &mut sync_a, &peer_b);
+            let msg_b =
+                SyncProtocol::generate_sync_message(id, &mut doc_b, &mut sync_b, &peer_a);
+
+            if msg_a.is_none() && msg_b.is_none() {
+                break;
+            }
+
+            if let Some(msg) = msg_a {
+                SyncProtocol::receive_sync_message(&mut doc_b, &mut sync_b, &peer_a, msg)
+                    .unwrap();
+            }
+            if let Some(msg) = msg_b {
+                SyncProtocol::receive_sync_message(&mut doc_a, &mut sync_a, &peer_b, msg)
+                    .unwrap();
+            }
+        }
+
+        // Both should have both events
+        assert_eq!(doc_a.event_count(), 2);
+        assert_eq!(doc_b.event_count(), 2);
+        assert_eq!(doc_a.get_heads(), doc_b.get_heads());
     }
 }

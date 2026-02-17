@@ -18,6 +18,7 @@ indras-sync.workspace = true
 indras-storage.workspace = true
 indras-transport.workspace = true
 indras-crypto.workspace = true
+indras-artifacts.workspace = true
 
 # Iroh (for PublicKey type)
 iroh.workspace = true

@@ -49,7 +49,8 @@ struct Args {
     log_dir: PathBuf,
 }
 
-fn main() -> ExitCode {
+#[tokio::main]
+async fn main() -> ExitCode {
     let args = Args::parse();
 
     // Initialize logging
@@ -102,8 +103,8 @@ fn main() -> ExitCode {
         }
     };
 
-    // Execute the script
-    match runtime.exec_file(&args.script) {
+    // Execute the script (async to support LiveNode and other async bindings)
+    match runtime.exec_file_async(&args.script).await {
         Ok(()) => {
             info!("Script completed successfully");
             ExitCode::SUCCESS

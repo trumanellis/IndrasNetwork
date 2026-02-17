@@ -5,6 +5,7 @@
 pub mod correlation;
 pub mod events;
 pub mod iot;
+pub mod live_node;
 pub mod logging;
 pub mod mesh;
 pub mod pass_story;

@@ -43,15 +43,15 @@ sim:initialize()
 local peers = mesh:peers()
 local result = quest_helpers.result_builder("proof_of_life_economy")
 
--- Assign roles (futuristic names per CLAUDE.md)
-local peer_zephyr = tostring(peers[1])
-local peer_nova = tostring(peers[2])
-local peer_sage = tostring(peers[3])
-local peer_ember = tostring(peers[4])
-local peer_kai = tostring(peers[5])
-local peer_soren = tostring(peers[6])
-local peer_cypress = tostring(peers[7])
-local all_members = { peer_zephyr, peer_nova, peer_sage, peer_ember, peer_kai, peer_soren, peer_cypress }
+-- Assign roles
+local peer_a = tostring(peers[1])
+local peer_b = tostring(peers[2])
+local peer_c = tostring(peers[3])
+local peer_d = tostring(peers[4])
+local peer_e = tostring(peers[5])
+local peer_f = tostring(peers[6])
+local peer_g = tostring(peers[7])
+local all_members = { peer_a, peer_b, peer_c, peer_d, peer_e, peer_f, peer_g }
 
 -- Sybil identities (conceptual - we'll simulate their actions via events)
 local sybil_1 = "sybil_0000001"
@@ -120,21 +120,21 @@ sim:step()
 -- Rename realm
 logger.event("realm_alias_set", {
     tick = sim.tick,
-    member = peer_zephyr,
+    member = peer_a,
     realm_id = realm_id,
     alias = "Proof of Life Economy",
 })
 sim:step()
 
 -- Set positive sentiment between trusted pairs
--- Chain: Zephyr ↔ Nova ↔ Sage ↔ Ember ↔ Kai ↔ Soren ↔ Cypress
+-- Chain: A ↔ B ↔ C ↔ D ↔ E ↔ F ↔ G
 local trust_pairs = {
-    {peer_zephyr, peer_nova},
-    {peer_nova, peer_sage},
-    {peer_sage, peer_ember},
-    {peer_ember, peer_kai},
-    {peer_kai, peer_soren},
-    {peer_soren, peer_cypress},
+    {peer_a, peer_b},
+    {peer_b, peer_c},
+    {peer_c, peer_d},
+    {peer_d, peer_e},
+    {peer_e, peer_f},
+    {peer_f, peer_g},
 }
 
 for _, pair in ipairs(trust_pairs) do
@@ -156,7 +156,7 @@ sim:step()
 
 logger.event("chat_message", {
     tick = sim.tick,
-    member = peer_zephyr,
+    member = peer_a,
     realm_id = realm_id,
     content = "Welcome everyone! Let's build something beautiful together.",
     message_type = "text",
@@ -172,37 +172,37 @@ logger.info("Act 1 complete: Trust network established", { act = 1, tick = sim.t
 indras.narrative("Act 2: Economy — Work begins, gratitude flows, tokens materialize")
 logger.info("Act 2: Economy", { act = 2 })
 
--- Quest 1: Community Garden Plan (created by Zephyr)
+-- Quest 1: Community Garden Plan (created by A)
 local quest_garden_id = quest_helpers.compute_quest_id(realm_id, "Community Garden Plan")
 logger.event("quest_created", {
     tick = sim.tick,
     realm_id = realm_id,
     quest_id = quest_garden_id,
-    creator = peer_zephyr,
+    creator = peer_a,
     title = "Community Garden Plan",
     description = "Design the layout for our neighborhood community garden",
 })
 sim:step()
 
--- Quest 2: Translation Guide (created by Sage)
+-- Quest 2: Translation Guide (created by C)
 local quest_translation_id = quest_helpers.compute_quest_id(realm_id, "Translation Guide")
 logger.event("quest_created", {
     tick = sim.tick,
     realm_id = realm_id,
     quest_id = quest_translation_id,
-    creator = peer_sage,
+    creator = peer_c,
     title = "Translation Guide",
     description = "Create a multilingual guide for new immigrants",
 })
 sim:step()
 
--- Quest 3: Neighborhood Map (created by Ember)
+-- Quest 3: Neighborhood Map (created by D)
 local quest_map_id = quest_helpers.compute_quest_id(realm_id, "Neighborhood Map")
 logger.event("quest_created", {
     tick = sim.tick,
     realm_id = realm_id,
     quest_id = quest_map_id,
-    creator = peer_ember,
+    creator = peer_d,
     title = "Neighborhood Map",
     description = "Map local resources and safe spaces",
 })
@@ -210,7 +210,7 @@ sim:step()
 
 logger.event("chat_message", {
     tick = sim.tick,
-    member = peer_sage,
+    member = peer_c,
     realm_id = realm_id,
     content = "Three great quests! I'm excited to contribute.",
     message_type = "text",
@@ -220,38 +220,38 @@ sim:step()
 -- Members focus attention on Garden quest
 logger.event("attention_switched", {
     tick = sim.tick,
-    member = peer_zephyr,
+    member = peer_a,
     quest_id = quest_garden_id,
     latency_us = quest_helpers.attention_switch_latency(),
 })
-blessing_tracker:record_attention(quest_garden_id, peer_zephyr, 1, 60000)
+blessing_tracker:record_attention(quest_garden_id, peer_a, 1, 60000)
 sim:step()
 
 logger.event("attention_switched", {
     tick = sim.tick,
-    member = peer_nova,
+    member = peer_b,
     quest_id = quest_garden_id,
     latency_us = quest_helpers.attention_switch_latency(),
 })
-blessing_tracker:record_attention(quest_garden_id, peer_nova, 1, 45000)
+blessing_tracker:record_attention(quest_garden_id, peer_b, 1, 45000)
 sim:step()
 
 logger.event("attention_switched", {
     tick = sim.tick,
-    member = peer_sage,
+    member = peer_c,
     quest_id = quest_garden_id,
     latency_us = quest_helpers.attention_switch_latency(),
 })
-blessing_tracker:record_attention(quest_garden_id, peer_sage, 1, 30000)
+blessing_tracker:record_attention(quest_garden_id, peer_c, 1, 30000)
 sim:step()
 
--- Nova submits proof for Garden quest
-local folder_garden_id = quest_helpers.compute_folder_id(realm_id, quest_garden_id, peer_nova)
+-- B submits proof for Garden quest
+local folder_garden_id = quest_helpers.compute_folder_id(realm_id, quest_garden_id, peer_b)
 logger.event("proof_folder_submitted", {
     tick = sim.tick,
     realm_id = realm_id,
     quest_id = quest_garden_id,
-    claimant = peer_nova,
+    claimant = peer_b,
     folder_id = folder_garden_id,
     narrative_preview = "A thoughtful garden design with native plants and gathering spaces.",
     artifact_count = 3,
@@ -263,35 +263,35 @@ sim:step()
 
 logger.event("chat_message", {
     tick = sim.tick,
-    member = peer_nova,
+    member = peer_b,
     realm_id = realm_id,
     content = "Here's my garden design! Feedback welcome.",
     message_type = "text",
 })
 sim:step()
 
--- Zephyr and Sage bless Nova's proof -> 2 tokens minted
-local zephyr_attention_garden = 60000 -- 60s
-blessing_tracker:record_blessing(quest_garden_id, peer_nova, peer_zephyr, {1}, zephyr_attention_garden)
+-- A and C bless B's proof -> 2 tokens minted
+local a_attention_garden = 60000 -- 60s
+blessing_tracker:record_blessing(quest_garden_id, peer_b, peer_a, {1}, a_attention_garden)
 
 logger.event("blessing_given", {
     tick = sim.tick,
     realm_id = realm_id,
     quest_id = quest_garden_id,
-    claimant = peer_nova,
-    blesser = peer_zephyr,
+    claimant = peer_b,
+    blesser = peer_a,
     event_count = 1,
-    attention_millis = zephyr_attention_garden,
+    attention_millis = a_attention_garden,
 })
 
-local token_nova_1 = make_token_id(quest_garden_id, peer_nova, sim.tick)
+local token_b_1 = make_token_id(quest_garden_id, peer_b, sim.tick)
 logger.event("token_minted", {
     tick = sim.tick,
     realm_id = realm_id,
-    token_id = token_nova_1,
-    steward = peer_nova,
-    value_millis = zephyr_attention_garden,
-    blesser = peer_zephyr,
+    token_id = token_b_1,
+    steward = peer_b,
+    value_millis = a_attention_garden,
+    blesser = peer_a,
     source_quest_id = quest_garden_id,
 })
 tokens_minted = tokens_minted + 1
@@ -299,34 +299,34 @@ sim:step()
 
 logger.event("chat_message", {
     tick = sim.tick,
-    member = peer_zephyr,
+    member = peer_a,
     realm_id = realm_id,
-    content = "Beautiful work, Nova! Releasing gratitude.",
+    content = "Beautiful work, B! Releasing gratitude.",
     message_type = "text",
 })
 sim:step()
 
-local sage_attention_garden = 30000 -- 30s
-blessing_tracker:record_blessing(quest_garden_id, peer_nova, peer_sage, {1}, sage_attention_garden)
+local c_attention_garden = 30000 -- 30s
+blessing_tracker:record_blessing(quest_garden_id, peer_b, peer_c, {1}, c_attention_garden)
 
 logger.event("blessing_given", {
     tick = sim.tick,
     realm_id = realm_id,
     quest_id = quest_garden_id,
-    claimant = peer_nova,
-    blesser = peer_sage,
+    claimant = peer_b,
+    blesser = peer_c,
     event_count = 1,
-    attention_millis = sage_attention_garden,
+    attention_millis = c_attention_garden,
 })
 
-local token_nova_2 = make_token_id(quest_garden_id, peer_nova, sim.tick)
+local token_b_2 = make_token_id(quest_garden_id, peer_b, sim.tick)
 logger.event("token_minted", {
     tick = sim.tick,
     realm_id = realm_id,
-    token_id = token_nova_2,
-    steward = peer_nova,
-    value_millis = sage_attention_garden,
-    blesser = peer_sage,
+    token_id = token_b_2,
+    steward = peer_b,
+    value_millis = c_attention_garden,
+    blesser = peer_c,
     source_quest_id = quest_garden_id,
 })
 tokens_minted = tokens_minted + 1
@@ -335,29 +335,29 @@ sim:step()
 -- Focus attention on Translation quest
 logger.event("attention_switched", {
     tick = sim.tick,
-    member = peer_sage,
+    member = peer_c,
     quest_id = quest_translation_id,
     latency_us = quest_helpers.attention_switch_latency(),
 })
-blessing_tracker:record_attention(quest_translation_id, peer_sage, 1, 40000)
+blessing_tracker:record_attention(quest_translation_id, peer_c, 1, 40000)
 sim:step()
 
 logger.event("attention_switched", {
     tick = sim.tick,
-    member = peer_ember,
+    member = peer_d,
     quest_id = quest_translation_id,
     latency_us = quest_helpers.attention_switch_latency(),
 })
-blessing_tracker:record_attention(quest_translation_id, peer_ember, 1, 50000)
+blessing_tracker:record_attention(quest_translation_id, peer_d, 1, 50000)
 sim:step()
 
--- Ember submits proof for Translation quest
-local folder_translation_id = quest_helpers.compute_folder_id(realm_id, quest_translation_id, peer_ember)
+-- D submits proof for Translation quest
+local folder_translation_id = quest_helpers.compute_folder_id(realm_id, quest_translation_id, peer_d)
 logger.event("proof_folder_submitted", {
     tick = sim.tick,
     realm_id = realm_id,
     quest_id = quest_translation_id,
-    claimant = peer_ember,
+    claimant = peer_d,
     folder_id = folder_translation_id,
     narrative_preview = "A clear guide in five languages with cultural notes.",
     artifact_count = 2,
@@ -367,28 +367,28 @@ logger.event("proof_folder_submitted", {
 })
 sim:step()
 
--- Sage blesses Ember's proof -> 1 token minted
-local sage_attention_translation = 40000 -- 40s
-blessing_tracker:record_blessing(quest_translation_id, peer_ember, peer_sage, {1}, sage_attention_translation)
+-- C blesses D's proof -> 1 token minted
+local c_attention_translation = 40000 -- 40s
+blessing_tracker:record_blessing(quest_translation_id, peer_d, peer_c, {1}, c_attention_translation)
 
 logger.event("blessing_given", {
     tick = sim.tick,
     realm_id = realm_id,
     quest_id = quest_translation_id,
-    claimant = peer_ember,
-    blesser = peer_sage,
+    claimant = peer_d,
+    blesser = peer_c,
     event_count = 1,
-    attention_millis = sage_attention_translation,
+    attention_millis = c_attention_translation,
 })
 
-local token_ember_1 = make_token_id(quest_translation_id, peer_ember, sim.tick)
+local token_d_1 = make_token_id(quest_translation_id, peer_d, sim.tick)
 logger.event("token_minted", {
     tick = sim.tick,
     realm_id = realm_id,
-    token_id = token_ember_1,
-    steward = peer_ember,
-    value_millis = sage_attention_translation,
-    blesser = peer_sage,
+    token_id = token_d_1,
+    steward = peer_d,
+    value_millis = c_attention_translation,
+    blesser = peer_c,
     source_quest_id = quest_translation_id,
 })
 tokens_minted = tokens_minted + 1
@@ -396,27 +396,27 @@ sim:step()
 
 logger.event("chat_message", {
     tick = sim.tick,
-    member = peer_sage,
+    member = peer_c,
     realm_id = realm_id,
-    content = "Excellent translation work, Ember!",
+    content = "Excellent translation work, D!",
     message_type = "text",
 })
 sim:step()
 
--- Nova pledges a token to Map quest
+-- B pledges a token to Map quest
 logger.event("gratitude_pledged", {
     tick = sim.tick,
     realm_id = realm_id,
-    token_id = token_nova_2,
-    pledger = peer_nova,
+    token_id = token_b_2,
+    pledger = peer_b,
     target_quest_id = quest_map_id,
-    amount_millis = sage_attention_garden,
+    amount_millis = c_attention_garden,
 })
 sim:step()
 
 logger.event("chat_message", {
     tick = sim.tick,
-    member = peer_nova,
+    member = peer_b,
     realm_id = realm_id,
     content = "Pledged gratitude to the Map quest! Let's get it done.",
     message_type = "text",
@@ -580,13 +580,13 @@ logger.info("Act 3 complete: Sybil attack in progress", { act = 3, tick = sim.ti
 indras.narrative("Act 4: Defense — The trust network reveals the truth")
 logger.info("Act 4: Defense", { act = 4 })
 
--- Show subjective valuation from Zephyr's perspective
+-- Show subjective valuation from A's perspective
 -- Formula: attention_duration × max(sentiment_toward(blesser), 0.0)
--- Zephyr has no sentiment toward sybils -> sentiment = 0 -> value = 0
+-- A has no sentiment toward sybils -> sentiment = 0 -> value = 0
 
 logger.event("subjective_valuation", {
     tick = sim.tick,
-    observer = peer_zephyr,
+    observer = peer_a,
     token_id = token_sybil_1,
     raw_millis = 90000,
     trust_weight = 0.0, -- No trust toward sybil_1
@@ -597,7 +597,7 @@ sim:step()
 
 logger.event("subjective_valuation", {
     tick = sim.tick,
-    observer = peer_zephyr,
+    observer = peer_a,
     token_id = token_sybil_2,
     raw_millis = 120000,
     trust_weight = 0.0, -- No trust toward sybil_3
@@ -609,10 +609,10 @@ sim:step()
 -- Contrast: real token valued at full weight
 logger.event("subjective_valuation", {
     tick = sim.tick,
-    observer = peer_zephyr,
-    token_id = token_nova_1,
+    observer = peer_a,
+    token_id = token_b_1,
     raw_millis = 60000,
-    trust_weight = 1.0, -- Direct trust in Nova
+    trust_weight = 1.0, -- Direct trust in B
     humanness_freshness = 1.0,
     subjective_millis = 60000,
 })
@@ -620,7 +620,7 @@ sim:step()
 
 logger.event("chat_message", {
     tick = sim.tick,
-    member = peer_zephyr,
+    member = peer_a,
     realm_id = realm_id,
     content = "Those new accounts' tokens don't carry any weight for me. No trust connection.",
     message_type = "text",
@@ -629,7 +629,7 @@ sim:step()
 
 logger.event("chat_message", {
     tick = sim.tick,
-    member = peer_nova,
+    member = peer_b,
     realm_id = realm_id,
     content = "Same here. The system filters them out naturally — they're invisible to me.",
     message_type = "text",
@@ -638,7 +638,7 @@ sim:step()
 
 logger.event("chat_message", {
     tick = sim.tick,
-    member = peer_sage,
+    member = peer_c,
     realm_id = realm_id,
     content = "This is working exactly as designed. Trust is earned, not manufactured.",
     message_type = "text",
@@ -656,7 +656,7 @@ logger.info("Act 5: Proof of Life", { act = 5 })
 
 logger.event("chat_message", {
     tick = sim.tick,
-    member = peer_ember,
+    member = peer_d,
     realm_id = realm_id,
     content = "Hey everyone! I'm hosting a dinner at my place this weekend. Would love to see you all!",
     message_type = "text",
@@ -665,7 +665,7 @@ sim:step()
 
 logger.event("chat_message", {
     tick = sim.tick,
-    member = peer_zephyr,
+    member = peer_a,
     realm_id = realm_id,
     content = "Count me in! Been too long since we gathered in person.",
     message_type = "text",
@@ -674,7 +674,7 @@ sim:step()
 
 logger.event("chat_message", {
     tick = sim.tick,
-    member = peer_nova,
+    member = peer_b,
     realm_id = realm_id,
     content = "Absolutely! I'll bring dessert.",
     message_type = "text",
@@ -686,15 +686,15 @@ for i = 1, 10 do
     sim:step()
 end
 
--- Four members gather: Zephyr, Nova, Sage, Ember
-local dinner_participants = {peer_zephyr, peer_nova, peer_sage, peer_ember}
+-- Four members gather: A, B, C, D
+local dinner_participants = {peer_a, peer_b, peer_c, peer_d}
 
 logger.event("proof_of_life", {
     tick = sim.tick,
     realm_id = realm_id,
     participants = table.concat(dinner_participants, ","),
     participant_count = 4,
-    attester = peer_ember,
+    attester = peer_d,
 })
 sim:step()
 
@@ -711,7 +711,7 @@ sim:step()
 
 logger.event("chat_message", {
     tick = sim.tick,
-    member = peer_ember,
+    member = peer_d,
     realm_id = realm_id,
     content = "What a wonderful evening! Sharing photos now.",
     message_type = "text",
@@ -721,7 +721,7 @@ sim:step()
 logger.event("artifact_shared", {
     tick = sim.tick,
     realm_id = realm_id,
-    member = peer_ember,
+    member = peer_d,
     artifact_type = "image",
     description = "Group photo from the dinner",
 })
@@ -729,7 +729,7 @@ sim:step()
 
 logger.event("chat_message", {
     tick = sim.tick,
-    member = peer_sage,
+    member = peer_c,
     realm_id = realm_id,
     content = "Great memories! This is what community is about.",
     message_type = "text",
@@ -750,9 +750,9 @@ logger.info("Act 6: Staleness", { act = 6 })
 -- We'll simulate this symbolically with a large step count
 logger.event("chat_message", {
     tick = sim.tick,
-    member = peer_nova,
+    member = peer_b,
     realm_id = realm_id,
-    content = "It's been three weeks... haven't seen Soren or Cypress around much.",
+    content = "It's been three weeks... haven't seen F or G around much.",
     message_type = "text",
 })
 sim:step()
@@ -768,7 +768,7 @@ end
 
 logger.event("humanness_freshness", {
     tick = sim.tick,
-    member = peer_soren,
+    member = peer_f,
     freshness = 0.247,
     days_since_attestation = 21,
 })
@@ -776,7 +776,7 @@ sim:step()
 
 logger.event("humanness_freshness", {
     tick = sim.tick,
-    member = peer_cypress,
+    member = peer_g,
     freshness = 0.247,
     days_since_attestation = 21,
 })
@@ -785,7 +785,7 @@ sim:step()
 -- Meanwhile dinner participants are still fresh
 logger.event("humanness_freshness", {
     tick = sim.tick,
-    member = peer_zephyr,
+    member = peer_a,
     freshness = 1.0,
     days_since_attestation = 0,
 })
@@ -793,7 +793,7 @@ sim:step()
 
 logger.event("chat_message", {
     tick = sim.tick,
-    member = peer_sage,
+    member = peer_c,
     realm_id = realm_id,
     content = "I notice tokens from members who haven't been around carry less weight now. The system adjusts naturally.",
     message_type = "text",
@@ -801,10 +801,10 @@ logger.event("chat_message", {
 sim:step()
 
 -- Show subjective value dropping for tokens blessed by stale members
--- (Hypothetically, if Soren had blessed someone)
+-- (Hypothetically, if F had blessed someone)
 logger.event("chat_message", {
     tick = sim.tick,
-    member = peer_ember,
+    member = peer_d,
     realm_id = realm_id,
     content = "Yeah, the proof-of-life freshness decay is working. It encourages participation.",
     message_type = "text",
@@ -820,25 +820,25 @@ logger.info("Act 6 complete: Humanness staleness visible", { act = 6, tick = sim
 indras.narrative("Act 7: Global Reach — A token journeys through degrees of trust")
 logger.info("Act 7: Global Reach", { act = 7 })
 
--- Token from Act 2 (token_nova_1) will travel: Nova → Kai → Soren → Cypress
+-- Token from Act 2 (token_b_1) will travel: B → E → F → G
 -- We need to create the steward chain
 
 logger.event("chat_message", {
     tick = sim.tick,
-    member = peer_kai,
+    member = peer_e,
     realm_id = realm_id,
     content = "I'm working on a new quest — would love some support!",
     message_type = "text",
 })
 sim:step()
 
--- Nova pledges token_nova_1 to a new quest by Kai
+-- B pledges token_b_1 to a new quest by E
 local quest_kai_id = quest_helpers.compute_quest_id(realm_id, "Tool Lending Library")
 logger.event("quest_created", {
     tick = sim.tick,
     realm_id = realm_id,
     quest_id = quest_kai_id,
-    creator = peer_kai,
+    creator = peer_e,
     title = "Tool Lending Library",
     description = "Organize a shared tool library for the neighborhood",
 })
@@ -847,42 +847,42 @@ sim:step()
 logger.event("gratitude_pledged", {
     tick = sim.tick,
     realm_id = realm_id,
-    token_id = token_nova_1,
-    pledger = peer_nova,
+    token_id = token_b_1,
+    pledger = peer_b,
     target_quest_id = quest_kai_id,
-    amount_millis = zephyr_attention_garden,
+    amount_millis = a_attention_garden,
 })
 sim:step()
 
--- Kai completes the quest and Nova releases the token to Kai
+-- E completes the quest and B releases the token to E
 logger.event("gratitude_released", {
     tick = sim.tick,
     realm_id = realm_id,
-    token_id = token_nova_1,
-    from_steward = peer_nova,
-    to_steward = peer_kai,
+    token_id = token_b_1,
+    from_steward = peer_b,
+    to_steward = peer_e,
     target_quest_id = quest_kai_id,
-    amount_millis = zephyr_attention_garden,
+    amount_millis = a_attention_garden,
 })
 steward_transfers = steward_transfers + 1
 sim:step()
 
 logger.event("chat_message", {
     tick = sim.tick,
-    member = peer_nova,
+    member = peer_b,
     realm_id = realm_id,
-    content = "Great work on the library, Kai! Token released.",
+    content = "Great work on the library, E! Token released.",
     message_type = "text",
 })
 sim:step()
 
--- Kai pledges the token to Soren's quest
+-- E pledges the token to F's quest
 local quest_soren_id = quest_helpers.compute_quest_id(realm_id, "Repair Café")
 logger.event("quest_created", {
     tick = sim.tick,
     realm_id = realm_id,
     quest_id = quest_soren_id,
-    creator = peer_soren,
+    creator = peer_f,
     title = "Repair Café",
     description = "Set up a monthly repair café event",
 })
@@ -891,32 +891,32 @@ sim:step()
 logger.event("gratitude_pledged", {
     tick = sim.tick,
     realm_id = realm_id,
-    token_id = token_nova_1,
-    pledger = peer_kai,
+    token_id = token_b_1,
+    pledger = peer_e,
     target_quest_id = quest_soren_id,
-    amount_millis = zephyr_attention_garden,
+    amount_millis = a_attention_garden,
 })
 sim:step()
 
 logger.event("gratitude_released", {
     tick = sim.tick,
     realm_id = realm_id,
-    token_id = token_nova_1,
-    from_steward = peer_kai,
-    to_steward = peer_soren,
+    token_id = token_b_1,
+    from_steward = peer_e,
+    to_steward = peer_f,
     target_quest_id = quest_soren_id,
-    amount_millis = zephyr_attention_garden,
+    amount_millis = a_attention_garden,
 })
 steward_transfers = steward_transfers + 1
 sim:step()
 
--- Soren pledges to Cypress's quest
+-- F pledges to G's quest
 local quest_cypress_id = quest_helpers.compute_quest_id(realm_id, "Seed Exchange")
 logger.event("quest_created", {
     tick = sim.tick,
     realm_id = realm_id,
     quest_id = quest_cypress_id,
-    creator = peer_cypress,
+    creator = peer_g,
     title = "Seed Exchange",
     description = "Establish a community seed-sharing program",
 })
@@ -925,68 +925,68 @@ sim:step()
 logger.event("gratitude_pledged", {
     tick = sim.tick,
     realm_id = realm_id,
-    token_id = token_nova_1,
-    pledger = peer_soren,
+    token_id = token_b_1,
+    pledger = peer_f,
     target_quest_id = quest_cypress_id,
-    amount_millis = zephyr_attention_garden,
+    amount_millis = a_attention_garden,
 })
 sim:step()
 
 logger.event("gratitude_released", {
     tick = sim.tick,
     realm_id = realm_id,
-    token_id = token_nova_1,
-    from_steward = peer_soren,
-    to_steward = peer_cypress,
+    token_id = token_b_1,
+    from_steward = peer_f,
+    to_steward = peer_g,
     target_quest_id = quest_cypress_id,
-    amount_millis = zephyr_attention_garden,
+    amount_millis = a_attention_garden,
 })
 steward_transfers = steward_transfers + 1
 sim:step()
 
--- Token chain: Nova → Kai → Soren → Cypress (4 stewards)
+-- Token chain: B → E → F → G (4 stewards)
 logger.event("chat_message", {
     tick = sim.tick,
-    member = peer_cypress,
+    member = peer_g,
     realm_id = realm_id,
     content = "This token has traveled through four hands! Amazing to see the chain.",
     message_type = "text",
 })
 sim:step()
 
--- Show trust decay through the chain from Zephyr's perspective
--- Zephyr trusts Nova (1.0), each hop decays by 0.7
--- Zephyr → Nova: 1.0
--- Zephyr → Kai (via Nova): 1.0 × 0.7 = 0.7
--- Zephyr → Soren (via Nova, Kai): 1.0 × 0.7^2 = 0.49
--- Zephyr → Cypress (via Nova, Kai, Soren): 1.0 × 0.7^3 = 0.343
+-- Show trust decay through the chain from A's perspective
+-- A trusts B (1.0), each hop decays by 0.7
+-- A → B: 1.0
+-- A → E (via B): 1.0 × 0.7 = 0.7
+-- A → F (via B, E): 1.0 × 0.7^2 = 0.49
+-- A → G (via B, E, F): 1.0 × 0.7^3 = 0.343
 
 logger.event("subjective_valuation", {
     tick = sim.tick,
-    observer = peer_zephyr,
-    token_id = token_nova_1,
-    raw_millis = zephyr_attention_garden,
+    observer = peer_a,
+    token_id = token_b_1,
+    raw_millis = a_attention_garden,
     trust_weight = 0.343, -- 3 hops: 0.7^3
     humanness_freshness = 1.0,
-    subjective_millis = math.floor(zephyr_attention_garden * 0.343),
+    subjective_millis = math.floor(a_attention_garden * 0.343),
 })
 sim:step()
 
--- Meanwhile Cypress (who directly trusts Soren) values it higher
+-- Meanwhile G (who directly trusts F) values it higher
 logger.event("subjective_valuation", {
     tick = sim.tick,
-    observer = peer_cypress,
-    token_id = token_nova_1,
-    raw_millis = zephyr_attention_garden,
-    trust_weight = 0.7, -- 1 hop from Soren
+    observer = peer_g,
+    token_id = token_b_1,
+    raw_millis = a_attention_garden,
+    trust_weight = 0.7, -- 1 hop from F
     humanness_freshness = 1.0,
-    subjective_millis = math.floor(zephyr_attention_garden * 0.7),
+    subjective_millis = math.floor(a_attention_garden * 0.7),
 })
 sim:step()
 
 logger.event("chat_message", {
     tick = sim.tick,
-    member = peer_zephyr,
+    member = peer_a,
     realm_id = realm_id,
     content = "From my perspective, that token is worth about 34% of its face value — trust decays with distance.",
     message_type = "text",
@@ -995,9 +995,9 @@ sim:step()
 
 logger.event("chat_message", {
     tick = sim.tick,
-    member = peer_cypress,
+    member = peer_g,
     realm_id = realm_id,
-    content = "But for me, it's worth 70% because Soren is in my direct trust network. Subjective value!",
+    content = "But for me, it's worth 70% because F is in my direct trust network. Subjective value!",
     message_type = "text",
 })
 sim:step()
@@ -1013,7 +1013,7 @@ logger.info("Epilogue: Final state", { tick = sim.tick })
 
 logger.event("chat_message", {
     tick = sim.tick,
-    member = peer_sage,
+    member = peer_c,
     realm_id = realm_id,
     content = "We've built something special here. Trust is the foundation, and the system protects it naturally.",
     message_type = "text",
@@ -1022,7 +1022,7 @@ sim:step()
 
 logger.event("chat_message", {
     tick = sim.tick,
-    member = peer_nova,
+    member = peer_b,
     realm_id = realm_id,
     content = "The sybils tried to game the system, but their tokens are invisible to us. No central authority needed.",
     message_type = "text",
@@ -1031,7 +1031,7 @@ sim:step()
 
 logger.event("chat_message", {
     tick = sim.tick,
-    member = peer_ember,
+    member = peer_d,
     realm_id = realm_id,
     content = "And proof of life keeps us connected. The dinner was great — let's do it again soon!",
     message_type = "text",

@@ -43,6 +43,7 @@ fn main() {
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
         .with_target(false)
+        .with_writer(std::io::stderr)
         .init();
 
     let args = Args::parse();

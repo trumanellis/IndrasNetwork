@@ -206,7 +206,7 @@ pub fn App() -> Element {
                                 let data = doc.read().await;
                                 let artifacts: Vec<ArtifactDisplayInfo> = data.active_artifacts().map(|a| {
                                     ArtifactDisplayInfo {
-                                        id: a.id.iter().map(|b| format!("{:02x}", b)).collect(),
+                                        id: a.id.bytes().iter().map(|b| format!("{:02x}", b)).collect(),
                                         name: a.name.clone(),
                                         size: a.size,
                                         mime_type: a.mime_type.clone(),
@@ -614,7 +614,7 @@ pub async fn create_identity_and_load(
                     let data = doc.read().await;
                     let artifacts: Vec<ArtifactDisplayInfo> = data.active_artifacts().map(|a| {
                         ArtifactDisplayInfo {
-                            id: a.id.iter().map(|b| format!("{:02x}", b)).collect(),
+                            id: a.id.bytes().iter().map(|b| format!("{:02x}", b)).collect(),
                             name: a.name.clone(),
                             size: a.size,
                             mime_type: a.mime_type.clone(),

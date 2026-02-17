@@ -1,6 +1,6 @@
-//! Syncable notebook
+//! Automerge-backed syncable notebook
 //!
-//! Uses InterfaceDocument from indras-sync to provide sync
+//! Uses InterfaceDocument from indras-sync to provide real CRDT sync
 //! between multiple notebook instances.
 
 use std::collections::HashMap;
@@ -10,13 +10,13 @@ use indras_sync::InterfaceDocument;
 
 use crate::note::{Note, NoteId, NoteOperation};
 
-/// A notebook backed by InterfaceDocument for sync
+/// A notebook backed by Automerge for real CRDT sync
 pub struct SyncableNotebook {
     /// Notebook name
     pub name: String,
     /// Interface ID for this notebook
     pub interface_id: InterfaceId,
-    /// The underlying sync document
+    /// The underlying Automerge document
     doc: InterfaceDocument,
     /// Local peer identity for signing events
     local_peer: SimulationIdentity,
@@ -74,11 +74,11 @@ impl SyncableNotebook {
     }
 
     /// Save the notebook to bytes
-    pub fn save(&self) -> Vec<u8> {
+    pub fn save(&mut self) -> Vec<u8> {
         self.doc.save()
     }
 
-    /// Apply a note operation (creates a sync event)
+    /// Apply a note operation (creates an Automerge event)
     pub fn apply(&mut self, op: NoteOperation) -> Option<NoteId> {
         // Serialize the operation
         let op_bytes = match postcard::to_allocvec(&op) {
@@ -167,45 +167,26 @@ impl SyncableNotebook {
         self.notes_cache.is_empty()
     }
 
-    // ===== Sync Methods =====
+    // ===== Automerge Sync Methods =====
 
-    /// Get the current state vector (for tracking sync state)
-    pub fn state_vector(&self) -> Vec<u8> {
-        self.doc.state_vector()
+    /// Save state as hex string (for Lua interop / sync)
+    pub fn save_hex(&mut self) -> String {
+        hex::encode(self.doc.save())
     }
 
-    /// Get state vector as hex string (for Lua interop)
-    pub fn state_vector_hex(&self) -> String {
-        hex::encode(self.doc.state_vector())
-    }
-
-    /// Generate a sync message for a peer given their known state vector
+    /// Apply sync data from another notebook (Automerge merge)
     ///
-    /// Returns the incremental changes since the peer's known state.
-    pub fn generate_sync_message(&self, their_sv: &[u8]) -> Vec<u8> {
-        self.doc.generate_sync_message(their_sv).unwrap_or_default()
-    }
-
-    /// Generate a sync message from hex-encoded state vector (for Lua interop)
-    pub fn generate_sync_message_hex(&self, their_sv_hex: &str) -> Vec<u8> {
-        match hex::decode(their_sv_hex) {
-            Ok(sv_bytes) => self.generate_sync_message(&sv_bytes),
-            Err(_) => Vec::new(),
-        }
-    }
-
-    /// Apply a sync message from a peer
-    ///
+    /// Merges the given document bytes into this notebook.
     /// Returns true if new changes were applied.
-    pub fn apply_sync_message(&mut self, changes: &[u8]) -> Result<bool, String> {
-        if changes.is_empty() {
+    pub fn apply_sync(&mut self, data: &[u8]) -> Result<bool, String> {
+        if data.is_empty() {
             return Ok(false);
         }
 
         let old_event_count = self.doc.event_count();
 
         self.doc
-            .apply_sync_message(changes)
+            .apply_update(data)
             .map_err(|e| format!("Sync error: {}", e))?;
 
         let new_event_count = self.doc.event_count();
@@ -317,12 +298,9 @@ mod tests {
         // Bob doesn't have it yet
         assert_eq!(bob_nb.count(), 1);
 
-        // Sync: Alice generates message for Bob
-        let bob_sv = bob_nb.state_vector();
-        let sync_msg = alice_nb.generate_sync_message(&bob_sv);
-
-        // Bob applies the sync message
-        let changed = bob_nb.apply_sync_message(&sync_msg).unwrap();
+        // Sync: save Alice's state and merge into Bob
+        let alice_bytes = alice_nb.save();
+        let changed = bob_nb.apply_sync(&alice_bytes).unwrap();
         assert!(changed);
 
         // Bob now has both notes
@@ -340,10 +318,6 @@ mod tests {
         let mut alice_nb = SyncableNotebook::new("Shared", interface_id, peer_a);
         let mut bob_nb = alice_nb.fork(peer_b);
 
-        // Get initial state vectors
-        let alice_initial_sv = alice_nb.state_vector();
-        let bob_initial_sv = bob_nb.state_vector();
-
         // Both make concurrent edits
         let alice_note = Note::new("Alice's Concurrent Note", "alice");
         let alice_note_id = alice_note.id.clone();
@@ -357,13 +331,13 @@ mod tests {
         assert_eq!(alice_nb.count(), 1);
         assert_eq!(bob_nb.count(), 1);
 
-        // Sync Alice -> Bob
-        let sync_to_bob = alice_nb.generate_sync_message(&bob_initial_sv);
-        bob_nb.apply_sync_message(&sync_to_bob).unwrap();
+        // Sync Alice -> Bob (save + merge)
+        let alice_bytes = alice_nb.save();
+        bob_nb.apply_sync(&alice_bytes).unwrap();
 
-        // Sync Bob -> Alice
-        let sync_to_alice = bob_nb.generate_sync_message(&alice_initial_sv);
-        alice_nb.apply_sync_message(&sync_to_alice).unwrap();
+        // Sync Bob -> Alice (save + merge)
+        let bob_bytes = bob_nb.save();
+        alice_nb.apply_sync(&bob_bytes).unwrap();
 
         // Both should have both notes (CRDT convergence)
         assert_eq!(alice_nb.count(), 2);
