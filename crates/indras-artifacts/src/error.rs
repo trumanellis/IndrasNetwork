@@ -20,4 +20,20 @@ pub enum VaultError {
     ExchangeClosed,
     #[error("store error: {0}")]
     StoreError(String),
+    #[error("artifact is not active")]
+    NotActive,
+    #[error("artifact has been recalled")]
+    ArtifactRecalled,
+    #[error("artifact has been transferred")]
+    ArtifactTransferred,
+    #[error("grantee already has access")]
+    AlreadyGranted,
+    #[error("cannot revoke a permanent grant")]
+    CannotRevoke,
+    #[error("operation would create a cycle")]
+    CycleDetected,
+    #[error("artifact already has a parent")]
+    AlreadyHasParent,
+    #[error("artifact is not a child of the specified parent")]
+    NotAChild,
 }

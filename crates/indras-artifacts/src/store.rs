@@ -1,6 +1,7 @@
 use bytes::Bytes;
 use std::collections::HashMap;
 
+use crate::access::{AccessGrant, ArtifactStatus};
 use crate::artifact::{Artifact, ArtifactId, ArtifactRef, PlayerId, StewardshipRecord, TreeType};
 use crate::attention::AttentionSwitchEvent;
 use crate::error::VaultError;
@@ -24,14 +25,20 @@ pub enum IntegrityResult {
 // ArtifactStore
 // ---------------------------------------------------------------------------
 
-/// Store and retrieve artifact metadata (steward, audience, type, refs).
+/// Store and retrieve artifact metadata (steward, grants, type, refs).
 pub trait ArtifactStore {
     fn put_artifact(&mut self, artifact: &Artifact) -> Result<()>;
     fn get_artifact(&self, id: &ArtifactId) -> Result<Option<Artifact>>;
     fn list_by_type(&self, tree_type: &TreeType) -> Result<Vec<ArtifactId>>;
     fn list_by_steward(&self, steward: &PlayerId) -> Result<Vec<ArtifactId>>;
     fn update_steward(&mut self, id: &ArtifactId, new_steward: PlayerId) -> Result<()>;
-    fn update_audience(&mut self, id: &ArtifactId, audience: Vec<PlayerId>) -> Result<()>;
+    fn update_status(&mut self, id: &ArtifactId, status: ArtifactStatus) -> Result<()>;
+    fn add_grant(&mut self, id: &ArtifactId, grant: AccessGrant) -> Result<()>;
+    fn remove_grant(&mut self, id: &ArtifactId, grantee: &PlayerId) -> Result<()>;
+    fn set_parent(&mut self, id: &ArtifactId, parent: Option<ArtifactId>) -> Result<()>;
+    fn list_by_status(&self, status: &ArtifactStatus) -> Result<Vec<ArtifactId>>;
+    fn accessible_by(&self, player: &PlayerId, now: i64) -> Result<Vec<ArtifactId>>;
+    fn delete_artifact(&mut self, id: &ArtifactId) -> Result<()>;
     fn add_ref(&mut self, tree_id: &ArtifactId, child_ref: ArtifactRef) -> Result<()>;
     fn remove_ref(&mut self, tree_id: &ArtifactId, child_id: &ArtifactId) -> Result<()>;
     fn record_stewardship_transfer(&mut self, id: &ArtifactId, record: StewardshipRecord) -> Result<()>;
@@ -97,15 +104,79 @@ impl ArtifactStore for InMemoryArtifactStore {
         Ok(())
     }
 
-    fn update_audience(&mut self, id: &ArtifactId, audience: Vec<PlayerId>) -> Result<()> {
+    fn update_status(&mut self, id: &ArtifactId, status: ArtifactStatus) -> Result<()> {
         let artifact = self
             .artifacts
             .get_mut(id)
             .ok_or(VaultError::ArtifactNotFound)?;
         match artifact {
-            Artifact::Leaf(leaf) => leaf.audience = audience,
-            Artifact::Tree(tree) => tree.audience = audience,
+            Artifact::Leaf(leaf) => leaf.status = status,
+            Artifact::Tree(tree) => tree.status = status,
         }
+        Ok(())
+    }
+
+    fn add_grant(&mut self, id: &ArtifactId, grant: AccessGrant) -> Result<()> {
+        let artifact = self
+            .artifacts
+            .get_mut(id)
+            .ok_or(VaultError::ArtifactNotFound)?;
+        match artifact {
+            Artifact::Leaf(leaf) => leaf.grants.push(grant),
+            Artifact::Tree(tree) => tree.grants.push(grant),
+        }
+        Ok(())
+    }
+
+    fn remove_grant(&mut self, id: &ArtifactId, grantee: &PlayerId) -> Result<()> {
+        let artifact = self
+            .artifacts
+            .get_mut(id)
+            .ok_or(VaultError::ArtifactNotFound)?;
+        match artifact {
+            Artifact::Leaf(leaf) => leaf.grants.retain(|g| &g.grantee != grantee),
+            Artifact::Tree(tree) => tree.grants.retain(|g| &g.grantee != grantee),
+        }
+        Ok(())
+    }
+
+    fn set_parent(&mut self, id: &ArtifactId, parent: Option<ArtifactId>) -> Result<()> {
+        let artifact = self
+            .artifacts
+            .get_mut(id)
+            .ok_or(VaultError::ArtifactNotFound)?;
+        match artifact {
+            Artifact::Leaf(leaf) => leaf.parent = parent,
+            Artifact::Tree(tree) => tree.parent = parent,
+        }
+        Ok(())
+    }
+
+    fn list_by_status(&self, status: &ArtifactStatus) -> Result<Vec<ArtifactId>> {
+        Ok(self
+            .artifacts
+            .values()
+            .filter(|a| a.status() == status)
+            .map(|a| *a.id())
+            .collect())
+    }
+
+    fn accessible_by(&self, player: &PlayerId, now: i64) -> Result<Vec<ArtifactId>> {
+        Ok(self
+            .artifacts
+            .values()
+            .filter(|a| {
+                a.status().is_active()
+                    && a.grants().iter().any(|g| &g.grantee == player && !g.mode.is_expired(now))
+            })
+            .map(|a| *a.id())
+            .collect())
+    }
+
+    fn delete_artifact(&mut self, id: &ArtifactId) -> Result<()> {
+        self.artifacts
+            .remove(id)
+            .ok_or(VaultError::ArtifactNotFound)?;
         Ok(())
     }
 
@@ -160,6 +231,7 @@ pub trait PayloadStore {
     fn store_payload(&mut self, payload: &[u8]) -> Result<ArtifactId>;
     fn get_payload(&self, id: &ArtifactId) -> Result<Option<Bytes>>;
     fn has_payload(&self, id: &ArtifactId) -> bool;
+    fn delete_payload(&mut self, id: &ArtifactId) -> Result<()>;
 }
 
 /// In-memory payload store backed by HashMap.
@@ -187,6 +259,13 @@ impl PayloadStore for InMemoryPayloadStore {
 
     fn has_payload(&self, id: &ArtifactId) -> bool {
         self.payloads.contains_key(id)
+    }
+
+    fn delete_payload(&mut self, id: &ArtifactId) -> Result<()> {
+        self.payloads
+            .remove(id)
+            .ok_or(VaultError::ArtifactNotFound)?;
+        Ok(())
     }
 }
 

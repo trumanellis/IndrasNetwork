@@ -111,9 +111,9 @@ fn NetworkView(state: CollaborationState) -> Element {
 
     // Edge lines
     let edges = [
-        (Peer::Love, Peer::Joy),
-        (Peer::Joy, Peer::Peace),
-        (Peer::Peace, Peer::Love),
+        (Peer::A, Peer::B),
+        (Peer::B, Peer::C),
+        (Peer::C, Peer::A),
     ];
 
     rsx! {
@@ -150,9 +150,9 @@ fn NetworkView(state: CollaborationState) -> Element {
                         let (cx, cy) = pos(peer);
                         let online = state.peer_states.get(peer).map(|p| p.online).unwrap_or(false);
                         let fill = match peer {
-                            Peer::Love => "var(--peer-love)",
-                            Peer::Joy => "var(--peer-joy)",
-                            Peer::Peace => "var(--peer-peace)",
+                            Peer::A => "var(--peer-a)",
+                            Peer::B => "var(--peer-b)",
+                            Peer::C => "var(--peer-c)",
                         };
                         let opacity = if online { "1" } else { "0.3" };
 
@@ -589,9 +589,9 @@ fn MyNetworkView(peer: Peer, state: CollaborationState, on_switch_pov: EventHand
                 {
                     let online = state.peer_states.get(&peer).map(|p| p.online).unwrap_or(false);
                     let fill = match peer {
-                        Peer::Love => "var(--peer-love)",
-                        Peer::Joy => "var(--peer-joy)",
-                        Peer::Peace => "var(--peer-peace)",
+                        Peer::A => "var(--peer-a)",
+                        Peer::B => "var(--peer-b)",
+                        Peer::C => "var(--peer-c)",
                     };
                     let opacity = if online { "1" } else { "0.3" };
 
@@ -623,9 +623,9 @@ fn MyNetworkView(peer: Peer, state: CollaborationState, on_switch_pov: EventHand
                         let other_y = center_y + radius * angle.sin();
                         let online = state.peer_states.get(other).map(|p| p.online).unwrap_or(false);
                         let fill = match other {
-                            Peer::Love => "var(--peer-love)",
-                            Peer::Joy => "var(--peer-joy)",
-                            Peer::Peace => "var(--peer-peace)",
+                            Peer::A => "var(--peer-a)",
+                            Peer::B => "var(--peer-b)",
+                            Peer::C => "var(--peer-c)",
                         };
                         let opacity = if online { "1" } else { "0.3" };
                         let other_peer = *other;

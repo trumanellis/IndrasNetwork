@@ -12,20 +12,22 @@
 //! Domain-specific document types (quests, notes, etc.) are managed by
 //! the sync-engine layer, not here.
 
-use crate::access::AccessMode;
-use crate::artifact::{Artifact, ArtifactId};
+use crate::access::{AccessMode, ArtifactStatus};
+use crate::artifact::ArtifactId;
 use crate::artifact_index::{ArtifactIndex, HomeArtifactEntry};
+use crate::artifact_sync::ArtifactSyncRegistry;
 use crate::document::Document;
 use crate::error::{IndraError, Result};
-use crate::member::{Member, MemberId};
+use crate::member::MemberId;
 use crate::network::RealmId;
-use indras_core::{InterfaceId, PeerIdentity};
+use crate::util::guess_mime_type;
+use indras_core::InterfaceId;
 use indras_node::IndrasNode;
 use indras_storage::ContentRef;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
-use tracing::debug;
+use tracing::{debug, info, warn};
 
 /// Generate a deterministic home realm ID from a member ID.
 ///
@@ -76,7 +78,7 @@ pub type LegacyHomeArtifactMetadata = HomeArtifactMetadata;
 ///
 /// The HomeRealm is a personal realm unique to each user, containing:
 /// - Stored artifacts (images, files, etc.)
-/// - An artifact index with access control and holonic composition
+/// - An artifact index with access control and tree composition
 ///
 /// Domain-specific document types (quests, notes, etc.) are managed by
 /// the sync-engine layer.
@@ -100,6 +102,8 @@ pub struct HomeRealm {
     node: Arc<IndrasNode>,
     /// Our own member ID.
     self_id: MemberId,
+    /// Artifact sync registry for automatic P2P sync of shared artifacts.
+    sync_registry: Arc<ArtifactSyncRegistry>,
 }
 
 impl HomeRealm {
@@ -111,7 +115,39 @@ impl HomeRealm {
         node: Arc<IndrasNode>,
         self_id: MemberId,
     ) -> Result<Self> {
-        Ok(Self { id, node, self_id })
+        let sync_registry = Arc::new(ArtifactSyncRegistry::new(node.clone(), self_id));
+        let home = Self { id, node, self_id, sync_registry };
+        home.reconcile_artifact_sync().await;
+        Ok(home)
+    }
+
+    /// Re-create sync interfaces for artifacts that have active grantees.
+    ///
+    /// Called on startup so that previously-shared artifacts resume syncing
+    /// without requiring an explicit `grant_access` call.
+    async fn reconcile_artifact_sync(&self) {
+        let doc = match self.artifact_index().await {
+            Ok(doc) => doc,
+            Err(e) => {
+                debug!(error = %e, "No artifact index yet, skipping sync reconciliation");
+                return;
+            }
+        };
+        let data = doc.read().await;
+        let mut count = 0u32;
+        for entry in data.active_artifacts() {
+            let has_grantees = entry.grants.iter().any(|g| !g.mode.is_expired(0));
+            if has_grantees {
+                if let Err(e) = self.sync_registry.reconcile(&entry.id, entry).await {
+                    warn!(artifact = %entry.id, error = %e, "Failed to reconcile artifact sync on startup");
+                } else {
+                    count += 1;
+                }
+            }
+        }
+        if count > 0 {
+            info!(count, "Reconciled artifact sync interfaces on startup");
+        }
     }
 
     /// Get the home realm ID.
@@ -158,7 +194,7 @@ impl HomeRealm {
     ) -> Result<ArtifactId> {
         // Compute BLAKE3 hash for artifact ID
         let hash = blake3::hash(&data);
-        let id: ArtifactId = *hash.as_bytes();
+        let id = ArtifactId::Blob(*hash.as_bytes());
 
         // Store in blob storage
         let _content_ref = self
@@ -169,7 +205,7 @@ impl HomeRealm {
             .map_err(|e| IndraError::Artifact(format!("Failed to store blob: {}", e)))?;
 
         debug!(
-            artifact_id = %hex::encode(&id[..8]),
+            artifact_id = %hex::encode(&id.bytes()[..8]),
             name = %metadata.name,
             size = metadata.size,
             "Stored artifact in home realm"
@@ -181,7 +217,7 @@ impl HomeRealm {
     /// Share a file from the filesystem.
     ///
     /// Convenience method that reads the file and shares it.
-    pub async fn share_file(&self, path: impl AsRef<Path>) -> Result<Artifact> {
+    pub async fn share_file(&self, path: impl AsRef<Path>) -> Result<ArtifactId> {
         let path = path.as_ref();
 
         // Read the file
@@ -217,19 +253,7 @@ impl HomeRealm {
             )
             .await?;
 
-        Ok(Artifact {
-            id,
-            name,
-            size,
-            mime_type,
-            sharer: Member::new(*self.node.identity()),
-            owner: self.node.identity().as_bytes().try_into().expect("identity bytes"),
-            shared_at: chrono::Utc::now(),
-            is_encrypted: false,
-            sharing_status: crate::artifact_sharing::SharingStatus::Shared,
-            parent: None,
-            children: Vec::new(),
-        })
+        Ok(id)
     }
 
     /// Get an artifact by ID.
@@ -237,7 +261,7 @@ impl HomeRealm {
     /// Retrieves the raw data for a previously shared artifact.
     pub async fn get_artifact(&self, id: &ArtifactId) -> Result<Vec<u8>> {
         // Create a content reference (we don't know the exact size, use 0 as placeholder)
-        let content_ref = ContentRef::new(*id, 0);
+        let content_ref = ContentRef::new(*id.bytes(), 0);
 
         let data = self
             .node
@@ -276,7 +300,7 @@ impl HomeRealm {
 
         // Compute BLAKE3 hash
         let hash = blake3::hash(&file_data);
-        let id: ArtifactId = *hash.as_bytes();
+        let id = ArtifactId::Blob(*hash.as_bytes());
 
         // Store blob
         let _content_ref = self
@@ -312,14 +336,13 @@ impl HomeRealm {
                 grants: Vec::new(),
                 provenance: None,
                 parent: None,
-                children: Vec::new(),
             };
             index.store(entry);
         })
         .await?;
 
         debug!(
-            artifact_id = %hex::encode(&id[..8]),
+            artifact_id = %hex::encode(&id.bytes()[..8]),
             "Uploaded artifact to home realm filesystem"
         );
 
@@ -342,7 +365,106 @@ impl HomeRealm {
             }
         })
         .await?;
+
+        // Reconcile sync interface after grant change
+        if result.is_ok() {
+            let data = doc.read().await;
+            if let Some(entry) = data.get(id) {
+                self.sync_registry.reconcile(id, entry).await?;
+            }
+        }
+
         result
+    }
+
+    /// Ensure a DM Story artifact exists in the index and both peers have access.
+    ///
+    /// Creates the artifact entry if it doesn't exist, then grants Permanent
+    /// access to the peer (the steward/self already has implicit access).
+    /// This is idempotent — calling it multiple times has no effect.
+    pub async fn ensure_dm_story(
+        &self,
+        artifact_id: &ArtifactId,
+        peer_id: MemberId,
+    ) -> Result<()> {
+        let doc = self.artifact_index().await?;
+        let artifact_id_copy = *artifact_id;
+
+        // Create the entry if it doesn't exist
+        doc.update(|index| {
+            if index.get(&artifact_id_copy).is_none() {
+                let entry = HomeArtifactEntry {
+                    id: artifact_id_copy,
+                    name: "DM".to_string(),
+                    mime_type: None,
+                    size: 0,
+                    created_at: 0,
+                    encrypted_key: None,
+                    status: ArtifactStatus::Active,
+                    grants: Vec::new(),
+                    provenance: None,
+                    parent: None,
+                };
+                index.store(entry);
+            }
+        })
+        .await?;
+
+        // Grant peer permanent access (triggers sync registry reconcile)
+        // Ignore AlreadyGranted errors
+        if let Err(e) = self.grant_access(artifact_id, peer_id, AccessMode::Permanent).await {
+            let err_str = format!("{}", e);
+            if !err_str.contains("AlreadyGranted") {
+                return Err(e);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Ensure a realm's Tree artifact exists in the index with self as grantee.
+    ///
+    /// Creates the artifact entry if it doesn't exist, then grants self
+    /// Permanent access (which triggers the sync registry to create/maintain
+    /// the NInterface). This is idempotent.
+    pub async fn ensure_realm_artifact(
+        &self,
+        artifact_id: &ArtifactId,
+        name: &str,
+    ) -> Result<()> {
+        let doc = self.artifact_index().await?;
+        let artifact_id_copy = *artifact_id;
+        let name = name.to_string();
+        let self_id = self.self_id;
+
+        doc.update(|index| {
+            if index.get(&artifact_id_copy).is_none() {
+                let entry = HomeArtifactEntry {
+                    id: artifact_id_copy,
+                    name,
+                    mime_type: None,
+                    size: 0,
+                    created_at: 0,
+                    encrypted_key: None,
+                    status: ArtifactStatus::Active,
+                    grants: Vec::new(),
+                    provenance: None,
+                    parent: None,
+                };
+                index.store(entry);
+            }
+        })
+        .await?;
+
+        // Grant self permanent access (triggers sync registry reconcile)
+        if let Err(e) = self.grant_access(artifact_id, self_id, AccessMode::Permanent).await {
+            let err_str = format!("{}", e);
+            if !err_str.contains("AlreadyGranted") {
+                return Err(e);
+            }
+        }
+
+        Ok(())
     }
 
     /// Revoke a member's access to an artifact.
@@ -360,6 +482,15 @@ impl HomeRealm {
             }
         })
         .await?;
+
+        // Reconcile sync interface after revoke
+        if result.is_ok() {
+            let data = doc.read().await;
+            if let Some(entry) = data.get(id) {
+                self.sync_registry.reconcile(id, entry).await?;
+            }
+        }
+
         result
     }
 
@@ -373,8 +504,14 @@ impl HomeRealm {
         .await?;
 
         if recalled {
-            let content_ref = indras_storage::ContentRef::new(*id, 0);
+            let content_ref = indras_storage::ContentRef::new(*id.bytes(), 0);
             let _ = self.node.storage().delete_blob(&content_ref).await;
+
+            // Reconcile sync interface after recall
+            let data = doc.read().await;
+            if let Some(entry) = data.get(id) {
+                self.sync_registry.reconcile(id, entry).await?;
+            }
         }
 
         Ok(recalled)
@@ -396,7 +533,15 @@ impl HomeRealm {
         })
         .await?;
 
-        transfer_result.map_err(|e| IndraError::Artifact(format!("Transfer failed: {}", e)))
+        let recipient_entry = transfer_result.map_err(|e| IndraError::Artifact(format!("Transfer failed: {}", e)))?;
+
+        // Reconcile sync interface after transfer (artifact now has different grants)
+        let data = doc.read().await;
+        if let Some(entry) = data.get(id) {
+            self.sync_registry.reconcile(id, entry).await?;
+        }
+
+        Ok(recipient_entry)
     }
 
     /// Get all artifacts shared with a specific member.
@@ -407,14 +552,13 @@ impl HomeRealm {
     }
 
     // ============================================================
-    // Holonic composition
+    // Tree composition
     // ============================================================
 
-    /// Compose existing artifacts under a parent holon.
+    /// Attach existing artifacts as children of a parent.
     ///
-    /// Groups the given child artifacts under the specified parent.
     /// All children must exist, be active, and have no existing parent.
-    pub async fn compose_artifact(
+    pub async fn attach_children(
         &self,
         parent_id: &ArtifactId,
         child_ids: &[ArtifactId],
@@ -424,34 +568,34 @@ impl HomeRealm {
         let child_ids = child_ids.to_vec();
         let mut result = Ok(());
         doc.update(|index| {
-            if let Err(e) = index.compose(&parent_id, &child_ids) {
-                result = Err(IndraError::Artifact(format!("Compose failed: {}", e)));
+            if let Err(e) = index.attach_children(&parent_id, &child_ids) {
+                result = Err(IndraError::Artifact(format!("Attach failed: {}", e)));
             }
         })
         .await?;
         result
     }
 
-    /// Decompose a holon — detach all children, making them top-level.
+    /// Detach all children from a parent, making them top-level.
     ///
     /// Inherited grants from the parent are materialized as explicit
     /// grants on each detached child.
-    pub async fn decompose_artifact(
+    pub async fn detach_all_children(
         &self,
         parent_id: &ArtifactId,
     ) -> Result<Vec<ArtifactId>> {
         let doc = self.artifact_index().await?;
         let parent_id = *parent_id;
-        let mut decompose_result: std::result::Result<Vec<ArtifactId>, crate::access::HolonicError> =
-            Err(crate::access::HolonicError::NotFound);
+        let mut decompose_result: std::result::Result<Vec<ArtifactId>, crate::access::TreeError> =
+            Err(crate::access::TreeError::NotFound);
         doc.update(|index| {
-            decompose_result = index.decompose(&parent_id);
+            decompose_result = index.detach_all_children(&parent_id);
         })
         .await?;
-        decompose_result.map_err(|e| IndraError::Artifact(format!("Decompose failed: {}", e)))
+        decompose_result.map_err(|e| IndraError::Artifact(format!("Detach failed: {}", e)))
     }
 
-    /// Attach a single artifact as child of an existing holon.
+    /// Attach a single artifact as a child of a parent.
     pub async fn attach_child(
         &self,
         parent_id: &ArtifactId,
@@ -470,7 +614,7 @@ impl HomeRealm {
         result
     }
 
-    /// Detach a child from a holon, making it top-level.
+    /// Detach a child from its parent, making it top-level.
     ///
     /// Inherited grants are materialized onto the detached child.
     pub async fn detach_child(
@@ -538,6 +682,7 @@ impl Clone for HomeRealm {
             id: self.id,
             node: Arc::clone(&self.node),
             self_id: self.self_id,
+            sync_registry: Arc::clone(&self.sync_registry),
         }
     }
 }
@@ -551,24 +696,6 @@ impl std::fmt::Debug for HomeRealm {
     }
 }
 
-/// Guess MIME type from file extension.
-fn guess_mime_type(ext: &str) -> String {
-    match ext.to_lowercase().as_str() {
-        // Images
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        "svg" => "image/svg+xml",
-        // Documents
-        "pdf" => "application/pdf",
-        "md" => "text/markdown",
-        "txt" => "text/plain",
-        // Default
-        _ => "application/octet-stream",
-    }
-    .to_string()
-}
 
 // Simple hex encoding for debug output
 mod hex {

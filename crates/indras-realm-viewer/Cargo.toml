@@ -13,10 +13,6 @@ path = "src/main.rs"
 name = "omni-viewer"
 path = "src/omni_main.rs"
 
-[[bin]]
-name = "omni-viewer-v2"
-path = "src/omni_v2_main.rs"
-
 [dependencies]
 indras-ui = { path = "../indras-ui" }
 dioxus = { version = "0.7", features = ["desktop"] }

@@ -4,12 +4,12 @@
 -- birthing a realm between them.
 --
 -- Flow:
--- 1. Alice and Bob both come online
--- 2. Alice broadcasts presence with her PQ keys
--- 3. Bob receives Alice's broadcast, learns about her
--- 4. Bob broadcasts presence with his PQ keys
--- 5. Alice receives Bob's broadcast, learns about him
--- 6. Realm {Alice, Bob} now implicitly exists
+-- 1. A and B both come online
+-- 2. A broadcasts presence with her PQ keys
+-- 3. B receives A's broadcast, learns about her
+-- 4. B broadcasts presence with his PQ keys
+-- 5. A receives B's broadcast, learns about him
+-- 6. Realm {A, B} now implicitly exists
 --
 -- This scenario validates the core mutual discovery mechanism with PQ keys.
 
@@ -37,7 +37,7 @@ local SCENARIO_CONFIG = {
 }
 local cfg = SCENARIO_CONFIG[discovery.get_level()] or SCENARIO_CONFIG.medium
 
--- Create mesh with just 2 peers (Alice and Bob)
+-- Create mesh with just 2 peers (A and B)
 local mesh = indras.MeshBuilder.new(2):full_mesh()
 local sim_config = indras.SimConfig.new({
     wake_probability = 0,
@@ -49,8 +49,8 @@ local sim = indras.Simulation.new(mesh, sim_config)
 sim:initialize()
 
 local peers = mesh:peers()
-local alice = peers[1]
-local bob = peers[2]
+local a = peers[1]
+local b = peers[2]
 
 -- Create discovery tracker and peer state
 local tracker = discovery.create_tracker(peers)
@@ -66,10 +66,10 @@ local phases = {
 }
 
 -- Discovery events
-local alice_broadcast_tick = nil
-local bob_broadcast_tick = nil
-local alice_discovered_bob_tick = nil
-local bob_discovered_alice_tick = nil
+local a_broadcast_tick = nil
+local b_broadcast_tick = nil
+local a_discovered_b_tick = nil
+local b_discovered_a_tick = nil
 
 -- ============================================================================
 -- PHASE 1: ONLINE (ticks 1-10)
@@ -85,34 +85,34 @@ for tick = 1, cfg.online_tick do
     sim:step()
 end
 
--- Bring Alice online
-peer_state:bring_online(alice, sim.tick)
-sim:force_online(alice)
+-- Bring A online
+peer_state:bring_online(a, sim.tick)
+sim:force_online(a)
 logger.event(discovery.EVENTS.PEER_ONLINE, {
     tick = sim.tick,
-    peer = tostring(alice),
-    kem_key_size = peer_state:get_pq_keys(alice).kem_encap_key_size,
-    dsa_key_size = peer_state:get_pq_keys(alice).dsa_verifying_key_size,
+    peer = tostring(a),
+    kem_key_size = peer_state:get_pq_keys(a).kem_encap_key_size,
+    dsa_key_size = peer_state:get_pq_keys(a).dsa_verifying_key_size,
 })
 
 sim:step()
 
--- Bring Bob online
-peer_state:bring_online(bob, sim.tick)
-sim:force_online(bob)
+-- Bring B online
+peer_state:bring_online(b, sim.tick)
+sim:force_online(b)
 logger.event(discovery.EVENTS.PEER_ONLINE, {
     tick = sim.tick,
-    peer = tostring(bob),
-    kem_key_size = peer_state:get_pq_keys(bob).kem_encap_key_size,
-    dsa_key_size = peer_state:get_pq_keys(bob).dsa_verifying_key_size,
+    peer = tostring(b),
+    kem_key_size = peer_state:get_pq_keys(b).kem_encap_key_size,
+    dsa_key_size = peer_state:get_pq_keys(b).dsa_verifying_key_size,
 })
 
 phases.online_complete = true
 logger.info("Phase 1 complete: Both peers online", {
     phase = 1,
     tick = sim.tick,
-    alice_online = peer_state:is_online(alice),
-    bob_online = peer_state:is_online(bob),
+    a_online = peer_state:is_online(a),
+    b_online = peer_state:is_online(b),
 })
 
 -- ============================================================================
@@ -130,80 +130,80 @@ for tick = sim.tick + 1, cfg.broadcast_tick do
     sim:step()
 end
 
--- Alice broadcasts presence
-alice_broadcast_tick = sim.tick
-local alice_keys = peer_state:get_pq_keys(alice)
+-- A broadcasts presence
+a_broadcast_tick = sim.tick
+local a_keys = peer_state:get_pq_keys(a)
 logger.event(discovery.EVENTS.PRESENCE_BROADCAST, {
     tick = sim.tick,
-    broadcaster = tostring(alice),
+    broadcaster = tostring(a),
     msg_type = discovery.MSG_TYPES.INTERFACE_JOIN,
-    kem_key_size = alice_keys.kem_encap_key_size,
-    dsa_key_size = alice_keys.dsa_verifying_key_size,
+    kem_key_size = a_keys.kem_encap_key_size,
+    dsa_key_size = a_keys.dsa_verifying_key_size,
 })
 
 sim:step()
 
--- Bob receives Alice's broadcast and discovers her
-peer_state:learn_peer(bob, alice, alice_keys)
-tracker:record_discovery(bob, alice, sim.tick)
-tracker:record_pq_keys(bob, alice, alice_keys.kem_encap_key_size, alice_keys.dsa_verifying_key_size)
-bob_discovered_alice_tick = sim.tick
+-- B receives A's broadcast and discovers her
+peer_state:learn_peer(b, a, a_keys)
+tracker:record_discovery(b, a, sim.tick)
+tracker:record_pq_keys(b, a, a_keys.kem_encap_key_size, a_keys.dsa_verifying_key_size)
+b_discovered_a_tick = sim.tick
 
 logger.event(discovery.EVENTS.PRESENCE_RECEIVED, {
     tick = sim.tick,
-    receiver = tostring(bob),
-    broadcaster = tostring(alice),
+    receiver = tostring(b),
+    broadcaster = tostring(a),
 })
 
 logger.event(discovery.EVENTS.PEER_DISCOVERED, {
     tick = sim.tick,
-    discoverer = tostring(bob),
-    discovered = tostring(alice),
-    pq_kem_key_size = alice_keys.kem_encap_key_size,
-    pq_dsa_key_size = alice_keys.dsa_verifying_key_size,
+    discoverer = tostring(b),
+    discovered = tostring(a),
+    pq_kem_key_size = a_keys.kem_encap_key_size,
+    pq_dsa_key_size = a_keys.dsa_verifying_key_size,
 })
 
 sim:step()
 
--- Bob broadcasts presence
-bob_broadcast_tick = sim.tick
-local bob_keys = peer_state:get_pq_keys(bob)
+-- B broadcasts presence
+b_broadcast_tick = sim.tick
+local b_keys = peer_state:get_pq_keys(b)
 logger.event(discovery.EVENTS.PRESENCE_BROADCAST, {
     tick = sim.tick,
-    broadcaster = tostring(bob),
+    broadcaster = tostring(b),
     msg_type = discovery.MSG_TYPES.INTERFACE_JOIN,
-    kem_key_size = bob_keys.kem_encap_key_size,
-    dsa_key_size = bob_keys.dsa_verifying_key_size,
+    kem_key_size = b_keys.kem_encap_key_size,
+    dsa_key_size = b_keys.dsa_verifying_key_size,
 })
 
 sim:step()
 
--- Alice receives Bob's broadcast and discovers him
-peer_state:learn_peer(alice, bob, bob_keys)
-tracker:record_discovery(alice, bob, sim.tick)
-tracker:record_pq_keys(alice, bob, bob_keys.kem_encap_key_size, bob_keys.dsa_verifying_key_size)
-alice_discovered_bob_tick = sim.tick
+-- A receives B's broadcast and discovers him
+peer_state:learn_peer(a, b, b_keys)
+tracker:record_discovery(a, b, sim.tick)
+tracker:record_pq_keys(a, b, b_keys.kem_encap_key_size, b_keys.dsa_verifying_key_size)
+a_discovered_b_tick = sim.tick
 
 logger.event(discovery.EVENTS.PRESENCE_RECEIVED, {
     tick = sim.tick,
-    receiver = tostring(alice),
-    broadcaster = tostring(bob),
+    receiver = tostring(a),
+    broadcaster = tostring(b),
 })
 
 logger.event(discovery.EVENTS.PEER_DISCOVERED, {
     tick = sim.tick,
-    discoverer = tostring(alice),
-    discovered = tostring(bob),
-    pq_kem_key_size = bob_keys.kem_encap_key_size,
-    pq_dsa_key_size = bob_keys.dsa_verifying_key_size,
+    discoverer = tostring(a),
+    discovered = tostring(b),
+    pq_kem_key_size = b_keys.kem_encap_key_size,
+    pq_dsa_key_size = b_keys.dsa_verifying_key_size,
 })
 
 phases.broadcast_complete = true
 logger.info("Phase 2 complete: Broadcasts exchanged", {
     phase = 2,
     tick = sim.tick,
-    alice_broadcast_tick = alice_broadcast_tick,
-    bob_broadcast_tick = bob_broadcast_tick,
+    a_broadcast_tick = a_broadcast_tick,
+    b_broadcast_tick = b_broadcast_tick,
 })
 
 -- ============================================================================
@@ -217,30 +217,30 @@ logger.info("Phase 3: Discovery verification", {
 })
 
 -- Check mutual discovery
-local alice_knows_bob = tracker:knows(alice, bob)
-local bob_knows_alice = tracker:knows(bob, alice)
-local alice_has_bob_keys = tracker:has_keys(alice, bob)
-local bob_has_alice_keys = tracker:has_keys(bob, alice)
+local a_knows_b = tracker:knows(a, b)
+local b_knows_a = tracker:knows(b, a)
+local a_has_b_keys = tracker:has_keys(a, b)
+local b_has_a_keys = tracker:has_keys(b, a)
 
-phases.discovery_complete = alice_knows_bob and bob_knows_alice
+phases.discovery_complete = a_knows_b and b_knows_a
 
 -- Calculate realm ID for the pair
-local realm_id = discovery.realm_id({alice, bob})
+local realm_id = discovery.realm_id({a, b})
 
 logger.event(discovery.EVENTS.REALM_AVAILABLE, {
     tick = sim.tick,
     realm_id = realm_id,
-    members = {tostring(alice), tostring(bob)},
+    members = {tostring(a), tostring(b)},
     member_count = 2,
 })
 
 logger.info("Phase 3 complete: Discovery state", {
     phase = 3,
     tick = sim.tick,
-    alice_knows_bob = alice_knows_bob,
-    bob_knows_alice = bob_knows_alice,
-    alice_has_bob_keys = alice_has_bob_keys,
-    bob_has_alice_keys = bob_has_alice_keys,
+    a_knows_b = a_knows_b,
+    b_knows_a = b_knows_a,
+    a_has_b_keys = a_has_b_keys,
+    b_has_a_keys = b_has_a_keys,
     realm_id = realm_id,
 })
 
@@ -262,46 +262,46 @@ end
 -- Calculate metrics
 local tracker_stats = tracker:stats()
 local discovery_latency = math.max(
-    alice_discovered_bob_tick - alice_broadcast_tick,
-    bob_discovered_alice_tick - bob_broadcast_tick
+    a_discovered_b_tick - a_broadcast_tick,
+    b_discovered_a_tick - b_broadcast_tick
 )
 
 -- Record metrics
 result:add_metrics({
-    alice_knows_bob = alice_knows_bob and 1 or 0,
-    bob_knows_alice = bob_knows_alice and 1 or 0,
-    alice_has_bob_keys = alice_has_bob_keys and 1 or 0,
-    bob_has_alice_keys = bob_has_alice_keys and 1 or 0,
+    a_knows_b = a_knows_b and 1 or 0,
+    b_knows_a = b_knows_a and 1 or 0,
+    a_has_b_keys = a_has_b_keys and 1 or 0,
+    b_has_a_keys = b_has_a_keys and 1 or 0,
     mutual_discovery_ticks = discovery_latency,
-    pq_key_exchange_complete = (alice_has_bob_keys and bob_has_alice_keys) and 1.0 or 0.0,
+    pq_key_exchange_complete = (a_has_b_keys and b_has_a_keys) and 1.0 or 0.0,
     discovery_completeness = tracker_stats.completeness,
     pq_completeness = tracker_stats.pq_completeness,
 })
 
 -- Assertions
-result:record_assertion("alice_knows_bob", alice_knows_bob, true, alice_knows_bob)
-result:record_assertion("bob_knows_alice", bob_knows_alice, true, bob_knows_alice)
-result:record_assertion("alice_has_bob_pq_keys", alice_has_bob_keys, true, alice_has_bob_keys)
-result:record_assertion("bob_has_alice_pq_keys", bob_has_alice_keys, true, bob_has_alice_keys)
+result:record_assertion("a_knows_b", a_knows_b, true, a_knows_b)
+result:record_assertion("b_knows_a", b_knows_a, true, b_knows_a)
+result:record_assertion("a_has_b_pq_keys", a_has_b_keys, true, a_has_b_keys)
+result:record_assertion("b_has_a_pq_keys", b_has_a_keys, true, b_has_a_keys)
 
 -- Validate PQ key sizes
-local alice_kem_size = peer_state:get_pq_keys(alice).kem_encap_key_size
-local alice_dsa_size = peer_state:get_pq_keys(alice).dsa_verifying_key_size
-local bob_kem_size = peer_state:get_pq_keys(bob).kem_encap_key_size
-local bob_dsa_size = peer_state:get_pq_keys(bob).dsa_verifying_key_size
+local a_kem_size = peer_state:get_pq_keys(a).kem_encap_key_size
+local a_dsa_size = peer_state:get_pq_keys(a).dsa_verifying_key_size
+local b_kem_size = peer_state:get_pq_keys(b).kem_encap_key_size
+local b_dsa_size = peer_state:get_pq_keys(b).dsa_verifying_key_size
 
-result:record_assertion("alice_kem_key_size",
-    alice_kem_size == discovery.PQ_KEYS.kem_encap_key,
-    discovery.PQ_KEYS.kem_encap_key, alice_kem_size)
-result:record_assertion("bob_kem_key_size",
-    bob_kem_size == discovery.PQ_KEYS.kem_encap_key,
-    discovery.PQ_KEYS.kem_encap_key, bob_kem_size)
-result:record_assertion("alice_dsa_key_size",
-    alice_dsa_size == discovery.PQ_KEYS.dsa_verifying_key,
-    discovery.PQ_KEYS.dsa_verifying_key, alice_dsa_size)
-result:record_assertion("bob_dsa_key_size",
-    bob_dsa_size == discovery.PQ_KEYS.dsa_verifying_key,
-    discovery.PQ_KEYS.dsa_verifying_key, bob_dsa_size)
+result:record_assertion("a_kem_key_size",
+    a_kem_size == discovery.PQ_KEYS.kem_encap_key,
+    discovery.PQ_KEYS.kem_encap_key, a_kem_size)
+result:record_assertion("b_kem_key_size",
+    b_kem_size == discovery.PQ_KEYS.kem_encap_key,
+    discovery.PQ_KEYS.kem_encap_key, b_kem_size)
+result:record_assertion("a_dsa_key_size",
+    a_dsa_size == discovery.PQ_KEYS.dsa_verifying_key,
+    discovery.PQ_KEYS.dsa_verifying_key, a_dsa_size)
+result:record_assertion("b_dsa_key_size",
+    b_dsa_size == discovery.PQ_KEYS.dsa_verifying_key,
+    discovery.PQ_KEYS.dsa_verifying_key, b_dsa_size)
 
 phases.verify_complete = true
 
@@ -316,23 +316,23 @@ logger.info("Two-peer discovery scenario completed", {
     level = final_result.level,
     duration_sec = final_result.duration_sec,
     final_tick = sim.tick,
-    alice_knows_bob = alice_knows_bob,
-    bob_knows_alice = bob_knows_alice,
-    alice_has_bob_keys = alice_has_bob_keys,
-    bob_has_alice_keys = bob_has_alice_keys,
+    a_knows_b = a_knows_b,
+    b_knows_a = b_knows_a,
+    a_has_b_keys = a_has_b_keys,
+    b_has_a_keys = b_has_a_keys,
     discovery_latency_ticks = discovery_latency,
     realm_id = realm_id,
 })
 
 -- Standard assertions
-indras.assert.eq(alice_knows_bob, true, "Alice should know Bob")
-indras.assert.eq(bob_knows_alice, true, "Bob should know Alice")
-indras.assert.eq(alice_has_bob_keys, true, "Alice should have Bob's PQ keys")
-indras.assert.eq(bob_has_alice_keys, true, "Bob should have Alice's PQ keys")
-indras.assert.eq(alice_kem_size, discovery.PQ_KEYS.kem_encap_key, "Alice KEM key size should be 1184")
-indras.assert.eq(bob_kem_size, discovery.PQ_KEYS.kem_encap_key, "Bob KEM key size should be 1184")
-indras.assert.eq(alice_dsa_size, discovery.PQ_KEYS.dsa_verifying_key, "Alice DSA key size should be 1952")
-indras.assert.eq(bob_dsa_size, discovery.PQ_KEYS.dsa_verifying_key, "Bob DSA key size should be 1952")
+indras.assert.eq(a_knows_b, true, "A should know B")
+indras.assert.eq(b_knows_a, true, "B should know A")
+indras.assert.eq(a_has_b_keys, true, "A should have B's PQ keys")
+indras.assert.eq(b_has_a_keys, true, "B should have A's PQ keys")
+indras.assert.eq(a_kem_size, discovery.PQ_KEYS.kem_encap_key, "A KEM key size should be 1184")
+indras.assert.eq(b_kem_size, discovery.PQ_KEYS.kem_encap_key, "B KEM key size should be 1184")
+indras.assert.eq(a_dsa_size, discovery.PQ_KEYS.dsa_verifying_key, "A DSA key size should be 1952")
+indras.assert.eq(b_dsa_size, discovery.PQ_KEYS.dsa_verifying_key, "B DSA key size should be 1952")
 
 logger.info("Two-peer discovery scenario passed", {
     realm_id = realm_id,

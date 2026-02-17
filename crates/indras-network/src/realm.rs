@@ -3,19 +3,19 @@
 //! A Realm wraps an N-peer interface and provides a high-level API
 //! for messaging, documents, and artifact sharing.
 
-use crate::artifact::{Artifact, ArtifactDownload, ArtifactId, DownloadProgress};
+use crate::artifact::{ArtifactDownload, ArtifactId, DownloadProgress};
 use crate::document::Document;
 use crate::error::{IndraError, Result};
 use crate::invite::InviteCode;
 use crate::member::{Member, MemberEvent, MemberId, MemberInfo};
-use crate::message::{ArtifactRef, Content, Message, MessageId, MessagePayload};
+use crate::message::{Content, ContentReference, Message, MessageId, MessagePayload};
 use crate::network::RealmId;
 use crate::access::AccessMode;
 use crate::artifact_index::HomeArtifactEntry;
 use crate::home_realm::HomeRealm;
 use crate::stream::broadcast_to_stream;
+use crate::util::guess_mime_type;
 
-use chrono::Utc;
 use futures::Stream;
 use indras_core::{InterfaceEvent, MembershipChange, PeerIdentity};
 use indras_node::{IndrasNode, ReceivedEvent};
@@ -52,6 +52,8 @@ pub struct Realm {
     id: RealmId,
     /// Human-readable name.
     name: Option<String>,
+    /// The artifact ID this realm corresponds to (if known).
+    artifact_id: Option<ArtifactId>,
     /// The invite code for this realm.
     invite: Option<InviteCode>,
     /// Reference to the underlying node.
@@ -63,22 +65,25 @@ impl Realm {
     pub(crate) fn new(
         id: RealmId,
         name: Option<String>,
+        artifact_id: Option<ArtifactId>,
         invite: InviteCode,
         node: Arc<IndrasNode>,
     ) -> Self {
         Self {
             id,
             name,
+            artifact_id,
             invite: Some(invite),
             node,
         }
     }
 
     /// Create a realm from just an ID (used when loading existing realms).
-    pub(crate) fn from_id(id: RealmId, name: Option<String>, node: Arc<IndrasNode>) -> Self {
+    pub(crate) fn from_id(id: RealmId, name: Option<String>, artifact_id: Option<ArtifactId>, node: Arc<IndrasNode>) -> Self {
         Self {
             id,
             name,
+            artifact_id,
             invite: None,
             node,
         }
@@ -96,6 +101,11 @@ impl Realm {
     /// Get the realm's human-readable name.
     pub fn name(&self) -> Option<&str> {
         self.name.as_deref()
+    }
+
+    /// Get the artifact ID for this realm (if known).
+    pub fn artifact_id(&self) -> Option<&ArtifactId> {
+        self.artifact_id.as_ref()
     }
 
     /// Get the invite code for this realm.
@@ -682,10 +692,10 @@ impl Realm {
     /// # Example
     ///
     /// ```ignore
-    /// let artifact = realm.share_artifact("./document.pdf").await?;
-    /// println!("Shared: {} ({} bytes)", artifact.name, artifact.size);
+    /// let artifact_id = realm.share_artifact("./document.pdf").await?;
+    /// println!("Shared artifact: {:?}", artifact_id);
     /// ```
-    pub async fn share_artifact(&self, path: impl AsRef<Path>) -> Result<Artifact> {
+    pub async fn share_artifact(&self, path: impl AsRef<Path>) -> Result<ArtifactId> {
         let path = path.as_ref();
 
         // Read the file
@@ -702,7 +712,7 @@ impl Realm {
 
         // Compute BLAKE3 hash for artifact ID
         let hash = blake3::hash(&file_data);
-        let id: ArtifactId = *hash.as_bytes();
+        let id = ArtifactId::Blob(*hash.as_bytes());
 
         // Get file size
         let size = file_data.len() as u64;
@@ -724,14 +734,12 @@ impl Realm {
             .map_err(|e| IndraError::Artifact(format!("Failed to store blob: {}", e)))?;
 
         debug!(
-            artifact_id = %hex::encode(&id[..8]),
+            artifact_id = %hex::encode(&id.bytes()[..8]),
             name = %name,
             size = size,
             "Stored artifact in blob storage"
         );
 
-        // Get our identity for the sharer field
-        let sharer = Member::new(*self.node.identity());
 
         // Create artifact metadata for broadcasting (legacy Custom event format)
         #[derive(Serialize)]
@@ -770,23 +778,7 @@ impl Realm {
             .map_err(|e| IndraError::Artifact(format!("Failed to serialize event: {}", e)))?;
         let _ = self.node.send_message(&self.id, event_bytes).await;
 
-        // Create and return the Artifact
-        let owner = sharer.id();
-        let artifact = Artifact {
-            id,
-            name,
-            size,
-            mime_type,
-            sharer,
-            owner,
-            shared_at: Utc::now(),
-            is_encrypted: false,
-            sharing_status: crate::artifact_sharing::SharingStatus::Shared,
-            parent: None,
-            children: Vec::new(),
-        };
-
-        Ok(artifact)
+        Ok(id)
     }
 
     /// Share a file as an artifact with a specific access mode.
@@ -797,8 +789,8 @@ impl Realm {
         &self,
         path: impl AsRef<Path>,
         home: &HomeRealm,
-        mode: AccessMode,
-    ) -> Result<Artifact> {
+        _mode: AccessMode,
+    ) -> Result<ArtifactId> {
         let path = path.as_ref();
 
         // Upload to home realm
@@ -822,29 +814,15 @@ impl Realm {
             .and_then(|ext| ext.to_str())
             .map(|ext| guess_mime_type(ext));
 
-        self.send(Content::Artifact(ArtifactRef {
+        self.send(Content::Artifact(ContentReference {
             name: name.clone(),
             size,
-            hash: id,
+            hash: *id.bytes(),
             mime_type: mime_type.clone(),
         }))
         .await?;
 
-        let sharer = Member::new(*self.node.identity());
-        let owner = sharer.id();
-        Ok(Artifact {
-            id,
-            name,
-            size,
-            mime_type,
-            sharer,
-            owner,
-            shared_at: Utc::now(),
-            is_encrypted: matches!(mode, AccessMode::Revocable),
-            sharing_status: crate::artifact_sharing::SharingStatus::Shared,
-            parent: None,
-            children: Vec::new(),
-        })
+        Ok(id)
     }
 
     /// Share a file with per-person access mode specification.
@@ -853,7 +831,7 @@ impl Realm {
         path: impl AsRef<Path>,
         home: &HomeRealm,
         grants: Vec<(MemberId, AccessMode)>,
-    ) -> Result<Artifact> {
+    ) -> Result<ArtifactId> {
         let path = path.as_ref();
 
         // Upload to home realm
@@ -878,215 +856,15 @@ impl Realm {
             .and_then(|ext| ext.to_str())
             .map(|ext| guess_mime_type(ext));
 
-        self.send(Content::Artifact(ArtifactRef {
+        self.send(Content::Artifact(ContentReference {
             name: name.clone(),
             size,
-            hash: id,
+            hash: *id.bytes(),
             mime_type: mime_type.clone(),
         }))
         .await?;
 
-        let sharer = Member::new(*self.node.identity());
-        let owner = sharer.id();
-        Ok(Artifact {
-            id,
-            name,
-            size,
-            mime_type,
-            sharer,
-            owner,
-            shared_at: Utc::now(),
-            is_encrypted: false,
-            sharing_status: crate::artifact_sharing::SharingStatus::Shared,
-            parent: None,
-            children: Vec::new(),
-        })
-    }
-
-    /// Get the artifact key registry document for this realm.
-    ///
-    /// The key registry stores the mapping from artifact hashes to
-    /// encryption keys, enabling revocable artifact sharing.
-    pub async fn artifact_key_registry(
-        &self,
-    ) -> Result<Document<crate::artifact_sharing::ArtifactKeyRegistry>> {
-        self.document("artifact_key_registry").await
-    }
-
-    /// Share a file as an artifact with revocation support.
-    ///
-    /// **Deprecated**: Use `share_artifact_with_mode(path, home, AccessMode::Revocable)` instead.
-    /// This is kept for backward compatibility during migration.
-    pub async fn share_artifact_revocable(
-        &self,
-        path: impl AsRef<Path>,
-    ) -> Result<crate::artifact_sharing::SharedArtifact> {
-        use crate::artifact_sharing::{EncryptedArtifactKey, SharedArtifact, SharingStatus};
-
-        let path = path.as_ref();
-
-        let file_data = tokio::fs::read(path)
-            .await
-            .map_err(|e| IndraError::Artifact(format!("Failed to read file: {}", e)))?;
-
-        let name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unnamed")
-            .to_string();
-
-        let mime_type = path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .map(|ext| guess_mime_type(ext));
-
-        let artifact_key = indras_crypto::generate_artifact_key();
-        let encrypted = indras_crypto::encrypt_artifact(&file_data, &artifact_key)
-            .map_err(|e| IndraError::Artifact(format!("Failed to encrypt artifact: {}", e)))?;
-        let encrypted_bytes = encrypted.to_bytes();
-        let hash = blake3::hash(&encrypted_bytes);
-        let artifact_hash: [u8; 32] = *hash.as_bytes();
-        let size = encrypted_bytes.len() as u64;
-
-        let _content_ref = self
-            .node
-            .storage()
-            .store_blob(&encrypted_bytes)
-            .await
-            .map_err(|e| IndraError::Artifact(format!("Failed to store encrypted blob: {}", e)))?;
-
-        let sharer_id = self.node.identity();
-        let sharer_hex = hex::encode(&sharer_id.as_bytes());
-        let shared_at = chrono::Utc::now().timestamp_millis() as u64;
-
-        let shared_artifact = SharedArtifact {
-            hash: artifact_hash,
-            name: name.clone(),
-            size,
-            mime_type: mime_type.clone(),
-            sharer: sharer_hex.clone(),
-            shared_at,
-            status: SharingStatus::Shared,
-        };
-
-        let encrypted_key = EncryptedArtifactKey {
-            nonce: [0u8; 12],
-            ciphertext: artifact_key.to_vec(),
-        };
-
-        let registry = self.document::<crate::artifact_sharing::ArtifactKeyRegistry>("artifact_key_registry").await?;
-        registry
-            .update(|r| {
-                r.store(shared_artifact.clone(), encrypted_key);
-            })
-            .await?;
-
-        self.send(Content::Artifact(ArtifactRef {
-            name: name.clone(),
-            size,
-            hash: artifact_hash,
-            mime_type: mime_type.clone(),
-        }))
-        .await?;
-
-        Ok(shared_artifact)
-    }
-
-    /// Recall a previously shared artifact.
-    ///
-    /// This revokes access to the artifact by:
-    /// 1. Removing the decryption key from the registry
-    /// 2. Deleting the encrypted blob from local storage
-    /// 3. Broadcasting a recall event to all members
-    /// 4. Adding a tombstone message to chat
-    ///
-    /// Only the original sharer can recall an artifact.
-    ///
-    /// # Arguments
-    ///
-    /// * `artifact_hash` - The hash of the artifact to recall
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// realm.recall_artifact(&artifact.hash).await?;
-    /// // The artifact is now inaccessible to all members
-    /// ```
-    pub async fn recall_artifact(&self, artifact_hash: &[u8; 32]) -> Result<()> {
-        use crate::artifact_sharing::RevocationEntry;
-        use crate::member::MemberId;
-
-        // Get our identity
-        let our_id = self.node.identity();
-        let our_id_hex = hex::encode(&our_id.as_bytes());
-
-        // Get the key registry
-        let registry = self.artifact_key_registry().await?;
-
-        // Check if we can revoke (must be the original sharer)
-        {
-            let guard = registry.read().await;
-            if !guard.can_revoke(artifact_hash, &our_id_hex) {
-                return Err(IndraError::InvalidOperation(
-                    "Cannot recall: either artifact doesn't exist, already recalled, or you're not the original sharer".into(),
-                ));
-            }
-        }
-
-        // Get artifact info for the tombstone before revoking
-        let (shared_at, sharer) = {
-            let guard = registry.read().await;
-            let artifact = guard.get_artifact(artifact_hash).ok_or_else(|| {
-                IndraError::InvalidOperation("Artifact not found in registry".into())
-            })?;
-            (artifact.shared_at, artifact.sharer.clone())
-        };
-
-        // Get current tick
-        let recalled_at = chrono::Utc::now().timestamp_millis() as u64;
-
-        // Create revocation entry
-        let entry = RevocationEntry::new(*artifact_hash, our_id_hex.clone(), recalled_at);
-
-        // Revoke in registry (removes key and updates artifact status)
-        registry
-            .update(|r| {
-                r.revoke(entry);
-            })
-            .await?;
-
-        // Delete the encrypted blob from local storage
-        let content_ref = indras_storage::ContentRef::new(*artifact_hash, 0);
-        let _ = self.node.storage().blob_store().delete(&content_ref).await;
-
-        // Post tombstone to chat
-        // Decode sharer hex string back to member ID bytes
-        let sharer_bytes = hex::decode(&sharer).unwrap_or_else(|_| Vec::new());
-        let mut sharer_member_id: MemberId = [0u8; 32];
-        if sharer_bytes.len() == 32 {
-            sharer_member_id.copy_from_slice(&sharer_bytes);
-        }
-        self.send(Content::ArtifactRecalled {
-            artifact_hash: *artifact_hash,
-            sharer: sharer_member_id,
-            shared_at,
-            recalled_at,
-        })
-        .await?;
-
-        debug!(
-            artifact_hash = %hex::encode(&artifact_hash[..8]),
-            "Artifact recalled successfully"
-        );
-
-        Ok(())
-    }
-
-    /// Check if an artifact has been recalled.
-    pub async fn is_artifact_recalled(&self, artifact_hash: &[u8; 32]) -> Result<bool> {
-        let registry = self.artifact_key_registry().await?;
-        let guard = registry.read().await;
-        Ok(guard.is_revoked(artifact_hash))
+        Ok(id)
     }
 
     /// Query artifacts visible in this realm context.
@@ -1128,12 +906,12 @@ impl Realm {
     /// // Get the downloaded file path
     /// let path = download.finish().await?;
     /// ```
-    pub async fn download(&self, artifact: &Artifact) -> Result<ArtifactDownload> {
+    pub async fn download(&self, artifact_id: &ArtifactId, name: &str, size: u64) -> Result<ArtifactDownload> {
         // Create a content reference from the artifact ID
-        let content_ref = ContentRef::new(artifact.id, artifact.size);
+        let content_ref = ContentRef::new(*artifact_id.bytes(), size);
 
         // Determine destination path (use temp directory with artifact name)
-        let destination = std::env::temp_dir().join(&artifact.name);
+        let destination = std::env::temp_dir().join(name);
 
         // Fetch the blob from storage (this is local storage, so it's fast)
         let data = self
@@ -1150,12 +928,12 @@ impl Realm {
 
         // Create progress channel showing completion
         let (_progress_tx, progress_rx) = watch::channel(DownloadProgress {
-            bytes_downloaded: artifact.size,
-            total_bytes: artifact.size,
+            bytes_downloaded: size,
+            total_bytes: size,
         });
 
         // Create the download handle (already complete)
-        let (download, _cancel_rx) = ArtifactDownload::new(artifact.clone(), progress_rx, destination);
+        let (download, _cancel_rx) = ArtifactDownload::new(*artifact_id, name.to_string(), progress_rx, destination);
 
         Ok(download)
     }
@@ -1183,6 +961,7 @@ impl Clone for Realm {
         Self {
             id: self.id,
             name: self.name.clone(),
+            artifact_id: self.artifact_id.clone(),
             invite: self.invite.clone(),
             node: Arc::clone(&self.node),
         }
@@ -1286,91 +1065,11 @@ fn convert_event_to_member_event(event: ReceivedEvent) -> Option<MemberEvent> {
     }
 }
 
-/// Guess MIME type from file extension.
-fn guess_mime_type(ext: &str) -> String {
-    match ext.to_lowercase().as_str() {
-        // Text
-        "txt" => "text/plain",
-        "html" | "htm" => "text/html",
-        "css" => "text/css",
-        "js" => "text/javascript",
-        "json" => "application/json",
-        "xml" => "application/xml",
-        "csv" => "text/csv",
-        "md" => "text/markdown",
-        // Images
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        "svg" => "image/svg+xml",
-        "ico" => "image/x-icon",
-        "bmp" => "image/bmp",
-        // Audio
-        "mp3" => "audio/mpeg",
-        "wav" => "audio/wav",
-        "ogg" => "audio/ogg",
-        "flac" => "audio/flac",
-        "aac" => "audio/aac",
-        // Video
-        "mp4" => "video/mp4",
-        "webm" => "video/webm",
-        "avi" => "video/x-msvideo",
-        "mov" => "video/quicktime",
-        "mkv" => "video/x-matroska",
-        // Documents
-        "pdf" => "application/pdf",
-        "doc" => "application/msword",
-        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "xls" => "application/vnd.ms-excel",
-        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "ppt" => "application/vnd.ms-powerpoint",
-        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        // Archives
-        "zip" => "application/zip",
-        "tar" => "application/x-tar",
-        "gz" | "gzip" => "application/gzip",
-        "rar" => "application/vnd.rar",
-        "7z" => "application/x-7z-compressed",
-        // Code
-        "rs" => "text/x-rust",
-        "py" => "text/x-python",
-        "go" => "text/x-go",
-        "java" => "text/x-java",
-        "c" => "text/x-c",
-        "cpp" | "cc" | "cxx" => "text/x-c++",
-        "h" | "hpp" => "text/x-c-header",
-        "sh" => "application/x-sh",
-        "toml" => "application/toml",
-        "yaml" | "yml" => "application/x-yaml",
-        // Fonts
-        "woff" => "font/woff",
-        "woff2" => "font/woff2",
-        "ttf" => "font/ttf",
-        "otf" => "font/otf",
-        // Default
-        _ => "application/octet-stream",
-    }
-    .to_string()
-}
 
-// Simple hex encoding/decoding for debug output
+// Simple hex encoding for debug output
 mod hex {
     pub fn encode(bytes: &[u8]) -> String {
         bytes.iter().map(|b| format!("{:02x}", b)).collect()
-    }
-
-    pub fn decode(hex: &str) -> Result<Vec<u8>, ()> {
-        if hex.len() % 2 != 0 {
-            return Err(());
-        }
-
-        (0..hex.len())
-            .step_by(2)
-            .map(|i| {
-                u8::from_str_radix(&hex[i..i + 2], 16).map_err(|_| ())
-            })
-            .collect()
     }
 }
 

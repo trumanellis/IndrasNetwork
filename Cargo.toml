@@ -22,7 +22,6 @@ members = [
     "crates/indras-ui",
     "crates/indras-genesis",
     "crates/indras-artifacts",
-    "crates/indras-fuse",
     "crates/indras-workspace",
     "simulation",
     "examples/chat-app",
@@ -52,10 +51,14 @@ indras-logging = { path = "crates/indras-logging" }
 indras-node = { path = "crates/indras-node" }
 indras-network = { path = "crates/indras-network" }
 indras-sync-engine = { path = "crates/indras-sync-engine" }
+indras-artifacts = { path = "crates/indras-artifacts" }
 
 # Core iroh stack
 iroh = "0.95"
 iroh-gossip = "0.95"
+
+# CRDT for synced peer interfaces
+automerge = "0.7"
 
 # Async runtime
 tokio = { version = "1.47", features = ["full", "sync", "time", "macros", "rt-multi-thread"] }

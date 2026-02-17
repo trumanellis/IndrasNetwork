@@ -570,7 +570,7 @@ mod tests {
         assert_eq!(quest.claim_count(), 1);
 
         // Submit second claim (multiple claims allowed)
-        let claim_idx2 = quest.submit_claim(third_member_id(), Some([42u8; 32])).unwrap();
+        let claim_idx2 = quest.submit_claim(third_member_id(), Some(ArtifactId::Blob([42u8; 32]))).unwrap();
         assert_eq!(claim_idx2, 1);
         assert_eq!(quest.claim_count(), 2);
 
@@ -585,7 +585,7 @@ mod tests {
         let mut quest = Quest::new("Test quest", "Do something", None, test_member_id());
 
         quest.submit_claim(another_member_id(), None).unwrap();
-        quest.submit_claim(third_member_id(), Some([42u8; 32])).unwrap();
+        quest.submit_claim(third_member_id(), Some(ArtifactId::Blob([42u8; 32]))).unwrap();
 
         // Verify first claim
         assert!(quest.verify_claim(0).is_ok());
@@ -623,7 +623,7 @@ mod tests {
 
     #[test]
     fn test_quest_claim_struct() {
-        let claim = QuestClaim::new(another_member_id(), Some([42u8; 32]));
+        let claim = QuestClaim::new(another_member_id(), Some(ArtifactId::Blob([42u8; 32])));
         assert!(!claim.is_verified());
         assert!(claim.verified_at_millis.is_none());
         assert!(claim.proof.is_some());

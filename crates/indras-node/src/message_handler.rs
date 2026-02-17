@@ -156,9 +156,9 @@ impl InterfaceEventMessage {
 pub struct InterfaceSyncRequest {
     /// The interface to sync
     pub interface_id: InterfaceId,
-    /// Our current state vector (sync encoded)
+    /// Reserved (unused with Automerge sync protocol, kept for wire compat)
     pub state_vector: Vec<u8>,
-    /// Sync data (sync update bytes)
+    /// Automerge sync message bytes
     pub sync_data: Vec<u8>,
 }
 
@@ -167,9 +167,9 @@ pub struct InterfaceSyncRequest {
 pub struct InterfaceSyncResponse {
     /// The interface this sync is for
     pub interface_id: InterfaceId,
-    /// Response sync data
+    /// Automerge sync message bytes
     pub sync_data: Vec<u8>,
-    /// Updated state vector after sync (sync encoded)
+    /// Reserved (unused with Automerge sync protocol, kept for wire compat)
     pub state_vector: Vec<u8>,
 }
 
@@ -444,6 +444,10 @@ impl MessageHandler {
             // Ensure sender is tracked as a member so generate_sync produces correct diff
             let _ = interface.add_member(sender);
 
+            // Persist the member to storage so they survive node restart
+            let _ = self.storage.register_peer(&sender, None);
+            let _ = self.storage.add_member(&msg.interface_id, &sender);
+
             // Generate sync response containing state the sender is missing
             interface.generate_sync(&sender)
         };
@@ -532,6 +536,11 @@ impl MessageHandler {
                 .merge_sync(sync_msg)
                 .await
                 .map_err(|e| MessageError::SyncFailed(e.to_string()))?;
+
+            // Track sender as a member (in-memory + storage) so sync_task can reach them
+            let _ = interface.add_member(sender);
+            let _ = self.storage.register_peer(&sender, None);
+            let _ = self.storage.add_member(&msg.interface_id, &sender);
         }
 
         debug!(

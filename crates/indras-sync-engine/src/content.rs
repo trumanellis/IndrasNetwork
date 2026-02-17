@@ -7,7 +7,7 @@ use crate::proof_folder::ProofFolderId;
 use crate::quest::QuestId;
 use crate::token_of_gratitude::TokenOfGratitudeId;
 use indras_network::member::MemberId;
-use indras_network::message::{ArtifactRef, Content};
+use indras_network::message::{ContentReference, Content};
 use serde::{Deserialize, Serialize};
 
 /// The type identifier used in `Content::Extension` for SyncEngine content.
@@ -24,7 +24,7 @@ pub enum SyncContent {
     ProofSubmitted {
         quest_id: QuestId,
         claimant: MemberId,
-        artifact: ArtifactRef,
+        artifact: ContentReference,
     },
 
     /// Blessing given to a quest proof.

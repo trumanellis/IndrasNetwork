@@ -1,141 +1,12 @@
 //! Per-artifact access control primitives.
 //!
-//! Defines fine-grained access modes for artifacts in the shared filesystem.
-//! Each artifact can have multiple grants with different modes per person:
-//!
-//! - **Revocable**: View-only access that can be revoked by the owner
-//! - **Permanent**: Co-ownership with download and reshare rights
-//! - **Timed**: Auto-expiring access after a deadline
-//! - **Transfer**: Full ownership transfer to another person
+//! Re-exports core access types from `indras_artifacts` and defines
+//! network-specific error types for grant/revoke/transfer/tree operations.
 
-use crate::member::MemberId;
-use serde::{Deserialize, Serialize};
-
-/// How a grantee may interact with an artifact.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum AccessMode {
-    /// View-only; owner can revoke at any time.
-    Revocable,
-    /// Co-ownership: download, reshare, and cannot be revoked.
-    Permanent,
-    /// Auto-expires after `expires_at` tick.
-    Timed {
-        /// Tick timestamp when access expires.
-        expires_at: u64,
-    },
-    /// Full ownership transfer (one-shot).
-    Transfer,
-}
-
-impl AccessMode {
-    /// Whether this mode permits downloading (saving a local copy).
-    ///
-    /// Only `Permanent` grants allow downloads. Revocable and Timed
-    /// grants are view-only with soft-enforced download restrictions.
-    pub fn allows_download(&self) -> bool {
-        matches!(self, Self::Permanent)
-    }
-
-    /// Whether this mode permits re-sharing to others.
-    ///
-    /// Only `Permanent` co-owners may reshare artifacts.
-    pub fn allows_reshare(&self) -> bool {
-        matches!(self, Self::Permanent)
-    }
-
-    /// Whether a `Timed` grant has expired.
-    ///
-    /// Returns `false` for non-Timed modes (they never expire this way).
-    pub fn is_expired(&self, now: u64) -> bool {
-        match self {
-            Self::Timed { expires_at } => now >= *expires_at,
-            _ => false,
-        }
-    }
-
-    /// Human-readable label for UI display.
-    pub fn label(&self) -> &'static str {
-        match self {
-            Self::Revocable => "revocable",
-            Self::Permanent => "permanent",
-            Self::Timed { .. } => "timed",
-            Self::Transfer => "transfer",
-        }
-    }
-}
-
-impl Default for AccessMode {
-    fn default() -> Self {
-        Self::Revocable
-    }
-}
-
-/// A single access grant from an owner to a grantee.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AccessGrant {
-    /// Who receives access.
-    pub grantee: MemberId,
-    /// What kind of access.
-    pub mode: AccessMode,
-    /// When the grant was created (tick timestamp).
-    pub granted_at: u64,
-    /// Who created the grant (usually the artifact owner).
-    pub granted_by: MemberId,
-}
-
-/// Lifecycle status of an artifact in the owner's index.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ArtifactStatus {
-    /// Available for access according to grants.
-    Active,
-    /// Recalled by the owner — revocable/timed grants removed.
-    Recalled {
-        /// When the recall happened.
-        recalled_at: u64,
-    },
-    /// Ownership transferred to another member.
-    Transferred {
-        /// New owner.
-        to: MemberId,
-        /// When the transfer happened.
-        transferred_at: u64,
-    },
-}
-
-impl Default for ArtifactStatus {
-    fn default() -> Self {
-        Self::Active
-    }
-}
-
-impl ArtifactStatus {
-    /// Whether the artifact is currently active (not recalled or transferred).
-    pub fn is_active(&self) -> bool {
-        matches!(self, Self::Active)
-    }
-}
-
-/// How the current holder received the artifact.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ArtifactProvenance {
-    /// The original creator/uploader of the artifact.
-    pub original_owner: MemberId,
-    /// Who gave us this copy (may equal original_owner).
-    pub received_from: MemberId,
-    /// When we received it (tick timestamp).
-    pub received_at: u64,
-    /// How we received it.
-    pub received_via: ProvenanceType,
-}
-
-/// How an artifact was received.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ProvenanceType {
-    /// Received as a co-owner (Permanent grant).
-    CoOwnership,
-    /// Received via ownership transfer.
-    Transfer,
-}
+// Re-export canonical types from indras-artifacts
+pub use indras_artifacts::{
+    AccessGrant, AccessMode, ArtifactProvenance, ArtifactStatus, ProvenanceType,
+};
 
 /// Errors when granting access.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -195,9 +66,20 @@ pub enum TransferError {
     NotActive,
 }
 
-/// Errors when performing holonic operations (compose, attach, detach).
+impl std::fmt::Display for TransferError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotFound => write!(f, "artifact not found"),
+            Self::NotActive => write!(f, "artifact is not active"),
+        }
+    }
+}
+
+impl std::error::Error for TransferError {}
+
+/// Errors when performing tree operations (attach, detach).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum HolonicError {
+pub enum TreeError {
     /// Artifact not found in the index.
     NotFound,
     /// Artifact is not in Active status.
@@ -210,18 +92,7 @@ pub enum HolonicError {
     NotAChild,
 }
 
-impl std::fmt::Display for TransferError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::NotFound => write!(f, "artifact not found"),
-            Self::NotActive => write!(f, "artifact is not active"),
-        }
-    }
-}
-
-impl std::error::Error for TransferError {}
-
-impl std::fmt::Display for HolonicError {
+impl std::fmt::Display for TreeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NotFound => write!(f, "artifact not found"),
@@ -233,7 +104,7 @@ impl std::fmt::Display for HolonicError {
     }
 }
 
-impl std::error::Error for HolonicError {}
+impl std::error::Error for TreeError {}
 
 #[cfg(test)]
 mod tests {
@@ -329,11 +200,11 @@ mod tests {
     }
 
     #[test]
-    fn test_holonic_error_display() {
-        assert_eq!(HolonicError::NotFound.to_string(), "artifact not found");
-        assert_eq!(HolonicError::NotActive.to_string(), "artifact is not active");
-        assert_eq!(HolonicError::CycleDetected.to_string(), "operation would create a cycle");
-        assert_eq!(HolonicError::AlreadyHasParent.to_string(), "artifact already has a parent");
-        assert_eq!(HolonicError::NotAChild.to_string(), "artifact is not a child of the specified parent");
+    fn test_tree_error_display() {
+        assert_eq!(TreeError::NotFound.to_string(), "artifact not found");
+        assert_eq!(TreeError::NotActive.to_string(), "artifact is not active");
+        assert_eq!(TreeError::CycleDetected.to_string(), "operation would create a cycle");
+        assert_eq!(TreeError::AlreadyHasParent.to_string(), "artifact already has a parent");
+        assert_eq!(TreeError::NotAChild.to_string(), "artifact is not a child of the specified parent");
     }
 }

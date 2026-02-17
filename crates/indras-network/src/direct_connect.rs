@@ -83,43 +83,6 @@ impl ConnectionNotify {
 /// Default key exchange expiry: 7 days in milliseconds.
 const KEY_EXCHANGE_EXPIRY_MS: u64 = 7 * 24 * 60 * 60 * 1000;
 
-/// Deterministic key seed for a DM realm between two members.
-///
-/// Both peers independently compute the same seed (and thus the same
-/// `InterfaceKey`) because the inputs are sorted. Anyone who knows both
-/// MemberIds can derive this — content confidentiality for DMs should
-/// eventually use a higher-level protocol (e.g., Double Ratchet).
-pub fn dm_key_seed(a: &MemberId, b: &MemberId) -> [u8; 32] {
-    let (first, second) = if a <= b { (a, b) } else { (b, a) };
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(b"dm-key-v1:");
-    hasher.update(first);
-    hasher.update(second);
-    *hasher.finalize().as_bytes()
-}
-
-/// Derive a deterministic DM realm ID from two member IDs.
-///
-/// The same pair of members always produces the same realm ID,
-/// regardless of who initiates. IDs are sorted to ensure determinism.
-///
-/// # Example
-///
-/// ```ignore
-/// let realm_id = dm_realm_id(zephyr_id, nova_id);
-/// // Same as:
-/// let realm_id2 = dm_realm_id(nova_id, zephyr_id);
-/// assert_eq!(realm_id, realm_id2);
-/// ```
-pub fn dm_realm_id(a: MemberId, b: MemberId) -> RealmId {
-    let (first, second) = if a <= b { (a, b) } else { (b, a) };
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(b"dm-v1:");
-    hasher.update(&first);
-    hasher.update(&second);
-    InterfaceId::new(*hasher.finalize().as_bytes())
-}
-
 /// Determine who initiates the key exchange (lower MemberId = initiator).
 ///
 /// This provides deterministic tie-breaking when both peers try
@@ -249,24 +212,39 @@ mod tests {
     }
 
     #[test]
-    fn test_dm_realm_id_deterministic() {
-        let id1 = dm_realm_id(zephyr_id(), nova_id());
-        let id2 = dm_realm_id(zephyr_id(), nova_id());
+    fn test_dm_story_id_deterministic() {
+        let artifact1 = indras_artifacts::dm_story_id(zephyr_id(), nova_id());
+        let artifact2 = indras_artifacts::dm_story_id(zephyr_id(), nova_id());
+        assert_eq!(artifact1, artifact2);
+
+        let id1 = crate::artifact_sync::artifact_interface_id(&artifact1);
+        let id2 = crate::artifact_sync::artifact_interface_id(&artifact2);
         assert_eq!(id1, id2);
     }
 
     #[test]
-    fn test_dm_realm_id_symmetric() {
-        let id1 = dm_realm_id(zephyr_id(), nova_id());
-        let id2 = dm_realm_id(nova_id(), zephyr_id());
+    fn test_dm_story_id_symmetric() {
+        let artifact1 = indras_artifacts::dm_story_id(zephyr_id(), nova_id());
+        let artifact2 = indras_artifacts::dm_story_id(nova_id(), zephyr_id());
+        assert_eq!(artifact1, artifact2, "DM artifact ID should be the same regardless of order");
+
+        let id1 = crate::artifact_sync::artifact_interface_id(&artifact1);
+        let id2 = crate::artifact_sync::artifact_interface_id(&artifact2);
         assert_eq!(id1, id2, "DM realm ID should be the same regardless of order");
     }
 
     #[test]
-    fn test_dm_realm_id_unique_per_pair() {
-        let id1 = dm_realm_id(zephyr_id(), nova_id());
-        let id2 = dm_realm_id(zephyr_id(), sage_id());
-        let id3 = dm_realm_id(nova_id(), sage_id());
+    fn test_dm_story_id_unique_per_pair() {
+        let artifact1 = indras_artifacts::dm_story_id(zephyr_id(), nova_id());
+        let artifact2 = indras_artifacts::dm_story_id(zephyr_id(), sage_id());
+        let artifact3 = indras_artifacts::dm_story_id(nova_id(), sage_id());
+        assert_ne!(artifact1, artifact2);
+        assert_ne!(artifact1, artifact3);
+        assert_ne!(artifact2, artifact3);
+
+        let id1 = crate::artifact_sync::artifact_interface_id(&artifact1);
+        let id2 = crate::artifact_sync::artifact_interface_id(&artifact2);
+        let id3 = crate::artifact_sync::artifact_interface_id(&artifact3);
         assert_ne!(id1, id2);
         assert_ne!(id1, id3);
         assert_ne!(id2, id3);
@@ -275,7 +253,8 @@ mod tests {
     #[test]
     fn test_dm_realm_id_differs_from_home() {
         let member = zephyr_id();
-        let dm = dm_realm_id(member, nova_id());
+        let artifact = indras_artifacts::dm_story_id(member, nova_id());
+        let dm = crate::artifact_sync::artifact_interface_id(&artifact);
         let home = crate::home_realm::home_realm_id(member);
         assert_ne!(dm, home);
     }
@@ -295,13 +274,16 @@ mod tests {
 
     #[test]
     fn test_pending_key_exchange_not_expired() {
-        let exchange = PendingKeyExchange::new(nova_id(), dm_realm_id(zephyr_id(), nova_id()));
+        let artifact = indras_artifacts::dm_story_id(zephyr_id(), nova_id());
+        let realm_id = crate::artifact_sync::artifact_interface_id(&artifact);
+        let exchange = PendingKeyExchange::new(nova_id(), realm_id);
         assert!(!exchange.is_expired());
     }
 
     #[test]
     fn test_pending_key_exchange_expired() {
-        let realm_id = dm_realm_id(zephyr_id(), nova_id());
+        let artifact = indras_artifacts::dm_story_id(zephyr_id(), nova_id());
+        let realm_id = crate::artifact_sync::artifact_interface_id(&artifact);
         let mut exchange = PendingKeyExchange::new(nova_id(), realm_id);
         // Set created_at to 8 days ago
         let eight_days_ms = 8 * 24 * 60 * 60 * 1000u64;
@@ -316,7 +298,8 @@ mod tests {
     #[test]
     fn test_key_exchange_registry() {
         let mut registry = KeyExchangeRegistry::new();
-        let realm_id = dm_realm_id(zephyr_id(), nova_id());
+        let artifact = indras_artifacts::dm_story_id(zephyr_id(), nova_id());
+        let realm_id = crate::artifact_sync::artifact_interface_id(&artifact);
         let exchange = PendingKeyExchange::new(nova_id(), realm_id);
 
         registry.insert(exchange);
@@ -331,7 +314,8 @@ mod tests {
     #[test]
     fn test_key_exchange_registry_cleanup() {
         let mut registry = KeyExchangeRegistry::new();
-        let realm_id = dm_realm_id(zephyr_id(), nova_id());
+        let artifact = indras_artifacts::dm_story_id(zephyr_id(), nova_id());
+        let realm_id = crate::artifact_sync::artifact_interface_id(&artifact);
         let mut exchange = PendingKeyExchange::new(nova_id(), realm_id);
 
         // Make it expired
@@ -352,7 +336,8 @@ mod tests {
 
     #[test]
     fn test_key_exchange_serialization() {
-        let realm_id = dm_realm_id(zephyr_id(), nova_id());
+        let artifact = indras_artifacts::dm_story_id(zephyr_id(), nova_id());
+        let realm_id = crate::artifact_sync::artifact_interface_id(&artifact);
         let exchange = PendingKeyExchange::new(nova_id(), realm_id);
 
         let bytes = postcard::to_allocvec(&exchange).unwrap();
@@ -380,7 +365,8 @@ mod tests {
     #[test]
     fn test_inbox_realm_id_differs_from_dm() {
         let inbox = inbox_realm_id(zephyr_id());
-        let dm = dm_realm_id(zephyr_id(), nova_id());
+        let artifact = indras_artifacts::dm_story_id(zephyr_id(), nova_id());
+        let dm = crate::artifact_sync::artifact_interface_id(&artifact);
         assert_ne!(inbox, dm);
     }
 
@@ -406,46 +392,56 @@ mod tests {
     }
 
     #[test]
-    fn test_dm_key_seed_deterministic() {
-        let k1 = dm_key_seed(&zephyr_id(), &nova_id());
-        let k2 = dm_key_seed(&zephyr_id(), &nova_id());
+    fn test_dm_artifact_key_seed_deterministic() {
+        let artifact1 = indras_artifacts::dm_story_id(zephyr_id(), nova_id());
+        let artifact2 = indras_artifacts::dm_story_id(zephyr_id(), nova_id());
+        let k1 = crate::artifact_sync::artifact_key_seed(&artifact1);
+        let k2 = crate::artifact_sync::artifact_key_seed(&artifact2);
         assert_eq!(k1, k2);
     }
 
     #[test]
-    fn test_dm_key_seed_symmetric() {
-        let k1 = dm_key_seed(&zephyr_id(), &nova_id());
-        let k2 = dm_key_seed(&nova_id(), &zephyr_id());
+    fn test_dm_artifact_key_seed_symmetric() {
+        let artifact1 = indras_artifacts::dm_story_id(zephyr_id(), nova_id());
+        let artifact2 = indras_artifacts::dm_story_id(nova_id(), zephyr_id());
+        let k1 = crate::artifact_sync::artifact_key_seed(&artifact1);
+        let k2 = crate::artifact_sync::artifact_key_seed(&artifact2);
         assert_eq!(k1, k2, "DM key seed should be the same regardless of order");
     }
 
     #[test]
-    fn test_dm_key_seed_unique_per_pair() {
-        let k1 = dm_key_seed(&zephyr_id(), &nova_id());
-        let k2 = dm_key_seed(&zephyr_id(), &sage_id());
-        let k3 = dm_key_seed(&nova_id(), &sage_id());
+    fn test_dm_artifact_key_seed_unique_per_pair() {
+        let artifact1 = indras_artifacts::dm_story_id(zephyr_id(), nova_id());
+        let artifact2 = indras_artifacts::dm_story_id(zephyr_id(), sage_id());
+        let artifact3 = indras_artifacts::dm_story_id(nova_id(), sage_id());
+        let k1 = crate::artifact_sync::artifact_key_seed(&artifact1);
+        let k2 = crate::artifact_sync::artifact_key_seed(&artifact2);
+        let k3 = crate::artifact_sync::artifact_key_seed(&artifact3);
         assert_ne!(k1, k2);
         assert_ne!(k1, k3);
         assert_ne!(k2, k3);
     }
 
     #[test]
-    fn test_dm_key_seed_differs_from_realm_id() {
-        let seed = dm_key_seed(&zephyr_id(), &nova_id());
-        let realm = dm_realm_id(zephyr_id(), nova_id());
+    fn test_dm_artifact_key_seed_differs_from_realm_id() {
+        let artifact = indras_artifacts::dm_story_id(zephyr_id(), nova_id());
+        let seed = crate::artifact_sync::artifact_key_seed(&artifact);
+        let realm = crate::artifact_sync::artifact_interface_id(&artifact);
         assert_ne!(seed, *realm.as_bytes(), "Key seed must differ from realm ID");
     }
 
     #[test]
-    fn test_dm_key_seed_differs_from_inbox_key_seed() {
-        let dm = dm_key_seed(&zephyr_id(), &nova_id());
+    fn test_dm_artifact_key_seed_differs_from_inbox_key_seed() {
+        let artifact = indras_artifacts::dm_story_id(zephyr_id(), nova_id());
+        let dm = crate::artifact_sync::artifact_key_seed(&artifact);
         let inbox = inbox_key_seed(&zephyr_id());
         assert_ne!(dm, inbox);
     }
 
     #[test]
     fn test_connection_notify_serialization() {
-        let dm_id = dm_realm_id(zephyr_id(), nova_id());
+        let artifact = indras_artifacts::dm_story_id(zephyr_id(), nova_id());
+        let dm_id = crate::artifact_sync::artifact_interface_id(&artifact);
         let notify = ConnectionNotify::new(zephyr_id(), dm_id)
             .with_name("Zephyr");
 

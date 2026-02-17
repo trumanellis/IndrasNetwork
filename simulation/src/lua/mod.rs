@@ -74,8 +74,20 @@ pub fn register_indras_module(lua: &Lua) -> Result<()> {
     // Register pass story authentication bindings
     bindings::pass_story::register(lua, &indras)?;
 
+    // Register LiveNode bindings (real P2P nodes)
+    bindings::live_node::register(lua, &indras)?;
+
     // Register assertion helpers
     assertions::register(lua, &indras)?;
+
+    // Register async sleep (needed for live node sync waits)
+    indras.set(
+        "sleep",
+        lua.create_async_function(|_, secs: f64| async move {
+            tokio::time::sleep(std::time::Duration::from_secs_f64(secs)).await;
+            Ok(())
+        })?,
+    )?;
 
     // Set global indras table
     lua.globals().set("indras", indras)?;

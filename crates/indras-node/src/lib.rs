@@ -726,8 +726,36 @@ impl IndrasNode {
         let guard = self.transport.read().await;
         let transport = guard.as_ref().ok_or(NodeError::NotStarted)?;
         transport
-            .connection_manager()
-            .connect_by_key(public_key)
+            .connect_by_key_and_handle(public_key)
+            .await
+            .map_err(|e| NodeError::Transport(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Disconnect from a peer (close and remove stale connection)
+    ///
+    /// Call this before `connect_to_peer` when reconnecting to a peer
+    /// that has restarted, to ensure the old QUIC connection is dropped.
+    pub async fn disconnect_from(&self, peer_key_bytes: &[u8; 32]) -> NodeResult<()> {
+        let public_key = iroh::PublicKey::from_bytes(peer_key_bytes)
+            .map_err(|e| NodeError::Crypto(e.to_string()))?;
+        let peer_id = IrohIdentity::new(public_key);
+        let guard = self.transport.read().await;
+        if let Some(transport) = guard.as_ref() {
+            transport.connection_manager().close_connection(&peer_id);
+        }
+        Ok(())
+    }
+
+    /// Connect to a peer using their full endpoint address
+    ///
+    /// Unlike `connect_to_peer` which uses relay discovery (can be slow/unreliable),
+    /// this connects using the full address including relay URL.
+    pub async fn connect_by_addr(&self, addr: iroh::EndpointAddr) -> NodeResult<()> {
+        let guard = self.transport.read().await;
+        let transport = guard.as_ref().ok_or(NodeError::NotStarted)?;
+        transport
+            .connect_and_handle(addr)
             .await
             .map_err(|e| NodeError::Transport(e.to_string()))?;
         Ok(())
@@ -939,52 +967,52 @@ impl IndrasNode {
     #[instrument(skip(self, invite))]
     pub async fn join_interface(&self, invite: InviteKey) -> NodeResult<InterfaceId> {
         let interface_id = invite.interface_id;
+        let already_joined = self.interfaces.contains_key(&interface_id);
 
-        // Check if we're already in this interface
-        if self.interfaces.contains_key(&interface_id) {
-            return Ok(interface_id);
-        }
+        if !already_joined {
+            // Decapsulate interface key if provided (using ML-KEM)
+            if let Some(key_invite_bytes) = &invite.key_invite {
+                let key_invite = KeyInvite::from_bytes(key_invite_bytes)
+                    .map_err(|e| NodeError::Crypto(e.to_string()))?;
 
-        // Decapsulate interface key if provided (using ML-KEM)
-        if let Some(key_invite_bytes) = &invite.key_invite {
-            let key_invite = KeyInvite::from_bytes(key_invite_bytes)
-                .map_err(|e| NodeError::Crypto(e.to_string()))?;
+                // Validate that the key invite is for the correct interface
+                if key_invite.interface_id != interface_id {
+                    return Err(NodeError::Crypto(format!(
+                        "Key invite interface_id mismatch: expected {}, got {}",
+                        hex::encode(interface_id.as_bytes()),
+                        hex::encode(key_invite.interface_id.as_bytes())
+                    )));
+                }
 
-            // Validate that the key invite is for the correct interface
-            if key_invite.interface_id != interface_id {
-                return Err(NodeError::Crypto(format!(
-                    "Key invite interface_id mismatch: expected {}, got {}",
-                    hex::encode(interface_id.as_bytes()),
-                    hex::encode(key_invite.interface_id.as_bytes())
-                )));
+                // Decapsulate using our ML-KEM key pair
+                let interface_key =
+                    KeyDistribution::accept_invite(&key_invite, &self.pq_kem_keypair)
+                        .map_err(|e| NodeError::Crypto(e.to_string()))?;
+
+                self.interface_keys.insert(interface_id, interface_key);
             }
 
-            // Decapsulate using our ML-KEM key pair
-            let interface_key = KeyDistribution::accept_invite(&key_invite, &self.pq_kem_keypair)
-                .map_err(|e| NodeError::Crypto(e.to_string()))?;
+            // Create NInterface with known ID
+            let interface = NInterface::with_id(interface_id, self.identity);
 
-            self.interface_keys.insert(interface_id, interface_key);
+            // Persist to storage
+            self.storage.create_interface(interface_id, None)?;
+            self.storage.register_peer(&self.identity, None)?;
+            self.storage.add_member(&interface_id, &self.identity)?;
+
+            // Create event channel
+            let (event_tx, _) = broadcast::channel(self.config.event_channel_capacity);
+
+            // Store in memory
+            let state = InterfaceState {
+                interface: RwLock::new(interface),
+                event_tx,
+            };
+            self.interfaces.insert(interface_id, state);
         }
 
-        // Create NInterface with known ID
-        let interface = NInterface::with_id(interface_id, self.identity);
-
-        // Persist to storage
-        self.storage.create_interface(interface_id, None)?;
-        self.storage.register_peer(&self.identity, None)?;
-        self.storage.add_member(&interface_id, &self.identity)?;
-
-        // Create event channel
-        let (event_tx, _) = broadcast::channel(self.config.event_channel_capacity);
-
-        // Store in memory
-        let state = InterfaceState {
-            interface: RwLock::new(interface),
-            event_tx,
-        };
-        self.interfaces.insert(interface_id, state);
-
-        // Connect to bootstrap peers and track which peers we connected to
+        // Always connect to bootstrap peers and set up gossip
+        // (needed after restart to re-establish connections and member lists)
         let mut bootstrap_peer_ids = Vec::new();
         let mut bootstrap_public_keys = Vec::new();
         if let Some(transport) = self.transport.read().await.as_ref() {
@@ -994,7 +1022,7 @@ impl IndrasNode {
                     let peer_id = IrohIdentity::new(addr.id);
                     debug!(peer = %peer_id.short_id(), "Connecting to bootstrap peer");
                     bootstrap_public_keys.push(addr.id);
-                    if let Err(e) = transport.connection_manager().connect(addr).await {
+                    if let Err(e) = transport.connect_and_handle(addr).await {
                         warn!(error = %e, "Failed to connect to bootstrap peer");
                     } else {
                         bootstrap_peer_ids.push(peer_id);
@@ -1014,7 +1042,7 @@ impl IndrasNode {
 
             // Send initial sync request ONLY to bootstrap peers we connected to (signed)
             let state = self.interfaces.get(&interface_id).unwrap();
-            let interface = state.interface.read().await;
+            let mut interface = state.interface.write().await;
             for peer in &bootstrap_peer_ids {
                 if *peer != self.identity && transport.is_connected(peer) {
                     let sync_msg = interface.generate_sync(peer);

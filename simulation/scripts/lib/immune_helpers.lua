@@ -14,13 +14,13 @@ local immune = {}
 -- CHARACTER NAMES
 -- ============================================================================
 
-immune.ZEPHYR = "Zephyr"
-immune.NOVA   = "Nova"
-immune.SAGE   = "Sage"
-immune.ORION  = "Orion"
-immune.LYRA   = "Lyra"
+immune.A = "A"
+immune.B = "B"
+immune.C = "C"
+immune.D = "D"
+immune.E = "E"
 
-immune.ALL_MEMBERS = { immune.ZEPHYR, immune.NOVA, immune.SAGE, immune.ORION, immune.LYRA }
+immune.ALL_MEMBERS = { immune.A, immune.B, immune.C, immune.D, immune.E }
 
 -- ============================================================================
 -- STRESS LEVELS

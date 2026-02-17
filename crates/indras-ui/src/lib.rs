@@ -21,7 +21,7 @@ pub mod detail_panel;
 pub use theme::{Theme, ThemedRoot, ThemeSwitcher, CURRENT_THEME};
 pub use markdown::{render_markdown_to_html, is_markdown_file};
 pub use file_utils::{load_image_as_data_url, load_text_file_content};
-pub use identity::{member_name, short_id, format_duration_millis, member_color_class, member_color_var};
+pub use identity::{member_name, reset_member_names, short_id, format_duration_millis, member_color_class, member_color_var};
 pub use preview::{PreviewFile, PreviewViewMode, PreviewContext, MarkdownPreviewOverlay};
 pub use contact_invite::ContactInviteOverlay;
 pub use artifact_display::{ArtifactDisplayInfo, ArtifactDisplayStatus, ArtifactGallery};

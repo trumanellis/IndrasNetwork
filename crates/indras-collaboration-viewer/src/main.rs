@@ -161,24 +161,24 @@ fn step_simulation(state: &mut Signal<CollaborationState>) {
         }
         2 => {
             let mut s = state.write();
-            if let Some(ps) = s.peer_states.get_mut(&Peer::Love) {
+            if let Some(ps) = s.peer_states.get_mut(&Peer::A) {
                 ps.online = true;
             }
-            s.add_event(EventType::Setup, "Love joined the realm".into(), Some(Peer::Love));
+            s.add_event(EventType::Setup, "A joined the realm".into(), Some(Peer::A));
         }
         3 => {
             let mut s = state.write();
-            if let Some(ps) = s.peer_states.get_mut(&Peer::Joy) {
+            if let Some(ps) = s.peer_states.get_mut(&Peer::B) {
                 ps.online = true;
             }
-            s.add_event(EventType::Setup, "Joy joined the realm".into(), Some(Peer::Joy));
+            s.add_event(EventType::Setup, "B joined the realm".into(), Some(Peer::B));
         }
         4 => {
             let mut s = state.write();
-            if let Some(ps) = s.peer_states.get_mut(&Peer::Peace) {
+            if let Some(ps) = s.peer_states.get_mut(&Peer::C) {
                 ps.online = true;
             }
-            s.add_event(EventType::Setup, "Peace joined the realm".into(), Some(Peer::Peace));
+            s.add_event(EventType::Setup, "C joined the realm".into(), Some(Peer::C));
         }
         5 => {
             state.write().add_event(EventType::PhaseComplete, "All peers connected".into(), None);

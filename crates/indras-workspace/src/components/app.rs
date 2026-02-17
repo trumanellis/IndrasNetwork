@@ -300,11 +300,7 @@ pub fn RootApp() -> Element {
 
                                         // Add "Connection confirmed" event leaf
                                         if let Some((contact_id, pos)) = contact_id_and_pos {
-                                            if let Ok(event_leaf) = vault.place_leaf(
-                                                b"Connection confirmed",
-                                                LeafType::Message,
-                                                now,
-                                            ) {
+                                            if let Ok(event_leaf) = vault.place_leaf(b"Connection confirmed", String::new(), None, LeafType::Message, now) {
                                                 let _ = vault.compose(
                                                     &contact_id,
                                                     event_leaf.id,
@@ -442,7 +438,7 @@ pub fn RootApp() -> Element {
 
                             if let Ok(Some(artifact)) = vault.get_artifact(&artifact_id) {
                                 if let Artifact::Tree(tree) = artifact {
-                                    let audience_count = tree.audience.len();
+                                    let audience_count = tree.grants.len();
                                     let steward_is_self = tree.steward == vh.player_id;
                                     let steward_name = if steward_is_self {
                                         vh.player_name.clone()
@@ -906,7 +902,7 @@ pub fn RootApp() -> Element {
                         };
 
                         // Create the leaf
-                        let leaf = match vault.place_leaf(content.as_bytes(), LeafType::Message, now) {
+                        let leaf = match vault.place_leaf(content.as_bytes(), String::new(), None, LeafType::Message, now) {
                             Ok(l) => l,
                             Err(e) => {
                                 tracing::error!("Failed to create leaf: {}", e);
@@ -1558,6 +1554,8 @@ pub fn RootApp() -> Element {
 
                                         if let Ok(leaf) = vault.place_leaf(
                                             contact_payload.as_bytes(),
+                                            String::new(),
+                                            None,
                                             LeafType::Custom("ContactCard".to_string()),
                                             now,
                                         ) {
@@ -1573,6 +1571,8 @@ pub fn RootApp() -> Element {
                                         // Add connection event leaf to Contact tree
                                         if let Ok(event_leaf) = vault.place_leaf(
                                             format!("Connected to {}", peer_display).as_bytes(),
+                                            String::new(),
+                                            None,
                                             LeafType::Message,
                                             now,
                                         ) {

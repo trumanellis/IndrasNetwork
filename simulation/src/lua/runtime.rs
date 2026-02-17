@@ -78,6 +78,54 @@ impl LuaRuntime {
         })
     }
 
+    /// Execute a Lua script from a string (async version)
+    ///
+    /// Supports async Lua methods like LiveNode operations.
+    pub async fn exec_async(&self, script: &str) -> Result<()> {
+        self.lua.load(script).exec_async().await
+    }
+
+    /// Execute a Lua script from a file (async version)
+    ///
+    /// Like `exec_file()` but uses `exec_async()` internally, enabling
+    /// async Lua methods (e.g., LiveNode I/O operations) to work.
+    pub async fn exec_file_async(&self, path: impl AsRef<Path>) -> Result<()> {
+        let path = path.as_ref();
+        let script = std::fs::read_to_string(path).map_err(|e| {
+            mlua::Error::external(format!("Failed to read {}: {}", path.display(), e))
+        })?;
+
+        // Add script's directory, parent directories, and current working directory
+        // to package.path for require() to find local modules
+        let mut paths = vec!["./?.lua".to_string(), "./?/init.lua".to_string()];
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                let parent_str = parent.to_string_lossy();
+                paths.push(format!("{}/?.lua", parent_str));
+                paths.push(format!("{}/?/init.lua", parent_str));
+
+                if let Some(grandparent) = parent.parent() {
+                    if !grandparent.as_os_str().is_empty() {
+                        let gp_str = grandparent.to_string_lossy();
+                        paths.push(format!("{}/?.lua", gp_str));
+                        paths.push(format!("{}/?/init.lua", gp_str));
+                    }
+                }
+            }
+        }
+        let add_path = format!(
+            "package.path = '{}' .. ';' .. package.path",
+            paths.join(";")
+        );
+        self.lua.load(&add_path).exec()?;
+
+        self.lua
+            .load(&script)
+            .set_name(path.to_string_lossy())
+            .exec_async()
+            .await
+    }
+
     /// Execute a Lua script from a file and return a value
     pub fn eval_file<T: mlua::FromLua>(&self, path: impl AsRef<Path>) -> Result<T> {
         let path = path.as_ref();

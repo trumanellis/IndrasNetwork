@@ -1,6 +1,6 @@
 //! Lua bindings for SyncableNotebook type
 //!
-//! Provides UserData implementation for SyncableNotebook with document sync.
+//! Provides UserData implementation for SyncableNotebook with real Automerge sync.
 
 use mlua::{Lua, Result, Table, UserData, UserDataMethods};
 use std::sync::Arc;
@@ -13,7 +13,7 @@ use crate::syncable_notebook::SyncableNotebook;
 use super::note::LuaNote;
 use super::operations::LuaNoteOperation;
 
-/// Lua wrapper for SyncableNotebook with document sync
+/// Lua wrapper for SyncableNotebook with real Automerge sync
 pub struct LuaSyncableNotebook {
     inner: Arc<Mutex<SyncableNotebook>>,
 }
@@ -31,16 +31,14 @@ impl LuaSyncableNotebook {
 
     /// Create a forked copy of the notebook for another peer
     pub fn fork(&self, new_peer: SimulationIdentity) -> Self {
-        let inner = futures::executor::block_on(self.inner.lock());
-        // We need mutable access for fork, so we'll use a different approach
-        // Save and reload with new peer
-        let bytes = {
-            let mut guard = futures::executor::block_on(self.inner.lock());
-            guard.save()
-        };
+        let mut guard = futures::executor::block_on(self.inner.lock());
+        let bytes = guard.save();
+        let name = guard.name.clone();
+        let interface_id = guard.interface_id;
+        drop(guard);
 
         let forked =
-            SyncableNotebook::load(inner.name.clone(), inner.interface_id, new_peer, &bytes)
+            SyncableNotebook::load(name, interface_id, new_peer, &bytes)
                 .expect("Fork failed");
 
         Self::new(forked)
@@ -125,35 +123,22 @@ impl UserData for LuaSyncableNotebook {
             Ok(notebook.is_empty())
         });
 
-        // ===== Sync Methods =====
+        // ===== Automerge Sync Methods =====
 
-        // state_vector() -> hex string
-        methods.add_method("state_vector", |_, this, ()| {
-            let notebook = futures::executor::block_on(this.inner.lock());
-            Ok(notebook.state_vector_hex())
-        });
-
-        // generate_sync(their_sv_hex) -> sync_message (bytes as hex)
-        methods.add_method("generate_sync", |_, this, their_sv_hex: String| {
-            let notebook = futures::executor::block_on(this.inner.lock());
-            let sync_msg = notebook.generate_sync_message_hex(&their_sv_hex);
-            Ok(hex::encode(&sync_msg))
-        });
-
-        // apply_sync(sync_message_hex) -> bool (whether changes were applied)
-        methods.add_method("apply_sync", |_, this, sync_msg_hex: String| {
-            let sync_bytes = hex::decode(&sync_msg_hex)
-                .map_err(|e| mlua::Error::external(format!("Invalid sync message hex: {}", e)))?;
+        // apply_sync(data_hex) -> bool (whether changes were applied)
+        methods.add_method("apply_sync", |_, this, data_hex: String| {
+            let data_bytes = hex::decode(&data_hex)
+                .map_err(|e| mlua::Error::external(format!("Invalid sync data hex: {}", e)))?;
 
             let mut notebook = futures::executor::block_on(this.inner.lock());
             notebook
-                .apply_sync_message(&sync_bytes)
+                .apply_sync(&data_bytes)
                 .map_err(mlua::Error::external)
         });
 
-        // save() -> bytes as hex (for persistence)
+        // save() -> bytes as hex (for persistence and sync)
         methods.add_method("save", |_, this, ()| {
-            let notebook = futures::executor::block_on(this.inner.lock());
+            let mut notebook = futures::executor::block_on(this.inner.lock());
             Ok(hex::encode(notebook.save()))
         });
 
@@ -254,7 +239,7 @@ pub fn register(lua: &Lua, notes: &Table) -> Result<()> {
 
                 // Save the current notebook and load as new peer
                 let (name, interface_id, bytes) = {
-                    let guard = futures::executor::block_on(lua_nb.inner.lock());
+                    let mut guard = futures::executor::block_on(lua_nb.inner.lock());
                     (guard.name.clone(), guard.interface_id, guard.save())
                 };
 
@@ -333,12 +318,9 @@ mod tests {
                 return false
             end
 
-            -- Sync: Get Bob's state vector, generate sync from Alice
-            local bob_sv = bob:state_vector()
-            local sync_msg = alice:generate_sync(bob_sv)
-
-            -- Apply sync to Bob
-            local changed = bob:apply_sync(sync_msg)
+            -- Sync: save Alice's state and merge into Bob
+            local alice_state = alice:save()
+            local changed = bob:apply_sync(alice_state)
 
             -- Bob should now have both notes
             return bob.note_count == 2 and changed
@@ -364,10 +346,6 @@ mod tests {
             -- Fork to Bob
             local bob = notes.SyncableNotebook.fork(alice, "Bob")
 
-            -- Get initial state vectors before concurrent edits
-            local alice_initial_sv = alice:state_vector()
-            local bob_initial_sv = bob:state_vector()
-
             -- Alice makes an edit
             local alice_note = notes.Note.new("Alice's Concurrent Note", "alice")
             alice:apply(notes.NoteOperation.create(alice_note))
@@ -381,13 +359,13 @@ mod tests {
                 return false
             end
 
-            -- Sync Alice -> Bob
-            local sync_to_bob = alice:generate_sync(bob_initial_sv)
-            bob:apply_sync(sync_to_bob)
+            -- Sync Alice -> Bob (save + merge)
+            local alice_state = alice:save()
+            bob:apply_sync(alice_state)
 
-            -- Sync Bob -> Alice
-            local sync_to_alice = bob:generate_sync(alice_initial_sv)
-            alice:apply_sync(sync_to_alice)
+            -- Sync Bob -> Alice (save + merge)
+            local bob_state = bob:save()
+            alice:apply_sync(bob_state)
 
             -- Both should have both notes (CRDT convergence)
             return alice.note_count == 2 and bob.note_count == 2

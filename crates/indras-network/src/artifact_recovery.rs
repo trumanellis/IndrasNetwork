@@ -61,8 +61,8 @@ pub struct RecoverableArtifact {
     pub mime_type: Option<String>,
     /// What access mode the peer has.
     pub access_mode: AccessMode,
-    /// Who originally owned this artifact.
-    pub owner: MemberId,
+    /// Who originally stewarded this artifact.
+    pub steward: MemberId,
 }
 
 /// Manifest of artifacts available for recovery from a peer.
@@ -113,12 +113,12 @@ mod tests {
 
     fn test_artifact() -> RecoverableArtifact {
         RecoverableArtifact {
-            id: [0x42u8; 32],
+            id: ArtifactId::Blob([0x42u8; 32]),
             name: "test.pdf".to_string(),
             size: 1024,
             mime_type: Some("application/pdf".to_string()),
             access_mode: AccessMode::Permanent,
-            owner: [1u8; 32],
+            steward: [1u8; 32],
         }
     }
 
@@ -148,13 +148,13 @@ mod tests {
         // Revocable - not fully recoverable
         let mut revocable = test_artifact();
         revocable.access_mode = AccessMode::Revocable;
-        revocable.id = [0x43u8; 32];
+        revocable.id = ArtifactId::Blob([0x43u8; 32]);
         manifest.add(revocable);
 
         // Transfer - fully recoverable
         let mut transfer = test_artifact();
         transfer.access_mode = AccessMode::Transfer;
-        transfer.id = [0x44u8; 32];
+        transfer.id = ArtifactId::Blob([0x44u8; 32]);
         manifest.add(transfer);
 
         assert_eq!(manifest.len(), 3);
@@ -164,21 +164,21 @@ mod tests {
     #[test]
     fn test_recovery_request_serialization() {
         let request = ArtifactRecoveryRequest {
-            artifact_id: Some([0x42u8; 32]),
+            artifact_id: Some(ArtifactId::Blob([0x42u8; 32])),
             requester: [1u8; 32],
         };
 
         let bytes = postcard::to_allocvec(&request).unwrap();
         let deserialized: ArtifactRecoveryRequest = postcard::from_bytes(&bytes).unwrap();
 
-        assert_eq!(deserialized.artifact_id, Some([0x42u8; 32]));
+        assert_eq!(deserialized.artifact_id, Some(ArtifactId::Blob([0x42u8; 32])));
         assert_eq!(deserialized.requester, [1u8; 32]);
     }
 
     #[test]
     fn test_recovery_response_serialization() {
         let response = ArtifactRecoveryResponse::Available {
-            id: [0x42u8; 32],
+            id: ArtifactId::Blob([0x42u8; 32]),
             size: 2048,
             name: "document.pdf".to_string(),
             mime_type: Some("application/pdf".to_string()),
@@ -189,7 +189,7 @@ mod tests {
 
         match deserialized {
             ArtifactRecoveryResponse::Available { id, size, name, mime_type } => {
-                assert_eq!(id, [0x42u8; 32]);
+                assert_eq!(id, ArtifactId::Blob([0x42u8; 32]));
                 assert_eq!(size, 2048);
                 assert_eq!(name, "document.pdf");
                 assert_eq!(mime_type, Some("application/pdf".to_string()));
