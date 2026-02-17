@@ -19,8 +19,6 @@ indras-network = { path = "../indras-network" }
 indras-crypto = { path = "../indras-crypto" }
 indras-node = { path = "../indras-node" }
 indras-sync-engine = { path = "../indras-sync-engine" }
-indras-artifacts = { path = "../indras-artifacts" }
-
 # Shared UI
 indras-ui = { path = "../indras-ui" }
 

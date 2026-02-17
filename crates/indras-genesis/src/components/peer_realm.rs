@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use dioxus::prelude::*;
 use indras_network::{IndrasNetwork, artifact_sync::artifact_interface_id};
-use indras_artifacts::dm_story_id;
+use indras_network::dm_story_id;
 use indras_sync_engine::{RealmQuests, RealmNotes};
 use indras_ui::{ArtifactDisplayInfo, ArtifactDisplayStatus, ArtifactGallery};
 use indras_ui::chat::ChatPanel;
