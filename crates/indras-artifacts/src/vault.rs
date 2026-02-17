@@ -501,7 +501,7 @@ impl<A: ArtifactStore, P: PayloadStore, T: AttentionStore> Vault<A, P, T> {
     }
 
     // -----------------------------------------------------------------------
-    // Holonic composition
+    // Tree composition
     // -----------------------------------------------------------------------
 
     /// Attach a child artifact under a parent. Single-parent invariant enforced.

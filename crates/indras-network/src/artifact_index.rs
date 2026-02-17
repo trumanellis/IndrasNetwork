@@ -11,7 +11,7 @@
 //! grants list. Sharing to a realm simply adds grants for each member.
 
 use crate::access::{
-    AccessGrant, AccessMode, ArtifactProvenance, ArtifactStatus, GrantError, HolonicError,
+    AccessGrant, AccessMode, ArtifactProvenance, ArtifactStatus, GrantError, TreeError,
     ProvenanceType, RevokeError, TransferError,
 };
 use crate::artifact::ArtifactId;
@@ -41,12 +41,9 @@ pub struct HomeArtifactEntry {
     pub grants: Vec<AccessGrant>,
     /// How we received this artifact (None if we created it).
     pub provenance: Option<ArtifactProvenance>,
-    /// Parent artifact this is a part of (None if top-level).
+    /// Parent artifact this is a child of (None if root).
     #[serde(default)]
     pub parent: Option<ArtifactId>,
-    /// Child artifacts that compose this holon (empty if leaf).
-    #[serde(default)]
-    pub children: Vec<ArtifactId>,
 }
 
 impl HomeArtifactEntry {
@@ -220,7 +217,6 @@ impl ArtifactIndex {
                 received_via: ProvenanceType::Transfer,
             }),
             parent: entry.parent,
-            children: entry.children.clone(),
         };
 
         // Carry over inherited permanent grants
@@ -270,33 +266,33 @@ impl ArtifactIndex {
     }
 
     // ============================================================
-    // Holonic composition operations
+    // Tree composition operations
     // ============================================================
 
-    /// Compose existing artifacts under a parent holon.
-    pub fn compose(
+    /// Attach existing artifacts as children of a parent.
+    pub fn attach_children(
         &mut self,
         parent_id: &ArtifactId,
         child_ids: &[ArtifactId],
-    ) -> Result<(), HolonicError> {
-        let parent = self.artifacts.get(parent_id).ok_or(HolonicError::NotFound)?;
+    ) -> Result<(), TreeError> {
+        let parent = self.artifacts.get(parent_id).ok_or(TreeError::NotFound)?;
         if !parent.status.is_active() {
-            return Err(HolonicError::NotActive);
+            return Err(TreeError::NotActive);
         }
 
         for child_id in child_ids {
-            let child = self.artifacts.get(child_id).ok_or(HolonicError::NotFound)?;
+            let child = self.artifacts.get(child_id).ok_or(TreeError::NotFound)?;
             if !child.status.is_active() {
-                return Err(HolonicError::NotActive);
+                return Err(TreeError::NotActive);
             }
             if child.parent.is_some() {
-                return Err(HolonicError::AlreadyHasParent);
+                return Err(TreeError::AlreadyHasParent);
             }
             if self.is_ancestor_of(child_id, parent_id) {
-                return Err(HolonicError::CycleDetected);
+                return Err(TreeError::CycleDetected);
             }
             if child_id == parent_id {
-                return Err(HolonicError::CycleDetected);
+                return Err(TreeError::CycleDetected);
             }
         }
 
@@ -305,25 +301,21 @@ impl ArtifactIndex {
                 child.parent = Some(*parent_id);
             }
         }
-        if let Some(parent) = self.artifacts.get_mut(parent_id) {
-            for child_id in child_ids {
-                if !parent.children.contains(child_id) {
-                    parent.children.push(*child_id);
-                }
-            }
-        }
 
         Ok(())
     }
 
-    /// Decompose a holon — detach all children, making them top-level.
-    pub fn decompose(&mut self, parent_id: &ArtifactId) -> Result<Vec<ArtifactId>, HolonicError> {
-        let parent = self.artifacts.get(parent_id).ok_or(HolonicError::NotFound)?;
+    /// Detach all children from a parent, making them top-level.
+    pub fn detach_all_children(&mut self, parent_id: &ArtifactId) -> Result<Vec<ArtifactId>, TreeError> {
+        let parent = self.artifacts.get(parent_id).ok_or(TreeError::NotFound)?;
         if !parent.status.is_active() {
-            return Err(HolonicError::NotActive);
+            return Err(TreeError::NotActive);
         }
 
-        let child_ids = parent.children.clone();
+        let child_ids: Vec<ArtifactId> = self.artifacts.values()
+            .filter(|e| e.parent.as_ref() == Some(parent_id))
+            .map(|e| e.id)
+            .collect();
         let parent_grants = parent.grants.clone();
 
         for child_id in &child_ids {
@@ -337,72 +329,60 @@ impl ArtifactIndex {
             }
         }
 
-        if let Some(parent) = self.artifacts.get_mut(parent_id) {
-            parent.children.clear();
-        }
-
         Ok(child_ids)
     }
 
-    /// Attach a single artifact as a child of an existing holon.
+    /// Attach a single artifact as a child of a parent.
     pub fn attach_child(
         &mut self,
         parent_id: &ArtifactId,
         child_id: &ArtifactId,
-    ) -> Result<(), HolonicError> {
+    ) -> Result<(), TreeError> {
         if parent_id == child_id {
-            return Err(HolonicError::CycleDetected);
+            return Err(TreeError::CycleDetected);
         }
 
-        let parent = self.artifacts.get(parent_id).ok_or(HolonicError::NotFound)?;
+        let parent = self.artifacts.get(parent_id).ok_or(TreeError::NotFound)?;
         if !parent.status.is_active() {
-            return Err(HolonicError::NotActive);
+            return Err(TreeError::NotActive);
         }
 
-        let child = self.artifacts.get(child_id).ok_or(HolonicError::NotFound)?;
+        let child = self.artifacts.get(child_id).ok_or(TreeError::NotFound)?;
         if !child.status.is_active() {
-            return Err(HolonicError::NotActive);
+            return Err(TreeError::NotActive);
         }
         if child.parent.is_some() {
-            return Err(HolonicError::AlreadyHasParent);
+            return Err(TreeError::AlreadyHasParent);
         }
 
         if self.is_ancestor_of(child_id, parent_id) {
-            return Err(HolonicError::CycleDetected);
+            return Err(TreeError::CycleDetected);
         }
 
         if let Some(child) = self.artifacts.get_mut(child_id) {
             child.parent = Some(*parent_id);
         }
-        if let Some(parent) = self.artifacts.get_mut(parent_id) {
-            if !parent.children.contains(child_id) {
-                parent.children.push(*child_id);
-            }
-        }
 
         Ok(())
     }
 
-    /// Detach a child from a holon, making it top-level.
+    /// Detach a child from its parent, making it top-level.
     pub fn detach_child(
         &mut self,
         parent_id: &ArtifactId,
         child_id: &ArtifactId,
-    ) -> Result<(), HolonicError> {
-        let parent = self.artifacts.get(parent_id).ok_or(HolonicError::NotFound)?;
+    ) -> Result<(), TreeError> {
+        let parent = self.artifacts.get(parent_id).ok_or(TreeError::NotFound)?;
         if !parent.status.is_active() {
-            return Err(HolonicError::NotActive);
+            return Err(TreeError::NotActive);
         }
 
-        if !parent.children.contains(child_id) {
-            return Err(HolonicError::NotAChild);
+        let child = self.artifacts.get(child_id).ok_or(TreeError::NotFound)?;
+        if child.parent.as_ref() != Some(parent_id) {
+            return Err(TreeError::NotAChild);
         }
 
         let parent_grants = parent.grants.clone();
-
-        if let Some(parent) = self.artifacts.get_mut(parent_id) {
-            parent.children.retain(|id| id != child_id);
-        }
 
         if let Some(child) = self.artifacts.get_mut(child_id) {
             child.parent = None;
@@ -418,17 +398,12 @@ impl ArtifactIndex {
 
     /// Get immediate children of an artifact.
     pub fn children_of(&self, id: &ArtifactId) -> Vec<&HomeArtifactEntry> {
-        match self.artifacts.get(id) {
-            Some(entry) => entry
-                .children
-                .iter()
-                .filter_map(|child_id| self.artifacts.get(child_id))
-                .collect(),
-            None => Vec::new(),
-        }
+        self.artifacts.values()
+            .filter(|e| e.parent.as_ref() == Some(id))
+            .collect()
     }
 
-    /// Get the parent holon of an artifact.
+    /// Get the parent of an artifact.
     pub fn parent_of(&self, id: &ArtifactId) -> Option<&HomeArtifactEntry> {
         self.artifacts
             .get(id)
@@ -436,7 +411,7 @@ impl ArtifactIndex {
             .and_then(|parent_id| self.artifacts.get(parent_id))
     }
 
-    /// Walk up the holon chain from an artifact to the root.
+    /// Walk up the parent chain from an artifact to the root.
     pub fn ancestors(&self, id: &ArtifactId) -> Vec<&HomeArtifactEntry> {
         let mut result = Vec::new();
         let mut current_id = self
@@ -456,7 +431,7 @@ impl ArtifactIndex {
         result
     }
 
-    /// Recursive depth-first traversal of all sub-artifacts.
+    /// Depth-first traversal of all descendants.
     pub fn descendants(&self, id: &ArtifactId) -> Vec<&HomeArtifactEntry> {
         let mut result = Vec::new();
         self.collect_descendants(id, &mut result);
@@ -468,12 +443,14 @@ impl ArtifactIndex {
         id: &ArtifactId,
         result: &mut Vec<&'a HomeArtifactEntry>,
     ) {
-        if let Some(entry) = self.artifacts.get(id) {
-            for child_id in &entry.children {
-                if let Some(child) = self.artifacts.get(child_id) {
-                    result.push(child);
-                    self.collect_descendants(child_id, result);
-                }
+        let children: Vec<ArtifactId> = self.artifacts.values()
+            .filter(|e| e.parent.as_ref() == Some(id))
+            .map(|e| e.id)
+            .collect();
+        for child_id in children {
+            if let Some(child) = self.artifacts.get(&child_id) {
+                result.push(child);
+                self.collect_descendants(&child_id, result);
             }
         }
     }
@@ -485,10 +462,7 @@ impl ArtifactIndex {
 
     /// True if the artifact has no children.
     pub fn is_leaf(&self, id: &ArtifactId) -> bool {
-        self.artifacts
-            .get(id)
-            .map(|e| e.children.is_empty())
-            .unwrap_or(true)
+        !self.artifacts.values().any(|e| e.parent.as_ref() == Some(id))
     }
 
     /// True if the artifact has no parent.
@@ -499,8 +473,8 @@ impl ArtifactIndex {
             .unwrap_or(true)
     }
 
-    /// Recursive sum of all descendant sizes (including self).
-    pub fn holon_size(&self, id: &ArtifactId) -> u64 {
+    /// Sum of all descendant sizes (including self).
+    pub fn subtree_size(&self, id: &ArtifactId) -> u64 {
         let own_size = self
             .artifacts
             .get(id)
@@ -536,7 +510,7 @@ impl ArtifactIndex {
     }
 
     /// Check if a member has access to an artifact, including inherited
-    /// access from ancestor holons.
+    /// access from ancestors.
     pub fn has_access_with_inheritance(&self, id: &ArtifactId, member: &MemberId, now: i64) -> bool {
         if let Some(entry) = self.artifacts.get(id) {
             if entry.has_active_grant(member, now) {
@@ -617,7 +591,6 @@ mod tests {
             grants: Vec::new(),
             provenance: None,
             parent: None,
-            children: Vec::new(),
         }
     }
 
@@ -878,7 +851,7 @@ mod tests {
     }
 
     // ============================================================
-    // Holonic tests
+    // Tree composition tests
     // ============================================================
 
     fn id_a() -> ArtifactId { ArtifactId::Blob([0x0Au8; 32]) }
@@ -898,24 +871,20 @@ mod tests {
             grants: Vec::new(),
             provenance: None,
             parent: None,
-            children: Vec::new(),
         }
     }
 
     #[test]
-    fn test_compose_and_children_of() {
+    fn test_attach_children_and_children_of() {
         let mut index = ArtifactIndex::default();
         index.store(make_entry(id_a(), "parent", 100));
         index.store(make_entry(id_b(), "child1", 200));
         index.store(make_entry(id_c(), "child2", 300));
 
-        index.compose(&id_a(), &[id_b(), id_c()]).unwrap();
+        index.attach_children(&id_a(), &[id_b(), id_c()]).unwrap();
 
         let children = index.children_of(&id_a());
         assert_eq!(children.len(), 2);
-
-        let parent_entry = index.get(&id_a()).unwrap();
-        assert_eq!(parent_entry.children.len(), 2);
 
         let child_b = index.get(&id_b()).unwrap();
         assert_eq!(child_b.parent, Some(id_a()));
@@ -925,7 +894,7 @@ mod tests {
     }
 
     #[test]
-    fn test_decompose_round_trip() {
+    fn test_detach_all_children_round_trip() {
         let mut index = ArtifactIndex::default();
         index.store(make_entry(id_a(), "parent", 100));
         index.store(make_entry(id_b(), "child1", 200));
@@ -933,14 +902,13 @@ mod tests {
 
         index.grant(&id_a(), member_a(), AccessMode::Revocable, steward(), 100).unwrap();
 
-        index.compose(&id_a(), &[id_b(), id_c()]).unwrap();
+        index.attach_children(&id_a(), &[id_b(), id_c()]).unwrap();
 
-        let detached = index.decompose(&id_a()).unwrap();
+        let detached = index.detach_all_children(&id_a()).unwrap();
         assert_eq!(detached.len(), 2);
 
         assert!(index.get(&id_b()).unwrap().parent.is_none());
         assert!(index.get(&id_c()).unwrap().parent.is_none());
-        assert!(index.get(&id_a()).unwrap().children.is_empty());
 
         assert!(index.get(&id_b()).unwrap().has_active_grant(&member_a(), 100));
         assert!(index.get(&id_c()).unwrap().has_active_grant(&member_a(), 100));
@@ -973,7 +941,7 @@ mod tests {
 
         index.detach_child(&id_b(), &id_c()).unwrap();
         let result = index.attach_child(&id_b(), &id_a());
-        assert_eq!(result, Err(HolonicError::CycleDetected));
+        assert_eq!(result, Err(TreeError::CycleDetected));
     }
 
     #[test]
@@ -982,7 +950,7 @@ mod tests {
         index.store(make_entry(id_a(), "a", 100));
 
         let result = index.attach_child(&id_a(), &id_a());
-        assert_eq!(result, Err(HolonicError::CycleDetected));
+        assert_eq!(result, Err(TreeError::CycleDetected));
     }
 
     #[test]
@@ -995,7 +963,7 @@ mod tests {
         index.attach_child(&id_a(), &id_c()).unwrap();
 
         let result = index.attach_child(&id_b(), &id_c());
-        assert_eq!(result, Err(HolonicError::AlreadyHasParent));
+        assert_eq!(result, Err(TreeError::AlreadyHasParent));
     }
 
     #[test]
@@ -1064,16 +1032,16 @@ mod tests {
     }
 
     #[test]
-    fn test_holon_size() {
+    fn test_subtree_size() {
         let mut index = ArtifactIndex::default();
         index.store(make_entry(id_a(), "root", 100));
         index.store(make_entry(id_b(), "child1", 200));
         index.store(make_entry(id_c(), "child2", 300));
 
-        index.compose(&id_a(), &[id_b(), id_c()]).unwrap();
+        index.attach_children(&id_a(), &[id_b(), id_c()]).unwrap();
 
-        assert_eq!(index.holon_size(&id_a()), 600);
-        assert_eq!(index.holon_size(&id_b()), 200);
+        assert_eq!(index.subtree_size(&id_a()), 600);
+        assert_eq!(index.subtree_size(&id_b()), 200);
     }
 
     #[test]
@@ -1098,7 +1066,7 @@ mod tests {
         index.store(make_entry(id_b(), "child1", 200));
         index.store(make_entry(id_c(), "child2", 300));
 
-        index.compose(&id_a(), &[id_b(), id_c()]).unwrap();
+        index.attach_children(&id_a(), &[id_b(), id_c()]).unwrap();
 
         let recalled = index.recall_cascade(&id_a(), 500);
         assert_eq!(recalled.len(), 3);
@@ -1130,25 +1098,25 @@ mod tests {
         index.store(make_entry(id_b(), "other", 200));
 
         let result = index.detach_child(&id_a(), &id_b());
-        assert_eq!(result, Err(HolonicError::NotAChild));
+        assert_eq!(result, Err(TreeError::NotAChild));
     }
 
     #[test]
-    fn test_compose_not_found() {
+    fn test_attach_children_not_found() {
         let mut index = ArtifactIndex::default();
         index.store(make_entry(id_a(), "parent", 100));
 
         let fake_id = ArtifactId::Blob([0xFFu8; 32]);
-        let result = index.compose(&id_a(), &[fake_id]);
-        assert_eq!(result, Err(HolonicError::NotFound));
+        let result = index.attach_children(&id_a(), &[fake_id]);
+        assert_eq!(result, Err(TreeError::NotFound));
     }
 
     #[test]
-    fn test_compose_parent_not_found() {
+    fn test_attach_children_parent_not_found() {
         let mut index = ArtifactIndex::default();
         let fake_id = ArtifactId::Blob([0xFFu8; 32]);
-        let result = index.compose(&fake_id, &[]);
-        assert_eq!(result, Err(HolonicError::NotFound));
+        let result = index.attach_children(&fake_id, &[]);
+        assert_eq!(result, Err(TreeError::NotFound));
     }
 
     #[test]
