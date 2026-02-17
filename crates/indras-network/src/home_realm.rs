@@ -27,7 +27,7 @@ use indras_storage::ContentRef;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
-use tracing::debug;
+use tracing::{debug, info, warn};
 
 /// Generate a deterministic home realm ID from a member ID.
 ///
@@ -116,7 +116,38 @@ impl HomeRealm {
         self_id: MemberId,
     ) -> Result<Self> {
         let sync_registry = Arc::new(ArtifactSyncRegistry::new(node.clone(), self_id));
-        Ok(Self { id, node, self_id, sync_registry })
+        let home = Self { id, node, self_id, sync_registry };
+        home.reconcile_artifact_sync().await;
+        Ok(home)
+    }
+
+    /// Re-create sync interfaces for artifacts that have active grantees.
+    ///
+    /// Called on startup so that previously-shared artifacts resume syncing
+    /// without requiring an explicit `grant_access` call.
+    async fn reconcile_artifact_sync(&self) {
+        let doc = match self.artifact_index().await {
+            Ok(doc) => doc,
+            Err(e) => {
+                debug!(error = %e, "No artifact index yet, skipping sync reconciliation");
+                return;
+            }
+        };
+        let data = doc.read().await;
+        let mut count = 0u32;
+        for entry in data.active_artifacts() {
+            let has_grantees = entry.grants.iter().any(|g| !g.mode.is_expired(0));
+            if has_grantees {
+                if let Err(e) = self.sync_registry.reconcile(&entry.id, entry).await {
+                    warn!(artifact = %entry.id, error = %e, "Failed to reconcile artifact sync on startup");
+                } else {
+                    count += 1;
+                }
+            }
+        }
+        if count > 0 {
+            info!(count, "Reconciled artifact sync interfaces on startup");
+        }
     }
 
     /// Get the home realm ID.
