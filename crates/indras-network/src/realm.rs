@@ -25,6 +25,8 @@ use serde::Serialize;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::watch;
+use tokio::sync::OnceCell;
+use crate::chat_message::{RealmChatDocument, EditableChatMessage, EditableMessageType, ChatMessageId};
 use tracing::debug;
 
 /// A collaborative realm.
@@ -58,6 +60,8 @@ pub struct Realm {
     invite: Option<InviteCode>,
     /// Reference to the underlying node.
     node: Arc<IndrasNode>,
+    /// Cached CRDT chat document handle (shared across clones).
+    chat_doc: Arc<OnceCell<Document<RealmChatDocument>>>,
 }
 
 impl Realm {
@@ -75,6 +79,7 @@ impl Realm {
             artifact_id,
             invite: Some(invite),
             node,
+            chat_doc: Arc::new(OnceCell::new()),
         }
     }
 
@@ -86,6 +91,7 @@ impl Realm {
             artifact_id,
             invite: None,
             node,
+            chat_doc: Arc::new(OnceCell::new()),
         }
     }
 
@@ -297,6 +303,59 @@ impl Realm {
                 }
             })
             .collect())
+    }
+
+    // ============================================================
+    // CRDT Chat
+    // ============================================================
+
+    /// Get the CRDT chat document for this realm.
+    ///
+    /// Returns a cached document handle. All clones of this Realm
+    /// share the same document instance and listener task.
+    pub async fn chat_doc(&self) -> Result<&Document<RealmChatDocument>> {
+        self.chat_doc.get_or_try_init(|| async {
+            Document::new(self.id, "chat".to_string(), Arc::clone(&self.node)).await
+        }).await
+    }
+
+    /// Send a text message via the CRDT chat document.
+    pub async fn chat_send(&self, author: &str, text: String) -> Result<ChatMessageId> {
+        let doc = self.chat_doc().await?;
+        let id = generate_chat_id();
+        let msg = EditableChatMessage::new_text(
+            id.clone(),
+            format!("{:?}", self.id),
+            author.to_string(),
+            text,
+            now_millis(),
+        );
+        doc.update(|chat| chat.add_message(msg)).await?;
+        Ok(id)
+    }
+
+    /// Send a reply via the CRDT chat document.
+    pub async fn chat_reply(&self, author: &str, parent_id: &str, text: String) -> Result<ChatMessageId> {
+        let doc = self.chat_doc().await?;
+        let id = generate_chat_id();
+        let msg = EditableChatMessage::new_reply(
+            id.clone(),
+            format!("{:?}", self.id),
+            author.to_string(),
+            text,
+            now_millis(),
+            EditableMessageType::Text,
+            parent_id.to_string(),
+        );
+        doc.update(|chat| chat.add_message(msg)).await?;
+        Ok(id)
+    }
+
+    /// Add a reaction via the CRDT chat document.
+    pub async fn chat_react(&self, author: &str, msg_id: &str, emoji: &str) -> Result<bool> {
+        let doc = self.chat_doc().await?;
+        let result = doc.transaction(|chat| chat.add_reaction(msg_id, author, emoji)).await?;
+        Ok(result)
     }
 
     // ============================================================
@@ -951,6 +1010,7 @@ impl Clone for Realm {
             artifact_id: self.artifact_id.clone(),
             invite: self.invite.clone(),
             node: Arc::clone(&self.node),
+            chat_doc: Arc::clone(&self.chat_doc),
         }
     }
 }
@@ -1058,6 +1118,24 @@ mod hex {
     pub fn encode(bytes: &[u8]) -> String {
         bytes.iter().map(|b| format!("{:02x}", b)).collect()
     }
+}
+
+/// Generate a unique chat message ID from timestamp + random bytes.
+fn generate_chat_id() -> ChatMessageId {
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let random: u64 = rand::random();
+    format!("{ts:016x}-{random:016x}")
+}
+
+/// Get current time in milliseconds since UNIX epoch.
+fn now_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
 
 #[cfg(test)]

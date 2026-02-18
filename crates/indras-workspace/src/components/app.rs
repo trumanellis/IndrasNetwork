@@ -34,7 +34,7 @@ use indras_ui::{
     ChatPanel,
 };
 use indras_ui::PeerDisplayInfo as UiPeerDisplayInfo;
-use indras_network::{IdentityCode, IndrasNetwork, HomeRealm, Realm};
+use indras_network::{IdentityCode, IndrasNetwork, HomeRealm, Realm, RealmChatDocument, EditableChatMessage};
 
 #[cfg(feature = "lua-scripting")]
 use crate::scripting::channels::AppTestChannels;
@@ -42,6 +42,43 @@ use crate::scripting::channels::AppTestChannels;
 use crate::scripting::dispatcher::spawn_dispatcher;
 #[cfg(feature = "lua-scripting")]
 use crate::scripting::event::AppEvent;
+
+/// Convert a CRDT chat message to the UI's StoryMessage format.
+fn chat_msg_to_story(
+    msg: &EditableChatMessage,
+    my_name: &str,
+    chat_doc: &RealmChatDocument,
+) -> StoryMessage {
+    let is_self = msg.author == my_name;
+    let letter = msg.author.chars().next().unwrap_or('?').to_string();
+    let time = {
+        let dt = chrono::DateTime::from_timestamp_millis(msg.created_at as i64)
+            .unwrap_or_default();
+        dt.format("%H:%M").to_string()
+    };
+    let reactions: Vec<(String, usize)> = msg.reactions.iter()
+        .map(|(emoji, authors)| (emoji.clone(), authors.len()))
+        .collect();
+    let reply_to_preview = msg.reply_to.as_ref()
+        .and_then(|id| chat_doc.reply_preview(id))
+        .map(|(author, text)| format!("{}: {}", author, text));
+
+    StoryMessage {
+        sender_name: msg.author.clone(),
+        sender_letter: letter,
+        sender_color_class: String::new(),
+        content: msg.current_content.clone(),
+        time,
+        is_self,
+        artifact_ref: None,
+        image_ref: if msg.is_image() { Some(true) } else { None },
+        branch_label: None,
+        day_separator: None,
+        message_id: Some(msg.id.clone()),
+        reactions,
+        reply_to_preview,
+    }
+}
 
 /// Root application component.
 #[component]
@@ -827,51 +864,27 @@ pub fn RootApp() -> Element {
                                 }
                             }
 
-                            // If this tree has an associated realm, load realm messages.
-                            // For stories, realm is authoritative — replace vault messages entirely.
+                            // If this tree has an associated realm, load chat from CRDT document.
                             let realm = realm_map.read().get(&tree_node_id).cloned();
                             if let Some(realm) = realm {
-                                match realm.all_messages().await {
-                                    Ok(realm_msgs) => {
-                                        let net = {
+                                match realm.chat_doc().await {
+                                    Ok(doc) => {
+                                        let my_name = {
                                             let guard = network_handle.read();
-                                            guard.as_ref().map(|nh| nh.network.clone())
+                                            guard.as_ref()
+                                                .and_then(|nh| nh.network.display_name().map(|s| s.to_string()))
+                                                .unwrap_or_default()
                                         };
-                                        let my_id = net.as_ref().map(|n| n.id());
-                                        let realm_messages: Vec<StoryMessage> = realm_msgs.into_iter().filter_map(|msg| {
-                                            let text = msg.content.as_text()?.to_string();
-                                            let sender_name = msg.sender.name();
-                                            let is_self = my_id.map_or(false, |mid| msg.sender.id() == mid);
-                                            let letter = sender_name.chars().next().unwrap_or('?').to_string();
-                                            let time = msg.timestamp.format("%H:%M").to_string();
-                                            let reply_to_preview = msg.reply_to.map(|_| "(reply)".to_string());
-                                            Some(StoryMessage {
-                                                sender_name,
-                                                sender_letter: letter,
-                                                sender_color_class: String::new(),
-                                                content: text,
-                                                time,
-                                                is_self,
-                                                artifact_ref: None,
-                                                image_ref: None,
-                                                branch_label: None,
-                                                day_separator: None,
-                                                message_id: Some(msg.id),
-                                                reactions: vec![],
-                                                reply_to_preview,
-                                            })
-                                        }).collect();
+                                        let data = doc.read().await;
+                                        let realm_messages: Vec<StoryMessage> = data.visible_messages().iter()
+                                            .map(|msg| chat_msg_to_story(msg, &my_name, &data))
+                                            .collect();
                                         if vt == ViewType::Story {
-                                            // Realm is authoritative for stories — replace entirely
                                             story_messages.set(realm_messages);
-                                        } else if !realm_messages.is_empty() {
-                                            let mut current = story_messages.read().clone();
-                                            current.extend(realm_messages);
-                                            story_messages.set(current);
                                         }
                                     }
                                     Err(e) => {
-                                        tracing::warn!(error = %e, "Failed to load realm messages");
+                                        tracing::warn!(error = %e, "Failed to load chat document");
                                     }
                                 }
                             }
@@ -967,45 +980,26 @@ pub fn RootApp() -> Element {
                                     });
                                 }
 
-                                // Subscribe to live incoming messages for real-time chat
-                                let realm_for_messages = realm_map.read().get(&tree_node_id).cloned();
-                                if let Some(realm) = realm_for_messages {
-                                    let my_id = {
-                                        let guard = network_handle.read();
-                                        guard.as_ref().map(|nh| nh.network.id())
-                                    };
+                                // Subscribe to CRDT chat document changes for real-time updates
+                                let realm_for_changes = realm_map.read().get(&tree_node_id).cloned();
+                                if let Some(realm) = realm_for_changes {
                                     spawn(async move {
-                                        use futures::StreamExt;
-                                        let mut stream = Box::pin(realm.messages());
-                                        while let Some(msg) = stream.next().await {
-                                            // Skip own messages — already shown via optimistic push in on_send
-                                            let is_self = my_id.map_or(false, |mid| msg.sender.id() == mid);
-                                            if is_self {
-                                                continue;
+                                        if let Ok(doc) = realm.chat_doc().await {
+                                            use futures::StreamExt;
+                                            let mut changes = Box::pin(doc.changes());
+                                            while let Some(_change) = changes.next().await {
+                                                let my_name = {
+                                                    let guard = network_handle.read();
+                                                    guard.as_ref()
+                                                        .and_then(|nh| nh.network.display_name().map(|s| s.to_string()))
+                                                        .unwrap_or_default()
+                                                };
+                                                let data = doc.read().await;
+                                                let messages: Vec<StoryMessage> = data.visible_messages().iter()
+                                                    .map(|msg| chat_msg_to_story(msg, &my_name, &data))
+                                                    .collect();
+                                                story_messages.set(messages);
                                             }
-                                            let text = match msg.content.as_text() {
-                                                Some(t) => t.to_string(),
-                                                None => continue,
-                                            };
-                                            let sender_name = msg.sender.name();
-                                            let letter = sender_name.chars().next().unwrap_or('?').to_string();
-                                            let time = msg.timestamp.format("%H:%M").to_string();
-                                            let reply_to_preview = msg.reply_to.map(|_| "(reply)".to_string());
-                                            story_messages.write().push(StoryMessage {
-                                                sender_name,
-                                                sender_letter: letter,
-                                                sender_color_class: String::new(),
-                                                content: text,
-                                                time,
-                                                is_self: false,
-                                                artifact_ref: None,
-                                                image_ref: None,
-                                                branch_label: None,
-                                                day_separator: None,
-                                                message_id: Some(msg.id),
-                                                reactions: vec![],
-                                                reply_to_preview,
-                                            });
                                         }
                                     });
                                 }
@@ -1849,55 +1843,41 @@ pub fn RootApp() -> Element {
                                             let realm = node_id.as_ref().and_then(|id| realm_map.read().get(id).cloned());
                                             let net = network_handle.read().as_ref().map(|nh| nh.network.clone());
                                             spawn(async move {
-                                                let my_name = net.as_ref()
-                                                    .and_then(|n| n.display_name().map(|s| s.to_string()))
-                                                    .unwrap_or_else(|| "Me".to_string());
-
-                                                // Send via realm if available
                                                 if let Some(realm) = realm {
-                                                    if let Err(e) = realm.send(text.clone()).await {
-                                                        tracing::error!(error = %e, "Failed to send message");
-                                                        return;
+                                                    let my_name = net.as_ref()
+                                                        .and_then(|n| n.display_name().map(|s| s.to_string()))
+                                                        .unwrap_or_else(|| "Me".to_string());
+                                                    if let Err(e) = realm.chat_send(&my_name, text).await {
+                                                        tracing::error!(error = %e, "Failed to send chat message");
                                                     }
                                                 }
-
-                                                // Add message to local UI immediately
-                                                let letter = my_name.chars().next().unwrap_or('?').to_string();
-                                                let now = chrono::Local::now().format("%H:%M").to_string();
-                                                story_messages.write().push(StoryMessage {
-                                                    sender_name: my_name,
-                                                    sender_letter: letter,
-                                                    sender_color_class: String::new(),
-                                                    content: text,
-                                                    time: now,
-                                                    is_self: true,
-                                                    artifact_ref: None,
-                                                    image_ref: None,
-                                                    branch_label: None,
-                                                    day_separator: None,
-                                                    message_id: None,
-                                                    reactions: vec![],
-                                                    reply_to_preview: None,
-                                                });
                                             });
                                         },
-                                        on_reply: move |(msg_id, text): (indras_network::MessageId, String)| {
+                                        on_reply: move |(msg_id, text): (String, String)| {
                                             let node_id = workspace.read().nav.current_id.clone();
                                             let realm = node_id.as_ref().and_then(|id| realm_map.read().get(id).cloned());
+                                            let net = network_handle.read().as_ref().map(|nh| nh.network.clone());
                                             spawn(async move {
                                                 if let Some(realm) = realm {
-                                                    if let Err(e) = realm.reply(msg_id, text).await {
+                                                    let my_name = net.as_ref()
+                                                        .and_then(|n| n.display_name().map(|s| s.to_string()))
+                                                        .unwrap_or_else(|| "Me".to_string());
+                                                    if let Err(e) = realm.chat_reply(&my_name, &msg_id, text).await {
                                                         tracing::error!(error = %e, "Failed to send reply");
                                                     }
                                                 }
                                             });
                                         },
-                                        on_react: move |(msg_id, emoji): (indras_network::MessageId, String)| {
+                                        on_react: move |(msg_id, emoji): (String, String)| {
                                             let node_id = workspace.read().nav.current_id.clone();
                                             let realm = node_id.as_ref().and_then(|id| realm_map.read().get(id).cloned());
+                                            let net = network_handle.read().as_ref().map(|nh| nh.network.clone());
                                             spawn(async move {
                                                 if let Some(realm) = realm {
-                                                    if let Err(e) = realm.react(msg_id, emoji).await {
+                                                    let my_name = net.as_ref()
+                                                        .and_then(|n| n.display_name().map(|s| s.to_string()))
+                                                        .unwrap_or_else(|| "Me".to_string());
+                                                    if let Err(e) = realm.chat_react(&my_name, &msg_id, &emoji).await {
                                                         tracing::error!(error = %e, "Failed to send reaction");
                                                     }
                                                 }
@@ -1909,46 +1889,18 @@ pub fn RootApp() -> Element {
                                             let net = network_handle.read().as_ref().map(|nh| nh.network.clone());
                                             spawn(async move {
                                                 if let Some(realm) = realm {
-                                                    if query.is_empty() {
-                                                        // Empty query — reload all messages
-                                                        if let Ok(all_msgs) = realm.all_messages().await {
-                                                            let my_id = net.as_ref().map(|n| n.id());
-                                                            let messages: Vec<StoryMessage> = all_msgs.into_iter().filter_map(|msg| {
-                                                                let text = msg.content.as_text()?.to_string();
-                                                                let sender_name = msg.sender.name();
-                                                                let is_self = my_id.map_or(false, |mid| msg.sender.id() == mid);
-                                                                let letter = sender_name.chars().next().unwrap_or('?').to_string();
-                                                                let time = msg.timestamp.format("%H:%M").to_string();
-                                                                Some(StoryMessage {
-                                                                    sender_name, sender_letter: letter,
-                                                                    sender_color_class: String::new(),
-                                                                    content: text, time, is_self,
-                                                                    artifact_ref: None, image_ref: None,
-                                                                    branch_label: None, day_separator: None,
-                                                                    message_id: Some(msg.id),
-                                                                    reactions: vec![], reply_to_preview: None,
-                                                                })
-                                                            }).collect();
-                                                            story_messages.set(messages);
-                                                        }
-                                                    } else if let Ok(results) = realm.search_messages(&query).await {
-                                                        let my_id = net.as_ref().map(|n| n.id());
-                                                        let messages: Vec<StoryMessage> = results.into_iter().filter_map(|msg| {
-                                                            let text = msg.content.as_text()?.to_string();
-                                                            let sender_name = msg.sender.name();
-                                                            let is_self = my_id.map_or(false, |mid| msg.sender.id() == mid);
-                                                            let letter = sender_name.chars().next().unwrap_or('?').to_string();
-                                                            let time = msg.timestamp.format("%H:%M").to_string();
-                                                            Some(StoryMessage {
-                                                                sender_name, sender_letter: letter,
-                                                                sender_color_class: String::new(),
-                                                                content: text, time, is_self,
-                                                                artifact_ref: None, image_ref: None,
-                                                                branch_label: None, day_separator: None,
-                                                                message_id: Some(msg.id),
-                                                                reactions: vec![], reply_to_preview: None,
+                                                    if let Ok(doc) = realm.chat_doc().await {
+                                                        let my_name = net.as_ref()
+                                                            .and_then(|n| n.display_name().map(|s| s.to_string()))
+                                                            .unwrap_or_default();
+                                                        let data = doc.read().await;
+                                                        let messages: Vec<StoryMessage> = data.visible_messages().iter()
+                                                            .filter(|msg| {
+                                                                query.is_empty() || msg.current_content.to_lowercase()
+                                                                    .contains(&query.to_lowercase())
                                                             })
-                                                        }).collect();
+                                                            .map(|msg| chat_msg_to_story(msg, &my_name, &data))
+                                                            .collect();
                                                         story_messages.set(messages);
                                                     }
                                                 }

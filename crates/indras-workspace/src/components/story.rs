@@ -1,7 +1,6 @@
 //! Story (conversation/chat) view component.
 
 use dioxus::prelude::*;
-use indras_network::MessageId;
 
 /// Embedded artifact reference in a story message.
 #[derive(Clone, Debug, PartialEq)]
@@ -30,8 +29,8 @@ pub struct StoryMessage {
     pub branch_label: Option<String>,
     /// Day separator to render before this message
     pub day_separator: Option<String>,
-    /// Realm message ID for reply/react (None for vault-only messages)
-    pub message_id: Option<MessageId>,
+    /// Chat message ID for reply/react (None for vault-only messages)
+    pub message_id: Option<String>,
     /// Emoji reactions on this message: (emoji, count)
     pub reactions: Vec<(String, usize)>,
     /// Quoted reply preview text (if this message is a reply)
@@ -41,7 +40,7 @@ pub struct StoryMessage {
 /// Reply context for the compose bar.
 #[derive(Clone, Debug, PartialEq)]
 struct ReplyContext {
-    message_id: MessageId,
+    message_id: String,
     sender_name: String,
     preview: String,
 }
@@ -57,9 +56,9 @@ pub fn StoryView(
     #[props(optional)]
     on_send: Option<EventHandler<String>>,
     #[props(optional)]
-    on_reply: Option<EventHandler<(MessageId, String)>>,
+    on_reply: Option<EventHandler<(String, String)>>,
     #[props(optional)]
-    on_react: Option<EventHandler<(MessageId, String)>>,
+    on_react: Option<EventHandler<(String, String)>>,
     #[props(optional)]
     on_search: Option<EventHandler<String>>,
     #[props(optional)]
@@ -200,7 +199,7 @@ pub fn StoryView(
 fn render_message(
     msg: &StoryMessage,
     on_artifact_click: &Option<EventHandler<StoryArtifactRef>>,
-    on_react: &Option<EventHandler<(MessageId, String)>>,
+    on_react: &Option<EventHandler<(String, String)>>,
     replying_to: &Signal<Option<ReplyContext>>,
 ) -> Element {
     let msg_class = if msg.is_self { "msg self" } else { "msg" };
@@ -216,7 +215,9 @@ fn render_message(
     };
 
     // Capture for reply/react closures
-    let msg_id = msg.message_id;
+    let msg_id = msg.message_id.clone();
+    let msg_id_for_reply = msg_id.clone();
+    let msg_id_for_check = msg_id.clone();
     let sender_for_reply = msg.sender_name.clone();
     let preview_for_reply = msg.content.chars().take(60).collect::<String>();
     let mut replying_to = *replying_to;
@@ -296,16 +297,16 @@ fn render_message(
                     class: "msg-footer",
                     div { class: "msg-time", "{msg.time}" }
                     // Reply and react actions (only for realm messages)
-                    if msg_id.is_some() {
+                    if msg_id_for_check.is_some() {
                         div {
                             class: "msg-actions",
                             button {
                                 class: "msg-action-btn",
                                 title: "Reply",
                                 onclick: move |_| {
-                                    if let Some(id) = msg_id {
+                                    if let Some(ref id) = msg_id_for_reply {
                                         replying_to.set(Some(ReplyContext {
-                                            message_id: id,
+                                            message_id: id.clone(),
                                             sender_name: sender_for_reply.clone(),
                                             preview: preview_for_reply.clone(),
                                         }));
@@ -321,12 +322,13 @@ fn render_message(
                                         {
                                             let emoji_str = emoji.to_string();
                                             let handler = react_handler.clone();
+                                            let msg_id_for_react = msg_id.clone();
                                             rsx! {
                                                 button {
                                                     class: "msg-action-btn msg-react-btn",
                                                     onclick: move |_| {
-                                                        if let (Some(id), Some(h)) = (msg_id, &handler) {
-                                                            h.call((id, emoji_str.clone()));
+                                                        if let (Some(id), Some(h)) = (&msg_id_for_react, &handler) {
+                                                            h.call((id.clone(), emoji_str.clone()));
                                                         }
                                                     },
                                                     "{emoji}"
