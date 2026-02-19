@@ -1,4 +1,4 @@
-//! Artifact browser — 3-column location-based view (Nearby / Distant / Untagged).
+//! Artifact browser — 3-column location-based view (Local / Global / Digital).
 
 use dioxus::prelude::*;
 use indras_ui::artifact_display::{ArtifactDisplayInfo, ArtifactGallery};
@@ -96,37 +96,37 @@ pub fn ArtifactBrowserView(
         .collect();
 
     // Partition into 3 columns
-    let mut nearby: Vec<&BrowsableArtifact> = Vec::new();
-    let mut distant: Vec<&BrowsableArtifact> = Vec::new();
-    let mut untagged: Vec<&BrowsableArtifact> = Vec::new();
+    let mut local: Vec<&BrowsableArtifact> = Vec::new();
+    let mut global: Vec<&BrowsableArtifact> = Vec::new();
+    let mut digital: Vec<&BrowsableArtifact> = Vec::new();
 
     for a in &filtered {
         match a.distance_km {
-            Some(d) if d <= radius_km => nearby.push(a),
-            Some(_) => distant.push(a),
-            None => untagged.push(a),
+            Some(d) if d <= radius_km => local.push(a),
+            Some(_) => global.push(a),
+            None => digital.push(a),
         }
     }
 
-    nearby.sort_by(|a, b| {
+    local.sort_by(|a, b| {
         a.distance_km
             .partial_cmp(&b.distance_km)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
-    distant.sort_by(|a, b| {
+    global.sort_by(|a, b| {
         a.distance_km
             .partial_cmp(&b.distance_km)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
-    untagged.sort_by(|a, b| a.info.name.cmp(&b.info.name));
+    digital.sort_by(|a, b| a.info.name.cmp(&b.info.name));
 
-    let nearby_infos: Vec<ArtifactDisplayInfo> = nearby.iter().map(|a| a.info.clone()).collect();
-    let distant_infos: Vec<ArtifactDisplayInfo> = distant.iter().map(|a| a.info.clone()).collect();
-    let untagged_infos: Vec<ArtifactDisplayInfo> = untagged.iter().map(|a| a.info.clone()).collect();
+    let local_infos: Vec<ArtifactDisplayInfo> = local.iter().map(|a| a.info.clone()).collect();
+    let global_infos: Vec<ArtifactDisplayInfo> = global.iter().map(|a| a.info.clone()).collect();
+    let digital_infos: Vec<ArtifactDisplayInfo> = digital.iter().map(|a| a.info.clone()).collect();
 
-    let nearby_count = nearby_infos.len();
-    let distant_count = distant_infos.len();
-    let untagged_count = untagged_infos.len();
+    let local_count = local_infos.len();
+    let global_count = global_infos.len();
+    let digital_count = digital_infos.len();
 
     rsx! {
         div {
@@ -231,48 +231,48 @@ pub fn ArtifactBrowserView(
                     div {
                         class: "artifact-browser-columns",
 
-                        // Nearby column
+                        // Local column
                         div {
                             class: "artifact-browser-column",
                             div {
                                 class: "artifact-browser-column-header",
-                                "Nearby"
-                                span { class: "artifact-browser-column-count", "{nearby_count}" }
+                                "Local"
+                                span { class: "artifact-browser-column-count", "{local_count}" }
                             }
-                            if nearby_infos.is_empty() {
-                                div { class: "artifact-browser-empty", "No nearby artifacts" }
+                            if local_infos.is_empty() {
+                                div { class: "artifact-browser-empty", "No local artifacts" }
                             } else {
-                                ArtifactGallery { artifacts: nearby_infos }
+                                ArtifactGallery { artifacts: local_infos }
                             }
                         }
 
-                        // Distant column
+                        // Global column
                         div {
                             class: "artifact-browser-column",
                             div {
                                 class: "artifact-browser-column-header",
-                                "Distant"
-                                span { class: "artifact-browser-column-count", "{distant_count}" }
+                                "Global"
+                                span { class: "artifact-browser-column-count", "{global_count}" }
                             }
-                            if distant_infos.is_empty() {
-                                div { class: "artifact-browser-empty", "No distant artifacts" }
+                            if global_infos.is_empty() {
+                                div { class: "artifact-browser-empty", "No global artifacts" }
                             } else {
-                                ArtifactGallery { artifacts: distant_infos }
+                                ArtifactGallery { artifacts: global_infos }
                             }
                         }
 
-                        // Untagged column
+                        // Digital column
                         div {
                             class: "artifact-browser-column",
                             div {
                                 class: "artifact-browser-column-header",
-                                "Untagged"
-                                span { class: "artifact-browser-column-count", "{untagged_count}" }
+                                "Digital"
+                                span { class: "artifact-browser-column-count", "{digital_count}" }
                             }
-                            if untagged_infos.is_empty() {
-                                div { class: "artifact-browser-empty", "No untagged artifacts" }
+                            if digital_infos.is_empty() {
+                                div { class: "artifact-browser-empty", "No digital artifacts" }
                             } else {
-                                ArtifactGallery { artifacts: untagged_infos }
+                                ArtifactGallery { artifacts: digital_infos }
                             }
                         }
                     }
