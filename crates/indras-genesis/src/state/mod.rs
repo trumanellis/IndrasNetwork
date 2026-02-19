@@ -201,6 +201,10 @@ pub struct EventLogEntry {
     pub direction: EventDirection,
     /// Short description of what happened.
     pub message: String,
+    /// Optional action button (e.g., "Release Tokens" for proof notifications).
+    pub action_label: Option<String>,
+    /// Whether this entry should be highlighted (e.g., proof requiring attention).
+    pub highlighted: bool,
 }
 
 /// Main state for the genesis flow.

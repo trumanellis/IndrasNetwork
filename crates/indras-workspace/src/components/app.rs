@@ -11,7 +11,7 @@ use crate::bridge::network_bridge::{NetworkHandle, is_first_run, create_identity
 use crate::components::topbar::Topbar;
 use crate::components::document::DocumentView;
 use crate::components::story::{StoryView, StoryMessage, StoryArtifactRef};
-use crate::components::quest::{QuestView, QuestKind, ProofEntry, ProofArtifact, AssignedToken, AttentionItem};
+use crate::components::quest::{QuestView, QuestKind, ProofEntry, AttentionItem, PledgedToken, AttentionPeerSummary, StewardshipChainEntry, format_duration_secs, PeerOption, IntentionCreateOverlay};
 use crate::components::settings::SettingsView;
 use crate::components::setup::SetupView;
 use crate::components::pass_story::PassStoryOverlay;
@@ -23,7 +23,7 @@ use crate::state::workspace::{WorkspaceState, ViewType, AppPhase, PeerDisplayInf
 use crate::state::navigation::{NavigationState, VaultTreeNode};
 use crate::state::editor::{EditorState, DocumentMeta, BlockDocumentSchema};
 
-use indras_artifacts::{Artifact, TreeType, LeafType};
+use indras_artifacts::{Artifact, TreeType, LeafType, Intention};
 use indras_ui::{
     IdentityRow, PeerStrip,
     VaultSidebar, TreeNode,
@@ -34,7 +34,7 @@ use indras_ui::{
     ChatPanel,
 };
 use indras_ui::PeerDisplayInfo as UiPeerDisplayInfo;
-use indras_network::{IdentityCode, IndrasNetwork, HomeRealm, Realm, RealmChatDocument, EditableChatMessage};
+use indras_network::{IdentityCode, IndrasNetwork, HomeRealm, Realm, RealmChatDocument, EditableChatMessage, EditableMessageType, AccessMode};
 
 #[cfg(feature = "lua-scripting")]
 use crate::scripting::channels::AppTestChannels;
@@ -88,7 +88,7 @@ pub fn RootApp() -> Element {
     let mut story_messages = use_signal(Vec::<StoryMessage>::new);
     let mut quest_data = use_signal(|| None::<QuestViewData>);
     let mut active_tab = use_signal(|| NavTab::Vault);
-    let mut token_picker_open = use_signal(|| false);
+    // token_picker_open removed — inline pickers per-proof now
     let mut preview_open = use_signal(|| false);
     let mut preview_file = use_signal(|| None::<PreviewFile>);
     let mut preview_view_mode = use_signal(|| PreviewViewMode::Rendered);
@@ -96,6 +96,7 @@ pub fn RootApp() -> Element {
     let mut setup_error = use_signal(|| None::<String>);
     let mut setup_loading = use_signal(|| false);
     let mut pass_story_open = use_signal(|| false);
+    let mut intention_create_open = use_signal(|| false);
     let mut contact_invite_open = use_signal(|| false);
     let mut contact_invite_input = use_signal(String::new);
     let mut contact_invite_status = use_signal(|| None::<String>);
@@ -163,15 +164,7 @@ pub fn RootApp() -> Element {
     let ci_status = use_memo(move || contact_invite_status.read().clone());
     let ci_parsed = use_memo(move || contact_parsed_name.read().clone());
     let ci_copied = use_memo(move || *contact_copy_feedback.read());
-    let attention_items: Vec<AttentionItem> = vec![
-        AttentionItem { target: "Architecture Notes".into(), when: "Today 10:14 AM".into(), duration: "6m 33s".into() },
-        AttentionItem { target: "Team Discussion".into(), when: "Today 9:41 AM".into(), duration: "12m 08s".into() },
-        AttentionItem { target: "Design Assets".into(), when: "Today 9:22 AM".into(), duration: "4m 51s".into() },
-        AttentionItem { target: "Need: Logo Design".into(), when: "Yesterday 4:38 PM".into(), duration: "2m 14s".into() },
-        AttentionItem { target: "DM with Sage".into(), when: "Yesterday 4:02 PM".into(), duration: "9m 37s".into() },
-        AttentionItem { target: "Personal Journal".into(), when: "Yesterday 3:18 PM".into(), duration: "18m 02s".into() },
-        AttentionItem { target: "Project Alpha".into(), when: "Yesterday 2:55 PM".into(), duration: "7m 45s".into() },
-    ];
+    // attention_items now loaded from vault into QuestViewData
 
     // Phase-based boot: check first-run on mount
     use_effect(move || {
@@ -366,6 +359,8 @@ pub fn RootApp() -> Element {
     use_effect(move || {
         spawn(async move {
             let mut tick: u64 = 0;
+            let mut processed_invites = std::collections::HashSet::<String>::new();
+            let mut dm_realms: std::collections::HashMap<[u8; 32], indras_network::Realm> = std::collections::HashMap::new();
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
@@ -538,6 +533,125 @@ pub fn RootApp() -> Element {
                             }
 
                             workspace.write().peers.entries = entries;
+                        }
+                    }
+                }
+
+                // Check DM chats for incoming realm invites (every ~10s)
+                if tick % 5 == 2 {
+                    let peers_snapshot = workspace.read().peers.entries.clone();
+                    let my_name = vault_handle.read().as_ref().map(|vh| vh.player_name.clone()).unwrap_or_default();
+                    let mut any_joined = false;
+                    for peer_entry in &peers_snapshot {
+                        // Reuse persistent DM realm so Document listener stays alive across polls
+                        if !dm_realms.contains_key(&peer_entry.player_id) {
+                            if let Ok(r) = net.connect(peer_entry.player_id).await {
+                                dm_realms.insert(peer_entry.player_id, r);
+                            }
+                        }
+                        if let Some(dm_realm) = dm_realms.get(&peer_entry.player_id) {
+                            if let Ok(chat_doc) = dm_realm.chat_doc().await {
+                                let _ = chat_doc.refresh().await;
+                                let data = chat_doc.read().await;
+                                for msg in data.visible_messages() {
+                                    if msg.author == my_name { continue; }
+                                    if let EditableMessageType::RealmInvite {
+                                        ref invite_code, ref name, ref description, ..
+                                    } = msg.message_type {
+                                        // Skip already-processed invites
+                                        if processed_invites.contains(&msg.id) { continue; }
+                                        processed_invites.insert(msg.id.clone());
+
+                                        // Join the realm
+                                        if let Ok(shared_realm) = net.join(invite_code).await {
+                                            if let Some(vh) = vault_handle.read().clone() {
+                                                let mut vault = vh.vault.lock().await;
+                                                let join_now = chrono::Utc::now().timestamp_millis();
+                                                let audience = vec![vh.player_id, peer_entry.player_id];
+
+                                                // Use Intention::create to get description leaf
+                                                if let Ok(intention) = Intention::create(&mut vault, description, audience, join_now) {
+                                                    let root_id = vault.root.id.clone();
+                                                    let pos = vault.get_artifact(&root_id)
+                                                        .ok().flatten()
+                                                        .and_then(|a| if let Artifact::Tree(t) = a { Some(t.references.len() as u64) } else { None })
+                                                        .unwrap_or(0);
+                                                    let _ = vault.compose(&root_id, intention.id, pos, Some(name.clone()));
+
+                                                    let node_id = format!("{:?}", intention.id);
+                                                    drop(vault);
+                                                    realm_map.write().insert(node_id, shared_realm);
+                                                    any_joined = true;
+
+                                                    log_event(&mut workspace.write(), EventDirection::Received,
+                                                        format!("Joined shared Intention: {}", name));
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Rebuild sidebar once if any new intentions were joined
+                    if any_joined {
+                        if let Some(vh) = vault_handle.read().clone() {
+                            let vault = vh.vault.lock().await;
+                            let rebuild_now = chrono::Utc::now().timestamp_millis();
+                            if let Ok(Some(Artifact::Tree(rebuilt_root))) = vault.get_artifact(&vault.root.id) {
+                                let mut nodes = Vec::new();
+                                let mut quest_section_added = false;
+                                let mut contacts_section_added = false;
+                                let mut exchange_section_added = false;
+                                let mut tokens_section_added = false;
+                                for aref in &rebuilt_root.references {
+                                    if let Ok(Some(artifact)) = vault.get_artifact(&aref.artifact_id) {
+                                        if let Artifact::Tree(t) = &artifact {
+                                            let view_type_str = NavigationState::view_type_for_tree(&t.artifact_type);
+                                            let icon = NavigationState::icon_for_tree_type(&t.artifact_type);
+                                            let heat_val = vault.heat(&aref.artifact_id, rebuild_now).unwrap_or(0.0);
+                                            let heat_lvl = indras_ui::heat_level(heat_val);
+                                            let label_str = aref.label.clone().unwrap_or_default();
+                                            let is_quest_type = matches!(t.artifact_type, TreeType::Quest | TreeType::Need | TreeType::Offering | TreeType::Intention);
+                                            let is_contact = matches!(&t.artifact_type, TreeType::Custom(s) if s == "Contact");
+                                            let section = if nodes.is_empty() {
+                                                Some("Vault".to_string())
+                                            } else if is_contact && !contacts_section_added {
+                                                contacts_section_added = true;
+                                                Some("Contacts".to_string())
+                                            } else if is_quest_type && !quest_section_added {
+                                                quest_section_added = true;
+                                                Some("Intentions & Quests".to_string())
+                                            } else if t.artifact_type == TreeType::Exchange && !exchange_section_added {
+                                                exchange_section_added = true;
+                                                Some("Exchanges".to_string())
+                                            } else if t.artifact_type == TreeType::Collection && !tokens_section_added {
+                                                tokens_section_added = true;
+                                                Some("Tokens".to_string())
+                                            } else {
+                                                None
+                                            };
+                                            let nid = format!("{:?}", aref.artifact_id);
+                                            let has_children = !t.references.is_empty();
+                                            nodes.push(VaultTreeNode {
+                                                id: nid,
+                                                artifact_id: Some(aref.artifact_id.clone()),
+                                                label: label_str,
+                                                icon: icon.to_string(),
+                                                heat_level: heat_lvl,
+                                                depth: 0,
+                                                has_children,
+                                                expanded: has_children,
+                                                active: false,
+                                                section,
+                                                view_type: view_type_str.to_string(),
+                                            });
+                                        }
+                                    }
+                                }
+                                workspace.write().nav.vault_tree = nodes;
+                            }
                         }
                     }
                 }
@@ -766,62 +880,224 @@ pub fn RootApp() -> Element {
                                                 _ => QuestKind::Quest,
                                             };
 
-                                            // Build description from first leaf if any
-                                            let description = if let Some(first_ref) = tree.references.first() {
-                                                if let Ok(Some(payload)) = vault.get_payload(&first_ref.artifact_id) {
-                                                    String::from_utf8_lossy(&payload).to_string()
+                                            // Build description from first ref with "description" label
+                                            let description = {
+                                                let desc_ref = tree.references.iter()
+                                                    .find(|r| r.label.as_deref() == Some("description"));
+                                                if let Some(dr) = desc_ref {
+                                                    vault.get_payload(&dr.artifact_id)
+                                                        .ok()
+                                                        .flatten()
+                                                        .map(|p| String::from_utf8_lossy(&p).to_string())
+                                                        .unwrap_or_else(|| "No description yet.".to_string())
                                                 } else {
                                                     "No description yet.".to_string()
                                                 }
-                                            } else {
-                                                "No description yet.".to_string()
                                             };
 
                                             let steward_for_meta = steward_name.clone();
+                                            let intention = Intention::from_id(tree.id);
+                                            let player_name_for_peers = vh.player_name.clone();
 
-                                            // Build proofs for "Build P2P Workspace" quest
-                                            let proofs = if label == "Build P2P Workspace" {
-                                                vec![
-                                                    ProofEntry {
-                                                        author_name: "Sage".into(),
-                                                        author_letter: "S".into(),
-                                                        author_color_class: "peer-dot-sage".into(),
-                                                        body: "Completed the responsive mockup with all three breakpoints \u{2014} desktop, tablet, mobile. Implemented swipe gestures, bottom nav, Anytype-inspired overlay patterns, and the full Quiet Protocol design system.".into(),
-                                                        time_ago: "2d ago".into(),
-                                                        artifact_attachments: vec![
-                                                            ProofArtifact { icon: "\u{1F4C4}".into(), name: "indras_workspace.html".into(), artifact_type: "File".into() },
-                                                        ],
-                                                        tokens: vec![
-                                                            AssignedToken { duration: "14m 22s".into(), source: "Architecture Notes".into() },
-                                                            AssignedToken { duration: "8m 47s".into(), source: "Team Discussion".into() },
-                                                            AssignedToken { duration: "3m 11s".into(), source: "Design Assets".into() },
-                                                        ],
-                                                        has_tokens: true,
-                                                        total_token_count: 3,
-                                                        total_token_duration: "26m 20s".into(),
-                                                    },
-                                                    ProofEntry {
-                                                        author_name: "Zephyr".into(),
-                                                        author_letter: "Z".into(),
-                                                        author_color_class: "peer-dot-zeph".into(),
-                                                        body: "Created the system architecture diagram showing all artifact types, their relationships, and the attention flow. Also wrote the TreeType enum documentation with inline examples.".into(),
-                                                        time_ago: "18h ago".into(),
-                                                        artifact_attachments: vec![
-                                                            ProofArtifact { icon: "\u{1F5BC}".into(), name: "system_diagram.svg".into(), artifact_type: "Image".into() },
-                                                            ProofArtifact { icon: "\u{1F4C4}".into(), name: "treetype_docs.md".into(), artifact_type: "File".into() },
-                                                        ],
+                                            // Load proofs
+                                            let proofs = {
+                                                let proof_refs = intention.proofs(&vault).unwrap_or_default();
+                                                let mut proof_entries = Vec::new();
+                                                for proof_ref in &proof_refs {
+                                                    let (author_name, author_letter, author_color) = if let Some(label) = &proof_ref.label {
+                                                        let parts: Vec<&str> = label.splitn(3, ':').collect();
+                                                        if parts.len() >= 2 {
+                                                            let hex = parts[1];
+                                                            if hex.starts_with("02") {
+                                                                ("Sage".into(), "S".into(), "peer-dot-sage".into())
+                                                            } else if hex.starts_with("03") {
+                                                                ("Zephyr".into(), "Z".into(), "peer-dot-zeph".into())
+                                                            } else {
+                                                                (player_name_for_peers.clone(), player_name_for_peers.chars().next().unwrap_or('N').to_string(), "peer-dot-self".into())
+                                                            }
+                                                        } else {
+                                                            ("Unknown".into(), "?".into(), String::new())
+                                                        }
+                                                    } else {
+                                                        ("Unknown".into(), "?".into(), String::new())
+                                                    };
+
+                                                    let body = vault.get_payload(&proof_ref.artifact_id)
+                                                        .ok()
+                                                        .flatten()
+                                                        .map(|p| String::from_utf8_lossy(&p).to_string())
+                                                        .unwrap_or_else(|| "Proof submitted".to_string());
+
+                                                    proof_entries.push(ProofEntry {
+                                                        author_name,
+                                                        author_letter,
+                                                        author_color_class: author_color,
+                                                        body,
+                                                        time_ago: "recently".into(),
+                                                        artifact_attachments: Vec::new(),
                                                         tokens: Vec::new(),
                                                         has_tokens: false,
                                                         total_token_count: 0,
                                                         total_token_duration: String::new(),
-                                                    },
-                                                ]
-                                            } else {
-                                                Vec::new()
+                                                    });
+                                                }
+                                                proof_entries
                                             };
 
-                                            let status_str = if label == "Build P2P Workspace" { "Proven" } else { "Open" };
-                                            let posted_ago_str = if label == "Build P2P Workspace" { "Posted 5 days ago" } else { "" };
+                                            // Status
+                                            let status_str = {
+                                                match intention.status(&vault) {
+                                                    Ok(Some(s)) if s == "fulfilled" => "Fulfilled",
+                                                    _ => if proofs.is_empty() { "Open" } else { "Proven" },
+                                                }
+                                            };
+
+                                            // Heat
+                                            let now_ms = chrono::Utc::now().timestamp_millis();
+                                            let heat = vault.heat(&tree.id, now_ms).unwrap_or(0.0);
+
+                                            // Attention per peer
+                                            let attention_peers = {
+                                                let mut peers_summary = Vec::new();
+                                                let audience_ids: Vec<indras_artifacts::PlayerId> = tree.grants.iter().map(|g| g.grantee).collect();
+                                                let mut max_secs = 0u64;
+
+                                                // First pass: compute totals
+                                                let mut peer_data: Vec<(indras_artifacts::PlayerId, Vec<indras_artifacts::DwellWindow>)> = Vec::new();
+                                                for &pid in &audience_ids {
+                                                    let windows = intention.unreleased_attention(&vault, pid).unwrap_or_default();
+                                                    if !windows.is_empty() {
+                                                        let total_ms: u64 = windows.iter().map(|w| w.duration_ms).sum();
+                                                        let total_secs = total_ms / 1000;
+                                                        if total_secs > max_secs { max_secs = total_secs; }
+                                                        peer_data.push((pid, windows));
+                                                    }
+                                                }
+
+                                                // Second pass: build summaries with bar fractions
+                                                for (pid, windows) in &peer_data {
+                                                    let total_ms: u64 = windows.iter().map(|w| w.duration_ms).sum();
+                                                    let total_secs = total_ms / 1000;
+                                                    let (name, letter, color) = peer_display_info(*pid, &player_name_for_peers);
+                                                    peers_summary.push(AttentionPeerSummary {
+                                                        peer_name: name,
+                                                        peer_letter: letter,
+                                                        peer_color_class: color,
+                                                        total_duration: format_duration_secs(total_secs),
+                                                        total_duration_secs: total_secs,
+                                                        window_count: windows.len(),
+                                                        bar_fraction: if max_secs > 0 { total_secs as f32 / max_secs as f32 } else { 0.0 },
+                                                    });
+                                                }
+                                                peers_summary
+                                            };
+
+                                            let total_attention_duration = {
+                                                let total: u64 = attention_peers.iter().map(|p| p.total_duration_secs).sum();
+                                                format_duration_secs(total)
+                                            };
+
+                                            // Attention items for local player (for inline picker)
+                                            let attention_items = {
+                                                let windows = intention.unreleased_attention(&vault, vh.player_id).unwrap_or_default();
+                                                windows.iter().map(|w| {
+                                                    AttentionItem {
+                                                        target: "This Intention".into(),
+                                                        when: format!("{}ms ago", w.start_timestamp),
+                                                        duration: format_duration_secs(w.duration_ms / 1000),
+                                                    }
+                                                }).collect::<Vec<_>>()
+                                            };
+
+                                            // Pledged tokens
+                                            let pledged_tokens = {
+                                                let pledge_refs = intention.pledged_tokens(&vault).unwrap_or_default();
+                                                let mut pts = Vec::new();
+                                                for pref in &pledge_refs {
+                                                    let duration = vault.get_payload(&pref.artifact_id)
+                                                        .ok()
+                                                        .flatten()
+                                                        .and_then(|p| {
+                                                            if p.len() >= 8 {
+                                                                Some(u64::from_le_bytes(p[..8].try_into().unwrap_or([0u8; 8])))
+                                                            } else {
+                                                                None
+                                                            }
+                                                        })
+                                                        .unwrap_or(0);
+                                                    let from_name = if let Some(label) = &pref.label {
+                                                        let parts: Vec<&str> = label.splitn(3, ':').collect();
+                                                        if parts.len() >= 2 {
+                                                            let hex = parts[1];
+                                                            if hex.starts_with("02") { "Sage".into() }
+                                                            else if hex.starts_with("03") { "Zephyr".into() }
+                                                            else { player_name_for_peers.clone() }
+                                                        } else {
+                                                            "Unknown".into()
+                                                        }
+                                                    } else {
+                                                        "Unknown".into()
+                                                    };
+                                                    pts.push(PledgedToken {
+                                                        token_label: format!("Token"),
+                                                        duration: format_duration_secs(duration / 1000),
+                                                        from_name,
+                                                    });
+                                                }
+                                                pts
+                                            };
+
+                                            // Stewardship chain
+                                            let stewardship_chain = {
+                                                let mut chain = Vec::new();
+                                                // From proof refs — each proof represents a "created" link
+                                                let proof_refs = intention.proofs(&vault).unwrap_or_default();
+                                                for pref in &proof_refs {
+                                                    // Get tokens assigned to this proof via stewardship transfers
+                                                    if let Ok(Some(artifact)) = vault.get_artifact(&pref.artifact_id) {
+                                                        let (from_name, from_letter, from_color) = peer_display_info(*artifact.steward(), &player_name_for_peers);
+                                                        // Check blessing history on any tokens
+                                                        if let Some(leaf) = artifact.as_leaf() {
+                                                            for blessing in &leaf.blessing_history {
+                                                                let (bn, bl, bc) = peer_display_info(blessing.from, &player_name_for_peers);
+                                                                chain.push(StewardshipChainEntry {
+                                                                    from_name: bn,
+                                                                    from_letter: bl,
+                                                                    from_color_class: bc,
+                                                                    action: "blessed".into(),
+                                                                    token_label: "Token".into(),
+                                                                    token_duration: String::new(),
+                                                                    to_name: from_name.clone(),
+                                                                    to_letter: from_letter.clone(),
+                                                                    to_color_class: from_color.clone(),
+                                                                });
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                // From steward_history on any known tokens
+                                                let pledge_refs = intention.pledged_tokens(&vault).unwrap_or_default();
+                                                for pref in &pledge_refs {
+                                                    if let Ok(history) = vault.steward_history(&pref.artifact_id) {
+                                                        for record in &history {
+                                                            let (fn_, fl, fc) = peer_display_info(record.from, &player_name_for_peers);
+                                                            let (tn, tl, tc) = peer_display_info(record.to, &player_name_for_peers);
+                                                            chain.push(StewardshipChainEntry {
+                                                                from_name: fn_,
+                                                                from_letter: fl,
+                                                                from_color_class: fc,
+                                                                action: "released".into(),
+                                                                token_label: "Token".into(),
+                                                                token_duration: String::new(),
+                                                                to_name: tn,
+                                                                to_letter: tl,
+                                                                to_color_class: tc,
+                                                            });
+                                                        }
+                                                    }
+                                                }
+                                                chain
+                                            };
 
                                             quest_data.set(Some(QuestViewData {
                                                 kind,
@@ -831,7 +1107,14 @@ pub fn RootApp() -> Element {
                                                 steward_name,
                                                 audience_count,
                                                 proofs,
-                                                posted_ago: posted_ago_str.to_string(),
+                                                posted_ago: String::new(),
+                                                heat,
+                                                attention_peers,
+                                                total_attention_duration,
+                                                pledged_tokens,
+                                                stewardship_chain,
+                                                attention_items,
+                                                intention_id: tree.id,
                                             }));
 
                                             // Set editor meta for topbar
@@ -1073,16 +1356,21 @@ pub fn RootApp() -> Element {
                 let now = chrono::Utc::now().timestamp_millis();
 
                 match action {
+                    // Intention opens a creation form modal instead of creating directly
+                    SlashAction::Intention => {
+                        drop(vault); // Release lock — modal handles creation
+                        intention_create_open.set(true);
+                        return;
+                    }
                     // Tree actions - create new tree and add to root
                     SlashAction::Document | SlashAction::Story | SlashAction::Quest |
-                    SlashAction::Need | SlashAction::Offering | SlashAction::Intention => {
+                    SlashAction::Need | SlashAction::Offering => {
                         let tree_type = match action {
                             SlashAction::Document => TreeType::Document,
                             SlashAction::Story => TreeType::Story,
                             SlashAction::Quest => TreeType::Quest,
                             SlashAction::Need => TreeType::Need,
                             SlashAction::Offering => TreeType::Offering,
-                            SlashAction::Intention => TreeType::Intention,
                             _ => unreachable!(),
                         };
 
@@ -1092,7 +1380,6 @@ pub fn RootApp() -> Element {
                             SlashAction::Quest => "Untitled Quest",
                             SlashAction::Need => "Untitled Need",
                             SlashAction::Offering => "Untitled Offering",
-                            SlashAction::Intention => "Untitled Intention",
                             _ => unreachable!(),
                         };
 
@@ -1969,8 +2256,6 @@ pub fn RootApp() -> Element {
                         }
                         ViewType::Quest => {
                             if let Some(qd) = current_quest_data {
-                                let current_token_picker_open = *token_picker_open.read();
-                                let current_attention_items = attention_items.clone();
                                 rsx! {
                                     QuestView {
                                         kind: qd.kind,
@@ -1981,14 +2266,117 @@ pub fn RootApp() -> Element {
                                         audience_count: qd.audience_count,
                                         proofs: qd.proofs,
                                         posted_ago: qd.posted_ago,
-                                        token_picker_open: current_token_picker_open,
-                                        on_open_token_picker: move |_: ()| {
-                                            token_picker_open.set(true);
+                                        heat: qd.heat,
+                                        attention_peers: qd.attention_peers,
+                                        total_attention_duration: qd.total_attention_duration,
+                                        attention_items: qd.attention_items,
+                                        pledged_tokens: qd.pledged_tokens,
+                                        stewardship_chain: qd.stewardship_chain,
+                                        on_submit_proof: move |body: String| {
+                                            spawn(async move {
+                                                if let Some(vh) = vault_handle.read().clone() {
+                                                    let intention_id = quest_data.read().as_ref().map(|q| q.intention_id);
+                                                    if let Some(iid) = intention_id {
+                                                        let mut vault = vh.vault.lock().await;
+                                                        let intention = Intention::from_id(iid);
+                                                        let now = chrono::Utc::now().timestamp_millis();
+                                                        match intention.submit_proof(&mut vault, &body, now) {
+                                                            Ok(_) => {
+                                                                tracing::info!("Proof submitted successfully");
+                                                            }
+                                                            Err(e) => {
+                                                                tracing::error!(error = %e, "Failed to submit proof");
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            });
                                         },
-                                        on_close_token_picker: move |_: ()| {
-                                            token_picker_open.set(false);
+                                        on_confirm_tokens: move |data: (usize, Vec<usize>)| {
+                                            let (_proof_idx, selected_indices) = data;
+                                            spawn(async move {
+                                                if let Some(vh) = vault_handle.read().clone() {
+                                                    let intention_id = quest_data.read().as_ref().map(|q| q.intention_id);
+                                                    if let Some(iid) = intention_id {
+                                                        let mut vault = vh.vault.lock().await;
+                                                        let intention = Intention::from_id(iid);
+                                                        let now = chrono::Utc::now().timestamp_millis();
+                                                        // Get unreleased windows for local player
+                                                        let windows = intention.unreleased_attention(&vault, vh.player_id).unwrap_or_default();
+                                                        let selected_windows: Vec<_> = selected_indices.iter()
+                                                            .filter_map(|&i| windows.get(i).cloned())
+                                                            .collect();
+                                                        if !selected_windows.is_empty() {
+                                                            // Determine proof submitter from the proof at proof_idx
+                                                            let proof_submitter = {
+                                                                let proof_refs = intention.proofs(&vault).unwrap_or_default();
+                                                                if let Some(pref) = proof_refs.get(_proof_idx) {
+                                                                    if let Some(label) = &pref.label {
+                                                                        let parts: Vec<&str> = label.splitn(3, ':').collect();
+                                                                        if parts.len() >= 2 {
+                                                                            let hex = parts[1];
+                                                                            if hex.starts_with("02") { [2u8; 32] }
+                                                                            else if hex.starts_with("03") { [3u8; 32] }
+                                                                            else { [1u8; 32] }
+                                                                        } else { [1u8; 32] }
+                                                                    } else { [1u8; 32] }
+                                                                } else { [1u8; 32] }
+                                                            };
+                                                            match intention.release_attention(&mut vault, &selected_windows, proof_submitter, now) {
+                                                                Ok(tokens) => {
+                                                                    tracing::info!(count = tokens.len(), "Released attention as tokens");
+                                                                }
+                                                                Err(e) => {
+                                                                    tracing::error!(error = %e, "Failed to release attention");
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            });
                                         },
-                                        attention_items: current_attention_items,
+                                        on_release_pledged: move |indices: Vec<usize>| {
+                                            spawn(async move {
+                                                if let Some(vh) = vault_handle.read().clone() {
+                                                    let qd_clone = quest_data.read().clone();
+                                                    if let Some(qd) = qd_clone {
+                                                        let mut vault = vh.vault.lock().await;
+                                                        let intention = Intention::from_id(qd.intention_id);
+                                                        let now = chrono::Utc::now().timestamp_millis();
+                                                        // Get pledge refs and map indices to token IDs
+                                                        let pledge_refs = intention.pledged_tokens(&vault).unwrap_or_default();
+                                                        let token_ids: Vec<_> = indices.iter()
+                                                            .filter_map(|&i| pledge_refs.get(i).map(|r| r.artifact_id))
+                                                            .collect();
+                                                        // Determine a proof submitter (use first proof's author)
+                                                        let proof_submitter = {
+                                                            let proof_refs = intention.proofs(&vault).unwrap_or_default();
+                                                            if let Some(pref) = proof_refs.first() {
+                                                                if let Some(label) = &pref.label {
+                                                                    let parts: Vec<&str> = label.splitn(3, ':').collect();
+                                                                    if parts.len() >= 2 {
+                                                                        let hex = parts[1];
+                                                                        if hex.starts_with("02") { [2u8; 32] }
+                                                                        else if hex.starts_with("03") { [3u8; 32] }
+                                                                        else { [1u8; 32] }
+                                                                    } else { [1u8; 32] }
+                                                                } else { [1u8; 32] }
+                                                            } else { [1u8; 32] }
+                                                        };
+                                                        if !token_ids.is_empty() {
+                                                            match intention.release_pledged_tokens(&mut vault, &token_ids, proof_submitter, now) {
+                                                                Ok(()) => {
+                                                                    tracing::info!(count = token_ids.len(), "Released pledged tokens");
+                                                                }
+                                                                Err(e) => {
+                                                                    tracing::error!(error = %e, "Failed to release pledged tokens");
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            });
+                                        },
                                     }
                                 }
                             } else {
@@ -2370,6 +2758,207 @@ pub fn RootApp() -> Element {
                     },
                 }
 
+                // Intention creation modal
+                {
+                    let peer_options: Vec<PeerOption> = workspace.read().peers.entries.iter().map(|p| {
+                        PeerOption {
+                            player_id: p.player_id,
+                            name: p.name.clone(),
+                            selected: true,
+                        }
+                    }).collect();
+                    rsx! {
+                        IntentionCreateOverlay {
+                            visible: *intention_create_open.read(),
+                            peers: peer_options,
+                            on_close: move |_| intention_create_open.set(false),
+                            on_create: move |(title, description, audience): (String, String, Vec<[u8; 32]>)| {
+                                intention_create_open.set(false);
+                                let vh_signal = vault_handle;
+                                let mut ws_signal = workspace;
+                                let nh_signal = network_handle;
+                                let mut rm_signal = realm_map;
+                                let hr_signal = home_realm_handle;
+                                spawn(async move {
+                                    let vh = match vh_signal.read().clone() {
+                                        Some(h) => h,
+                                        None => return,
+                                    };
+                                    let mut vault = vh.vault.lock().await;
+                                    let now = chrono::Utc::now().timestamp_millis();
+
+                                    // Always include self in audience
+                                    let mut full_audience = audience;
+                                    if !full_audience.contains(&vh.player_id) {
+                                        full_audience.insert(0, vh.player_id);
+                                    }
+
+                                    let audience_for_sharing = full_audience.clone();
+                                    let intention = match Intention::create(&mut vault, &description, full_audience, now) {
+                                        Ok(i) => i,
+                                        Err(e) => {
+                                            tracing::error!("Failed to create intention: {}", e);
+                                            return;
+                                        }
+                                    };
+
+                                    // Add to root with title label
+                                    let root_id = vault.root.id.clone();
+                                    let root_for_pos = match vault.get_artifact(&root_id) {
+                                        Ok(Some(Artifact::Tree(t))) => t,
+                                        _ => return,
+                                    };
+                                    let position = root_for_pos.references.len() as u64;
+                                    drop(root_for_pos);
+                                    if let Err(e) = vault.compose(&root_id, intention.id, position, Some(title.clone())) {
+                                        tracing::error!("Failed to add intention to root: {}", e);
+                                        return;
+                                    }
+
+                                    // Create a network Realm for this intention
+                                    let tree_node_id = format!("{:?}", intention.id);
+                                    drop(vault);
+                                    let net = {
+                                        let guard = nh_signal.read();
+                                        guard.as_ref().map(|nh| nh.network.clone())
+                                    };
+                                    if let Some(net) = net {
+                                        match net.create_realm(&title).await {
+                                            Ok(realm) => {
+                                                tracing::info!("Created realm for intention: {}", title);
+                                                log_event(&mut ws_signal.write(), EventDirection::System, format!("Intention created: {}", title));
+
+                                                // Extract invite code and artifact_id before moving realm into map
+                                                let invite_str = realm.invite_code().map(|ic| ic.to_string());
+                                                let realm_artifact_id = realm.artifact_id().cloned();
+                                                rm_signal.write().insert(tree_node_id.clone(), realm);
+
+                                                let parent_id = ws_signal.read().nav.current_id.clone();
+                                                if let Some(parent_node_id) = parent_id {
+                                                    let parent_art = ws_signal.read().nav.vault_tree.iter()
+                                                        .find(|n| n.id == parent_node_id)
+                                                        .and_then(|n| n.artifact_id);
+                                                    if let Some(parent_art_id) = parent_art {
+                                                        if let Some(hr) = hr_signal.read().as_ref() {
+                                                            if let Err(e) = hr.attach_child(&parent_art_id, &intention.id).await {
+                                                                tracing::warn!(error = %e, "Failed to attach child in HomeRealm");
+                                                            }
+                                                        }
+                                                    }
+                                                }
+
+                                                // Share with audience peers: grant access + send DM invite
+                                                if let Some(invite_str) = invite_str {
+                                                    for &peer_id in &audience_for_sharing {
+                                                        if peer_id == vh.player_id { continue; }
+
+                                                        // Grant peer access in HomeRealm artifact_index
+                                                        // Use the realm's artifact_id (not intention.id) so reconcile()
+                                                        // creates the correct sync interface and gossip topic
+                                                        if let Some(ref realm_aid) = realm_artifact_id {
+                                                            if let Some(hr) = hr_signal.read().as_ref() {
+                                                                let _ = hr.grant_access(
+                                                                    realm_aid, peer_id, AccessMode::Permanent,
+                                                                ).await;
+                                                            }
+                                                        }
+
+                                                        // Send realm invite via DM chat
+                                                        if let Ok(dm_realm) = net.connect(peer_id).await {
+                                                            if let Ok(chat_doc) = dm_realm.chat_doc().await {
+                                                                let msg = EditableChatMessage::new(
+                                                                    format!("realm-invite-{}", now),
+                                                                    format!("{}", dm_realm.id()),
+                                                                    vh.player_name.clone(),
+                                                                    format!("Shared intention: {}", title),
+                                                                    now as u64,
+                                                                    EditableMessageType::RealmInvite {
+                                                                        invite_code: invite_str.clone(),
+                                                                        name: title.clone(),
+                                                                        artifact_type: "Intention".to_string(),
+                                                                        description: description.clone(),
+                                                                    },
+                                                                );
+                                                                let _ = chat_doc.update(|doc| doc.add_message(msg)).await;
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            Err(e) => {
+                                                tracing::warn!(error = %e, "Failed to create realm for intention (non-fatal)");
+                                            }
+                                        }
+                                    }
+
+                                    // Rebuild sidebar
+                                    let vh = match vh_signal.read().clone() {
+                                        Some(h) => h,
+                                        None => return,
+                                    };
+                                    let vault = vh.vault.lock().await;
+                                    let now = chrono::Utc::now().timestamp_millis();
+                                    let root = match vault.get_artifact(&vault.root.id) {
+                                        Ok(Some(Artifact::Tree(t))) => t,
+                                        _ => return,
+                                    };
+                                    let mut nodes = Vec::new();
+                                    let mut quest_section_added = false;
+                                    let mut contacts_section_added = false;
+                                    let mut exchange_section_added = false;
+                                    let mut tokens_section_added = false;
+                                    for aref in &root.references {
+                                        if let Ok(Some(artifact)) = vault.get_artifact(&aref.artifact_id) {
+                                            if let Artifact::Tree(tree) = &artifact {
+                                                let view_type_str = NavigationState::view_type_for_tree(&tree.artifact_type);
+                                                let icon = NavigationState::icon_for_tree_type(&tree.artifact_type);
+                                                let heat_val = vault.heat(&aref.artifact_id, now).unwrap_or(0.0);
+                                                let heat_lvl = indras_ui::heat_level(heat_val);
+                                                let label_str = aref.label.clone().unwrap_or_default();
+                                                let is_quest_type = matches!(tree.artifact_type, TreeType::Quest | TreeType::Need | TreeType::Offering | TreeType::Intention);
+                                                let is_contact = matches!(&tree.artifact_type, TreeType::Custom(s) if s == "Contact");
+                                                let section = if nodes.is_empty() {
+                                                    Some("Vault".to_string())
+                                                } else if is_contact && !contacts_section_added {
+                                                    contacts_section_added = true;
+                                                    Some("Contacts".to_string())
+                                                } else if is_quest_type && !quest_section_added {
+                                                    quest_section_added = true;
+                                                    Some("Intentions & Quests".to_string())
+                                                } else if tree.artifact_type == TreeType::Exchange && !exchange_section_added {
+                                                    exchange_section_added = true;
+                                                    Some("Exchanges".to_string())
+                                                } else if tree.artifact_type == TreeType::Collection && !tokens_section_added {
+                                                    tokens_section_added = true;
+                                                    Some("Tokens".to_string())
+                                                } else {
+                                                    None
+                                                };
+                                                let node_id = format!("{:?}", aref.artifact_id);
+                                                let has_children = !tree.references.is_empty();
+                                                nodes.push(VaultTreeNode {
+                                                    id: node_id,
+                                                    artifact_id: Some(aref.artifact_id),
+                                                    label: label_str,
+                                                    icon: icon.to_string(),
+                                                    heat_level: heat_lvl,
+                                                    depth: 0,
+                                                    has_children,
+                                                    expanded: has_children,
+                                                    active: false,
+                                                    section,
+                                                    view_type: view_type_str.to_string(),
+                                                });
+                                            }
+                                        }
+                                    }
+                                    ws_signal.write().nav.vault_tree = nodes;
+                                });
+                            },
+                        }
+                    }
+                }
+
                 // Floating action button (mobile)
                 Fab { on_click: on_fab_click }
 
@@ -2394,4 +2983,25 @@ struct QuestViewData {
     audience_count: usize,
     proofs: Vec<ProofEntry>,
     posted_ago: String,
+    heat: f32,
+    attention_peers: Vec<AttentionPeerSummary>,
+    total_attention_duration: String,
+    pledged_tokens: Vec<PledgedToken>,
+    stewardship_chain: Vec<StewardshipChainEntry>,
+    attention_items: Vec<AttentionItem>,
+    intention_id: indras_artifacts::ArtifactId,
+}
+
+/// Resolve a player ID to display info (name, letter, CSS class).
+fn peer_display_info(player_id: indras_artifacts::PlayerId, player_name: &str) -> (String, String, String) {
+    if player_id == [1u8; 32] {
+        (player_name.to_string(), player_name.chars().next().unwrap_or('N').to_string(), "peer-dot-self".into())
+    } else if player_id == [2u8; 32] {
+        ("Sage".into(), "S".into(), "peer-dot-sage".into())
+    } else if player_id == [3u8; 32] {
+        ("Zephyr".into(), "Z".into(), "peer-dot-zeph".into())
+    } else {
+        let hex: String = player_id.iter().take(4).map(|b| format!("{b:02x}")).collect();
+        (hex.clone(), hex.chars().next().unwrap_or('?').to_string(), String::new())
+    }
 }

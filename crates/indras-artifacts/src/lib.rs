@@ -11,7 +11,7 @@
 //! - [`ArtifactId`]: Content-addressed (`Blob`) or document-addressed (`Doc`) identifier
 //! - [`Artifact`]: Union of [`LeafArtifact`] (immutable content) and [`TreeArtifact`] (container)
 //! - [`AccessMode`]: `Revocable`, `Permanent`, `Timed`, or `Transfer`
-//! - [`Vault`] / [`Story`] / [`Exchange`] / [`Request`]: High-level artifact containers
+//! - [`Vault`] / [`Story`] / [`Exchange`] / [`Request`] / [`Intention`]: High-level artifact containers
 //! - [`AttentionLog`] / [`compute_heat`]: Attention tracking and heat computation
 //! - [`ArtifactStore`] / [`PayloadStore`] / [`AttentionStore`]: Storage traits
 //!
@@ -25,7 +25,8 @@
 //! │   ├── Leaf: Message, Image, File, Token, Attestation
 //! │   └── Gallery
 //! ├── Exchange (trade/gift)
-//! └── Request (ask for artifacts)
+//! ├── Request (ask for artifacts)
+//! └── Intention (goal with proofs + attention tokens)
 //! ```
 //!
 //! Leaf IDs are BLAKE3 hashes of content; tree IDs are random or deterministic.
@@ -36,6 +37,7 @@ pub mod artifact;
 pub mod attention;
 pub mod error;
 pub mod exchange;
+pub mod intention;
 pub mod peering;
 pub mod request;
 pub mod store;
@@ -45,9 +47,10 @@ pub mod vault;
 
 pub use access::{AccessGrant, AccessMode, ArtifactProvenance, ArtifactStatus, ProvenanceType};
 pub use artifact::*;
-pub use attention::{AttentionLog, AttentionSwitchEvent, AttentionValue, compute_heat};
+pub use attention::{AttentionLog, AttentionSwitchEvent, AttentionValue, DwellWindow, compute_heat, extract_dwell_windows};
 pub use error::VaultError;
 pub use exchange::Exchange;
+pub use intention::Intention;
 pub use peering::{MutualPeering, PeerEntry, PeerRegistry};
 pub use request::Request;
 pub use store::{

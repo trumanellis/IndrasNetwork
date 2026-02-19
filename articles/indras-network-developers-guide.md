@@ -1877,7 +1877,7 @@ pub use indras_artifacts::{
     ArtifactStore, PayloadStore, AttentionStore,
     InMemoryArtifactStore, InMemoryAttentionStore, InMemoryPayloadStore,
     IntegrityResult,
-    Vault, Story, Exchange, Request,
+    Vault, Story, Exchange, Request, Intention,
     VaultError,
     compute_token_value,
 };
@@ -1904,6 +1904,7 @@ This means consumers only need one dependency — `indras-network` — to access
 | `Story` | A narrative thread of artifacts |
 | `Exchange` | A trade or gift between peers |
 | `Request` | A request for artifacts or actions |
+| `Intention` | A goal with proofs, attention tokens, and pledges |
 | `VaultError` | Error type for vault operations |
 
 ### Attention Economy

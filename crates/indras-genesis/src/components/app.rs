@@ -63,6 +63,8 @@ pub fn log_event(state: &mut Signal<GenesisState>, direction: EventDirection, me
         timestamp: now.format("%H:%M:%S").to_string(),
         direction,
         message: message.into(),
+        action_label: None,
+        highlighted: false,
     };
     let mut s = state.write();
     s.event_log.insert(0, entry);

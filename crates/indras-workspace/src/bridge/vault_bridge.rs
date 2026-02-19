@@ -5,7 +5,7 @@ use tokio::sync::Mutex;
 
 use indras_artifacts::{
     Vault, InMemoryArtifactStore, InMemoryPayloadStore, InMemoryAttentionStore,
-    TreeType, LeafType, PlayerId,
+    TreeType, LeafType, PlayerId, Intention,
 };
 
 /// Type alias for the in-memory vault used in the workspace.
@@ -139,10 +139,32 @@ pub fn create_seeded_vault() -> Result<VaultHandle, indras_artifacts::VaultError
     let offering = vault.place_tree(TreeType::Offering, all_audience.clone(), now)?;
     vault.compose(&root_id, offering.id.clone(), 5, Some("Offering: Code Review".to_string()))?;
 
-    // Intention: Learn Rust
-    let intention = vault.place_tree(TreeType::Intention, vec![player_id], now)?;
-    let intention_id = intention.id.clone();
-    vault.compose(&root_id, intention_id.clone(), 6, Some("Intention: Learn Rust".to_string()))?;
+    // Intention: Learn Rust (using Intention domain struct)
+    let intention = Intention::create(
+        &mut vault,
+        "Personal goal to become proficient in Rust systems programming. Focus areas: async runtime internals, trait-based architecture, and WASM compilation targets.",
+        vec![player_id, peers[0].player_id, peers[1].player_id],
+        now,
+    )?;
+    let intention_id = intention.id;
+    vault.compose(&root_id, intention_id, 6, Some("Intention: Learn Rust".to_string()))?;
+
+    // Seed proof by Sage on the Intention
+    intention.submit_proof(
+        &mut vault,
+        "Built the relay server with full async I/O handling. Documented the trait-based plugin architecture.",
+        now + 100_000,
+    )?;
+
+    // Seed a token pledge on the Intention
+    let pledge_token = vault.place_leaf(
+        &5000u64.to_le_bytes(),
+        "pledge-token".to_string(),
+        None,
+        LeafType::Token,
+        now,
+    )?;
+    intention.pledge_token(&mut vault, pledge_token.id)?;
 
     // === Quest descriptions ===
 
@@ -159,9 +181,7 @@ pub fn create_seeded_vault() -> Result<VaultHandle, indras_artifacts::VaultError
     let offering_desc = vault.place_leaf(b"Offering code review for Rust projects related to CRDT implementations. Experienced with Yrs, Automerge, and custom operational transform designs.", String::new(), None, LeafType::Message, now)?;
     vault.compose(&offering.id, offering_desc.id, 0, Some("description".to_string()))?;
 
-    // Intention: Learn Rust description
-    let intention_desc = vault.place_leaf(b"Personal goal to become proficient in Rust systems programming. Focus areas: async runtime internals, trait-based architecture, and WASM compilation targets.", String::new(), None, LeafType::Message, now)?;
-    vault.compose(&intention_id, intention_desc.id, 0, Some("description".to_string()))?;
+
 
     // === Exchanges ===
     let exchange = vault.place_tree(TreeType::Exchange, vec![player_id, peers[1].player_id], now)?;
@@ -178,6 +198,7 @@ pub fn create_seeded_vault() -> Result<VaultHandle, indras_artifacts::VaultError
     vault.navigate_to(team_discussion_id.clone(), now + 900_000)?;  // 15 min later
     vault.navigate_to(arch_notes_id.clone(), now + 1_800_000)?;     // 30 min later
     vault.navigate_to(quest_id.clone(), now + 2_400_000)?;          // 40 min later
+    vault.navigate_to(intention_id, now + 3_000_000)?;             // 50 min later
 
     // Ingest peer attention for heat
     use indras_artifacts::AttentionSwitchEvent;
@@ -199,6 +220,12 @@ pub fn create_seeded_vault() -> Result<VaultHandle, indras_artifacts::VaultError
             from: Some(arch_notes_id.clone()),
             to: Some(need.id.clone()),
             timestamp: now + 1_200_000,
+        },
+        AttentionSwitchEvent {
+            player: peers[0].player_id,
+            from: Some(need.id.clone()),
+            to: Some(intention_id),
+            timestamp: now + 1_800_000,
         },
     ];
     vault.ingest_peer_log(peers[0].player_id, sage_events)?;

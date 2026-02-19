@@ -32,6 +32,11 @@ pub enum Action {
     SetDisplayName(String),
     ClickCreateIdentity,
 
+    // Intention game loop
+    SubmitProof { intention_label: String, body: String },
+    ReleaseAttention { intention_label: String },
+    PledgeToken { intention_label: String, token_label: String },
+
     // Utility
     Wait(f64),
 }
@@ -69,6 +74,31 @@ impl Action {
                 let secs = arg.ok_or("wait requires seconds")?
                     .parse::<f64>().map_err(|e| e.to_string())?;
                 Ok(Action::Wait(secs))
+            }
+            "submit_proof" => {
+                let arg = arg.ok_or("submit_proof requires 'intention_label|body'")?;
+                let parts: Vec<&str> = arg.splitn(2, '|').collect();
+                if parts.len() != 2 {
+                    return Err("submit_proof requires 'intention_label|body' format".into());
+                }
+                Ok(Action::SubmitProof {
+                    intention_label: parts[0].to_string(),
+                    body: parts[1].to_string(),
+                })
+            }
+            "release_attention" => Ok(Action::ReleaseAttention {
+                intention_label: arg.ok_or("release_attention requires an intention label")?,
+            }),
+            "pledge_token" => {
+                let arg = arg.ok_or("pledge_token requires 'intention_label|token_label'")?;
+                let parts: Vec<&str> = arg.splitn(2, '|').collect();
+                if parts.len() != 2 {
+                    return Err("pledge_token requires 'intention_label|token_label' format".into());
+                }
+                Ok(Action::PledgeToken {
+                    intention_label: parts[0].to_string(),
+                    token_label: parts[1].to_string(),
+                })
             }
             other => Err(format!("Unknown action: {}", other)),
         }

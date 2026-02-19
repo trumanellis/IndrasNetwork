@@ -403,6 +403,11 @@ impl<A: ArtifactStore, P: PayloadStore, T: AttentionStore> Vault<A, P, T> {
         self.attention_log.events()
     }
 
+    /// Get all peer attention logs (read-only replicas).
+    pub fn peer_attention(&self) -> &HashMap<PlayerId, Vec<AttentionSwitchEvent>> {
+        &self.peer_attention
+    }
+
     // -----------------------------------------------------------------------
     // Peering
     // -----------------------------------------------------------------------
