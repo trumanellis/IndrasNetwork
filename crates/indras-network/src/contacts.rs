@@ -14,11 +14,17 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-/// Well-known identifier for the contacts realm.
-/// This is deterministically derived from "indras:contacts:v1".
-pub fn contacts_realm_id() -> RealmId {
-    let hash = blake3::hash(b"indras:contacts:v1");
-    indras_core::InterfaceId::new(*hash.as_bytes())
+/// Per-user identifier for the contacts realm.
+///
+/// Derived from the user's MemberId so each node has a unique contacts
+/// interface. A global constant would cause all nodes to share the same
+/// interface_id, and since `create_interface_with_id` generates a random
+/// key, they'd each have a different key → `aead::Error` on every sync.
+pub fn contacts_realm_id(member_id: &MemberId) -> RealmId {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"contacts-v2:");
+    hasher.update(member_id);
+    indras_core::InterfaceId::new(*hasher.finalize().as_bytes())
 }
 
 /// Connection status for a contact.
@@ -206,7 +212,7 @@ impl ContactsDocument {
 /// }
 /// ```
 pub struct ContactsRealm {
-    /// The realm ID (always contacts_realm_id()).
+    /// The realm ID (from contacts_realm_id(member_id)).
     id: RealmId,
     /// The contacts document.
     document: Document<ContactsDocument>,
@@ -529,10 +535,16 @@ mod tests {
 
     #[test]
     fn test_contacts_realm_id() {
-        // Should be deterministic
-        let id1 = contacts_realm_id();
-        let id2 = contacts_realm_id();
+        // Should be deterministic for the same member
+        let member = [1u8; 32];
+        let id1 = contacts_realm_id(&member);
+        let id2 = contacts_realm_id(&member);
         assert_eq!(id1, id2);
+
+        // Different members get different realm IDs
+        let other = [2u8; 32];
+        let id3 = contacts_realm_id(&other);
+        assert_ne!(id1, id3);
     }
 
     #[test]
