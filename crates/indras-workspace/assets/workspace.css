@@ -711,3 +711,50 @@ button{font-family:var(--font-body)}
 .event-log-arrow.received { color:var(--accent-gold); }
 .event-log-arrow.system { color:var(--text-ghost); }
 .event-log-msg { color:var(--text-secondary); flex:1; word-break:break-word; }
+
+/* ================================================================
+   ARTIFACT BROWSER
+   ================================================================ */
+.artifact-browser { padding: 24px; }
+.artifact-browser-title { font-size: 28px; font-weight: 700; color: var(--text-primary); margin-bottom: 16px; }
+.artifact-browser-search { padding: 8px 0; }
+.artifact-browser-search-input {
+  width: 100%; padding: 10px 14px; border-radius: var(--radius-sm);
+  background: var(--bg-raised); border: 1px solid var(--border-dim);
+  color: var(--text-primary); font-size: 14px; font-family: var(--font-body);
+  outline: none;
+}
+.artifact-browser-search-input::placeholder { color: var(--text-muted); }
+.artifact-browser-search-input:focus { border-color: var(--accent-teal); }
+.artifact-browser-filters { display: flex; gap: 6px; padding: 8px 0; flex-wrap: wrap; }
+.artifact-browser-filter-chip {
+  padding: 6px 14px; border-radius: 999px; font-size: 12px; font-weight: 600;
+  background: var(--bg-raised); color: var(--text-secondary);
+  border: 1px solid var(--border-dim); cursor: pointer;
+}
+.artifact-browser-filter-chip:hover { border-color: var(--accent-teal); color: var(--text-primary); }
+.artifact-browser-filter-chip.active { background: var(--accent-teal-dim); border-color: var(--accent-teal); color: var(--accent-teal); }
+.artifact-browser-radius { padding: 8px 0; display: flex; align-items: center; gap: 8px; color: var(--text-secondary); font-size: 13px; }
+.artifact-browser-radius input[type="range"] {
+  flex: 1; accent-color: var(--accent-teal);
+}
+.artifact-browser-columns { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-top: 16px; }
+.artifact-browser-column { min-width: 0; }
+.artifact-browser-column-header {
+  font-size: 13px; font-weight: 700; color: var(--text-secondary);
+  text-transform: uppercase; letter-spacing: 0.05em;
+  padding-bottom: 8px; margin-bottom: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex; align-items: center; gap: 8px;
+}
+.artifact-browser-column-count {
+  background: var(--bg-active); color: var(--text-muted);
+  font-size: 11px; padding: 2px 8px; border-radius: 999px;
+}
+.artifact-browser-empty {
+  padding: 32px 16px; text-align: center; color: var(--text-muted); font-size: 13px;
+}
+
+@media (max-width: 768px) {
+  .artifact-browser-columns { grid-template-columns: 1fr; }
+}

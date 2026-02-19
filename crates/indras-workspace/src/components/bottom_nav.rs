@@ -6,6 +6,7 @@ use dioxus::prelude::*;
 pub enum NavTab {
     Vault,
     Stories,
+    Artifacts,
     Quests,
     Profile,
 }
@@ -18,6 +19,7 @@ pub fn BottomNav(
     let tabs = vec![
         (NavTab::Vault, "\u{1F310}", "Vault"),
         (NavTab::Stories, "\u{1F4AC}", "Stories"),
+        (NavTab::Artifacts, "\u{1F4E6}", "Artifacts"),
         (NavTab::Quests, "\u{2694}", "Quests"),
         (NavTab::Profile, "\u{1F464}", "Profile"),
     ];

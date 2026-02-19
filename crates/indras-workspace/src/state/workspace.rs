@@ -9,6 +9,7 @@ use std::collections::HashMap;
 pub enum ViewType {
     Document,
     Story,
+    Artifacts,
     Quest,
     Settings,
 }
