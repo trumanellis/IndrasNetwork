@@ -39,10 +39,21 @@ pub fn EventLogView(event_log: Vec<EventLogEntry>) -> Element {
                                     EventDirection::System => ("\u{00B7}", "system"),
                                 };
                                 rsx! {
-                                    div { class: "event-log-entry",
-                                        span { class: "event-log-time", "{entry.timestamp}" }
-                                        span { class: "event-log-arrow {arrow_class}", "{arrow}" }
-                                        span { class: "event-log-msg", "{entry.message}" }
+                                    {
+                                        let entry_class = if entry.highlighted { "event-log-entry highlighted" } else { "event-log-entry" };
+                                        rsx! {
+                                            div { class: "{entry_class}",
+                                                span { class: "event-log-time", "{entry.timestamp}" }
+                                                span { class: "event-log-arrow {arrow_class}", "{arrow}" }
+                                                span { class: "event-log-msg", "{entry.message}" }
+                                                if let Some(action) = &entry.action_label {
+                                                    button {
+                                                        class: "event-log-action",
+                                                        "{action}"
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }

@@ -36,6 +36,10 @@ pub struct EventLogEntry {
     pub timestamp: String,
     pub direction: EventDirection,
     pub message: String,
+    /// Optional action button (e.g., "Release Tokens" for proof notifications).
+    pub action_label: Option<String>,
+    /// Whether this entry should be highlighted (e.g., proof requiring attention).
+    pub highlighted: bool,
 }
 
 /// Display info for a peer in the UI.
@@ -119,6 +123,8 @@ pub fn log_event(ws: &mut WorkspaceState, dir: EventDirection, msg: impl Into<St
         timestamp: now,
         direction: dir,
         message: msg.into(),
+        action_label: None,
+        highlighted: false,
     });
     ws.event_log.truncate(200);
 }

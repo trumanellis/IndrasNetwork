@@ -65,6 +65,13 @@ pub enum ChatViewType {
         claimant: String,
     },
     ArtifactRecalled,
+    /// Invitation to join a shared realm.
+    RealmInvite {
+        invite_code: String,
+        name: String,
+        artifact_type: String,
+        description: String,
+    },
     Deleted,
 }
 
@@ -226,6 +233,14 @@ pub fn convert_editable_to_view(
                 }
             }
             EditableMessageType::ArtifactRecalled { .. } => ChatViewType::ArtifactRecalled,
+            EditableMessageType::RealmInvite { invite_code, name, artifact_type, description } => {
+                ChatViewType::RealmInvite {
+                    invite_code: invite_code.clone(),
+                    name: name.clone(),
+                    artifact_type: artifact_type.clone(),
+                    description: description.clone(),
+                }
+            }
         }
     };
 

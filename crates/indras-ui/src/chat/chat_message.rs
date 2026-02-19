@@ -244,6 +244,22 @@ pub fn ChatMessageItem(
             }
         }
 
+        ChatViewType::RealmInvite { name, artifact_type, .. } => {
+            rsx! {
+                div {
+                    key: "{msg.id}",
+                    class: "chat-message system-message",
+
+                    div {
+                        class: "chat-message-row",
+                        span { class: "chat-tick", "{msg.timestamp_display}" }
+                        span { class: "chat-author", "{msg.author_name}" }
+                        span { class: "chat-content", "Shared {artifact_type}: {name}" }
+                    }
+                }
+            }
+        }
+
         ChatViewType::Deleted => {
             rsx! {
                 div {

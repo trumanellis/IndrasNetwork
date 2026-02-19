@@ -1,0 +1,12 @@
+{
+  "session_id": "8c3900c0-e713-49b0-884d-9ca162ba13fb",
+  "started_at": "2026-01-31T16:04:52.778Z",
+  "ended_at": "2026-02-03T04:22:15.635Z",
+  "reason": "prompt_input_exit",
+  "agents_spawned": 0,
+  "agents_completed": 0,
+  "modes_used": [
+    "autopilot"
+  ],
+  "duration_ms": 217042857
+}

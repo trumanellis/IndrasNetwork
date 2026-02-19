@@ -80,6 +80,18 @@ pub enum EditableMessageType {
         /// Items in the gallery.
         items: Vec<GalleryItem>,
     },
+    /// Invitation to join a shared realm (Intention, Quest, etc.)
+    RealmInvite {
+        /// The realm invite code string (indra:realm:... format).
+        invite_code: String,
+        /// Human-readable name of the shared artifact.
+        name: String,
+        /// Kind of artifact ("Intention", "Quest", etc.).
+        artifact_type: String,
+        /// Description text of the shared artifact.
+        #[serde(default)]
+        description: String,
+    },
 }
 
 /// An item in a gallery (image, video, or file).
