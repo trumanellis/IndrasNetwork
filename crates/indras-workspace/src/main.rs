@@ -50,8 +50,6 @@ fn default_data_dir() -> PathBuf {
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let clean = args.iter().any(|a| a == "--clean");
-    let mock = args.iter().any(|a| a == "--mock");
-    *indras_workspace::MOCK_ARTIFACTS.lock().unwrap() = mock;
 
     let name = std::env::var("INDRAS_NAME").ok();
 
@@ -97,8 +95,16 @@ fn main() {
                 .find(|a| a.starts_with("--script="))
                 .map(|a| a.trim_start_matches("--script=").to_string());
 
-            if let Some(path) = script_path {
-                tracing::info!("Lua script: {}", path);
+            let seed_script_path = args
+                .iter()
+                .find(|a| a.starts_with("--seed-script="))
+                .map(|a| a.trim_start_matches("--seed-script=").to_string());
+
+            let effective_path = script_path.or(seed_script_path.clone());
+            let is_seed = seed_script_path.is_some();
+
+            if let Some(path) = effective_path {
+                tracing::info!("Lua {}: {}", if is_seed { "seed script" } else { "script" }, path);
                 let (app_channels, lua_channels) = create_test_channels();
                 let identity_name = name.clone();
 
@@ -108,14 +114,17 @@ fn main() {
                     .and_then(|a| a.trim_start_matches("--timeout=").parse().ok())
                     .unwrap_or(120);
 
-                // Spawn timeout watchdog thread
-                std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_secs(timeout_secs));
-                    tracing::error!("Script timeout after {}s", timeout_secs);
-                    std::process::exit(2); // Exit code 2 = timeout
-                });
+                // Spawn timeout watchdog only for test scripts (not seed scripts)
+                if !is_seed {
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_secs(timeout_secs));
+                        tracing::error!("Script timeout after {}s", timeout_secs);
+                        std::process::exit(2); // Exit code 2 = timeout
+                    });
+                }
 
                 // Spawn Lua thread (mlua's Lua is !Send, needs dedicated OS thread)
+                let is_seed_thread = is_seed;
                 std::thread::spawn(move || {
                     let rt = LuaTestRuntime::new(
                         lua_channels.action_tx,
@@ -125,12 +134,20 @@ fn main() {
                     );
                     match rt.exec_file(&path) {
                         Ok(()) => {
-                            tracing::info!("Lua script completed successfully");
-                            std::process::exit(0); // 0 = pass
+                            if is_seed_thread {
+                                tracing::info!("Seed script completed — app continues running");
+                                // Don't exit; let the app keep running
+                            } else {
+                                tracing::info!("Lua script completed successfully");
+                                std::process::exit(0); // 0 = pass
+                            }
                         }
                         Err(e) => {
                             let msg = e.to_string();
-                            if msg.contains("Assertion failed") {
+                            if is_seed_thread {
+                                tracing::error!("Seed script error: {}", msg);
+                                // Don't exit on seed script errors either
+                            } else if msg.contains("Assertion failed") {
                                 tracing::error!("Assertion failure: {}", msg);
                                 std::process::exit(1); // 1 = assertion failure
                             } else if msg.contains("Timeout") {

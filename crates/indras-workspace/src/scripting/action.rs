@@ -32,6 +32,30 @@ pub enum Action {
     SetDisplayName(String),
     ClickCreateIdentity,
 
+    // Artifacts
+    /// Store an artifact in the home realm index.
+    StoreArtifact {
+        name: String,
+        mime: String,
+        size: u64,
+        lat: Option<f64>,
+        lng: Option<f64>,
+        /// If set, marks this artifact as received from the named peer.
+        from_peer: Option<String>,
+    },
+
+    /// Grant a peer access to an artifact (by name) via the real HomeRealm API.
+    GrantArtifact {
+        artifact_name: String,
+        peer_name: String,
+    },
+
+    /// Set the user's reference location for the artifact browser.
+    SetUserLocation { lat: f64, lng: f64 },
+
+    /// Connect to a peer using their identity URI.
+    ConnectToPeer { uri: String },
+
     // Utility
     Wait(f64),
 }
