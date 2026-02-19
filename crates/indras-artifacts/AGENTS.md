@@ -38,12 +38,13 @@ Artifacts form parent-child trees. Children inherit access from parents. `TreeAr
 |--------|-----------|-------------|
 | `artifact.rs` | `Artifact`, `LeafArtifact`, `TreeArtifact`, `ArtifactId`, `ArtifactRef`, `LeafType`, `TreeType`, `PlayerId` | Core artifact types and ID generation |
 | `access.rs` | `AccessGrant`, `AccessMode`, `ArtifactProvenance`, `ArtifactStatus`, `ProvenanceType` | Access control and lifecycle |
-| `attention.rs` | `AttentionLog`, `AttentionSwitchEvent`, `AttentionValue`, `compute_heat` | Attention tracking and heat computation |
+| `attention.rs` | `AttentionLog`, `AttentionSwitchEvent`, `AttentionValue`, `DwellWindow`, `compute_heat`, `extract_dwell_windows` | Attention tracking, heat computation, and dwell window extraction |
 | `token.rs` | `compute_token_value` | Token value derivation from attention data |
 | `vault.rs` | `Vault` | Personal vault (top-level container) |
 | `story.rs` | `Story` | Narrative thread of artifacts |
 | `exchange.rs` | `Exchange` | Trade/gift between peers |
 | `request.rs` | `Request` | Request for artifacts or actions |
+| `intention.rs` | `Intention` | Goal with proofs, attention tokens, and pledges |
 | `peering.rs` | `PeerEntry`, `PeerRegistry`, `MutualPeering` | Peer relationship tracking |
 | `store.rs` | `ArtifactStore`, `PayloadStore`, `AttentionStore` + in-memory impls | Storage traits |
 | `error.rs` | `VaultError` | Error types |

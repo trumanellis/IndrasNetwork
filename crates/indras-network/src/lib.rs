@@ -175,12 +175,12 @@ pub use indras_artifacts;
 pub use indras_artifacts::{
     Artifact, LeafArtifact, TreeArtifact, ArtifactRef, LeafType, TreeType,
     BlessingRecord, StewardshipRecord,
-    AttentionLog, AttentionSwitchEvent, AttentionValue, compute_heat,
+    AttentionLog, AttentionSwitchEvent, AttentionValue, DwellWindow, compute_heat, extract_dwell_windows,
     PeerEntry, PeerRegistry, MutualPeering,
     ArtifactStore, PayloadStore, AttentionStore,
     InMemoryArtifactStore, InMemoryAttentionStore, InMemoryPayloadStore,
     IntegrityResult,
-    Vault, Story, Exchange, Request,
+    Vault, Story, Exchange, Request, Intention,
     VaultError,
     compute_token_value,
 };
