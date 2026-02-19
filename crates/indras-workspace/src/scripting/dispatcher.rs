@@ -329,6 +329,21 @@ pub fn spawn_dispatcher(
                     }
                 }
 
+                Action::SubmitProof { intention_label, body } => {
+                    log_event(&mut workspace.write(), EventDirection::System,
+                        format!("Lua: submit_proof(\"{}\", \"{}\")", intention_label, body));
+                }
+
+                Action::ReleaseAttention { intention_label } => {
+                    log_event(&mut workspace.write(), EventDirection::System,
+                        format!("Lua: release_attention(\"{}\")", intention_label));
+                }
+
+                Action::PledgeToken { intention_label, token_label } => {
+                    log_event(&mut workspace.write(), EventDirection::System,
+                        format!("Lua: pledge_token(\"{}\", \"{}\")", intention_label, token_label));
+                }
+
                 Action::Wait(secs) => {
                     tokio::time::sleep(std::time::Duration::from_secs_f64(secs)).await;
                 }
@@ -383,12 +398,11 @@ pub fn spawn_dispatcher(
                 }
 
                 Query::ActiveSidebarItem => {
-                    let tree = workspace.read().nav.vault_tree.clone();
-                    let active = tree.iter().find(|n| n.active).map(|n| n.label.clone());
-                    match active {
-                        Some(label) => QueryResult::String(label),
-                        None => QueryResult::String(String::new()),
-                    }
+                    let nav = &workspace.read().nav;
+                    let label = nav.current_id.as_ref().and_then(|cid| {
+                        nav.vault_tree.iter().find(|n| n.id == *cid).map(|n| n.label.clone())
+                    });
+                    QueryResult::String(label.unwrap_or_default())
                 }
 
                 Query::PeerCount => {
