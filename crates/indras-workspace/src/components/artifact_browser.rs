@@ -60,11 +60,13 @@ impl MimeCategory {
     }
 }
 
-/// An artifact with computed distance for the browser view.
+/// An artifact with computed distance and origin for the browser view.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BrowsableArtifact {
     pub info: ArtifactDisplayInfo,
     pub distance_km: Option<f64>,
+    /// "Mine" or the peer name this artifact was received from.
+    pub origin_label: String,
 }
 
 /// 3-column artifact browser view.
@@ -77,15 +79,19 @@ pub fn ArtifactBrowserView(
     on_filter: EventHandler<MimeCategory>,
     radius_km: f64,
     on_radius_change: EventHandler<f64>,
+    peer_filter: String,
+    on_peer_filter: EventHandler<String>,
+    available_peers: Vec<String>,
 ) -> Element {
-    // Filter by search + MIME category
+    // Filter by search + MIME category + peer origin
     let filtered: Vec<&BrowsableArtifact> = artifacts
         .iter()
         .filter(|a| {
             let name_match = search_query.is_empty()
                 || a.info.name.to_lowercase().contains(&search_query.to_lowercase());
             let mime_match = active_filter.matches(a.info.mime_type.as_deref());
-            name_match && mime_match
+            let peer_match = peer_filter.is_empty() || a.origin_label == peer_filter;
+            name_match && mime_match && peer_match
         })
         .collect();
 
@@ -159,6 +165,44 @@ pub fn ArtifactBrowserView(
                                         class: "{chip_class}",
                                         onclick: move |_| on_filter.call(cat_clone.clone()),
                                         "{cat.label()}"
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Peer filter chips
+                    div {
+                        class: "artifact-browser-filters",
+                        {
+                            let is_all = peer_filter.is_empty();
+                            let chip_class = if is_all {
+                                "artifact-browser-filter-chip active"
+                            } else {
+                                "artifact-browser-filter-chip"
+                            };
+                            rsx! {
+                                button {
+                                    class: "{chip_class}",
+                                    onclick: move |_| on_peer_filter.call(String::new()),
+                                    "All"
+                                }
+                            }
+                        }
+                        for peer in available_peers.iter() {
+                            {
+                                let is_active = *peer == peer_filter;
+                                let chip_class = if is_active {
+                                    "artifact-browser-filter-chip active"
+                                } else {
+                                    "artifact-browser-filter-chip"
+                                };
+                                let peer_clone = peer.clone();
+                                rsx! {
+                                    button {
+                                        class: "{chip_class}",
+                                        onclick: move |_| on_peer_filter.call(peer_clone.clone()),
+                                        "{peer}"
                                     }
                                 }
                             }
