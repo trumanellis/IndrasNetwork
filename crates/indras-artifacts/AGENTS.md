@@ -6,37 +6,39 @@ Domain types for the artifact/attention economy. Defines the data model that all
 
 ## Key Concepts
 
-### Artifact Hierarchy
+### Unified Artifact Model
+
+Every piece of content is a single `Artifact` struct. Any artifact can have content (payload), references to other artifacts, both, or neither. "Dimension" is emergent, not enforced.
 
 ```
 Vault (top-level container, one per user)
-├── Story (narrative thread)
-│   ├── LeafArtifact (Message, Image, File, Token, Attestation)
-│   └── Gallery (collection of images/files)
+├── Story (narrative thread of messages/media)
 ├── Exchange (trade/gift between peers)
 ├── Request (ask for artifacts or actions)
-├── Quest / Need / Offering / Intention
-└── Collection / Document / Inbox
+├── Intention (goal with proofs + attention tokens)
+├── Quest / Need / Offering
+├── Document / Collection / Inbox
+└── Any artifact can reference any other (soft DAG)
 ```
 
 ### ArtifactId
 
 ```rust
 enum ArtifactId {
-    Blob([u8; 32]),  // Leaf — content-addressed by BLAKE3 hash of payload
-    Doc([u8; 32]),   // Tree — random or deterministic unique ID
+    Blob([u8; 32]),  // Content-addressed by BLAKE3 hash of payload
+    Doc([u8; 32]),   // Random or deterministic unique ID (containers, DM stories)
 }
 ```
 
-### Tree Composition
+### Composition via References
 
-Artifacts form parent-child trees. Children inherit access from parents. `TreeArtifact` holds `references: Vec<ArtifactRef>` for ordered child references with labels.
+Artifacts form a soft DAG via forward `references: Vec<ArtifactRef>`. No parent field — an artifact can appear in multiple collections. `artifact_type: String` determines behavior (e.g. `"story"`, `"intention"`, `"message"`).
 
 ## Module Map
 
 | Module | Key Types | What It Does |
 |--------|-----------|-------------|
-| `artifact.rs` | `Artifact`, `LeafArtifact`, `TreeArtifact`, `ArtifactId`, `ArtifactRef`, `LeafType`, `TreeType`, `PlayerId` | Core artifact types and ID generation |
+| `artifact.rs` | `Artifact`, `ArtifactId`, `ArtifactRef`, `PayloadRef`, `PlayerId` | Unified artifact struct and ID generation |
 | `access.rs` | `AccessGrant`, `AccessMode`, `ArtifactProvenance`, `ArtifactStatus`, `ProvenanceType` | Access control and lifecycle |
 | `attention.rs` | `AttentionLog`, `AttentionSwitchEvent`, `AttentionValue`, `DwellWindow`, `compute_heat`, `extract_dwell_windows` | Attention tracking, heat computation, and dwell window extraction |
 | `token.rs` | `compute_token_value` | Token value derivation from attention data |
@@ -98,6 +100,7 @@ Each has an `InMemory*` implementation for testing.
 - `ArtifactId` is `Copy` — no clone needed
 - `AccessMode::is_expired(now)` only applies to `Timed` variant
 - `dm_story_id` sorts the two player IDs before hashing to ensure symmetry
+- `artifact_type` is a `String` — compare with `==` or `as_str()` for match arms
 
 ## Dependencies
 

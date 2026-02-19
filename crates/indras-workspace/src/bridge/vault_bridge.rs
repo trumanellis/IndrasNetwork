@@ -67,15 +67,15 @@ pub fn create_seeded_vault() -> Result<VaultHandle, indras_artifacts::VaultError
 
     // Add blocks to Architecture Notes
     let blocks: Vec<(&str, &str)> = vec![
-        ("text", "The new ontology reduces everything to three primitives: Artifact (Leaf/Tree), Attention Switch Event, and Mutual Peering."),
+        ("text", "The new ontology reduces everything to three primitives: Artifact, Attention Switch Event, and Mutual Peering."),
         ("heading:2", "Core Data Structures"),
         ("text", "Every piece of content is an Artifact. Immutable content lives in Leaf artifacts. Mutable structure lives in Tree artifacts."),
-        ("code:rust", "pub enum Artifact {\n    Leaf(LeafArtifact),\n    Tree(TreeArtifact),\n}"),
+        ("code:rust", "pub struct Artifact {\n    pub id: ArtifactId,\n    pub artifact_type: String,\n    pub payload: Option<PayloadRef>,\n    pub references: Vec<ArtifactRef>,\n}"),
         ("heading:2", "Navigation as Attention"),
         ("text", "Every click generates an AttentionSwitchEvent. The attention log is append-only and shared with mutual peers."),
         ("callout", "Key insight: The fractal artifact tree IS the UI. Navigation IS attention tracking."),
         ("heading:2", "Tasks"),
-        ("todo:done", "Define Artifact enum (Leaf/Tree)"),
+        ("todo:done", "Define unified Artifact struct"),
         ("todo:done", "Implement Vault with in-memory stores"),
         ("todo", "Wire up AttentionSwitchEvent on navigate_to"),
         ("todo", "Compute heat from peer attention logs"),
@@ -95,7 +95,7 @@ pub fn create_seeded_vault() -> Result<VaultHandle, indras_artifacts::VaultError
     // Story messages — labels encode sender + optional richness metadata
     // Format: "msg:Name" or "msg:Name:artifact:ArtifactName" or "msg:Name:image" or "msg:Name:branch:Label"
     let messages: Vec<(PlayerId, &str, &str)> = vec![
-        (peers[0].player_id, "Has anyone looked at the new ontology plan? I think collapsing everything into Leaf/Tree is elegant but I'm worried about the migration path from the old Realm model.", "msg:Sage:day:Yesterday"),
+        (peers[0].player_id, "Has anyone looked at the new ontology plan? I think the unified Artifact struct is elegant but I'm worried about the migration path from the old Realm model.", "msg:Sage:day:Yesterday"),
         (player_id, "Yeah I've been going through it. The key insight is that Realm members just become per-artifact audiences. So we don't need to migrate \u{2014} we just reinterpret existing data.", "msg:Nova:artifact:Architecture Notes:Tree(Document)"),
         (peers[1].player_id, "Love the heat concept. Being able to see where everyone's attention is focused in real-time makes the workspace feel alive.", "msg:Zephyr"),
         (player_id, "Exactly. And it's not opt-in tracking \u{2014} navigation IS the attention event. Just using the workspace generates the data.", "msg:Nova"),
@@ -169,7 +169,7 @@ pub fn create_seeded_vault() -> Result<VaultHandle, indras_artifacts::VaultError
     // === Quest descriptions ===
 
     // Build P2P Workspace description
-    let quest_desc_text = "Design and implement the IndrasNetwork workspace interface \u{2014} a P2P collaborative environment built on the new artifact ontology. Needs responsive layout, all TreeType views, and working attention heat visualization.";
+    let quest_desc_text = "Design and implement the IndrasNetwork workspace interface \u{2014} a P2P collaborative environment built on the new artifact ontology. Needs responsive layout, all artifact type views, and working attention heat visualization.";
     let quest_desc = vault.place_leaf(quest_desc_text.as_bytes(), String::new(), None, "message", now)?;
     vault.compose(&quest_id, quest_desc.id, 0, Some("description".to_string()))?;
 

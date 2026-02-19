@@ -261,7 +261,6 @@ pub fn spawn_dispatcher(
                                         status: ArtifactStatus::Active,
                                         grants: vec![],
                                         provenance,
-                                        parent: None,
                                         location,
                                     };
                                     let _ = doc.update(|index| { index.store(entry); }).await;
