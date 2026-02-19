@@ -108,7 +108,7 @@ impl RawSync {
 mod tests {
     use super::*;
     use crate::artifact_document::ArtifactDocument;
-    use indras_artifacts::{ArtifactId, PlayerId, TreeType};
+    use indras_artifacts::{ArtifactId, PlayerId};
 
     fn make_player(seed: u8) -> PlayerId {
         [seed; 32]
@@ -120,7 +120,7 @@ mod tests {
 
     // Helper: fresh ArtifactDocument with the given artifact_id.
     fn new_doc(artifact_id: &ArtifactId, steward: &PlayerId) -> ArtifactDocument {
-        ArtifactDocument::new(artifact_id, steward, &TreeType::Story, 1000)
+        ArtifactDocument::new(artifact_id, steward, "story", 1000)
     }
 
     // -----------------------------------------------------------------------

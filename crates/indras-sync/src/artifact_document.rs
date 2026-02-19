@@ -21,7 +21,7 @@ use std::collections::BTreeMap;
 use automerge::transaction::Transactable;
 use automerge::{AutoCommit, ChangeHash, ObjId, ObjType, ReadDoc, ScalarValue, Value, ROOT};
 use indras_artifacts::{
-    AccessGrant, AccessMode, ArtifactId, ArtifactRef, ArtifactStatus, PlayerId, TreeType,
+    AccessGrant, AccessMode, ArtifactId, ArtifactRef, ArtifactStatus, PlayerId,
 };
 
 use crate::error::SyncError;
@@ -75,47 +75,6 @@ fn str_to_artifact_id(s: &str) -> ArtifactId {
     }
 }
 
-fn tree_type_to_str(t: &TreeType) -> String {
-    match t {
-        TreeType::Vault => "vault".to_string(),
-        TreeType::Story => "story".to_string(),
-        TreeType::Gallery => "gallery".to_string(),
-        TreeType::Document => "document".to_string(),
-        TreeType::Request => "request".to_string(),
-        TreeType::Exchange => "exchange".to_string(),
-        TreeType::Collection => "collection".to_string(),
-        TreeType::Inbox => "inbox".to_string(),
-        TreeType::Quest => "quest".to_string(),
-        TreeType::Need => "need".to_string(),
-        TreeType::Offering => "offering".to_string(),
-        TreeType::Intention => "intention".to_string(),
-        TreeType::Custom(s) => format!("custom:{s}"),
-    }
-}
-
-fn str_to_tree_type(s: &str) -> TreeType {
-    match s {
-        "vault" => TreeType::Vault,
-        "story" => TreeType::Story,
-        "gallery" => TreeType::Gallery,
-        "document" => TreeType::Document,
-        "request" => TreeType::Request,
-        "exchange" => TreeType::Exchange,
-        "collection" => TreeType::Collection,
-        "inbox" => TreeType::Inbox,
-        "quest" => TreeType::Quest,
-        "need" => TreeType::Need,
-        "offering" => TreeType::Offering,
-        "intention" => TreeType::Intention,
-        _ => {
-            if let Some(custom) = s.strip_prefix("custom:") {
-                TreeType::Custom(custom.to_string())
-            } else {
-                TreeType::Custom(s.to_string())
-            }
-        }
-    }
-}
 
 fn access_mode_to_str(m: &AccessMode) -> String {
     match m {
@@ -245,7 +204,7 @@ impl ArtifactDocument {
     pub fn new(
         artifact_id: &ArtifactId,
         steward: &PlayerId,
-        tree_type: &TreeType,
+        artifact_type: &str,
         now: i64,
     ) -> Self {
         let mut doc = AutoCommit::new();
@@ -254,7 +213,7 @@ impl ArtifactDocument {
             .expect("Failed to write artifact_id");
         doc.put(ROOT, keys::STEWARD, hex::encode(steward))
             .expect("Failed to write steward");
-        doc.put(ROOT, keys::ARTIFACT_TYPE, tree_type_to_str(tree_type))
+        doc.put(ROOT, keys::ARTIFACT_TYPE, artifact_type.to_string())
             .expect("Failed to write artifact_type");
         doc.put(ROOT, keys::STATUS, status_to_str(&ArtifactStatus::Active))
             .expect("Failed to write status");
@@ -573,7 +532,7 @@ mod tests {
     fn test_schema_initialization() {
         let artifact_id = make_blob_id(1);
         let steward = make_player(2);
-        let doc = ArtifactDocument::new(&artifact_id, &steward, &TreeType::Vault, 1000);
+        let doc = ArtifactDocument::new(&artifact_id, &steward, "vault", 1000);
 
         // Status starts active
         assert!(matches!(doc.status(), ArtifactStatus::Active));
@@ -593,7 +552,7 @@ mod tests {
     fn test_append_and_read_references() {
         let artifact_id = make_blob_id(1);
         let steward = make_player(2);
-        let mut doc = ArtifactDocument::new(&artifact_id, &steward, &TreeType::Story, 1000);
+        let mut doc = ArtifactDocument::new(&artifact_id, &steward, "story", 1000);
 
         let child_a = make_blob_id(10);
         let child_b = make_doc_id(11);
@@ -619,7 +578,7 @@ mod tests {
     fn test_concurrent_ref_append_both_present_after_merge() {
         let artifact_id = make_blob_id(1);
         let steward = make_player(2);
-        let mut doc_a = ArtifactDocument::new(&artifact_id, &steward, &TreeType::Gallery, 1000);
+        let mut doc_a = ArtifactDocument::new(&artifact_id, &steward, "gallery", 1000);
 
         // Fork to get a shared base
         let mut doc_b = doc_a.fork().unwrap();
@@ -662,7 +621,7 @@ mod tests {
     fn test_add_remove_grants_all_modes() {
         let artifact_id = make_blob_id(1);
         let steward = make_player(2);
-        let mut doc = ArtifactDocument::new(&artifact_id, &steward, &TreeType::Document, 1000);
+        let mut doc = ArtifactDocument::new(&artifact_id, &steward, "document", 1000);
 
         let grantee_a = make_player(10);
         let grantee_b = make_player(11);
@@ -720,7 +679,7 @@ mod tests {
     fn test_metadata_set_get() {
         let artifact_id = make_doc_id(1);
         let steward = make_player(2);
-        let mut doc = ArtifactDocument::new(&artifact_id, &steward, &TreeType::Vault, 1000);
+        let mut doc = ArtifactDocument::new(&artifact_id, &steward, "vault", 1000);
 
         doc.set_metadata("mime", b"image/png");
         doc.set_metadata("thumb", b"\x89PNG\r\n");
@@ -739,7 +698,7 @@ mod tests {
     fn test_concurrent_metadata_merge_different_keys() {
         let artifact_id = make_doc_id(1);
         let steward = make_player(2);
-        let mut doc_a = ArtifactDocument::new(&artifact_id, &steward, &TreeType::Vault, 1000);
+        let mut doc_a = ArtifactDocument::new(&artifact_id, &steward, "vault", 1000);
         let mut doc_b = doc_a.fork().unwrap();
 
         let heads_a = doc_a.get_heads();
@@ -770,7 +729,7 @@ mod tests {
     fn test_status_roundtrip_all_variants() {
         let artifact_id = make_blob_id(1);
         let steward = make_player(2);
-        let mut doc = ArtifactDocument::new(&artifact_id, &steward, &TreeType::Request, 1000);
+        let mut doc = ArtifactDocument::new(&artifact_id, &steward, "request", 1000);
 
         // Active (default)
         assert!(matches!(doc.status(), ArtifactStatus::Active));
@@ -807,7 +766,7 @@ mod tests {
     fn test_save_load_roundtrip() {
         let artifact_id = make_blob_id(1);
         let steward = make_player(2);
-        let mut doc = ArtifactDocument::new(&artifact_id, &steward, &TreeType::Collection, 1000);
+        let mut doc = ArtifactDocument::new(&artifact_id, &steward, "collection", 1000);
 
         let child = make_doc_id(5);
         doc.append_ref(&child, 0, Some("chapter-1"));
@@ -859,7 +818,7 @@ mod tests {
         let artifact_id = make_blob_id(1);
         let steward = make_player(2);
         let mut doc_sender =
-            ArtifactDocument::new(&artifact_id, &steward, &TreeType::Inbox, 1000);
+            ArtifactDocument::new(&artifact_id, &steward, "inbox", 1000);
 
         // Receiver starts from the same base
         let mut doc_receiver = doc_sender.fork().unwrap();
@@ -891,7 +850,7 @@ mod tests {
     fn test_load_incremental_idempotency() {
         let artifact_id = make_blob_id(1);
         let steward = make_player(2);
-        let mut doc_a = ArtifactDocument::new(&artifact_id, &steward, &TreeType::Quest, 1000);
+        let mut doc_a = ArtifactDocument::new(&artifact_id, &steward, "quest", 1000);
         let mut doc_b = doc_a.fork().unwrap();
 
         let heads_b = doc_b.get_heads();

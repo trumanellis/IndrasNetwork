@@ -131,7 +131,7 @@ pub mod world_view;
 pub use artifact::{ArtifactDownload, ArtifactId, DownloadProgress, generate_tree_id, leaf_id, dm_story_id};
 pub use encryption::{ArtifactKey, EncryptedArtifactKey, ARTIFACT_KEY_SIZE};
 pub use access::{
-    AccessGrant, AccessMode, ArtifactProvenance, ArtifactStatus, GrantError, TreeError,
+    AccessGrant, AccessMode, ArtifactProvenance, ArtifactStatus, GrantError,
     ProvenanceType, RevokeError, TransferError,
 };
 pub use artifact_index::{ArtifactIndex, HomeArtifactEntry};
@@ -173,7 +173,7 @@ pub use indras_artifacts;
 
 // Rich artifact types re-exported for ergonomic imports
 pub use indras_artifacts::{
-    Artifact, LeafArtifact, TreeArtifact, ArtifactRef, LeafType, TreeType,
+    Artifact, ArtifactRef, PayloadRef,
     BlessingRecord, StewardshipRecord,
     AttentionLog, AttentionSwitchEvent, AttentionValue, compute_heat,
     PeerEntry, PeerRegistry, MutualPeering,

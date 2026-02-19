@@ -2,7 +2,7 @@ use bytes::Bytes;
 use std::collections::HashMap;
 
 use crate::access::{AccessGrant, ArtifactStatus};
-use crate::artifact::{Artifact, ArtifactId, ArtifactRef, PlayerId, StewardshipRecord, TreeType};
+use crate::artifact::{Artifact, ArtifactId, ArtifactRef, PlayerId, StewardshipRecord};
 use crate::attention::AttentionSwitchEvent;
 use crate::error::VaultError;
 
@@ -29,18 +29,17 @@ pub enum IntegrityResult {
 pub trait ArtifactStore {
     fn put_artifact(&mut self, artifact: &Artifact) -> Result<()>;
     fn get_artifact(&self, id: &ArtifactId) -> Result<Option<Artifact>>;
-    fn list_by_type(&self, tree_type: &TreeType) -> Result<Vec<ArtifactId>>;
+    fn list_by_type(&self, artifact_type: &str) -> Result<Vec<ArtifactId>>;
     fn list_by_steward(&self, steward: &PlayerId) -> Result<Vec<ArtifactId>>;
     fn update_steward(&mut self, id: &ArtifactId, new_steward: PlayerId) -> Result<()>;
     fn update_status(&mut self, id: &ArtifactId, status: ArtifactStatus) -> Result<()>;
     fn add_grant(&mut self, id: &ArtifactId, grant: AccessGrant) -> Result<()>;
     fn remove_grant(&mut self, id: &ArtifactId, grantee: &PlayerId) -> Result<()>;
-    fn set_parent(&mut self, id: &ArtifactId, parent: Option<ArtifactId>) -> Result<()>;
     fn list_by_status(&self, status: &ArtifactStatus) -> Result<Vec<ArtifactId>>;
     fn accessible_by(&self, player: &PlayerId, now: i64) -> Result<Vec<ArtifactId>>;
     fn delete_artifact(&mut self, id: &ArtifactId) -> Result<()>;
-    fn add_ref(&mut self, tree_id: &ArtifactId, child_ref: ArtifactRef) -> Result<()>;
-    fn remove_ref(&mut self, tree_id: &ArtifactId, child_id: &ArtifactId) -> Result<()>;
+    fn add_ref(&mut self, id: &ArtifactId, child_ref: ArtifactRef) -> Result<()>;
+    fn remove_ref(&mut self, id: &ArtifactId, child_id: &ArtifactId) -> Result<()>;
     fn record_stewardship_transfer(&mut self, id: &ArtifactId, record: StewardshipRecord) -> Result<()>;
     fn steward_history(&self, id: &ArtifactId) -> Result<Vec<StewardshipRecord>>;
 }
@@ -60,7 +59,7 @@ impl InMemoryArtifactStore {
 
 impl ArtifactStore for InMemoryArtifactStore {
     fn put_artifact(&mut self, artifact: &Artifact) -> Result<()> {
-        self.artifacts.insert(artifact.id().clone(), artifact.clone());
+        self.artifacts.insert(artifact.id, artifact.clone());
         Ok(())
     }
 
@@ -68,18 +67,12 @@ impl ArtifactStore for InMemoryArtifactStore {
         Ok(self.artifacts.get(id).cloned())
     }
 
-    fn list_by_type(&self, tree_type: &TreeType) -> Result<Vec<ArtifactId>> {
+    fn list_by_type(&self, artifact_type: &str) -> Result<Vec<ArtifactId>> {
         Ok(self
             .artifacts
             .values()
-            .filter_map(|a| {
-                if let Artifact::Tree(t) = a {
-                    if &t.artifact_type == tree_type {
-                        return Some(a.id().clone());
-                    }
-                }
-                None
-            })
+            .filter(|a| a.artifact_type == artifact_type)
+            .map(|a| a.id)
             .collect())
     }
 
@@ -87,8 +80,8 @@ impl ArtifactStore for InMemoryArtifactStore {
         Ok(self
             .artifacts
             .values()
-            .filter(|a| a.steward() == steward)
-            .map(|a| a.id().clone())
+            .filter(|a| &a.steward == steward)
+            .map(|a| a.id)
             .collect())
     }
 
@@ -97,10 +90,7 @@ impl ArtifactStore for InMemoryArtifactStore {
             .artifacts
             .get_mut(id)
             .ok_or(VaultError::ArtifactNotFound)?;
-        match artifact {
-            Artifact::Leaf(leaf) => leaf.steward = new_steward,
-            Artifact::Tree(tree) => tree.steward = new_steward,
-        }
+        artifact.steward = new_steward;
         Ok(())
     }
 
@@ -109,10 +99,7 @@ impl ArtifactStore for InMemoryArtifactStore {
             .artifacts
             .get_mut(id)
             .ok_or(VaultError::ArtifactNotFound)?;
-        match artifact {
-            Artifact::Leaf(leaf) => leaf.status = status,
-            Artifact::Tree(tree) => tree.status = status,
-        }
+        artifact.status = status;
         Ok(())
     }
 
@@ -121,10 +108,7 @@ impl ArtifactStore for InMemoryArtifactStore {
             .artifacts
             .get_mut(id)
             .ok_or(VaultError::ArtifactNotFound)?;
-        match artifact {
-            Artifact::Leaf(leaf) => leaf.grants.push(grant),
-            Artifact::Tree(tree) => tree.grants.push(grant),
-        }
+        artifact.grants.push(grant);
         Ok(())
     }
 
@@ -133,22 +117,7 @@ impl ArtifactStore for InMemoryArtifactStore {
             .artifacts
             .get_mut(id)
             .ok_or(VaultError::ArtifactNotFound)?;
-        match artifact {
-            Artifact::Leaf(leaf) => leaf.grants.retain(|g| &g.grantee != grantee),
-            Artifact::Tree(tree) => tree.grants.retain(|g| &g.grantee != grantee),
-        }
-        Ok(())
-    }
-
-    fn set_parent(&mut self, id: &ArtifactId, parent: Option<ArtifactId>) -> Result<()> {
-        let artifact = self
-            .artifacts
-            .get_mut(id)
-            .ok_or(VaultError::ArtifactNotFound)?;
-        match artifact {
-            Artifact::Leaf(leaf) => leaf.parent = parent,
-            Artifact::Tree(tree) => tree.parent = parent,
-        }
+        artifact.grants.retain(|g| &g.grantee != grantee);
         Ok(())
     }
 
@@ -156,8 +125,8 @@ impl ArtifactStore for InMemoryArtifactStore {
         Ok(self
             .artifacts
             .values()
-            .filter(|a| a.status() == status)
-            .map(|a| *a.id())
+            .filter(|a| &a.status == status)
+            .map(|a| a.id)
             .collect())
     }
 
@@ -166,10 +135,10 @@ impl ArtifactStore for InMemoryArtifactStore {
             .artifacts
             .values()
             .filter(|a| {
-                a.status().is_active()
-                    && a.grants().iter().any(|g| &g.grantee == player && !g.mode.is_expired(now))
+                a.status.is_active()
+                    && a.grants.iter().any(|g| &g.grantee == player && !g.mode.is_expired(now))
             })
-            .map(|a| *a.id())
+            .map(|a| a.id)
             .collect())
     }
 
@@ -180,38 +149,28 @@ impl ArtifactStore for InMemoryArtifactStore {
         Ok(())
     }
 
-    fn add_ref(&mut self, tree_id: &ArtifactId, child_ref: ArtifactRef) -> Result<()> {
+    fn add_ref(&mut self, id: &ArtifactId, child_ref: ArtifactRef) -> Result<()> {
         let artifact = self
             .artifacts
-            .get_mut(tree_id)
+            .get_mut(id)
             .ok_or(VaultError::ArtifactNotFound)?;
-        match artifact {
-            Artifact::Tree(tree) => {
-                tree.references.push(child_ref);
-                tree.references.sort_by_key(|r| r.position);
-                Ok(())
-            }
-            _ => Err(VaultError::NotATree),
-        }
+        artifact.references.push(child_ref);
+        artifact.references.sort_by_key(|r| r.position);
+        Ok(())
     }
 
-    fn remove_ref(&mut self, tree_id: &ArtifactId, child_id: &ArtifactId) -> Result<()> {
+    fn remove_ref(&mut self, id: &ArtifactId, child_id: &ArtifactId) -> Result<()> {
         let artifact = self
             .artifacts
-            .get_mut(tree_id)
+            .get_mut(id)
             .ok_or(VaultError::ArtifactNotFound)?;
-        match artifact {
-            Artifact::Tree(tree) => {
-                tree.references.retain(|r| &r.artifact_id != child_id);
-                Ok(())
-            }
-            _ => Err(VaultError::NotATree),
-        }
+        artifact.references.retain(|r| &r.artifact_id != child_id);
+        Ok(())
     }
 
     fn record_stewardship_transfer(&mut self, id: &ArtifactId, record: StewardshipRecord) -> Result<()> {
         self.stewardship_history
-            .entry(id.clone())
+            .entry(*id)
             .or_default()
             .push(record);
         Ok(())
@@ -226,7 +185,7 @@ impl ArtifactStore for InMemoryArtifactStore {
 // PayloadStore
 // ---------------------------------------------------------------------------
 
-/// Store and retrieve blob payloads (Leaf content). Content-addressed by BLAKE3.
+/// Store and retrieve blob payloads (content-addressed by BLAKE3).
 pub trait PayloadStore {
     fn store_payload(&mut self, payload: &[u8]) -> Result<ArtifactId>;
     fn get_payload(&self, id: &ArtifactId) -> Result<Option<Bytes>>;
@@ -249,7 +208,7 @@ impl InMemoryPayloadStore {
 impl PayloadStore for InMemoryPayloadStore {
     fn store_payload(&mut self, payload: &[u8]) -> Result<ArtifactId> {
         let id = crate::artifact::leaf_id(payload);
-        self.payloads.insert(id.clone(), Bytes::copy_from_slice(payload));
+        self.payloads.insert(id, Bytes::copy_from_slice(payload));
         Ok(id)
     }
 

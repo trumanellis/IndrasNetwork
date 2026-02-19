@@ -5,7 +5,7 @@ use tokio::sync::Mutex;
 
 use indras_artifacts::{
     Vault, InMemoryArtifactStore, InMemoryPayloadStore, InMemoryAttentionStore,
-    TreeType, LeafType, PlayerId,
+    PlayerId,
 };
 
 /// Type alias for the in-memory vault used in the workspace.
@@ -56,12 +56,12 @@ pub fn create_seeded_vault() -> Result<VaultHandle, indras_artifacts::VaultError
     let all_audience = vec![player_id, peers[0].player_id, peers[1].player_id];
 
     // === Project Alpha folder ===
-    let project_alpha = vault.place_tree(TreeType::Document, all_audience.clone(), now)?;
+    let project_alpha = vault.place_tree("document", all_audience.clone(), now)?;
     let project_alpha_id = project_alpha.id.clone();
     vault.compose(&root_id, project_alpha_id.clone(), 0, Some("Project Alpha".to_string()))?;
 
     // Architecture Notes (Document)
-    let arch_notes = vault.place_tree(TreeType::Document, all_audience.clone(), now)?;
+    let arch_notes = vault.place_tree("document", all_audience.clone(), now)?;
     let arch_notes_id = arch_notes.id.clone();
     vault.compose(&project_alpha_id, arch_notes_id.clone(), 0, Some("Architecture Notes".to_string()))?;
 
@@ -83,12 +83,12 @@ pub fn create_seeded_vault() -> Result<VaultHandle, indras_artifacts::VaultError
     ];
 
     for (i, (label, content)) in blocks.iter().enumerate() {
-        let leaf = vault.place_leaf(content.as_bytes(), String::new(), None, LeafType::Message, now)?;
+        let leaf = vault.place_leaf(content.as_bytes(), String::new(), None, "message", now)?;
         vault.compose(&arch_notes_id, leaf.id, i as u64, Some(label.to_string()))?;
     }
 
     // Team Discussion (Story)
-    let team_discussion = vault.place_tree(TreeType::Story, all_audience.clone(), now)?;
+    let team_discussion = vault.place_tree("story", all_audience.clone(), now)?;
     let team_discussion_id = team_discussion.id.clone();
     vault.compose(&project_alpha_id, team_discussion_id.clone(), 1, Some("Team Discussion".to_string()))?;
 
@@ -106,41 +106,41 @@ pub fn create_seeded_vault() -> Result<VaultHandle, indras_artifacts::VaultError
     ];
 
     for (i, (_sender, content, label)) in messages.iter().enumerate() {
-        let leaf = vault.place_leaf(content.as_bytes(), String::new(), None, LeafType::Message, now + (i as i64 * 60_000))?;
+        let leaf = vault.place_leaf(content.as_bytes(), String::new(), None, "message", now + (i as i64 * 60_000))?;
         vault.compose(&team_discussion_id, leaf.id, i as u64, Some(label.to_string()))?;
     }
 
     // Design Assets (Document)
-    let design_assets = vault.place_tree(TreeType::Document, all_audience.clone(), now)?;
+    let design_assets = vault.place_tree("document", all_audience.clone(), now)?;
     vault.compose(&project_alpha_id, design_assets.id.clone(), 2, Some("Design Assets".to_string()))?;
 
     // === Top-level items ===
 
     // Personal Journal (Document)
-    let journal = vault.place_tree(TreeType::Document, vec![player_id], now)?;
+    let journal = vault.place_tree("document", vec![player_id], now)?;
     vault.compose(&root_id, journal.id.clone(), 1, Some("Personal Journal".to_string()))?;
 
     // DM with Sage (Story)
-    let dm_sage = vault.place_tree(TreeType::Story, vec![player_id, peers[0].player_id], now)?;
+    let dm_sage = vault.place_tree("story", vec![player_id, peers[0].player_id], now)?;
     vault.compose(&root_id, dm_sage.id.clone(), 2, Some("DM with Sage".to_string()))?;
 
     // === Intentions & Quests ===
 
     // Build P2P Workspace (Quest)
-    let quest = vault.place_tree(TreeType::Quest, all_audience.clone(), now)?;
+    let quest = vault.place_tree("quest", all_audience.clone(), now)?;
     let quest_id = quest.id.clone();
     vault.compose(&root_id, quest_id.clone(), 3, Some("Build P2P Workspace".to_string()))?;
 
     // Need: Logo Design
-    let need = vault.place_tree(TreeType::Need, all_audience.clone(), now)?;
+    let need = vault.place_tree("need", all_audience.clone(), now)?;
     vault.compose(&root_id, need.id.clone(), 4, Some("Need: Logo Design".to_string()))?;
 
     // Offering: Code Review
-    let offering = vault.place_tree(TreeType::Offering, all_audience.clone(), now)?;
+    let offering = vault.place_tree("offering", all_audience.clone(), now)?;
     vault.compose(&root_id, offering.id.clone(), 5, Some("Offering: Code Review".to_string()))?;
 
     // Intention: Learn Rust
-    let intention = vault.place_tree(TreeType::Intention, vec![player_id], now)?;
+    let intention = vault.place_tree("intention", vec![player_id], now)?;
     let intention_id = intention.id.clone();
     vault.compose(&root_id, intention_id.clone(), 6, Some("Intention: Learn Rust".to_string()))?;
 
@@ -148,27 +148,27 @@ pub fn create_seeded_vault() -> Result<VaultHandle, indras_artifacts::VaultError
 
     // Build P2P Workspace description
     let quest_desc_text = "Design and implement the IndrasNetwork workspace interface \u{2014} a P2P collaborative environment built on the new artifact ontology. Needs responsive layout, all TreeType views, and working attention heat visualization.";
-    let quest_desc = vault.place_leaf(quest_desc_text.as_bytes(), String::new(), None, LeafType::Message, now)?;
+    let quest_desc = vault.place_leaf(quest_desc_text.as_bytes(), String::new(), None, "message", now)?;
     vault.compose(&quest_id, quest_desc.id, 0, Some("description".to_string()))?;
 
     // Need: Logo Design description
-    let need_desc = vault.place_leaf(b"Looking for a designer to create a logo for IndrasNetwork. Should evoke peer-to-peer connectivity, fractal structure, and attention flow. Vector format preferred.", String::new(), None, LeafType::Message, now)?;
+    let need_desc = vault.place_leaf(b"Looking for a designer to create a logo for IndrasNetwork. Should evoke peer-to-peer connectivity, fractal structure, and attention flow. Vector format preferred.", String::new(), None, "message", now)?;
     vault.compose(&need.id, need_desc.id, 0, Some("description".to_string()))?;
 
     // Offering: Code Review description
-    let offering_desc = vault.place_leaf(b"Offering code review for Rust projects related to CRDT implementations. Experienced with Yrs, Automerge, and custom operational transform designs.", String::new(), None, LeafType::Message, now)?;
+    let offering_desc = vault.place_leaf(b"Offering code review for Rust projects related to CRDT implementations. Experienced with Yrs, Automerge, and custom operational transform designs.", String::new(), None, "message", now)?;
     vault.compose(&offering.id, offering_desc.id, 0, Some("description".to_string()))?;
 
     // Intention: Learn Rust description
-    let intention_desc = vault.place_leaf(b"Personal goal to become proficient in Rust systems programming. Focus areas: async runtime internals, trait-based architecture, and WASM compilation targets.", String::new(), None, LeafType::Message, now)?;
+    let intention_desc = vault.place_leaf(b"Personal goal to become proficient in Rust systems programming. Focus areas: async runtime internals, trait-based architecture, and WASM compilation targets.", String::new(), None, "message", now)?;
     vault.compose(&intention_id, intention_desc.id, 0, Some("description".to_string()))?;
 
     // === Exchanges ===
-    let exchange = vault.place_tree(TreeType::Exchange, vec![player_id, peers[1].player_id], now)?;
+    let exchange = vault.place_tree("exchange", vec![player_id, peers[1].player_id], now)?;
     vault.compose(&root_id, exchange.id.clone(), 7, Some("Exchange with Zephyr".to_string()))?;
 
     // === Tokens ===
-    let tokens = vault.place_tree(TreeType::Collection, vec![player_id], now)?;
+    let tokens = vault.place_tree("collection", vec![player_id], now)?;
     vault.compose(&root_id, tokens.id.clone(), 8, Some("Tokens of Gratitude (3)".to_string()))?;
 
     // === Seed attention data for heat ===

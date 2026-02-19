@@ -1,4 +1,4 @@
-use crate::artifact::{LeafArtifact, StewardshipRecord};
+use crate::artifact::{Artifact, StewardshipRecord};
 
 /// Compute a subjective token value (0.0–1.0) combining:
 /// - Attention heat (externally computed, passed in)
@@ -10,7 +10,7 @@ use crate::artifact::{LeafArtifact, StewardshipRecord};
 /// - blessings: 30% weight (sigmoid, 5 blessings ≈ 0.5)
 /// - steward chain: 30% weight (sigmoid, 3 transfers ≈ 0.5)
 pub fn compute_token_value(
-    token: &LeafArtifact,
+    token: &Artifact,
     steward_history: &[StewardshipRecord],
     heat: f32,
 ) -> f32 {

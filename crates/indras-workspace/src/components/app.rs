@@ -23,7 +23,7 @@ use crate::state::workspace::{WorkspaceState, ViewType, AppPhase, PeerDisplayInf
 use crate::state::navigation::{NavigationState, VaultTreeNode};
 use crate::state::editor::{EditorState, DocumentMeta, BlockDocumentSchema};
 
-use indras_artifacts::{Artifact, TreeType, LeafType};
+
 use indras_ui::{
     IdentityRow, PeerStrip,
     VaultSidebar, TreeNode,
@@ -261,20 +261,17 @@ pub fn RootApp() -> Element {
                                                     let vault_for_restore = vault_handle.read().as_ref()
                                                         .map(|vh| Arc::clone(&vh.vault));
 
-                                                    // Top-level entries (no parent)
-                                                    let top_level: Vec<_> = entries.iter().filter(|e| e.parent.is_none()).collect();
-                                                    for entry in &top_level {
+                                                    // All entries are flat (no parent/child nesting)
+                                                    for entry in &entries {
                                                         let node_id = format!("{:?}", entry.id);
-                                                        let children: Vec<_> = data.children_of(&entry.id);
-                                                        let has_children = !children.is_empty();
 
-                                                        // Look up artifact from vault to get TreeType
+                                                        // Look up artifact from vault to get type
                                                         let (icon, view_type_str, section) = if let Some(ref vault_arc) = vault_for_restore {
                                                             let v = vault_arc.lock().await;
-                                                            if let Ok(Some(Artifact::Tree(tree))) = v.get_artifact(&entry.id) {
-                                                                let ic = NavigationState::icon_for_tree_type(&tree.artifact_type);
-                                                                let vt = NavigationState::view_type_for_tree(&tree.artifact_type);
-                                                                let is_contact = matches!(&tree.artifact_type, TreeType::Custom(s) if s == "Contact");
+                                                            if let Ok(Some(artifact)) = v.get_artifact(&entry.id) {
+                                                                let ic = NavigationState::icon_for_type(&artifact.artifact_type);
+                                                                let vt = NavigationState::view_type_for(&artifact.artifact_type);
+                                                                let is_contact = artifact.artifact_type == "contact";
                                                                 let sect = if nodes.is_empty() {
                                                                     Some("Vault".to_string())
                                                                 } else if is_contact && !contacts_section_added {
@@ -310,8 +307,8 @@ pub fn RootApp() -> Element {
                                                             icon,
                                                             heat_level: 0,
                                                             depth: 0,
-                                                            has_children,
-                                                            expanded: has_children,
+                                                            has_children: false,
+                                                            expanded: false,
                                                             section,
                                                             view_type: view_type_str,
                                                         });
@@ -319,56 +316,6 @@ pub fn RootApp() -> Element {
                                                         // Insert realm into realm_map if found
                                                         if let Some(realm) = art_to_realm.remove(&entry.id) {
                                                             realm_map.write().insert(node_id, realm);
-                                                        }
-
-                                                        // Add children at depth 1
-                                                        for child in &children {
-                                                            let child_node_id = format!("{:?}", child.id);
-
-                                                            // Look up child artifact type from vault
-                                                            let (child_icon, child_vt, child_section) = if let Some(ref vault_arc) = vault_for_restore {
-                                                                let v = vault_arc.lock().await;
-                                                                if let Ok(Some(Artifact::Tree(child_tree))) = v.get_artifact(&child.id) {
-                                                                    let ic = NavigationState::icon_for_tree_type(&child_tree.artifact_type);
-                                                                    let vt = NavigationState::view_type_for_tree(&child_tree.artifact_type);
-                                                                    let is_contact = matches!(&child_tree.artifact_type, TreeType::Custom(s) if s == "Contact");
-                                                                    let sect = if is_contact && !contacts_section_added {
-                                                                        contacts_section_added = true;
-                                                                        Some("Contacts".to_string())
-                                                                    } else {
-                                                                        None
-                                                                    };
-                                                                    (ic.to_string(), vt.to_string(), sect)
-                                                                } else {
-                                                                    ("\u{1F4C4}".to_string(), "document".to_string(), None)
-                                                                }
-                                                            } else {
-                                                                ("\u{1F4C4}".to_string(), "document".to_string(), None)
-                                                            };
-
-                                                            let child_label = if let Some(realm) = art_to_realm.get(&child.id) {
-                                                                match realm.get_alias().await {
-                                                                    Ok(Some(alias)) => alias,
-                                                                    _ => child.name.clone(),
-                                                                }
-                                                            } else {
-                                                                child.name.clone()
-                                                            };
-                                                            nodes.push(VaultTreeNode {
-                                                                id: child_node_id.clone(),
-                                                                artifact_id: Some(child.id),
-                                                                label: child_label,
-                                                                icon: child_icon,
-                                                                heat_level: 0,
-                                                                depth: 1,
-                                                                has_children: false,
-                                                                expanded: false,
-                                                                section: child_section,
-                                                                view_type: child_vt,
-                                                            });
-                                                            if let Some(realm) = art_to_realm.remove(&child.id) {
-                                                                realm_map.write().insert(child_node_id, realm);
-                                                            }
                                                         }
                                                     }
 
@@ -471,11 +418,11 @@ pub fn RootApp() -> Element {
                                         let root_id = vault.root.id.clone();
 
                                         // Check if Contact tree already exists for this peer
-                                        let existing_contact = if let Ok(Some(Artifact::Tree(root))) = vault.get_artifact(&root_id) {
-                                            root.references.iter().find_map(|aref| {
+                                        let existing_contact = if let Ok(Some(root_art)) = vault.get_artifact(&root_id) {
+                                            root_art.references.iter().find_map(|aref| {
                                                 if aref.label.as_deref() == Some(&entry.name) {
-                                                    if let Ok(Some(Artifact::Tree(t))) = vault.get_artifact(&aref.artifact_id) {
-                                                        if matches!(&t.artifact_type, TreeType::Custom(s) if s == "Contact") {
+                                                    if let Ok(Some(t)) = vault.get_artifact(&aref.artifact_id) {
+                                                        if t.artifact_type == "contact" {
                                                             return Some((aref.artifact_id.clone(), t.references.len() as u64));
                                                         }
                                                     }
@@ -491,10 +438,10 @@ pub fn RootApp() -> Element {
                                         } else {
                                             // Create Contact tree (receiving side)
                                             let audience = vec![vh.player_id, entry.player_id];
-                                            if let Ok(contact_tree) = vault.place_tree(TreeType::Custom("Contact".to_string()), audience, now) {
+                                            if let Ok(contact_tree) = vault.place_tree("contact", audience, now) {
                                                 let ct_id = contact_tree.id.clone();
-                                                let position = if let Ok(Some(Artifact::Tree(root))) = vault.get_artifact(&root_id) {
-                                                    root.references.len() as u64
+                                                let position = if let Ok(Some(root_art)) = vault.get_artifact(&root_id) {
+                                                    root_art.references.len() as u64
                                                 } else {
                                                     0
                                                 };
@@ -508,7 +455,7 @@ pub fn RootApp() -> Element {
 
                                         // Add "Connection confirmed" event leaf
                                         if let Some((contact_id, pos)) = contact_id_and_pos {
-                                            if let Ok(event_leaf) = vault.place_leaf(b"Connection confirmed", String::new(), None, LeafType::Message, now) {
+                                            if let Ok(event_leaf) = vault.place_leaf(b"Connection confirmed", String::new(), None, "message", now) {
                                                 let _ = vault.compose(
                                                     &contact_id,
                                                     event_leaf.id,
@@ -520,7 +467,7 @@ pub fn RootApp() -> Element {
 
                                         // Rebuild sidebar if new Contact tree was created
                                         if sidebar_needs_rebuild {
-                                            if let Ok(Some(Artifact::Tree(rebuilt_root))) = vault.get_artifact(&vault.root.id) {
+                                            if let Ok(Some(rebuilt_root)) = vault.get_artifact(&vault.root.id) {
                                                 let mut nodes = Vec::new();
                                                 let mut quest_section_added = false;
                                                 let mut exchange_section_added = false;
@@ -529,52 +476,50 @@ pub fn RootApp() -> Element {
 
                                                 for aref in &rebuilt_root.references {
                                                     if let Ok(Some(artifact)) = vault.get_artifact(&aref.artifact_id) {
-                                                        if let Artifact::Tree(tree) = &artifact {
-                                                            let view_type_str = NavigationState::view_type_for_tree(&tree.artifact_type);
-                                                            let icon = NavigationState::icon_for_tree_type(&tree.artifact_type);
-                                                            let heat_val = vault.heat(&aref.artifact_id, now).unwrap_or(0.0);
-                                                            let heat_lvl = indras_ui::heat_level(heat_val);
-                                                            let label_str = aref.label.clone().unwrap_or_default();
+                                                        let view_type_str = NavigationState::view_type_for(&artifact.artifact_type);
+                                                        let icon = NavigationState::icon_for_type(&artifact.artifact_type);
+                                                        let heat_val = vault.heat(&aref.artifact_id, now).unwrap_or(0.0);
+                                                        let heat_lvl = indras_ui::heat_level(heat_val);
+                                                        let label_str = aref.label.clone().unwrap_or_default();
 
-                                                            let is_quest_type = matches!(
-                                                                tree.artifact_type,
-                                                                TreeType::Quest | TreeType::Need | TreeType::Offering | TreeType::Intention
-                                                            );
-                                                            let is_contact = matches!(&tree.artifact_type, TreeType::Custom(s) if s == "Contact");
-                                                            let section = if nodes.is_empty() {
-                                                                Some("Vault".to_string())
-                                                            } else if is_contact && !contacts_section_added {
-                                                                contacts_section_added = true;
-                                                                Some("Contacts".to_string())
-                                                            } else if is_quest_type && !quest_section_added {
-                                                                quest_section_added = true;
-                                                                Some("Intentions & Quests".to_string())
-                                                            } else if tree.artifact_type == TreeType::Exchange && !exchange_section_added {
-                                                                exchange_section_added = true;
-                                                                Some("Exchanges".to_string())
-                                                            } else if tree.artifact_type == TreeType::Collection && !tokens_section_added {
-                                                                tokens_section_added = true;
-                                                                Some("Tokens".to_string())
-                                                            } else {
-                                                                None
-                                                            };
+                                                        let is_quest_type = matches!(
+                                                            artifact.artifact_type.as_str(),
+                                                            "quest" | "need" | "offering" | "intention"
+                                                        );
+                                                        let is_contact = artifact.artifact_type == "contact";
+                                                        let section = if nodes.is_empty() {
+                                                            Some("Vault".to_string())
+                                                        } else if is_contact && !contacts_section_added {
+                                                            contacts_section_added = true;
+                                                            Some("Contacts".to_string())
+                                                        } else if is_quest_type && !quest_section_added {
+                                                            quest_section_added = true;
+                                                            Some("Intentions & Quests".to_string())
+                                                        } else if artifact.artifact_type == "exchange" && !exchange_section_added {
+                                                            exchange_section_added = true;
+                                                            Some("Exchanges".to_string())
+                                                        } else if artifact.artifact_type == "collection" && !tokens_section_added {
+                                                            tokens_section_added = true;
+                                                            Some("Tokens".to_string())
+                                                        } else {
+                                                            None
+                                                        };
 
-                                                            let node_id = format!("{:?}", aref.artifact_id);
-                                                            let has_children = !tree.references.is_empty();
+                                                        let node_id = format!("{:?}", aref.artifact_id);
+                                                        let has_children = !artifact.references.is_empty();
 
-                                                            nodes.push(VaultTreeNode {
-                                                                id: node_id,
-                                                                artifact_id: Some(aref.artifact_id.clone()),
-                                                                label: label_str,
-                                                                icon: icon.to_string(),
-                                                                heat_level: heat_lvl,
-                                                                depth: 0,
-                                                                has_children,
-                                                                expanded: has_children,
-                                                                section,
-                                                                view_type: view_type_str.to_string(),
-                                                            });
-                                                        }
+                                                        nodes.push(VaultTreeNode {
+                                                            id: node_id,
+                                                            artifact_id: Some(aref.artifact_id.clone()),
+                                                            label: label_str,
+                                                            icon: icon.to_string(),
+                                                            heat_level: heat_lvl,
+                                                            depth: 0,
+                                                            has_children,
+                                                            expanded: has_children,
+                                                            section,
+                                                            view_type: view_type_str.to_string(),
+                                                        });
                                                     }
                                                 }
 
@@ -681,15 +626,15 @@ pub fn RootApp() -> Element {
                             //  since we need &mut; will be done when we add write support)
 
                             if let Ok(Some(artifact)) = vault.get_artifact(&artifact_id) {
-                                if let Artifact::Tree(tree) = artifact {
-                                    let audience_count = tree.grants.len();
-                                    let steward_is_self = tree.steward == vh.player_id;
+                                {
+                                    let audience_count = artifact.grants.len();
+                                    let steward_is_self = artifact.steward == vh.player_id;
                                     let steward_name = if steward_is_self {
                                         vh.player_name.clone()
                                     } else {
                                         // Look up peer name
                                         vault.peers().iter()
-                                            .find(|p| p.peer_id == tree.steward)
+                                            .find(|p| p.peer_id == artifact.steward)
                                             .and_then(|p| p.display_name.clone())
                                             .unwrap_or_else(|| "Unknown".to_string())
                                     };
@@ -697,9 +642,9 @@ pub fn RootApp() -> Element {
                                     match vt {
                                         ViewType::Settings => {}
                                         ViewType::Document => {
-                                            // Load blocks from tree references
+                                            // Load blocks from artifact references
                                             let mut blocks = Vec::new();
-                                            for child_ref in &tree.references {
+                                            for child_ref in &artifact.references {
                                                 // Get leaf payload for content
                                                 let content = if let Ok(Some(payload)) = vault.get_payload(&child_ref.artifact_id) {
                                                     String::from_utf8_lossy(&payload).to_string()
@@ -735,7 +680,7 @@ pub fn RootApp() -> Element {
                                             // Extended label format: "msg:Name[:artifact:ArtName:ArtType][:image][:branch:Label][:day:DayLabel]"
                                             let mut msgs = Vec::new();
                                             let times = ["14:22", "14:25", "14:31", "14:33", "14:38", "14:40", "09:14", "09:22"];
-                                            for (i, child_ref) in tree.references.iter().enumerate() {
+                                            for (i, child_ref) in artifact.references.iter().enumerate() {
                                                 let content = if let Ok(Some(payload)) = vault.get_payload(&child_ref.artifact_id) {
                                                     String::from_utf8_lossy(&payload).to_string()
                                                 } else {
@@ -812,15 +757,15 @@ pub fn RootApp() -> Element {
                                             workspace.write().editor.title = label.clone();
                                         }
                                         ViewType::Quest => {
-                                            let kind = match tree.artifact_type {
-                                                TreeType::Need => QuestKind::Need,
-                                                TreeType::Offering => QuestKind::Offering,
-                                                TreeType::Intention => QuestKind::Intention,
+                                            let kind = match artifact.artifact_type.as_str() {
+                                                "need" => QuestKind::Need,
+                                                "offering" => QuestKind::Offering,
+                                                "intention" => QuestKind::Intention,
                                                 _ => QuestKind::Quest,
                                             };
 
                                             // Build description from first leaf if any
-                                            let description = if let Some(first_ref) = tree.references.first() {
+                                            let description = if let Some(first_ref) = artifact.references.first() {
                                                 if let Ok(Some(payload)) = vault.get_payload(&first_ref.artifact_id) {
                                                     String::from_utf8_lossy(&payload).to_string()
                                                 } else {
@@ -1134,12 +1079,12 @@ pub fn RootApp() -> Element {
                     SlashAction::Document | SlashAction::Story | SlashAction::Quest |
                     SlashAction::Need | SlashAction::Offering | SlashAction::Intention => {
                         let tree_type = match action {
-                            SlashAction::Document => TreeType::Document,
-                            SlashAction::Story => TreeType::Story,
-                            SlashAction::Quest => TreeType::Quest,
-                            SlashAction::Need => TreeType::Need,
-                            SlashAction::Offering => TreeType::Offering,
-                            SlashAction::Intention => TreeType::Intention,
+                            SlashAction::Document => "document",
+                            SlashAction::Story => "story",
+                            SlashAction::Quest => "quest",
+                            SlashAction::Need => "need",
+                            SlashAction::Offering => "offering",
+                            SlashAction::Intention => "intention",
                             _ => unreachable!(),
                         };
 
@@ -1166,7 +1111,7 @@ pub fn RootApp() -> Element {
                         // Add to root (read position from store, not stale root field)
                         let root_id = vault.root.id.clone();
                         let root_for_pos = match vault.get_artifact(&root_id) {
-                            Ok(Some(Artifact::Tree(t))) => t,
+                            Ok(Some(a)) => a,
                             _ => return,
                         };
                         let position = root_for_pos.references.len() as u64;
@@ -1190,20 +1135,6 @@ pub fn RootApp() -> Element {
                                     log_event(&mut ws_signal.write(), EventDirection::System, format!("Realm created: {}", label));
                                     realm_map.write().insert(tree_node_id.clone(), realm);
 
-                                    // Attach child in HomeRealm if we're inside a parent node
-                                    let parent_id = ws_signal.read().nav.current_id.clone();
-                                    if let Some(parent_node_id) = parent_id {
-                                        let parent_art = ws_signal.read().nav.vault_tree.iter()
-                                            .find(|n| n.id == parent_node_id)
-                                            .and_then(|n| n.artifact_id);
-                                        if let Some(parent_art_id) = parent_art {
-                                            if let Some(hr) = home_realm_handle.read().as_ref() {
-                                                if let Err(e) = hr.attach_child(&parent_art_id, &tree.id).await {
-                                                    tracing::warn!(error = %e, "Failed to attach child in HomeRealm");
-                                                }
-                                            }
-                                        }
-                                    }
                                 }
                                 Err(e) => {
                                     tracing::warn!(error = %e, "Failed to create realm for tree (non-fatal)");
@@ -1220,7 +1151,7 @@ pub fn RootApp() -> Element {
                         // Rebuild sidebar tree (read from store, not stale root field)
                         let mut nodes = Vec::new();
                         let rebuilt_root = match vault.get_artifact(&vault.root.id) {
-                            Ok(Some(Artifact::Tree(t))) => t,
+                            Ok(Some(a)) => a,
                             _ => return,
                         };
                         let root_refs = &rebuilt_root.references;
@@ -1231,77 +1162,73 @@ pub fn RootApp() -> Element {
 
                         for aref in root_refs {
                             if let Ok(Some(artifact)) = vault.get_artifact(&aref.artifact_id) {
-                                if let Artifact::Tree(tree) = &artifact {
-                                    let view_type_str = NavigationState::view_type_for_tree(&tree.artifact_type);
-                                    let icon = NavigationState::icon_for_tree_type(&tree.artifact_type);
-                                    let heat_val = vault.heat(&aref.artifact_id, now).unwrap_or(0.0);
-                                    let heat_lvl = indras_ui::heat_level(heat_val);
-                                    let label_str = aref.label.clone().unwrap_or_default();
+                                let view_type_str = NavigationState::view_type_for(&artifact.artifact_type);
+                                let icon = NavigationState::icon_for_type(&artifact.artifact_type);
+                                let heat_val = vault.heat(&aref.artifact_id, now).unwrap_or(0.0);
+                                let heat_lvl = indras_ui::heat_level(heat_val);
+                                let label_str = aref.label.clone().unwrap_or_default();
 
-                                    let is_quest_type = matches!(
-                                        tree.artifact_type,
-                                        TreeType::Quest | TreeType::Need | TreeType::Offering | TreeType::Intention
-                                    );
-                                    let is_contact = matches!(&tree.artifact_type, TreeType::Custom(s) if s == "Contact");
-                                    let section = if nodes.is_empty() {
-                                        Some("Vault".to_string())
-                                    } else if is_contact && !contacts_section_added {
-                                        contacts_section_added = true;
-                                        Some("Contacts".to_string())
-                                    } else if is_quest_type && !quest_section_added {
-                                        quest_section_added = true;
-                                        Some("Intentions & Quests".to_string())
-                                    } else if tree.artifact_type == TreeType::Exchange && !exchange_section_added {
-                                        exchange_section_added = true;
-                                        Some("Exchanges".to_string())
-                                    } else if tree.artifact_type == TreeType::Collection && !tokens_section_added {
-                                        tokens_section_added = true;
-                                        Some("Tokens".to_string())
-                                    } else {
-                                        None
-                                    };
+                                let is_quest_type = matches!(
+                                    artifact.artifact_type.as_str(),
+                                    "quest" | "need" | "offering" | "intention"
+                                );
+                                let is_contact = artifact.artifact_type == "contact";
+                                let section = if nodes.is_empty() {
+                                    Some("Vault".to_string())
+                                } else if is_contact && !contacts_section_added {
+                                    contacts_section_added = true;
+                                    Some("Contacts".to_string())
+                                } else if is_quest_type && !quest_section_added {
+                                    quest_section_added = true;
+                                    Some("Intentions & Quests".to_string())
+                                } else if artifact.artifact_type == "exchange" && !exchange_section_added {
+                                    exchange_section_added = true;
+                                    Some("Exchanges".to_string())
+                                } else if artifact.artifact_type == "collection" && !tokens_section_added {
+                                    tokens_section_added = true;
+                                    Some("Tokens".to_string())
+                                } else {
+                                    None
+                                };
 
-                                    let node_id = format!("{:?}", aref.artifact_id);
-                                    let has_children = !tree.references.is_empty();
+                                let node_id = format!("{:?}", aref.artifact_id);
+                                let has_children = !artifact.references.is_empty();
 
-                                    nodes.push(VaultTreeNode {
-                                        id: node_id.clone(),
-                                        artifact_id: Some(aref.artifact_id.clone()),
-                                        label: label_str.clone(),
-                                        icon: icon.to_string(),
-                                        heat_level: heat_lvl,
-                                        depth: 0,
-                                        has_children,
-                                        expanded: has_children,
-                                        section,
-                                        view_type: view_type_str.to_string(),
-                                    });
+                                nodes.push(VaultTreeNode {
+                                    id: node_id.clone(),
+                                    artifact_id: Some(aref.artifact_id.clone()),
+                                    label: label_str.clone(),
+                                    icon: icon.to_string(),
+                                    heat_level: heat_lvl,
+                                    depth: 0,
+                                    has_children,
+                                    expanded: has_children,
+                                    section,
+                                    view_type: view_type_str.to_string(),
+                                });
 
-                                    if has_children {
-                                        for child_ref in &tree.references {
-                                            if let Ok(Some(child_artifact)) = vault.get_artifact(&child_ref.artifact_id) {
-                                                if let Artifact::Tree(child_tree) = &child_artifact {
-                                                    let child_vt = NavigationState::view_type_for_tree(&child_tree.artifact_type);
-                                                    let child_icon = NavigationState::icon_for_tree_type(&child_tree.artifact_type);
-                                                    let child_heat = vault.heat(&child_ref.artifact_id, now).unwrap_or(0.0);
-                                                    let child_heat_lvl = indras_ui::heat_level(child_heat);
-                                                    let child_label = child_ref.label.clone().unwrap_or_default();
-                                                    let child_node_id = format!("{:?}", child_ref.artifact_id);
+                                if has_children {
+                                    for child_ref in &artifact.references {
+                                        if let Ok(Some(child_artifact)) = vault.get_artifact(&child_ref.artifact_id) {
+                                            let child_vt = NavigationState::view_type_for(&child_artifact.artifact_type);
+                                            let child_icon = NavigationState::icon_for_type(&child_artifact.artifact_type);
+                                            let child_heat = vault.heat(&child_ref.artifact_id, now).unwrap_or(0.0);
+                                            let child_heat_lvl = indras_ui::heat_level(child_heat);
+                                            let child_label = child_ref.label.clone().unwrap_or_default();
+                                            let child_node_id = format!("{:?}", child_ref.artifact_id);
 
-                                                    nodes.push(VaultTreeNode {
-                                                        id: child_node_id,
-                                                        artifact_id: Some(child_ref.artifact_id.clone()),
-                                                        label: child_label,
-                                                        icon: child_icon.to_string(),
-                                                        heat_level: child_heat_lvl,
-                                                        depth: 1,
-                                                        has_children: false,
-                                                        expanded: false,
-                                                        section: None,
-                                                        view_type: child_vt.to_string(),
-                                                    });
-                                                }
-                                            }
+                                            nodes.push(VaultTreeNode {
+                                                id: child_node_id,
+                                                artifact_id: Some(child_ref.artifact_id.clone()),
+                                                label: child_label,
+                                                icon: child_icon.to_string(),
+                                                heat_level: child_heat_lvl,
+                                                depth: 1,
+                                                has_children: false,
+                                                expanded: false,
+                                                section: None,
+                                                view_type: child_vt.to_string(),
+                                            });
                                         }
                                     }
                                 }
@@ -1351,7 +1278,7 @@ pub fn RootApp() -> Element {
                         };
 
                         // Create the leaf
-                        let leaf = match vault.place_leaf(content.as_bytes(), String::new(), None, LeafType::Message, now) {
+                        let leaf = match vault.place_leaf(content.as_bytes(), String::new(), None, "message", now) {
                             Ok(l) => l,
                             Err(e) => {
                                 tracing::error!("Failed to create leaf: {}", e);
@@ -1360,12 +1287,8 @@ pub fn RootApp() -> Element {
                         };
 
                         // Get position in the active tree
-                        let position = if let Ok(Some(artifact)) = vault.get_artifact(&active_tree_id) {
-                            if let Artifact::Tree(tree) = artifact {
-                                tree.references.len() as u64
-                            } else {
-                                0
-                            }
+                        let position = if let Ok(Some(active_art)) = vault.get_artifact(&active_tree_id) {
+                            active_art.references.len() as u64
                         } else {
                             0
                         };
@@ -1377,26 +1300,24 @@ pub fn RootApp() -> Element {
                         }
 
                         // Reload the document's blocks
-                        if let Ok(Some(artifact)) = vault.get_artifact(&active_tree_id) {
-                            if let Artifact::Tree(tree) = artifact {
-                                let mut blocks = Vec::new();
-                                for child_ref in &tree.references {
-                                    let content = if let Ok(Some(payload)) = vault.get_payload(&child_ref.artifact_id) {
-                                        String::from_utf8_lossy(&payload).to_string()
-                                    } else {
-                                        String::new()
-                                    };
+                        if let Ok(Some(active_art)) = vault.get_artifact(&active_tree_id) {
+                            let mut blocks = Vec::new();
+                            for child_ref in &active_art.references {
+                                let content = if let Ok(Some(payload)) = vault.get_payload(&child_ref.artifact_id) {
+                                    String::from_utf8_lossy(&payload).to_string()
+                                } else {
+                                    String::new()
+                                };
 
-                                    let block = EditorState::parse_block_from_label(
-                                        &child_ref.label,
-                                        content,
-                                        Some(format!("{:?}", child_ref.artifact_id)),
-                                    );
-                                    blocks.push(block);
-                                }
-
-                                ws_signal.write().editor.blocks = blocks;
+                                let block = EditorState::parse_block_from_label(
+                                    &child_ref.label,
+                                    content,
+                                    Some(format!("{:?}", child_ref.artifact_id)),
+                                );
+                                blocks.push(block);
                             }
+
+                            ws_signal.write().editor.blocks = blocks;
                         }
                     }
                 }
@@ -2212,7 +2133,7 @@ pub fn RootApp() -> Element {
 
                                 // Create a Contact tree artifact for this peer
                                 let audience = vec![vh.player_id, peer_id];
-                                match vault.place_tree(TreeType::Custom("Contact".to_string()), audience, now) {
+                                match vault.place_tree("contact", audience, now) {
                                     Ok(contact_tree) => {
                                         let contact_tree_id = contact_tree.id.clone();
                                         contact_node_key = Some(format!("{:?}", contact_tree_id));
@@ -2225,7 +2146,7 @@ pub fn RootApp() -> Element {
                                             contact_payload.as_bytes(),
                                             String::new(),
                                             None,
-                                            LeafType::Custom("ContactCard".to_string()),
+                                            "contact_card",
                                             now,
                                         ) {
                                             let label = peer_name.clone().unwrap_or_else(|| "Unknown".to_string());
@@ -2242,7 +2163,7 @@ pub fn RootApp() -> Element {
                                             format!("Connected to {}", peer_display).as_bytes(),
                                             String::new(),
                                             None,
-                                            LeafType::Message,
+                                            "message",
                                             now,
                                         ) {
                                             let _ = vault.compose(
@@ -2255,7 +2176,7 @@ pub fn RootApp() -> Element {
 
                                         let root_id = vault.root.id.clone();
                                         let position = match vault.get_artifact(&root_id) {
-                                            Ok(Some(Artifact::Tree(t))) => t.references.len() as u64,
+                                            Ok(Some(root_art)) => root_art.references.len() as u64,
                                             _ => 0,
                                         };
                                         let contact_label = peer_name.unwrap_or_else(|| "Unknown Contact".to_string());
@@ -2267,7 +2188,7 @@ pub fn RootApp() -> Element {
                                         );
 
                                         // Rebuild sidebar tree so Contact appears immediately
-                                        if let Ok(Some(Artifact::Tree(rebuilt_root))) = vault.get_artifact(&vault.root.id) {
+                                        if let Ok(Some(rebuilt_root)) = vault.get_artifact(&vault.root.id) {
                                             let mut nodes = Vec::new();
                                             let root_refs = &rebuilt_root.references;
                                             let mut quest_section_added = false;
@@ -2276,78 +2197,74 @@ pub fn RootApp() -> Element {
                                             let mut contacts_section_added = false;
 
                                             for aref in root_refs {
-                                                if let Ok(Some(artifact)) = vault.get_artifact(&aref.artifact_id) {
-                                                    if let Artifact::Tree(tree) = &artifact {
-                                                        let view_type_str = NavigationState::view_type_for_tree(&tree.artifact_type);
-                                                        let icon = NavigationState::icon_for_tree_type(&tree.artifact_type);
-                                                        let heat_val = vault.heat(&aref.artifact_id, now).unwrap_or(0.0);
-                                                        let heat_lvl = indras_ui::heat_level(heat_val);
-                                                        let label_str = aref.label.clone().unwrap_or_default();
+                                                if let Ok(Some(art)) = vault.get_artifact(&aref.artifact_id) {
+                                                    let view_type_str = NavigationState::view_type_for(&art.artifact_type);
+                                                    let icon = NavigationState::icon_for_type(&art.artifact_type);
+                                                    let heat_val = vault.heat(&aref.artifact_id, now).unwrap_or(0.0);
+                                                    let heat_lvl = indras_ui::heat_level(heat_val);
+                                                    let label_str = aref.label.clone().unwrap_or_default();
 
-                                                        let is_quest_type = matches!(
-                                                            tree.artifact_type,
-                                                            TreeType::Quest | TreeType::Need | TreeType::Offering | TreeType::Intention
-                                                        );
-                                                        let is_contact = matches!(&tree.artifact_type, TreeType::Custom(s) if s == "Contact");
-                                                        let section = if nodes.is_empty() {
-                                                            Some("Vault".to_string())
-                                                        } else if is_contact && !contacts_section_added {
-                                                            contacts_section_added = true;
-                                                            Some("Contacts".to_string())
-                                                        } else if is_quest_type && !quest_section_added {
-                                                            quest_section_added = true;
-                                                            Some("Intentions & Quests".to_string())
-                                                        } else if tree.artifact_type == TreeType::Exchange && !exchange_section_added {
-                                                            exchange_section_added = true;
-                                                            Some("Exchanges".to_string())
-                                                        } else if tree.artifact_type == TreeType::Collection && !tokens_section_added {
-                                                            tokens_section_added = true;
-                                                            Some("Tokens".to_string())
-                                                        } else {
-                                                            None
-                                                        };
+                                                    let is_quest_type = matches!(
+                                                        art.artifact_type.as_str(),
+                                                        "quest" | "need" | "offering" | "intention"
+                                                    );
+                                                    let is_contact = art.artifact_type == "contact";
+                                                    let section = if nodes.is_empty() {
+                                                        Some("Vault".to_string())
+                                                    } else if is_contact && !contacts_section_added {
+                                                        contacts_section_added = true;
+                                                        Some("Contacts".to_string())
+                                                    } else if is_quest_type && !quest_section_added {
+                                                        quest_section_added = true;
+                                                        Some("Intentions & Quests".to_string())
+                                                    } else if art.artifact_type == "exchange" && !exchange_section_added {
+                                                        exchange_section_added = true;
+                                                        Some("Exchanges".to_string())
+                                                    } else if art.artifact_type == "collection" && !tokens_section_added {
+                                                        tokens_section_added = true;
+                                                        Some("Tokens".to_string())
+                                                    } else {
+                                                        None
+                                                    };
 
-                                                        let node_id = format!("{:?}", aref.artifact_id);
-                                                        let has_children = !tree.references.is_empty();
+                                                    let node_id = format!("{:?}", aref.artifact_id);
+                                                    let has_children = !art.references.is_empty();
 
-                                                        nodes.push(VaultTreeNode {
-                                                            id: node_id.clone(),
-                                                            artifact_id: Some(aref.artifact_id.clone()),
-                                                            label: label_str,
-                                                            icon: icon.to_string(),
-                                                            heat_level: heat_lvl,
-                                                            depth: 0,
-                                                            has_children,
-                                                            expanded: has_children,
-                                                            section,
-                                                            view_type: view_type_str.to_string(),
-                                                        });
+                                                    nodes.push(VaultTreeNode {
+                                                        id: node_id.clone(),
+                                                        artifact_id: Some(aref.artifact_id.clone()),
+                                                        label: label_str,
+                                                        icon: icon.to_string(),
+                                                        heat_level: heat_lvl,
+                                                        depth: 0,
+                                                        has_children,
+                                                        expanded: has_children,
+                                                        section,
+                                                        view_type: view_type_str.to_string(),
+                                                    });
 
-                                                        if has_children {
-                                                            for child_ref in &tree.references {
-                                                                if let Ok(Some(child_artifact)) = vault.get_artifact(&child_ref.artifact_id) {
-                                                                    if let Artifact::Tree(child_tree) = &child_artifact {
-                                                                        let child_vt = NavigationState::view_type_for_tree(&child_tree.artifact_type);
-                                                                        let child_icon = NavigationState::icon_for_tree_type(&child_tree.artifact_type);
-                                                                        let child_heat = vault.heat(&child_ref.artifact_id, now).unwrap_or(0.0);
-                                                                        let child_heat_lvl = indras_ui::heat_level(child_heat);
-                                                                        let child_label = child_ref.label.clone().unwrap_or_default();
-                                                                        let child_node_id = format!("{:?}", child_ref.artifact_id);
+                                                    if has_children {
+                                                        for child_ref in &art.references {
+                                                            if let Ok(Some(child_artifact)) = vault.get_artifact(&child_ref.artifact_id) {
+                                                                let child_vt = NavigationState::view_type_for(&child_artifact.artifact_type);
+                                                                let child_icon = NavigationState::icon_for_type(&child_artifact.artifact_type);
+                                                                let child_heat = vault.heat(&child_ref.artifact_id, now).unwrap_or(0.0);
+                                                                let child_heat_lvl = indras_ui::heat_level(child_heat);
+                                                                let child_label = child_ref.label.clone().unwrap_or_default();
+                                                                let child_node_id = format!("{:?}", child_ref.artifact_id);
 
-                                                                        nodes.push(VaultTreeNode {
-                                                                            id: child_node_id,
-                                                                            artifact_id: Some(child_ref.artifact_id.clone()),
-                                                                            label: child_label,
-                                                                            icon: child_icon.to_string(),
-                                                                            heat_level: child_heat_lvl,
-                                                                            depth: 1,
-                                                                            has_children: false,
-                                                                            expanded: false,
-                                                                            section: None,
-                                                                            view_type: child_vt.to_string(),
-                                                                        });
-                                                                    }
-                                                                }
+                                                                nodes.push(VaultTreeNode {
+                                                                    id: child_node_id,
+                                                                    artifact_id: Some(child_ref.artifact_id.clone()),
+                                                                    label: child_label,
+                                                                    icon: child_icon.to_string(),
+                                                                    heat_level: child_heat_lvl,
+                                                                    depth: 1,
+                                                                    has_children: false,
+                                                                    expanded: false,
+                                                                    section: None,
+                                                                    view_type: child_vt.to_string(),
+                                                                });
                                                             }
                                                         }
                                                     }

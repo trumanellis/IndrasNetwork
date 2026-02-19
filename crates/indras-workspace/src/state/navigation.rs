@@ -1,6 +1,6 @@
 //! Navigation state — vault tree, breadcrumbs, expand/collapse.
 
-use indras_artifacts::{ArtifactId, TreeType};
+use indras_artifacts::ArtifactId;
 use std::collections::HashSet;
 
 /// A breadcrumb entry in the navigation trail.
@@ -71,32 +71,31 @@ impl NavigationState {
         }
     }
 
-    /// Get icon for a tree type.
-    pub fn icon_for_tree_type(tree_type: &TreeType) -> &'static str {
-        match tree_type {
-            TreeType::Vault => "🌐",
-            TreeType::Story => "💬",
-            TreeType::Gallery => "🎨",
-            TreeType::Document => "📄",
-            TreeType::Request => "📋",
-            TreeType::Exchange => "🔄",
-            TreeType::Collection => "📚",
-            TreeType::Inbox => "📥",
-            TreeType::Quest => "⚔",
-            TreeType::Need => "🌱",
-            TreeType::Offering => "🎁",
-            TreeType::Intention => "✨",
-            TreeType::Custom(s) if s == "Contact" => "👤",
-            TreeType::Custom(_) => "📦",
+    /// Get icon for an artifact type string.
+    pub fn icon_for_type(artifact_type: &str) -> &'static str {
+        match artifact_type {
+            "vault" => "🌐",
+            "story" => "💬",
+            "gallery" => "🎨",
+            "document" => "📄",
+            "request" => "📋",
+            "exchange" => "🔄",
+            "collection" => "📚",
+            "inbox" => "📥",
+            "quest" => "⚔",
+            "need" => "🌱",
+            "offering" => "🎁",
+            "intention" => "✨",
+            "contact" => "👤",
+            _ => "📦",
         }
     }
 
-    /// Get view type string for a tree type.
-    pub fn view_type_for_tree(tree_type: &TreeType) -> &'static str {
-        match tree_type {
-            TreeType::Story => "story",
-            TreeType::Quest | TreeType::Need | TreeType::Offering | TreeType::Intention => "quest",
-            TreeType::Custom(s) if s == "Contact" => "story",
+    /// Get view type string for an artifact type.
+    pub fn view_type_for(artifact_type: &str) -> &'static str {
+        match artifact_type {
+            "story" | "contact" => "story",
+            "quest" | "need" | "offering" | "intention" => "quest",
             _ => "document",
         }
     }

@@ -3,7 +3,7 @@ use dioxus::prelude::Key;
 use crate::state::editor::{Block, EditorState, BlockDocumentSchema};
 use crate::state::workspace::WorkspaceState;
 use crate::bridge::vault_bridge::VaultHandle;
-use indras_artifacts::{Artifact, LeafType};
+
 use indras_network::Realm;
 use super::blocks::{
     text::TextBlock,
@@ -196,9 +196,9 @@ async fn save_block(
     let mut vault = vh.vault.lock().await;
     let now = chrono::Utc::now().timestamp_millis();
 
-    // Get the old reference at this index from the tree
-    let old_ref = if let Ok(Some(Artifact::Tree(tree))) = vault.get_artifact(&tree_id) {
-        tree.references.get(index).cloned()
+    // Get the old reference at this index from the artifact
+    let old_ref = if let Ok(Some(artifact)) = vault.get_artifact(&tree_id) {
+        artifact.references.get(index).cloned()
     } else {
         None
     };
@@ -208,7 +208,7 @@ async fn save_block(
     };
 
     // Place new leaf with updated content
-    let new_leaf = match vault.place_leaf(new_content.as_bytes(), String::new(), None, LeafType::Message, now) {
+    let new_leaf = match vault.place_leaf(new_content.as_bytes(), String::new(), None, "message", now) {
         Ok(l) => l,
         Err(e) => {
             tracing::error!("Failed to place leaf: {}", e);
@@ -228,10 +228,10 @@ async fn save_block(
         return;
     }
 
-    // Reload all blocks from the updated tree
-    if let Ok(Some(Artifact::Tree(tree))) = vault.get_artifact(&tree_id) {
+    // Reload all blocks from the updated artifact
+    if let Ok(Some(artifact)) = vault.get_artifact(&tree_id) {
         let mut blocks = Vec::new();
-        for child_ref in &tree.references {
+        for child_ref in &artifact.references {
             let content = if let Ok(Some(payload)) = vault.get_payload(&child_ref.artifact_id) {
                 String::from_utf8_lossy(&payload).to_string()
             } else {

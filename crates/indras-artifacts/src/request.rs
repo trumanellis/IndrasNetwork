@@ -9,7 +9,7 @@ const DESCRIPTION_LABEL: &str = "description";
 const OFFER_LABEL: &str = "offer";
 
 /// A Request is a newtype wrapper around an ArtifactId pointing to a
-/// Tree(Request) artifact. It represents a player asking for something,
+/// "request" artifact. It represents a player asking for something,
 /// with a description and zero or more offers from peers.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Request {
@@ -22,22 +22,22 @@ impl Request {
         Self { id }
     }
 
-    /// Create a new Request tree with a description message.
+    /// Create a new Request artifact with a description message.
     pub fn create<A: ArtifactStore, P: PayloadStore, T: AttentionStore>(
         vault: &mut Vault<A, P, T>,
         description_text: &str,
         audience: Vec<PlayerId>,
         now: i64,
     ) -> Result<Self> {
-        let tree = vault.place_tree(TreeType::Request, audience, now)?;
-        let request_id = tree.id.clone();
+        let artifact = vault.place_tree("request", audience, now)?;
+        let request_id = artifact.id;
 
-        // Create description as a Leaf(Message) child
+        // Create description as a content child
         let desc_leaf = vault.place_leaf(
             description_text.as_bytes(),
             "description".to_string(),
             None,
-            LeafType::Message,
+            "message",
             now,
         )?;
         vault.compose(
@@ -70,16 +70,15 @@ impl Request {
         &self,
         vault: &Vault<A, P, T>,
     ) -> Result<Vec<(ArtifactRef, Option<Artifact>)>> {
-        let tree_artifact = vault
+        let artifact = vault
             .get_artifact(&self.id)?
             .ok_or(VaultError::ArtifactNotFound)?;
-        let tree = tree_artifact.as_tree().ok_or(VaultError::NotATree)?;
 
         let mut offers = Vec::new();
-        for r in &tree.references {
+        for r in &artifact.references {
             if r.label.as_deref() == Some(OFFER_LABEL) {
-                let artifact = vault.get_artifact(&r.artifact_id)?;
-                offers.push((r.clone(), artifact));
+                let child = vault.get_artifact(&r.artifact_id)?;
+                offers.push((r.clone(), child));
             }
         }
         Ok(offers)
@@ -90,12 +89,11 @@ impl Request {
         &self,
         vault: &Vault<A, P, T>,
     ) -> Result<Option<Artifact>> {
-        let tree_artifact = vault
+        let artifact = vault
             .get_artifact(&self.id)?
             .ok_or(VaultError::ArtifactNotFound)?;
-        let tree = tree_artifact.as_tree().ok_or(VaultError::NotATree)?;
 
-        let desc_ref = tree
+        let desc_ref = artifact
             .references
             .iter()
             .find(|r| r.label.as_deref() == Some(DESCRIPTION_LABEL));
@@ -110,12 +108,11 @@ impl Request {
         &self,
         vault: &Vault<A, P, T>,
     ) -> Result<usize> {
-        let tree_artifact = vault
+        let artifact = vault
             .get_artifact(&self.id)?
             .ok_or(VaultError::ArtifactNotFound)?;
-        let tree = tree_artifact.as_tree().ok_or(VaultError::NotATree)?;
 
-        Ok(tree
+        Ok(artifact
             .references
             .iter()
             .filter(|r| r.label.as_deref() == Some(OFFER_LABEL))
@@ -126,10 +123,9 @@ impl Request {
         &self,
         vault: &Vault<A, P, T>,
     ) -> Result<usize> {
-        let tree_artifact = vault
+        let artifact = vault
             .get_artifact(&self.id)?
             .ok_or(VaultError::ArtifactNotFound)?;
-        let tree = tree_artifact.as_tree().ok_or(VaultError::NotATree)?;
-        Ok(tree.references.len())
+        Ok(artifact.references.len())
     }
 }

@@ -21,11 +21,28 @@ use tracing::{debug, warn};
 ///
 /// A realm can have multiple documents ("quests", "notes", etc.) and
 /// this envelope disambiguates which document a message belongs to.
+/// Legacy full-state envelope (v1 wire format, still used for full sync).
 #[derive(Serialize, Deserialize)]
 struct DocumentEnvelope {
     doc_name: String,
     payload: Vec<u8>,
 }
+
+/// Compact delta envelope for incremental updates.
+///
+/// Sent by schemas that support `extract_delta` (e.g. `RealmChatDocument`).
+/// Contains only the changed data rather than the full document state.
+#[derive(Serialize, Deserialize)]
+struct DocumentDelta {
+    /// Magic discriminant to distinguish from DocumentEnvelope on the wire.
+    /// Always set to `0xDD`.
+    magic: u8,
+    doc_name: String,
+    delta: Vec<u8>,
+}
+
+/// Magic byte used to identify a `DocumentDelta` on the wire.
+const DELTA_MAGIC: u8 = 0xDD;
 
 /// Trait for document schemas that can be stored in a `Document<T>`.
 ///
@@ -51,6 +68,25 @@ pub trait DocumentSchema: Default + Clone + Serialize + DeserializeOwned + Send 
     /// Override for types that support set-union merge.
     fn merge(&mut self, remote: Self) {
         *self = remote;
+    }
+
+    /// Extract a compact delta between old and new state.
+    ///
+    /// Returns `Some(bytes)` if the change can be represented as a small delta
+    /// (e.g. a single new chat message). Returns `None` to fall back to
+    /// sending the full state.
+    ///
+    /// Default: no delta support (always sends full state).
+    fn extract_delta(_old: &Self, _new: &Self) -> Option<Vec<u8>> {
+        None
+    }
+
+    /// Apply a compact delta to this document.
+    ///
+    /// Returns `true` if the delta was applied successfully.
+    /// Default: not supported (returns false).
+    fn apply_delta(&mut self, _delta: &[u8]) -> bool {
+        false
     }
 }
 
@@ -244,34 +280,58 @@ impl<T: DocumentSchema> Document<T> {
                         return false; // node dropped
                     };
                     if let Ok(events) = node.document_events(&realm_id).await {
-                        let mut updated = false;
-                        for event in events.iter().rev() {
+                        // Snapshot state before merging for dedup guard
+                        let before = postcard::to_allocvec(&*state.read().await).ok();
+
+                        let mut merged_any = false;
+                        for event in events.iter() {
                             if let InterfaceEvent::Message { content, .. } = event {
+                                // Try compact delta first
+                                if let Ok(delta) = postcard::from_bytes::<DocumentDelta>(content) {
+                                    if delta.magic == DELTA_MAGIC && delta.doc_name == name {
+                                        let mut guard = state.write().await;
+                                        guard.apply_delta(&delta.delta);
+                                        drop(guard);
+                                        merged_any = true;
+                                        continue;
+                                    }
+                                }
+                                // Try full-state envelope
                                 if let Ok(envelope) = postcard::from_bytes::<DocumentEnvelope>(content) {
                                     if envelope.doc_name != name {
                                         continue;
                                     }
                                     if let Ok(remote_state) = postcard::from_bytes::<T>(&envelope.payload) {
-                                        let merged = {
-                                            let mut guard = state.write().await;
-                                            guard.merge(remote_state);
-                                            guard.clone()
-                                        };
-                                        if let Ok(data) = postcard::to_allocvec(&merged) {
-                                            let _ = node.storage().interface_store().set_document_data(&storage_key, &data);
-                                        }
-                                        let _ = change_tx.send(DocumentChange {
-                                            new_state: merged,
-                                            author: None,
-                                            is_remote: true,
-                                        });
-                                        updated = true;
-                                        break;
+                                        let mut guard = state.write().await;
+                                        guard.merge(remote_state);
+                                        drop(guard);
+                                        merged_any = true;
                                     }
                                 }
                             }
                         }
-                        updated
+
+                        if !merged_any {
+                            return false;
+                        }
+
+                        // Dedup guard: skip persist/notify if state didn't actually change
+                        let after = postcard::to_allocvec(&*state.read().await).ok();
+                        if before == after {
+                            return false;
+                        }
+
+                        // Persist and notify once after all merges
+                        let merged = state.read().await.clone();
+                        if let Ok(data) = postcard::to_allocvec(&merged) {
+                            let _ = node.storage().interface_store().set_document_data(&storage_key, &data);
+                        }
+                        let _ = change_tx.send(DocumentChange {
+                            new_state: merged,
+                            author: None,
+                            is_remote: true,
+                        });
+                        true
                     } else {
                         false
                     }
@@ -304,23 +364,40 @@ impl<T: DocumentSchema> Document<T> {
                                     break;
                                 };
 
-                                // Try to deserialize as DocumentEnvelope first
+                                // Try compact delta first (new format)
+                                if let Ok(delta) = postcard::from_bytes::<DocumentDelta>(content) {
+                                    if delta.magic == DELTA_MAGIC && delta.doc_name == name {
+                                        let merged = {
+                                            let mut guard = state.write().await;
+                                            guard.apply_delta(&delta.delta);
+                                            guard.clone()
+                                        };
+                                        if let Ok(data) = postcard::to_allocvec(&merged) {
+                                            let _ = node.storage().interface_store().set_document_data(&storage_key, &data);
+                                        }
+                                        let _ = change_tx.send(DocumentChange {
+                                            new_state: merged,
+                                            author: Some(Member::new(*sender)),
+                                            is_remote: true,
+                                        });
+                                        continue;
+                                    }
+                                }
+
+                                // Try full-state envelope (v1 format)
                                 if let Ok(envelope) = postcard::from_bytes::<DocumentEnvelope>(content) {
                                     if envelope.doc_name != name {
                                         continue; // Different document
                                     }
                                     if let Ok(remote_state) = postcard::from_bytes::<T>(&envelope.payload) {
-                                        // Merge remote state into local (union, not replace)
                                         let merged = {
                                             let mut guard = state.write().await;
                                             guard.merge(remote_state);
                                             guard.clone()
                                         };
-                                        // Persist merged state to redb (best-effort)
                                         if let Ok(data) = postcard::to_allocvec(&merged) {
                                             let _ = node.storage().interface_store().set_document_data(&storage_key, &data);
                                         }
-                                        // Fire changes() stream with merged state
                                         let _ = change_tx.send(DocumentChange {
                                             new_state: merged,
                                             author: Some(Member::new(*sender)),
@@ -330,7 +407,7 @@ impl<T: DocumentSchema> Document<T> {
                                     continue;
                                 }
 
-                                // Fallback: try raw format (backward compat)
+                                // Fallback: try raw format (legacy compat)
                                 if let Ok(remote_state) = postcard::from_bytes::<T>(content) {
                                     let merged = {
                                         let mut guard = state.write().await;
@@ -629,27 +706,38 @@ impl<T: DocumentSchema> Document<T> {
     {
         let realm_short: String = self.realm_id.as_bytes().iter().take(8).map(|b| format!("{:02x}", b)).collect();
 
-        let new_state = {
+        let (new_state, message) = {
             let mut state = self.state.write().await;
+            let old = state.clone();
             f(&mut state);
-            state.clone()
+            let new_state = state.clone();
+
+            // Try delta extraction; fall back to full state
+            let message = if let Some(delta_bytes) = T::extract_delta(&old, &new_state) {
+                let delta = DocumentDelta {
+                    magic: DELTA_MAGIC,
+                    doc_name: self.name.clone(),
+                    delta: delta_bytes,
+                };
+                postcard::to_allocvec(&delta)?
+            } else {
+                let inner_payload = postcard::to_allocvec(&new_state)?;
+                let envelope = DocumentEnvelope {
+                    doc_name: self.name.clone(),
+                    payload: inner_payload,
+                };
+                postcard::to_allocvec(&envelope)?
+            };
+
+            (new_state, message)
         };
 
         // Persist to local storage
         self.persist(&new_state).await?;
 
-        // Serialize and wrap in envelope for multi-document disambiguation
-        let inner_payload = postcard::to_allocvec(&new_state)?;
-        let envelope = DocumentEnvelope {
-            doc_name: self.name.clone(),
-            payload: inner_payload.clone(),
-        };
-        let message = postcard::to_allocvec(&envelope)?;
-
         debug!(
             doc_name = %self.name,
             realm = %realm_short,
-            payload_len = inner_payload.len(),
             message_len = message.len(),
             "Document update: sending to network"
         );
@@ -688,22 +776,35 @@ impl<T: DocumentSchema> Document<T> {
     where
         F: FnOnce(&mut T) -> R,
     {
-        let (result, new_state) = {
+        let (result, new_state, message) = {
             let mut state = self.state.write().await;
+            let old = state.clone();
             let result = f(&mut state);
-            (result, state.clone())
+            let new_state = state.clone();
+
+            // Try delta extraction; fall back to full state
+            let message = if let Some(delta_bytes) = T::extract_delta(&old, &new_state) {
+                let delta = DocumentDelta {
+                    magic: DELTA_MAGIC,
+                    doc_name: self.name.clone(),
+                    delta: delta_bytes,
+                };
+                postcard::to_allocvec(&delta)?
+            } else {
+                let inner_payload = postcard::to_allocvec(&new_state)?;
+                let envelope = DocumentEnvelope {
+                    doc_name: self.name.clone(),
+                    payload: inner_payload,
+                };
+                postcard::to_allocvec(&envelope)?
+            };
+
+            (result, new_state, message)
         };
 
         // Persist to local storage
         self.persist(&new_state).await?;
 
-        // Serialize and wrap in envelope
-        let inner_payload = postcard::to_allocvec(&new_state)?;
-        let envelope = DocumentEnvelope {
-            doc_name: self.name.clone(),
-            payload: inner_payload,
-        };
-        let message = postcard::to_allocvec(&envelope)?;
         self.node.send_message(&self.realm_id, message).await?;
 
         // Notify local subscribers
