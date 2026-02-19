@@ -785,6 +785,57 @@ button{font-family:var(--font-body)}
   padding: 32px 16px; text-align: center; color: var(--text-muted); font-size: 13px;
 }
 
+/* Artifact Detail Modal */
+.artifact-detail-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+  display: flex; align-items: center; justify-content: center; z-index: 1000;
+}
+.artifact-detail-modal {
+  background: var(--bg-surface); border: 1px solid var(--border-dim);
+  border-radius: var(--radius-lg); width: 480px; max-width: 92vw;
+  max-height: 85vh; display: flex; flex-direction: column;
+}
+.artifact-detail-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 20px 24px 16px; border-bottom: 1px solid var(--border-subtle);
+}
+.artifact-detail-title {
+  font-size: 18px; font-weight: 600; color: var(--text-primary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;
+}
+.artifact-detail-close {
+  background: none; border: none; color: var(--text-muted);
+  font-size: 18px; cursor: pointer; padding: 4px 8px; flex-shrink: 0;
+}
+.artifact-detail-close:hover { color: var(--text-primary); }
+.artifact-detail-body { padding: 20px 24px; overflow-y: auto; flex: 1; }
+.artifact-detail-preview {
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg-deep); border: 1px solid var(--border-dim);
+  border-radius: var(--radius-md); min-height: 120px; margin-bottom: 20px;
+  overflow: hidden;
+}
+.artifact-detail-preview img {
+  max-width: 100%; max-height: 300px; object-fit: contain;
+}
+.artifact-detail-preview-icon { font-size: 48px; padding: 24px; }
+.artifact-detail-props { display: flex; flex-direction: column; gap: 2px; }
+.artifact-detail-prop {
+  display: flex; align-items: baseline; justify-content: space-between;
+  padding: 6px 0; font-size: 13px; border-bottom: 1px solid var(--border-subtle);
+}
+.artifact-detail-prop:last-child { border-bottom: none; }
+.artifact-detail-prop-key { color: var(--text-muted); }
+.artifact-detail-prop-val {
+  color: var(--text-secondary); font-family: var(--font-mono);
+  font-size: 11px; text-align: right; max-width: 60%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.artifact-detail-prop-val.status-active { color: var(--accent-teal); }
+.artifact-detail-prop-val.status-recalled { color: var(--accent-rose); }
+.artifact-detail-prop-val.status-transferred { color: var(--accent-gold); }
+.artifact-detail-prop-val.status-expired { color: var(--text-muted); }
+
 @media (max-width: 768px) {
   .artifact-browser-columns { grid-template-columns: 1fr; }
 }
