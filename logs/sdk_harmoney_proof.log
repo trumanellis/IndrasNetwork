@@ -1,0 +1,1 @@
+{"timestamp":"2026-01-29T10:11:31.629365Z","level":"ERROR","message":"Script not found: simulation/scripts/scenarios/sdk_harmoney_proof.lua","target":"lua_runner","filename":"simulation/src/bin/lua_runner.rs","line_number":90}

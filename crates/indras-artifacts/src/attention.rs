@@ -217,3 +217,39 @@ pub fn compute_heat(
         heat,
     }
 }
+
+/// A single contiguous attention session on an artifact.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DwellWindow {
+    pub player: PlayerId,
+    pub artifact_id: ArtifactId,
+    pub start_timestamp: i64,
+    pub duration_ms: u64,
+}
+
+/// Extract individual dwell windows for a specific artifact from attention events.
+///
+/// Each window represents a contiguous period where the player's attention was on
+/// the given artifact. Windows are computed from consecutive event pairs where
+/// `event[i].to == Some(artifact_id)`.
+pub fn extract_dwell_windows(
+    player: PlayerId,
+    artifact_id: &ArtifactId,
+    events: &[AttentionSwitchEvent],
+) -> Vec<DwellWindow> {
+    let mut windows = Vec::new();
+    for window in events.windows(2) {
+        if window[0].to.as_ref() == Some(artifact_id) {
+            let duration_ms = (window[1].timestamp - window[0].timestamp).max(0) as u64;
+            if duration_ms > 0 {
+                windows.push(DwellWindow {
+                    player,
+                    artifact_id: artifact_id.clone(),
+                    start_timestamp: window[0].timestamp,
+                    duration_ms,
+                });
+            }
+        }
+    }
+    windows
+}

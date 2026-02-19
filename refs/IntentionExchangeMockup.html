@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Intention Exchange Flow - SyncEngine</title>
+    <link href="https://fonts.googleapis.com/css2?family=Exo:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #0a0e0f;
+            color: #F7F3E9;
+            font-family: 'Exo', sans-serif;
+            padding: 2rem;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: #D4AF37;
+            text-align: center;
+            margin-bottom: 3rem;
+            font-size: 2.5rem;
+            text-shadow: 0 0 20px rgba(212, 175, 55, 0.6);
+        }
+
+        .screens-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 2rem;
+            margin-bottom: 3rem;
+            align-items: stretch;
+        }
+
+        .phone-mockup {
+            background: #1a2e2e;
+            border: 3px solid #00FFD1;
+            border-radius: 2rem;
+            padding: 1.5rem;
+            box-shadow: 0 0 40px rgba(0, 255, 209, 0.3);
+            position: relative;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .screen-label {
+            position: absolute;
+            top: -1rem;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #1a2e2e;
+            padding: 0.25rem 1rem;
+            border: 2px solid #00FFD1;
+            border-radius: 1rem;
+            color: #00FFD1;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .screen-content {
+            background: #0f1f1f;
+            border: 2px solid #00FFD1;
+            border-radius: 1.5rem;
+            padding: 1.5rem;
+            min-height: 600px;
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+        }
+
+        .status-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid rgba(0, 255, 209, 0.2);
+            font-size: 0.75rem;
+            color: #84A98C;
+        }
+
+        .back-button {
+            color: #00FFD1;
+            font-size: 1.25rem;
+            cursor: pointer;
+        }
+
+        .screen-title {
+            color: #D4AF37;
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+            text-shadow: 0 0 15px rgba(212, 175, 55, 0.5);
+        }
+
+        .input-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .input-label {
+            color: #84A98C;
+            font-size: 0.85rem;
+            margin-bottom: 0.5rem;
+            display: block;
+        }
+
+        .text-input {
+            width: 100%;
+            background: rgba(0, 255, 209, 0.05);
+            border: 1px solid rgba(0, 255, 209, 0.3);
+            border-radius: 0.75rem;
+            padding: 1rem;
+            color: #F7F3E9;
+            font-family: 'Exo', sans-serif;
+            font-size: 1rem;
+        }
+
+        .text-input:focus {
+            outline: none;
+            border-color: #00FFD1;
+            box-shadow: 0 0 15px rgba(0, 255, 209, 0.3);
+        }
+
+        .textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+
+        .token-list {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .token-card {
+            background: rgba(212, 175, 55, 0.1);
+            border: 2px solid rgba(212, 175, 55, 0.5);
+            border-radius: 1rem;
+            padding: 1rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .token-card:hover {
+            border-color: #D4AF37;
+            box-shadow: 0 0 20px rgba(212, 175, 55, 0.4);
+            transform: translateY(-2px);
+        }
+
+        .token-card.selected {
+            border-color: #D4AF37;
+            background: rgba(212, 175, 55, 0.2);
+            box-shadow: 0 0 25px rgba(212, 175, 55, 0.5);
+        }
+
+        .token-name {
+            color: #D4AF37;
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+        }
+
+        .token-meta {
+            color: #84A98C;
+            font-size: 0.85rem;
+        }
+
+        .button-primary {
+            background: rgba(212, 175, 55, 0.9);
+            color: #0a0e0f;
+            border: none;
+            border-radius: 0.75rem;
+            padding: 1rem 2rem;
+            font-family: 'Exo', sans-serif;
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 0 20px rgba(212, 175, 55, 0.4);
+            margin-top: auto;
+        }
+
+        .button-primary:hover {
+            background: #D4AF37;
+            box-shadow: 0 0 30px rgba(212, 175, 55, 0.6);
+            transform: translateY(-2px);
+        }
+
+        .qr-container {
+            background: white;
+            border-radius: 1rem;
+            padding: 2rem;
+            text-align: center;
+            margin: 2rem 0;
+        }
+
+        .qr-placeholder {
+            width: 200px;
+            height: 200px;
+            margin: 0 auto;
+            background: linear-gradient(45deg, #e0e0e0 25%, transparent 25%, transparent 75%, #e0e0e0 75%, #e0e0e0),
+                        linear-gradient(45deg, #e0e0e0 25%, transparent 25%, transparent 75%, #e0e0e0 75%, #e0e0e0);
+            background-size: 20px 20px;
+            background-position: 0 0, 10px 10px;
+            border: 3px solid #333;
+            position: relative;
+        }
+
+        .qr-corner {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            border: 4px solid #000;
+        }
+
+        .qr-corner.tl { top: 10px; left: 10px; }
+        .qr-corner.tr { top: 10px; right: 10px; }
+        .qr-corner.bl { bottom: 10px; left: 10px; }
+
+        .intention-card {
+            background: rgba(212, 175, 55, 0.15);
+            border: 2px solid #D4AF37;
+            border-radius: 1rem;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .intention-title {
+            color: #D4AF37;
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .intention-description {
+            color: #F7F3E9;
+            font-size: 0.95rem;
+            line-height: 1.6;
+            margin-bottom: 1rem;
+        }
+
+        .token-attached {
+            background: rgba(0, 255, 209, 0.1);
+            border: 1px solid rgba(0, 255, 209, 0.3);
+            border-radius: 0.5rem;
+            padding: 0.75rem;
+            margin-top: 1rem;
+        }
+
+        .token-attached-label {
+            color: #00FFD1;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.25rem;
+        }
+
+        .token-attached-name {
+            color: #F7F3E9;
+            font-weight: 500;
+        }
+
+        .proof-form {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .image-upload {
+            background: rgba(0, 255, 209, 0.05);
+            border: 2px dashed rgba(0, 255, 209, 0.3);
+            border-radius: 1rem;
+            padding: 2rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .image-upload:hover {
+            border-color: #00FFD1;
+            background: rgba(0, 255, 209, 0.1);
+        }
+
+        .upload-icon {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+            color: #00FFD1;
+        }
+
+        .notification {
+            background: rgba(212, 175, 55, 0.2);
+            border: 2px solid #D4AF37;
+            border-radius: 1rem;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 0 20px rgba(212, 175, 55, 0.4); }
+            50% { box-shadow: 0 0 35px rgba(212, 175, 55, 0.6); }
+        }
+
+        .notification-title {
+            color: #D4AF37;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .notification-body {
+            color: #F7F3E9;
+            font-size: 0.95rem;
+            line-height: 1.6;
+        }
+
+        .connection-badge {
+            background: rgba(0, 255, 209, 0.15);
+            border: 1px solid #00FFD1;
+            border-radius: 0.5rem;
+            padding: 0.5rem 1rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: #00FFD1;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+
+        .avatar-circle {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: rgba(212, 175, 55, 0.3);
+            border: 2px solid #D4AF37;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+        }
+
+        .success-message {
+            text-align: center;
+            padding: 2rem 1rem;
+        }
+
+        .success-icon {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: rgba(0, 255, 209, 0.2);
+            border: 3px solid #00FFD1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 3rem;
+            margin: 0 auto 1.5rem;
+            color: #00FFD1;
+        }
+
+        .success-title {
+            color: #D4AF37;
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+
+        .success-body {
+            color: #F7F3E9;
+            line-height: 1.6;
+        }
+
+        .flow-note {
+            background: rgba(0, 255, 209, 0.05);
+            border-left: 3px solid #00FFD1;
+            padding: 1rem;
+            margin: 2rem 0;
+            color: #84A98C;
+            font-size: 0.9rem;
+            line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>⚡ Intention Exchange Flow</h1>
+
+        <div class="flow-note">
+            <strong style="color: #00FFD1;">Story:</strong> You're at a community gathering. Someone has delicious maracuja cheesecake to share. You create an Intention for "Delicious cheesecake" and attach your Eucalyptus Token (earned from helping a neighbor). They scan your QR code, fulfill the Intention by giving you cheesecake, and post a Proof of Service. You release your token to them, completing the exchange. Now you're connected!
+        </div>
+
+        <div class="screens-grid">
+            <!-- Screen 1: Create Intention -->
+            <div class="phone-mockup">
+                <div class="screen-label">Step 1: Create</div>
+                <div class="screen-content">
+                    <div class="status-bar">
+                        <span>⚡ SyncEngine</span>
+                        <span>3:45 PM</span>
+                    </div>
+                    
+                    <div class="screen-title">New Intention</div>
+                    
+                    <div class="input-group">
+                        <label class="input-label">What do you seek?</label>
+                        <input type="text" class="text-input" value="Delicious cheesecake" />
+                    </div>
+                    
+                    <div class="input-group">
+                        <label class="input-label">Details (optional)</label>
+                        <textarea class="text-input textarea" placeholder="Add any specific requests or context...">That maracuja cheesecake looks amazing! Would love a slice.</textarea>
+                    </div>
+                    
+                    <div class="input-group">
+                        <label class="input-label">Location</label>
+                        <input type="text" class="text-input" value="Community Market - Stall 7" />
+                    </div>
+                    
+                    <button class="button-primary">Next: Attach Tokens →</button>
+                </div>
+            </div>
+
+            <!-- Screen 2: Attach Tokens -->
+            <div class="phone-mockup">
+                <div class="screen-label">Step 2: Attach</div>
+                <div class="screen-content">
+                    <div class="status-bar">
+                        <span class="back-button">←</span>
+                        <span>3:45 PM</span>
+                    </div>
+                    
+                    <div class="screen-title">Attach Tokens</div>
+                    
+                    <div class="input-label" style="margin-bottom: 1rem;">Select tokens to offer in exchange:</div>
+                    
+                    <div class="token-list">
+                        <div class="token-card selected">
+                            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 0.5rem;">
+                                <div class="token-name">🌳 Eucalyptus Removal Token</div>
+                                <div style="background: rgba(212, 175, 55, 0.3); border: 2px solid #D4AF37; border-radius: 0.5rem; padding: 0.25rem 0.75rem; font-weight: 700; color: #D4AF37; white-space: nowrap; font-size: 1rem;">8h</div>
+                            </div>
+                            <div class="token-meta">Earned Oct 21, 2025</div>
+                            <div class="token-meta" style="margin-top: 0.5rem; color: #D4AF37;">Helping neighbor process invasive eucalyptus</div>
+                        </div>
+                        
+                        <div class="token-card">
+                            <div class="token-name">🍞 Sourdough Starter Token</div>
+                            <div class="token-meta">Earned Oct 15, 2025 • 2 hours of intention</div>
+                            <div class="token-meta" style="margin-top: 0.5rem;">Sharing & teaching starter cultivation</div>
+                        </div>
+                        
+                        <div class="token-card">
+                            <div class="token-name">🎨 Garden Mural Token</div>
+                            <div class="token-meta">Earned Oct 10, 2025 • 5 hours of intention</div>
+                            <div class="token-meta" style="margin-top: 0.5rem;">Painting community garden entrance</div>
+                        </div>
+                    </div>
+                    
+                    <button class="button-primary">Create Intention Card</button>
+                </div>
+            </div>
+
+            <!-- Screen 3: Intention Card with QR -->
+            <div class="phone-mockup">
+                <div class="screen-label">Step 3: Share</div>
+                <div class="screen-content">
+                    <div class="status-bar">
+                        <span class="back-button">←</span>
+                        <span>3:46 PM</span>
+                    </div>
+                    
+                    <div class="screen-title">Your Intention</div>
+                    
+                    <div class="intention-card">
+                        <div class="intention-title">🍰 Delicious cheesecake</div>
+                        <div class="intention-description">
+                            That maracuja cheesecake looks amazing! Would love a slice.
+                        </div>
+                        <div style="color: #84A98C; font-size: 0.85rem;">
+                            📍 Community Market - Stall 7
+                        </div>
+                        <div class="token-attached">
+                            <div class="token-attached-label">Token Offered</div>
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <div class="token-attached-name">🌳 Eucalyptus Removal Token</div>
+                                <div style="background: rgba(212, 175, 55, 0.3); border: 2px solid #D4AF37; border-radius: 0.5rem; padding: 0.25rem 0.75rem; font-weight: 700; color: #D4AF37; font-size: 1rem;">8h</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="qr-container">
+                        <div style="color: #333; font-weight: 600; margin-bottom: 1rem;">Show this to the provider</div>
+                        <div class="qr-placeholder">
+                            <div class="qr-corner tl"></div>
+                            <div class="qr-corner tr"></div>
+                            <div class="qr-corner bl"></div>
+                            <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 0.75rem; color: #666;">
+                                INTENTION<br/>QR CODE
+                            </div>
+                        </div>
+                        <div style="color: #666; font-size: 0.75rem; margin-top: 1rem;">INT-2025-10-28-A7F3</div>
+                    </div>
+                    
+                    <div style="text-align: center; color: #84A98C; font-size: 0.9rem; margin-top: 1rem;">
+                        Waiting for fulfillment...
+                    </div>
+                </div>
+            </div>
+
+            <!-- Screen 4: Provider View (After Scan) -->
+            <div class="phone-mockup">
+                <div class="screen-label">Provider View</div>
+                <div class="screen-content">
+                    <div class="status-bar">
+                        <span class="back-button">←</span>
+                        <span>3:48 PM</span>
+                    </div>
+                    
+                    <div class="screen-title">Intention Request</div>
+                    
+                    <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem;">
+                        <div class="avatar-circle">🙂</div>
+                        <div>
+                            <div style="color: #D4AF37; font-weight: 600;">Dr. Truman Ellis</div>
+                            <div style="color: #84A98C; font-size: 0.85rem;">2 connections • 5 fulfilled</div>
+                        </div>
+                    </div>
+                    
+                    <div class="intention-card">
+                        <div class="intention-title">🍰 Delicious cheesecake</div>
+                        <div class="intention-description">
+                            That maracuja cheesecake looks amazing! Would love a slice.
+                        </div>
+                        <div style="color: #84A98C; font-size: 0.85rem; margin-bottom: 1rem;">
+                            📍 Community Market - Stall 7
+                        </div>
+                        <div class="token-attached">
+                            <div class="token-attached-label">Token Offered</div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                                <div class="token-attached-name">🌳 Eucalyptus Removal Token</div>
+                                <div style="background: rgba(212, 175, 55, 0.3); border: 2px solid #D4AF37; border-radius: 0.5rem; padding: 0.25rem 0.75rem; font-weight: 700; color: #D4AF37; font-size: 1rem;">8h</div>
+                            </div>
+                            <div style="color: #84A98C; font-size: 0.85rem;">
+                                Ecological restoration • Invasive species removal
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <button class="button-primary" style="margin-bottom: 1rem;">Fulfill Intention</button>
+                    <button class="button-primary" style="background: rgba(132, 169, 140, 0.3); color: #84A98C; box-shadow: none;">
+                        Decline
+                    </button>
+                </div>
+            </div>
+
+            <!-- Screen 5: Post Proof of Service -->
+            <div class="phone-mockup">
+                <div class="screen-label">Step 4: Proof</div>
+                <div class="screen-content">
+                    <div class="status-bar">
+                        <span class="back-button">←</span>
+                        <span>3:50 PM</span>
+                    </div>
+                    
+                    <div class="screen-title">Post Proof of Service</div>
+                    
+                    <div class="input-group">
+                        <label class="input-label">What did you provide?</label>
+                        <input type="text" class="text-input" value="Maracuja Cheesecake Slice" />
+                    </div>
+                    
+                    <div class="input-group">
+                        <label class="input-label">Description</label>
+                        <textarea class="text-input textarea">Shared a generous slice of fresh maracuja cheesecake made with local ingredients from the community garden.</textarea>
+                    </div>
+                    
+                    <div class="input-group">
+                        <label class="input-label">Photo (optional)</label>
+                        <div class="image-upload">
+                            <div class="upload-icon">📸</div>
+                            <div style="color: #84A98C; font-size: 0.9rem;">Tap to add photo</div>
+                        </div>
+                    </div>
+                    
+                    <button class="button-primary">Submit Proof of Service</button>
+                </div>
+            </div>
+
+            <!-- Screen 6: Notification to Release Token -->
+            <div class="phone-mockup">
+                <div class="screen-label">Step 5: Release</div>
+                <div class="screen-content">
+                    <div class="status-bar">
+                        <span>⚡ SyncEngine</span>
+                        <span>3:51 PM</span>
+                    </div>
+                    
+                    <div class="screen-title">Intention Fulfilled!</div>
+                    
+                    <div class="notification">
+                        <div class="notification-title">
+                            <span>✓</span>
+                            <span>Proof of Service Received</span>
+                        </div>
+                        <div class="notification-body">
+                            You My Dear Reader has fulfilled your Intention and submitted proof. Review and release your token to complete the exchange.
+                        </div>
+                    </div>
+                    
+                    <div class="intention-card">
+                        <div class="intention-title">🍰 Delicious cheesecake</div>
+                        <div class="intention-description" style="margin-bottom: 1.5rem;">
+                            Shared a generous slice of fresh maracuja cheesecake made with local ingredients from the community garden.
+                        </div>
+                        <div style="background: rgba(0,0,0,0.3); border-radius: 0.5rem; padding: 0.75rem; margin-bottom: 1rem;">
+                            <div style="color: #84A98C; font-size: 0.85rem; margin-bottom: 0.5rem;">Provider</div>
+                            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                <div class="avatar-circle" style="width: 32px; height: 32px; font-size: 1rem;">🧑‍🍳</div>
+                                <div>
+                                    <div style="color: #F7F3E9; font-weight: 500;">You My Dear Reader</div>
+                                    <div style="color: #84A98C; font-size: 0.8rem;">Baker & Community Chef</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="token-attached">
+                            <div class="token-attached-label">Ready to Release</div>
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <div class="token-attached-name">🌳 Eucalyptus Removal Token</div>
+                                <div style="background: rgba(212, 175, 55, 0.3); border: 2px solid #D4AF37; border-radius: 0.5rem; padding: 0.25rem 0.75rem; font-weight: 700; color: #D4AF37; font-size: 1rem;">8h</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <button class="button-primary">Release Token to You My Dear Reader</button>
+                </div>
+            </div>
+
+            <!-- Screen 7: Success & Connection -->
+            <div class="phone-mockup">
+                <div class="screen-label">Complete!</div>
+                <div class="screen-content">
+                    <div class="status-bar">
+                        <span>⚡ SyncEngine</span>
+                        <span>3:52 PM</span>
+                    </div>
+                    
+                    <div class="success-message">
+                        <div class="success-icon">✓</div>
+                        <div class="success-title">Exchange Complete!</div>
+                        <div class="success-body">
+                            Your token has been released to You My Dear Reader. You're now connected through the Synchronicity Engine.
+                        </div>
+                    </div>
+                    
+                    <div class="intention-card" style="margin-top: 2rem;">
+                        <div style="text-align: center; margin-bottom: 1rem;">
+                            <div class="connection-badge" style="margin: 0 auto;">
+                                <span>🤝</span>
+                                <span>New Connection</span>
+                            </div>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+                            <div class="avatar-circle">🧑‍🍳</div>
+                            <div>
+                                <div style="color: #D4AF37; font-weight: 600; font-size: 1.1rem;">You My Dear Reader</div>
+                                <div style="color: #84A98C; font-size: 0.85rem;">Baker & Community Chef</div>
+                            </div>
+                        </div>
+                        <div style="color: #F7F3E9; font-size: 0.9rem; line-height: 1.6; margin-top: 1rem;">
+                            You can now make special requests and coordinate future exchanges directly with You My Dear Reader.
+                        </div>
+                    </div>
+                    
+                    <div style="text-align: center; margin-top: 2rem; padding: 1rem; background: rgba(0, 255, 209, 0.05); border-radius: 0.75rem;">
+                        <div style="color: #84A98C; font-size: 0.9rem; line-height: 1.6;">
+                            💡 You My Dear Reader is two stalls down from the wood-fired pizza oven. Maybe coordinate a token exchange for those delicious pizzas you smell...
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="flow-note" style="background: rgba(212, 175, 55, 0.05); border-left-color: #D4AF37;">
+            <strong style="color: #D4AF37;">About this Flow:</strong> This interaction demonstrates the core gift economy mechanics of the Synchronicity Engine. Intentions are requests, Tokens are earned through service, and Proof of Service validates exchanges. The system creates trust and connection through reciprocal giving, building community wealth outside traditional monetary systems.
+        </div>
+    </div>
+</body>
+</html>

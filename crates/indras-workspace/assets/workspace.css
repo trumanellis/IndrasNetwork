@@ -693,6 +693,36 @@ button{font-family:var(--font-body)}
 .pass-story-done-text { font-size: 15px; color: var(--text-primary); }
 
 /* ================================================================
+   INTENTION CREATE OVERLAY
+   ================================================================ */
+.intention-create-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+.intention-create-dialog { background: var(--bg-surface); border: 1px solid var(--border-dim); border-radius: var(--radius-lg); width: 480px; max-width: 90vw; max-height: 85vh; display: flex; flex-direction: column; }
+.intention-create-header { display: flex; justify-content: space-between; align-items: center; padding: 20px 24px 16px; border-bottom: 1px solid var(--border-subtle); }
+.intention-create-title { font-size: 18px; font-weight: 600; color: var(--text-primary); }
+.intention-create-close { background: none; border: none; color: var(--text-muted); font-size: 18px; cursor: pointer; padding: 4px 8px; }
+.intention-create-close:hover { color: var(--text-primary); }
+.intention-create-body { padding: 20px 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
+.intention-create-field { display: flex; flex-direction: column; gap: 6px; }
+.intention-create-label { font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary); }
+.intention-create-input { background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-sm); padding: 10px 12px; color: var(--text-primary); font-size: 15px; font-family: var(--font-body); outline: none; transition: border-color var(--transition); }
+.intention-create-input:focus { border-color: var(--accent-teal); }
+.intention-create-input::placeholder { color: var(--text-muted); }
+.intention-create-textarea { background: var(--bg-raised); border: 1px solid var(--border-dim); border-radius: var(--radius-sm); padding: 10px 12px; color: var(--text-primary); font-size: 14px; font-family: var(--font-body); outline: none; min-height: 80px; resize: vertical; transition: border-color var(--transition); }
+.intention-create-textarea:focus { border-color: var(--accent-teal); }
+.intention-create-textarea::placeholder { color: var(--text-muted); }
+.intention-create-audience { display: flex; flex-direction: column; gap: 4px; }
+.intention-create-peer-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--radius-sm); cursor: pointer; transition: background var(--transition); }
+.intention-create-peer-row:hover { background: var(--bg-hover); }
+.intention-create-check { font-size: 16px; color: var(--accent-teal); }
+.intention-create-peer-name { font-size: 14px; color: var(--text-primary); }
+.intention-create-actions { display: flex; justify-content: flex-end; gap: 10px; padding: 16px 24px; border-top: 1px solid var(--border-subtle); }
+.intention-create-cancel { background: none; border: 1px solid var(--border-dim); border-radius: var(--radius-sm); padding: 8px 16px; color: var(--text-secondary); font-size: 14px; cursor: pointer; transition: all var(--transition); }
+.intention-create-cancel:hover { border-color: var(--text-secondary); color: var(--text-primary); }
+.intention-create-submit { background: var(--accent-teal); border: none; border-radius: var(--radius-sm); padding: 8px 20px; color: var(--bg-void); font-size: 14px; font-weight: 600; cursor: pointer; transition: opacity var(--transition); }
+.intention-create-submit:hover { opacity: 0.9; }
+.intention-create-submit:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ================================================================
    EVENT LOG
    ================================================================ */
 .event-log-view { display:flex; flex-direction:column; }
@@ -758,3 +788,79 @@ button{font-family:var(--font-body)}
 @media (max-width: 768px) {
   .artifact-browser-columns { grid-template-columns: 1fr; }
 }
+
+/* ================================================================
+   ATTENTION SUMMARY
+   ================================================================ */
+.attention-summary{background:var(--bg-raised);border:1px solid var(--border-dim);border-radius:var(--radius-lg);padding:20px;margin-bottom:24px}
+.attention-summary-header{display:flex;align-items:center;gap:16px;margin-bottom:16px;flex-wrap:wrap}
+.attention-summary-title{font-size:14px;font-weight:600;color:var(--text-secondary)}
+.attention-summary-total{font-family:var(--font-mono);font-size:13px;color:var(--accent-gold);font-weight:500}
+.attention-heat{display:flex;align-items:center;gap:8px;margin-left:auto}
+.attention-heat-label{font-size:10px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted)}
+.attention-heat-track{width:80px;height:6px;background:var(--bg-surface);border-radius:3px;overflow:hidden}
+.attention-heat-fill{height:100%;border-radius:3px;transition:width 600ms ease}
+.attention-heat-fill.heat-1{background:var(--heat-1)}.attention-heat-fill.heat-2{background:var(--heat-2)}
+.attention-heat-fill.heat-3{background:var(--heat-3)}.attention-heat-fill.heat-4{background:var(--heat-4)}
+.attention-heat-fill.heat-5{background:var(--heat-5);box-shadow:0 0 6px rgba(255,217,61,0.3)}
+.attention-peer-row{display:flex;align-items:center;gap:10px;padding:6px 0}
+.attention-peer-name{font-size:13px;color:var(--text-secondary);width:60px;flex-shrink:0}
+.attention-bar-track{flex:1;height:8px;background:var(--bg-surface);border-radius:4px;overflow:hidden}
+.attention-bar-fill{height:100%;background:linear-gradient(90deg,var(--accent-gold-dim),var(--accent-gold));border-radius:4px;transition:width 400ms ease}
+.attention-peer-duration{font-family:var(--font-mono);font-size:12px;color:var(--accent-gold);font-weight:500;width:60px;text-align:right;flex-shrink:0}
+.attention-peer-windows{font-size:10px;color:var(--text-muted);width:80px;flex-shrink:0}
+
+/* ================================================================
+   INLINE TOKEN PICKER (replaces modal overlay)
+   ================================================================ */
+.inline-picker{background:var(--bg-deep);border:1px solid var(--border-visible);border-radius:var(--radius-md);margin-top:12px;overflow:hidden}
+.inline-picker-header{padding:12px 16px;border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;justify-content:space-between}
+.inline-picker-title{font-size:14px;font-weight:600;color:var(--text-primary)}
+.inline-picker-close{width:26px;height:26px;border:none;background:var(--bg-hover);border-radius:var(--radius-sm);color:var(--text-secondary);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.inline-picker-subtitle{padding:10px 16px 6px;font-size:11px;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)}
+.inline-picker-list{max-height:240px;overflow-y:auto;padding:6px;-webkit-overflow-scrolling:touch}
+.inline-picker-list::-webkit-scrollbar{width:3px}
+.inline-picker-list::-webkit-scrollbar-thumb{background:var(--text-ghost);border-radius:2px}
+.inline-picker-footer{padding:10px 16px;border-top:1px solid var(--border-subtle);display:flex;align-items:center;justify-content:space-between}
+
+/* ================================================================
+   PROOF SUBMISSION INLINE
+   ================================================================ */
+.proof-submit-inline{background:var(--bg-raised);border:1px solid var(--border-dim);border-radius:var(--radius-lg);padding:16px;margin-bottom:24px}
+.proof-submit-textarea{width:100%;min-height:80px;max-height:200px;padding:12px 14px;background:var(--bg-surface);border:1px solid var(--border-dim);border-radius:var(--radius-md);color:var(--text-primary);font-size:14px;font-family:var(--font-body);resize:vertical;outline:none;line-height:1.6;box-sizing:border-box}
+.proof-submit-textarea:focus{border-color:var(--accent-teal)}
+.proof-submit-textarea::placeholder{color:var(--text-ghost)}
+.proof-submit-actions{display:flex;justify-content:flex-end;margin-top:10px}
+.proof-submit-confirm{padding:8px 20px;background:var(--accent-teal);border:none;border-radius:var(--radius-md);color:var(--bg-void);font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font-body);transition:transform var(--transition)}
+.proof-submit-confirm:active{transform:scale(0.96)}
+.proof-submit-confirm:disabled{opacity:0.4;cursor:not-allowed}
+
+/* ================================================================
+   PLEDGED TOKENS SECTION
+   ================================================================ */
+.pledged-tokens-section{margin-bottom:24px}
+.pledged-tokens-list{display:flex;flex-direction:column;gap:6px}
+
+/* ================================================================
+   STEWARDSHIP CHAIN
+   ================================================================ */
+.stewardship-chain{margin-bottom:24px}
+.chain-entries{display:flex;flex-direction:column;gap:8px}
+.chain-entry{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--bg-raised);border:1px solid var(--border-dim);border-radius:var(--radius-md);font-size:12px;flex-wrap:wrap}
+.chain-avatar{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;flex-shrink:0}
+.chain-from,.chain-to{color:var(--text-secondary);font-weight:500}
+.chain-arrow{color:var(--text-ghost);font-size:10px;flex-shrink:0}
+.chain-action{padding:2px 8px;border-radius:var(--radius-sm);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em}
+.chain-action.created{background:var(--accent-teal-dim);color:var(--accent-teal);border:1px solid rgba(0,212,170,0.2)}
+.chain-action.pledged{background:var(--accent-violet-dim);color:var(--accent-violet);border:1px solid rgba(177,156,217,0.2)}
+.chain-action.blessed{background:var(--accent-gold-dim);color:var(--accent-gold);border:1px solid rgba(212,175,55,0.2)}
+.chain-action.released{background:var(--accent-rose-dim);color:var(--accent-rose);border:1px solid rgba(255,107,157,0.2)}
+.chain-token{padding:2px 8px;border-radius:var(--radius-sm);font-family:var(--font-mono);font-size:11px;font-weight:500;background:var(--accent-gold-dim);color:var(--accent-gold);border:1px solid rgba(212,175,55,0.15)}
+
+/* Quest heat bar in meta */
+.quest-heat{display:flex;align-items:center;gap:6px}
+.quest-heat-track{width:60px;height:5px;background:var(--bg-surface);border-radius:3px;overflow:hidden}
+.quest-heat-fill{height:100%;border-radius:3px;transition:width 600ms ease}
+.quest-heat-fill.heat-1{background:var(--heat-1)}.quest-heat-fill.heat-2{background:var(--heat-2)}
+.quest-heat-fill.heat-3{background:var(--heat-3)}.quest-heat-fill.heat-4{background:var(--heat-4)}
+.quest-heat-fill.heat-5{background:var(--heat-5);box-shadow:0 0 6px rgba(255,217,61,0.3)}
