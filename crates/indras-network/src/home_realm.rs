@@ -336,6 +336,7 @@ impl HomeRealm {
                 grants: Vec::new(),
                 provenance: None,
                 parent: None,
+                location: None,
             };
             index.store(entry);
         })
@@ -404,6 +405,7 @@ impl HomeRealm {
                     grants: Vec::new(),
                     provenance: None,
                     parent: None,
+                    location: None,
                 };
                 index.store(entry);
             }
@@ -450,6 +452,7 @@ impl HomeRealm {
                     grants: Vec::new(),
                     provenance: None,
                     parent: None,
+                    location: None,
                 };
                 index.store(entry);
             }

@@ -15,12 +15,15 @@ set -e
 # Log file for diagnostics
 LOGFILE="$(cd "$(dirname "$0")" && pwd)/LOGS.jsonl"
 
-# Parse args: separate names from --clean flag
+# Parse args: separate names from flags
 CLEAN=""
+MOCK=""
 NAMES=()
 for arg in "$@"; do
   if [ "$arg" = "--clean" ]; then
     CLEAN="--clean"
+  elif [ "$arg" = "--mock" ]; then
+    MOCK="--mock"
   else
     NAMES+=("$arg")
   fi
@@ -29,7 +32,7 @@ done
 if [ ${#NAMES[@]} -eq 0 ]; then
   # No names: single instance, normal flow
   echo "Logging stdout to $LOGFILE"
-  cargo run -p indras-workspace -- $CLEAN 2>&1 | tee -a "$LOGFILE"
+  cargo run -p indras-workspace -- $CLEAN $MOCK 2>&1 | tee -a "$LOGFILE"
   exit 0
 fi
 
@@ -58,7 +61,7 @@ for NAME in "${NAMES[@]}"; do
   INDRAS_NAME="$NAME" INDRAS_DATA_DIR="$DATA_DIR" \
     INDRAS_WIN_X="$WIN_X" INDRAS_WIN_Y=25 \
     INDRAS_WIN_W="$TILE_W" INDRAS_WIN_H="$TILE_H" \
-    cargo run -p indras-workspace -- $CLEAN 2>&1 | tee -a "$LOGFILE" &
+    cargo run -p indras-workspace -- $CLEAN $MOCK 2>&1 | tee -a "$LOGFILE" &
   PIDS+=($!)
   IDX=$((IDX + 1))
   sleep 0.5 # stagger window creation

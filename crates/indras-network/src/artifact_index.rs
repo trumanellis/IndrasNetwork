@@ -20,6 +20,27 @@ use crate::member::MemberId;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// A geographic coordinate (WGS-84 latitude/longitude).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct GeoLocation {
+    pub lat: f64,
+    pub lng: f64,
+}
+
+impl GeoLocation {
+    /// Haversine distance in kilometres between two points.
+    pub fn distance_km(&self, other: &GeoLocation) -> f64 {
+        let r = 6371.0;
+        let d_lat = (other.lat - self.lat).to_radians();
+        let d_lng = (other.lng - self.lng).to_radians();
+        let a = (d_lat / 2.0).sin().powi(2)
+            + self.lat.to_radians().cos()
+                * other.lat.to_radians().cos()
+                * (d_lng / 2.0).sin().powi(2);
+        r * 2.0 * a.sqrt().asin()
+    }
+}
+
 /// A single artifact entry in the owner's index.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct HomeArtifactEntry {
@@ -44,6 +65,9 @@ pub struct HomeArtifactEntry {
     /// Parent artifact this is a child of (None if root).
     #[serde(default)]
     pub parent: Option<ArtifactId>,
+    /// Geographic location where this artifact was created/tagged.
+    #[serde(default)]
+    pub location: Option<GeoLocation>,
 }
 
 impl HomeArtifactEntry {
@@ -217,6 +241,7 @@ impl ArtifactIndex {
                 received_via: ProvenanceType::Transfer,
             }),
             parent: entry.parent,
+            location: entry.location.clone(),
         };
 
         // Carry over inherited permanent grants
@@ -591,6 +616,7 @@ mod tests {
             grants: Vec::new(),
             provenance: None,
             parent: None,
+            location: None,
         }
     }
 
@@ -871,6 +897,7 @@ mod tests {
             grants: Vec::new(),
             provenance: None,
             parent: None,
+            location: None,
         }
     }
 
@@ -1187,5 +1214,17 @@ mod tests {
 
         assert_eq!(index.accessible_by(&member_a(), 100).len(), 1);
         assert_eq!(index.accessible_by(&member_a(), 100)[0].name, "test.pdf");
+    }
+
+    #[test]
+    fn test_geolocation_haversine() {
+        // London to Paris ≈ 343 km
+        let london = GeoLocation { lat: 51.5074, lng: -0.1278 };
+        let paris = GeoLocation { lat: 48.8566, lng: 2.3522 };
+        let d = london.distance_km(&paris);
+        assert!((d - 343.0).abs() < 5.0, "London-Paris distance was {d} km");
+
+        // Same point should be 0
+        assert_eq!(london.distance_km(&london), 0.0);
     }
 }

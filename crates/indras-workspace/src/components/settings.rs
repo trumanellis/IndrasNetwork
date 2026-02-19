@@ -3,7 +3,7 @@
 use dioxus::prelude::*;
 use indras_ui::ThemeSwitcher;
 use crate::bridge::network_bridge::NetworkHandle;
-use indras_network::EncounterHandle;
+use indras_network::{EncounterHandle, GeoLocation};
 
 #[component]
 pub fn SettingsView(
@@ -13,6 +13,8 @@ pub fn SettingsView(
     identity_uri: Option<String>,
     network_handle: Signal<Option<NetworkHandle>>,
     on_open_pass_story: EventHandler<()>,
+    user_location: Option<GeoLocation>,
+    on_location_change: EventHandler<Option<GeoLocation>>,
 ) -> Element {
     let mut connect_input = use_signal(String::new);
     let mut connect_status = use_signal(|| None::<String>);
@@ -23,6 +25,9 @@ pub fn SettingsView(
     let mut encounter_handle = use_signal(|| None::<EncounterHandle>);
     let mut export_status = use_signal(|| None::<String>);
     let mut import_status = use_signal(|| None::<String>);
+    let mut lat_input = use_signal(|| user_location.as_ref().map(|l| format!("{}", l.lat)).unwrap_or_default());
+    let mut lng_input = use_signal(|| user_location.as_ref().map(|l| format!("{}", l.lng)).unwrap_or_default());
+    let mut location_status = use_signal(|| None::<String>);
 
     rsx! {
         div {
@@ -269,6 +274,52 @@ pub fn SettingsView(
                             }
                         }
                         if let Some(ref status) = *import_status.read() {
+                            div { class: "settings-connect-status", "{status}" }
+                        }
+                    }
+
+                    // Reference Location section
+                    div {
+                        class: "settings-section",
+                        div { class: "settings-section-title", "Reference Location" }
+                        div {
+                            class: "settings-connect-row",
+                            input {
+                                class: "settings-connect-input",
+                                placeholder: "Latitude",
+                                value: "{lat_input}",
+                                oninput: move |evt| lat_input.set(evt.value()),
+                            }
+                            input {
+                                class: "settings-connect-input",
+                                placeholder: "Longitude",
+                                value: "{lng_input}",
+                                oninput: move |evt| lng_input.set(evt.value()),
+                            }
+                            button {
+                                class: "settings-connect-btn",
+                                onclick: move |_| {
+                                    let lat_str = lat_input.read().trim().to_string();
+                                    let lng_str = lng_input.read().trim().to_string();
+                                    if lat_str.is_empty() && lng_str.is_empty() {
+                                        on_location_change.call(None);
+                                        location_status.set(Some("Location cleared".into()));
+                                        return;
+                                    }
+                                    match (lat_str.parse::<f64>(), lng_str.parse::<f64>()) {
+                                        (Ok(lat), Ok(lng)) if (-90.0..=90.0).contains(&lat) && (-180.0..=180.0).contains(&lng) => {
+                                            on_location_change.call(Some(GeoLocation { lat, lng }));
+                                            location_status.set(Some(format!("Set to {:.4}, {:.4}", lat, lng)));
+                                        }
+                                        _ => {
+                                            location_status.set(Some("Invalid coordinates".into()));
+                                        }
+                                    }
+                                },
+                                "Set Location"
+                            }
+                        }
+                        if let Some(ref status) = *location_status.read() {
                             div { class: "settings-connect-status", "{status}" }
                         }
                     }

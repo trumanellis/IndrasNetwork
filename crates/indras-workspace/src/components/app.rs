@@ -16,6 +16,7 @@ use crate::components::settings::SettingsView;
 use crate::components::setup::SetupView;
 use crate::components::pass_story::PassStoryOverlay;
 use crate::components::event_log::EventLogView;
+use crate::components::artifact_browser::{ArtifactBrowserView, BrowsableArtifact, MimeCategory};
 use crate::state::workspace::{EventDirection, log_event};
 use crate::components::bottom_nav::{BottomNav, NavTab};
 use crate::components::fab::Fab;
@@ -34,7 +35,8 @@ use indras_ui::{
     ChatPanel,
 };
 use indras_ui::PeerDisplayInfo as UiPeerDisplayInfo;
-use indras_network::{IdentityCode, IndrasNetwork, HomeRealm, Realm, RealmChatDocument, EditableChatMessage};
+use indras_network::{GeoLocation, IdentityCode, IndrasNetwork, HomeRealm, Realm, RealmChatDocument, EditableChatMessage};
+use indras_ui::artifact_display::{ArtifactDisplayInfo, ArtifactDisplayStatus};
 
 #[cfg(feature = "lua-scripting")]
 use crate::scripting::channels::AppTestChannels;
@@ -107,6 +109,13 @@ pub fn RootApp() -> Element {
     let mut contact_member_id_short_sig = use_signal(String::new);
     let mut home_realm_handle = use_signal(|| None::<HomeRealm>);
     let mut realm_map = use_signal(|| std::collections::HashMap::<String, Realm>::new());
+
+    // Artifact browser state
+    let mut browser_artifacts = use_signal(Vec::<BrowsableArtifact>::new);
+    let mut browser_search = use_signal(String::new);
+    let mut browser_filter = use_signal(|| MimeCategory::All);
+    let mut browser_radius = use_signal(|| 100.0_f64);
+    let mut user_location = use_signal(|| None::<GeoLocation>);
 
     // --- Lua scripting dispatcher (feature-gated) ---
     #[cfg(feature = "lua-scripting")]
@@ -229,6 +238,15 @@ pub fn RootApp() -> Element {
                                         let hr_clone = hr.clone();
                                         home_realm_handle.set(Some(hr));
                                         log_event(&mut workspace.write(), EventDirection::System, "Home realm initialized".to_string());
+
+                                        // Seed mock artifacts if --mock flag was passed
+                                        if *crate::MOCK_ARTIFACTS.lock().unwrap() {
+                                            let name = std::env::var("INDRAS_NAME").unwrap_or_default();
+                                            if let Err(e) = crate::mock_artifacts::seed_mock_artifacts(&hr_clone, &name).await {
+                                                tracing::warn!(error = %e, "Failed to seed mock artifacts");
+                                            }
+                                            user_location.set(Some(GeoLocation { lat: 38.7223, lng: -9.1393 }));
+                                        }
 
                                         // Restore sidebar from HomeRealm artifact index
                                         match hr_clone.artifact_index().await {
@@ -642,7 +660,7 @@ pub fn RootApp() -> Element {
                                     };
 
                                     match vt {
-                                        ViewType::Settings => {}
+                                        ViewType::Settings | ViewType::Artifacts => {}
                                         ViewType::Document => {
                                             // Load blocks from tree references
                                             let mut blocks = Vec::new();
@@ -1378,11 +1396,58 @@ pub fn RootApp() -> Element {
         workspace.write().ui.active_view = ViewType::Settings;
     };
 
-    let on_tab_change = move |tab: NavTab| {
+    let mut on_tab_change = move |tab: NavTab| {
         let is_profile = tab == NavTab::Profile;
+        let is_artifacts = tab == NavTab::Artifacts;
         active_tab.set(tab);
         if is_profile {
             workspace.write().ui.active_view = ViewType::Settings;
+        } else if is_artifacts {
+            workspace.write().ui.active_view = ViewType::Artifacts;
+            // Load artifacts from home realm
+            let hr = home_realm_handle;
+            let ul = user_location;
+            spawn(async move {
+                let hr_read = hr.read();
+                if let Some(ref home) = *hr_read {
+                    if let Ok(index) = home.artifact_index().await {
+                        let data = index.read().await;
+                        let loc = ul.read().clone();
+                        let browsable: Vec<BrowsableArtifact> = data
+                            .active_artifacts()
+                            .map(|entry| {
+                                let distance_km = match (&loc, &entry.location) {
+                                    (Some(ul), Some(al)) => Some(ul.distance_km(al)),
+                                    _ => None,
+                                };
+                                let status = if entry.status.is_active() {
+                                    ArtifactDisplayStatus::Active
+                                } else {
+                                    ArtifactDisplayStatus::Recalled
+                                };
+                                BrowsableArtifact {
+                                    info: ArtifactDisplayInfo {
+                                        id: entry.hash_hex(),
+                                        name: entry.name.clone(),
+                                        size: entry.size,
+                                        mime_type: entry.mime_type.clone(),
+                                        status,
+                                        data_url: None,
+                                        grant_count: entry.grants.len(),
+                                        owner_label: if entry.grants.is_empty() {
+                                            Some("Private".into())
+                                        } else {
+                                            Some(format!("Shared with {}", entry.grants.len()))
+                                        },
+                                    },
+                                    distance_km,
+                                }
+                            })
+                            .collect();
+                        browser_artifacts.set(browsable);
+                    }
+                }
+            });
         }
     };
 
@@ -1731,6 +1796,11 @@ pub fn RootApp() -> Element {
                         }
                         button {
                             class: "sidebar-footer-btn",
+                            onclick: move |_| on_tab_change(NavTab::Artifacts),
+                            "\u{1F4E6} Artifacts"
+                        }
+                        button {
+                            class: "sidebar-footer-btn",
                             "\u{1F50D} Search"
                         }
                     }
@@ -1762,6 +1832,10 @@ pub fn RootApp() -> Element {
                                     network_handle: network_handle,
                                     on_open_pass_story: move |_| {
                                         pass_story_open.set(true);
+                                    },
+                                    user_location: user_location.read().clone(),
+                                    on_location_change: move |loc: Option<GeoLocation>| {
+                                        user_location.set(loc);
                                     },
                                 }
                             }
@@ -1964,6 +2038,23 @@ pub fn RootApp() -> Element {
                                             });
                                         },
                                     }
+                                }
+                            }
+                        }
+                        ViewType::Artifacts => {
+                            let current_artifacts = browser_artifacts.read().clone();
+                            let current_search = browser_search.read().clone();
+                            let current_filter = browser_filter.read().clone();
+                            let current_radius = *browser_radius.read();
+                            rsx! {
+                                ArtifactBrowserView {
+                                    artifacts: current_artifacts,
+                                    search_query: current_search,
+                                    on_search: move |q: String| browser_search.set(q),
+                                    active_filter: current_filter,
+                                    on_filter: move |f: MimeCategory| browser_filter.set(f),
+                                    radius_km: current_radius,
+                                    on_radius_change: move |r: f64| browser_radius.set(r),
                                 }
                             }
                         }

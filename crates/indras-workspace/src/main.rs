@@ -50,6 +50,8 @@ fn default_data_dir() -> PathBuf {
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let clean = args.iter().any(|a| a == "--clean");
+    let mock = args.iter().any(|a| a == "--mock");
+    *indras_workspace::MOCK_ARTIFACTS.lock().unwrap() = mock;
 
     let name = std::env::var("INDRAS_NAME").ok();
 
@@ -216,3 +218,4 @@ fn App() -> Element {
 #[cfg(feature = "lua-scripting")]
 static TEST_CHANNELS: std::sync::Mutex<Option<Arc<tokio::sync::Mutex<AppTestChannels>>>> =
     std::sync::Mutex::new(None);
+
