@@ -21,7 +21,6 @@ pub struct VaultTreeNode {
     pub depth: usize,
     pub has_children: bool,
     pub expanded: bool,
-    pub active: bool,
     pub section: Option<String>,
     pub view_type: String,
 }
@@ -61,10 +60,6 @@ impl NavigationState {
             self.breadcrumbs.push(BreadcrumbEntry { id, label });
         }
 
-        // Mark the node as active in the tree
-        for node in &mut self.vault_tree {
-            node.active = self.current_id.as_ref() == Some(&node.id);
-        }
     }
 
     /// Toggle expand/collapse of a tree node.
