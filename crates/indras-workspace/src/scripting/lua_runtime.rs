@@ -134,6 +134,118 @@ impl LuaTestRuntime {
             )
             .unwrap();
 
+        // indras.store_artifact({ name, mime, size, lat?, lng?, from_peer? })
+        let tx = action_tx.clone();
+        indras
+            .set(
+                "store_artifact",
+                lua.create_function(move |_, tbl: mlua::Table| {
+                    let name: String = tbl.get("name")?;
+                    let mime: String = tbl.get("mime")?;
+                    let size: u64 = tbl.get::<u64>("size").unwrap_or(0);
+                    let lat: Option<f64> = tbl.get("lat").ok();
+                    let lng: Option<f64> = tbl.get("lng").ok();
+                    let from_peer: Option<String> = tbl.get("from_peer").ok();
+                    tx.blocking_send(Action::StoreArtifact {
+                        name,
+                        mime,
+                        size,
+                        lat,
+                        lng,
+                        from_peer,
+                    })
+                    .map_err(|e| mlua::Error::external(e))?;
+                    Ok(())
+                })
+                .unwrap(),
+            )
+            .unwrap();
+
+        // indras.grant_artifact(artifact_name, peer_name)
+        let tx = action_tx.clone();
+        indras
+            .set(
+                "grant_artifact",
+                lua.create_function(move |_, (artifact_name, peer_name): (String, String)| {
+                    tx.blocking_send(Action::GrantArtifact {
+                        artifact_name,
+                        peer_name,
+                    })
+                    .map_err(|e| mlua::Error::external(e))?;
+                    Ok(())
+                })
+                .unwrap(),
+            )
+            .unwrap();
+
+        // indras.connect_to(uri)
+        let tx = action_tx.clone();
+        indras
+            .set(
+                "connect_to",
+                lua.create_function(move |_, uri: String| {
+                    tx.blocking_send(Action::ConnectToPeer { uri })
+                        .map_err(|e| mlua::Error::external(e))?;
+                    Ok(())
+                })
+                .unwrap(),
+            )
+            .unwrap();
+
+        // indras.file_write(path, content) — restricted to /tmp/
+        indras
+            .set(
+                "file_write",
+                lua.create_function(|_, (path, content): (String, String)| {
+                    if !path.starts_with("/tmp/") {
+                        return Err(mlua::Error::external(
+                            "file_write: path must start with /tmp/",
+                        ));
+                    }
+                    if let Some(parent) = std::path::Path::new(&path).parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    std::fs::write(&path, &content)
+                        .map_err(|e| mlua::Error::external(format!("file_write: {}", e)))?;
+                    Ok(())
+                })
+                .unwrap(),
+            )
+            .unwrap();
+
+        // indras.file_read(path) — restricted to /tmp/, returns nil if not found
+        indras
+            .set(
+                "file_read",
+                lua.create_function(|_, path: String| {
+                    if !path.starts_with("/tmp/") {
+                        return Err(mlua::Error::external(
+                            "file_read: path must start with /tmp/",
+                        ));
+                    }
+                    match std::fs::read_to_string(&path) {
+                        Ok(content) => Ok(Some(content)),
+                        Err(_) => Ok(None),
+                    }
+                })
+                .unwrap(),
+            )
+            .unwrap();
+
+        // indras.set_user_location(lat, lng)
+        let tx = action_tx.clone();
+        indras
+            .set(
+                "set_user_location",
+                lua.create_function(move |_, (lat, lng): (f64, f64)| {
+                    tx.blocking_send(Action::SetUserLocation { lat, lng })
+                        .map_err(|e| mlua::Error::external(e))?;
+                    Ok(())
+                })
+                .unwrap(),
+            )
+            .unwrap();
+
         // indras.wait(seconds)
         let tx = action_tx.clone();
         indras

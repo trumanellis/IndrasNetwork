@@ -10,3 +10,4 @@ pub mod fab;
 pub mod setup;
 pub mod pass_story;
 pub mod event_log;
+pub mod artifact_browser;

@@ -134,7 +134,7 @@ pub use access::{
     AccessGrant, AccessMode, ArtifactProvenance, ArtifactStatus, GrantError,
     ProvenanceType, RevokeError, TransferError,
 };
-pub use artifact_index::{ArtifactIndex, HomeArtifactEntry};
+pub use artifact_index::{ArtifactIndex, GeoLocation, HomeArtifactEntry};
 pub use artifact_recovery::{ArtifactRecoveryRequest, ArtifactRecoveryResponse, RecoverableArtifact, RecoveryManifest};
 pub use chat_message::{
     ChatMessageId, ChatMessageVersion, EditableChatMessage, EditableMessageType, RealmChatDocument,
@@ -194,7 +194,7 @@ pub use indras_artifacts::{
 /// ```
 pub mod prelude {
     pub use crate::{
-        ArtifactDownload, ArtifactIndex, HomeArtifactEntry,
+        ArtifactDownload, ArtifactIndex, GeoLocation, HomeArtifactEntry,
         ContactsRealm, Content, Document, DocumentSchema, EditableChatMessage, GlobalEvent,
         HomeRealm, IdentityBackup, IdentityCode, IndraError, IndrasNetwork, InviteCode, Member,
         MemberEvent, MemberInfo, Message, Preset, Realm, RealmAlias, RealmAliasDocument,
