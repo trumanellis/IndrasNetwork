@@ -280,7 +280,24 @@ impl MessageHandler {
                 }
                 Some((sender, data)) = message_rx.recv() => {
                     if let Err(e) = self.handle_message(sender, data).await {
-                        error!(error = %e, "Failed to handle message");
+                        // UnknownInterface is common during startup/shutdown
+                        // when peers send to interfaces we haven't loaded yet
+                        match &e {
+                            MessageError::UnknownInterface(_) => {
+                                debug!(error = %e, "Ignoring message for unknown interface");
+                            }
+                            MessageError::Decryption(_) => {
+                                // Log sender so we can diagnose key mismatches
+                                warn!(
+                                    error = %e,
+                                    sender = %sender.short_id(),
+                                    "Decryption failed (likely key mismatch)"
+                                );
+                            }
+                            _ => {
+                                error!(error = %e, "Failed to handle message");
+                            }
+                        }
                     }
                 }
             }
@@ -373,9 +390,14 @@ impl MessageHandler {
             nonce: msg.nonce,
             ciphertext: msg.ciphertext,
         };
-        let plaintext = key
-            .decrypt(&encrypted)
-            .map_err(|e| MessageError::Decryption(e.to_string()))?;
+        let plaintext = key.decrypt(&encrypted).map_err(|e| {
+            debug!(
+                interface = %hex::encode(msg.interface_id.as_bytes()),
+                event_id = ?msg.event_id,
+                "Decryption failed for interface event"
+            );
+            MessageError::Decryption(e.to_string())
+        })?;
 
         // Deserialize the event
         let event: InterfaceEvent<IrohIdentity> = postcard::from_bytes(&plaintext)
@@ -451,6 +473,9 @@ impl MessageHandler {
             // Generate sync response containing state the sender is missing
             interface.generate_sync(&sender)
         };
+
+        // Notify Document listeners that CRDT state was updated
+        let _ = state.sync_tx.send(());
 
         debug!(
             interface = %hex::encode(msg.interface_id.as_bytes()),
@@ -542,6 +567,9 @@ impl MessageHandler {
             let _ = self.storage.register_peer(&sender, None);
             let _ = self.storage.add_member(&msg.interface_id, &sender);
         }
+
+        // Notify Document listeners that CRDT state was updated
+        let _ = state.sync_tx.send(());
 
         debug!(
             interface = %hex::encode(msg.interface_id.as_bytes()),

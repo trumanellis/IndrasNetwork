@@ -173,6 +173,8 @@ pub struct InterfaceState {
     pub interface: RwLock<NInterface<IrohIdentity>>,
     /// Broadcast channel for events
     pub event_tx: broadcast::Sender<ReceivedEvent>,
+    /// Notification channel fired after CRDT sync merges new state
+    pub sync_tx: broadcast::Sender<()>,
 }
 
 /// High-level P2P node coordinator
@@ -605,11 +607,13 @@ impl IndrasNode {
 
             // Create event channel
             let (event_tx, _) = broadcast::channel(self.config.event_channel_capacity);
+            let (sync_tx, _) = broadcast::channel(64);
 
             // Store in memory
             let state = InterfaceState {
                 interface: RwLock::new(interface),
                 event_tx,
+                sync_tx,
             };
             self.interfaces.insert(interface_id, state);
 
@@ -890,11 +894,13 @@ impl IndrasNode {
 
         // Create event channel
         let (event_tx, _) = broadcast::channel(self.config.event_channel_capacity);
+        let (sync_tx, _) = broadcast::channel(64);
 
         // Store in memory
         let state = InterfaceState {
             interface: RwLock::new(interface),
             event_tx,
+            sync_tx,
         };
         self.interfaces.insert(interface_id, state);
 
@@ -1002,11 +1008,13 @@ impl IndrasNode {
 
             // Create event channel
             let (event_tx, _) = broadcast::channel(self.config.event_channel_capacity);
+            let (sync_tx, _) = broadcast::channel(64);
 
             // Store in memory
             let state = InterfaceState {
                 interface: RwLock::new(interface),
                 event_tx,
+                sync_tx,
             };
             self.interfaces.insert(interface_id, state);
         }
@@ -1174,15 +1182,28 @@ impl IndrasNode {
                 .to_bytes()
                 .map_err(|e| NodeError::Serialization(e.to_string()))?;
 
-            // Send to all members
-            for member in interface.members() {
-                if member != self.identity && transport.is_connected(&member) {
-                    let _ = transport.send(&member, bytes.clone()).await;
+            // Gather all known peers: NInterface members + gossip-discovered peers
+            let mut targets = interface.members();
+            for peer_info in transport.discovery_service().realm_members(interface_id) {
+                targets.insert(peer_info.peer_id);
+            }
+
+            let mut sent_count = 0u32;
+            for member in &targets {
+                if *member != self.identity && transport.is_connected(member) {
+                    let _ = transport.send(member, bytes.clone()).await;
+                    sent_count += 1;
                 }
             }
+            debug!(
+                event_id = ?event_id,
+                targets = targets.len(),
+                sent_to = sent_count,
+                "Message sent"
+            );
+        } else {
+            debug!(event_id = ?event_id, "Message queued (no transport or key)");
         }
-
-        debug!(event_id = ?event_id, "Message sent");
         Ok(event_id)
     }
 
@@ -1199,6 +1220,22 @@ impl IndrasNode {
             .ok_or_else(|| NodeError::InterfaceNotFound(hex::encode(interface_id.as_bytes())))?;
 
         Ok(state.event_tx.subscribe())
+    }
+
+    /// Subscribe to sync notifications for an interface.
+    ///
+    /// Fires `()` whenever a CRDT sync merge completes, signaling that
+    /// new state is available in the Automerge document.
+    pub fn sync_events(
+        &self,
+        interface_id: &InterfaceId,
+    ) -> NodeResult<broadcast::Receiver<()>> {
+        let state = self
+            .interfaces
+            .get(interface_id)
+            .ok_or_else(|| NodeError::InterfaceNotFound(hex::encode(interface_id.as_bytes())))?;
+
+        Ok(state.sync_tx.subscribe())
     }
 
     /// Get events since a sequence number

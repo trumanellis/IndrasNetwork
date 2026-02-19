@@ -15,7 +15,7 @@ use std::marker::PhantomData;
 use std::ops::Deref;
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
-use tracing::debug;
+use tracing::{debug, warn};
 
 /// Envelope that tags document messages with the document name.
 ///
@@ -154,7 +154,7 @@ impl<T: DocumentSchema> Document<T> {
         name: String,
         node: Arc<IndrasNode>,
     ) -> Result<Self> {
-        let (change_tx, _) = broadcast::channel(64);
+        let (change_tx, _) = broadcast::channel(512);
 
         // Try to load existing state, or create default
         let state = Self::load_or_create(&node, &realm_id, &name).await?;
@@ -177,14 +177,35 @@ impl<T: DocumentSchema> Document<T> {
 
     /// Spawn a background task that listens for remote document updates.
     ///
-    /// Subscribes to the realm's event broadcast and applies incoming
-    /// messages that match this document's name. Uses a weak reference
-    /// to the node so the listener doesn't prevent cleanup when the
-    /// Document and IndrasNetwork are dropped.
+    /// Subscribes to the realm's event broadcast AND the sync notification
+    /// channel. The event broadcast fires for direct peer messages; the sync
+    /// channel fires after CRDT merge_sync completes (store-and-forward path).
+    ///
+    /// Uses a weak reference to the node so the listener doesn't prevent
+    /// cleanup when the Document and IndrasNetwork are dropped.
     fn spawn_listener(&self) {
         let rx = match self.node.events(&self.realm_id) {
             Ok(rx) => rx,
-            Err(_) => return, // Interface not loaded yet, no listener
+            Err(e) => {
+                warn!(
+                    doc_name = %self.name,
+                    error = %e,
+                    "Document spawn_listener: interface not found, no listener started"
+                );
+                return;
+            }
+        };
+
+        let sync_rx = match self.node.sync_events(&self.realm_id) {
+            Ok(rx) => rx,
+            Err(e) => {
+                warn!(
+                    doc_name = %self.name,
+                    error = %e,
+                    "Document spawn_listener: sync channel not found, no listener started"
+                );
+                return;
+            }
         };
 
         let state = Arc::clone(&self.state);
@@ -200,71 +221,163 @@ impl<T: DocumentSchema> Document<T> {
         storage_key.extend_from_slice(realm_id.as_bytes());
         storage_key.extend_from_slice(name.as_bytes());
 
+        debug!(doc_name = %name, "Document spawn_listener: started");
         tokio::spawn(async move {
             let mut rx = rx;
-            loop {
-                match rx.recv().await {
-                    Ok(received) => {
-                        // Only process Message events
-                        let InterfaceEvent::Message { content, sender, .. } = &received.event else {
-                            continue;
-                        };
+            let mut sync_rx = sync_rx;
 
-                        // Skip our own messages
-                        if *sender == our_identity {
-                            continue;
-                        }
-
-                        // Upgrade weak ref; if node is gone, stop listening
-                        let Some(node) = node_weak.upgrade() else {
-                            break;
-                        };
-
-                        // Try to deserialize as DocumentEnvelope first
-                        if let Ok(envelope) = postcard::from_bytes::<DocumentEnvelope>(content) {
-                            if envelope.doc_name != name {
-                                continue; // Different document
-                            }
-                            if let Ok(remote_state) = postcard::from_bytes::<T>(&envelope.payload) {
-                                // Merge remote state into local (union, not replace)
-                                let merged = {
-                                    let mut guard = state.write().await;
-                                    guard.merge(remote_state);
-                                    guard.clone()
-                                };
-                                // Persist merged state to redb (best-effort)
-                                if let Ok(data) = postcard::to_allocvec(&merged) {
-                                    let _ = node.storage().interface_store().set_document_data(&storage_key, &data);
+            // Helper: refresh state from the Automerge document (used by both
+            // the sync notification arm and the Lagged recovery arm).
+            let refresh_from_crdt = |state: &Arc<RwLock<T>>,
+                                      node_weak: &std::sync::Weak<IndrasNode>,
+                                      change_tx: &broadcast::Sender<DocumentChange<T>>,
+                                      storage_key: &[u8],
+                                      name: &str,
+                                      realm_id: RealmId| {
+                let state = Arc::clone(state);
+                let node_weak = node_weak.clone();
+                let change_tx = change_tx.clone();
+                let storage_key = storage_key.to_vec();
+                let name = name.to_string();
+                async move {
+                    let Some(node) = node_weak.upgrade() else {
+                        return false; // node dropped
+                    };
+                    if let Ok(events) = node.document_events(&realm_id).await {
+                        let mut updated = false;
+                        for event in events.iter().rev() {
+                            if let InterfaceEvent::Message { content, .. } = event {
+                                if let Ok(envelope) = postcard::from_bytes::<DocumentEnvelope>(content) {
+                                    if envelope.doc_name != name {
+                                        continue;
+                                    }
+                                    if let Ok(remote_state) = postcard::from_bytes::<T>(&envelope.payload) {
+                                        let merged = {
+                                            let mut guard = state.write().await;
+                                            guard.merge(remote_state);
+                                            guard.clone()
+                                        };
+                                        if let Ok(data) = postcard::to_allocvec(&merged) {
+                                            let _ = node.storage().interface_store().set_document_data(&storage_key, &data);
+                                        }
+                                        let _ = change_tx.send(DocumentChange {
+                                            new_state: merged,
+                                            author: None,
+                                            is_remote: true,
+                                        });
+                                        updated = true;
+                                        break;
+                                    }
                                 }
-                                // Fire changes() stream with merged state
-                                let _ = change_tx.send(DocumentChange {
-                                    new_state: merged,
-                                    author: Some(Member::new(*sender)),
-                                    is_remote: true,
-                                });
                             }
-                            continue;
                         }
+                        updated
+                    } else {
+                        false
+                    }
+                }
+            };
 
-                        // Fallback: try raw format (backward compat)
-                        if let Ok(remote_state) = postcard::from_bytes::<T>(content) {
-                            let merged = {
-                                let mut guard = state.write().await;
-                                guard.merge(remote_state);
-                                guard.clone()
-                            };
-                            if let Ok(data) = postcard::to_allocvec(&merged) {
-                                let _ = node.storage().interface_store().set_document_data(&storage_key, &data);
+            loop {
+                tokio::select! {
+                    result = rx.recv() => {
+                        match result {
+                            Ok(received) => {
+                                debug!(
+                                    doc_name = %name,
+                                    event_type = ?std::mem::discriminant(&received.event),
+                                    "Document spawn_listener: received event"
+                                );
+                                // Only process Message events
+                                let InterfaceEvent::Message { content, sender, .. } = &received.event else {
+                                    continue;
+                                };
+
+                                // Skip our own messages
+                                if *sender == our_identity {
+                                    debug!(doc_name = %name, "Document spawn_listener: skipping own message");
+                                    continue;
+                                }
+
+                                // Upgrade weak ref; if node is gone, stop listening
+                                let Some(node) = node_weak.upgrade() else {
+                                    break;
+                                };
+
+                                // Try to deserialize as DocumentEnvelope first
+                                if let Ok(envelope) = postcard::from_bytes::<DocumentEnvelope>(content) {
+                                    if envelope.doc_name != name {
+                                        continue; // Different document
+                                    }
+                                    if let Ok(remote_state) = postcard::from_bytes::<T>(&envelope.payload) {
+                                        // Merge remote state into local (union, not replace)
+                                        let merged = {
+                                            let mut guard = state.write().await;
+                                            guard.merge(remote_state);
+                                            guard.clone()
+                                        };
+                                        // Persist merged state to redb (best-effort)
+                                        if let Ok(data) = postcard::to_allocvec(&merged) {
+                                            let _ = node.storage().interface_store().set_document_data(&storage_key, &data);
+                                        }
+                                        // Fire changes() stream with merged state
+                                        let _ = change_tx.send(DocumentChange {
+                                            new_state: merged,
+                                            author: Some(Member::new(*sender)),
+                                            is_remote: true,
+                                        });
+                                    }
+                                    continue;
+                                }
+
+                                // Fallback: try raw format (backward compat)
+                                if let Ok(remote_state) = postcard::from_bytes::<T>(content) {
+                                    let merged = {
+                                        let mut guard = state.write().await;
+                                        guard.merge(remote_state);
+                                        guard.clone()
+                                    };
+                                    if let Ok(data) = postcard::to_allocvec(&merged) {
+                                        let _ = node.storage().interface_store().set_document_data(&storage_key, &data);
+                                    }
+                                    let _ = change_tx.send(DocumentChange {
+                                        new_state: merged,
+                                        author: Some(Member::new(*sender)),
+                                        is_remote: true,
+                                    });
+                                }
                             }
-                            let _ = change_tx.send(DocumentChange {
-                                new_state: merged,
-                                author: Some(Member::new(*sender)),
-                                is_remote: true,
-                            });
+                            Err(broadcast::error::RecvError::Lagged(count)) => {
+                                warn!(
+                                    doc_name = %name,
+                                    skipped = count,
+                                    "Document listener lagged, recovering via refresh"
+                                );
+                                refresh_from_crdt(
+                                    &state, &node_weak, &change_tx,
+                                    &storage_key, &name, realm_id,
+                                ).await;
+                                continue;
+                            }
+                            Err(broadcast::error::RecvError::Closed) => break,
                         }
                     }
-                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                    Err(broadcast::error::RecvError::Closed) => break,
+                    result = sync_rx.recv() => {
+                        match result {
+                            Ok(()) => {
+                                debug!(
+                                    doc_name = %name,
+                                    "Document spawn_listener: sync notification, refreshing from CRDT"
+                                );
+                                refresh_from_crdt(
+                                    &state, &node_weak, &change_tx,
+                                    &storage_key, &name, realm_id,
+                                ).await;
+                            }
+                            Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                            Err(broadcast::error::RecvError::Closed) => break,
+                        }
+                    }
                 }
             }
         });
@@ -400,8 +513,11 @@ impl<T: DocumentSchema> Document<T> {
     /// Returns `true` if the state was updated.
     pub async fn refresh(&self) -> Result<bool> {
         let realm_short: String = self.realm_id.as_bytes().iter().take(8).map(|b| format!("{:02x}", b)).collect();
+        let mut updated = false;
 
         // 1. Automerge document events (includes events received via CRDT sync)
+        // Merge ALL matching events (not just the most recent) to ensure
+        // we union state from all peers who may have sent concurrently.
         if let Ok(events) = self.node.document_events(&self.realm_id).await {
             debug!(
                 doc_name = %self.name,
@@ -409,47 +525,24 @@ impl<T: DocumentSchema> Document<T> {
                 event_count = events.len(),
                 "Document refresh: checking Automerge events"
             );
-            for event in events.iter().rev() {
+            for event in events.iter() {
                 if let InterfaceEvent::Message { content, .. } = event {
                     if let Ok(env) = postcard::from_bytes::<DocumentEnvelope>(content) {
-                        debug!(
-                            doc_name = %self.name,
-                            envelope_doc_name = %env.doc_name,
-                            payload_len = env.payload.len(),
-                            "Found DocumentEnvelope in Automerge"
-                        );
                         if env.doc_name == self.name {
                             if let Ok(remote_state) = postcard::from_bytes::<T>(&env.payload) {
-                                debug!(
-                                    doc_name = %self.name,
-                                    "Successfully deserialized document state from Automerge"
-                                );
                                 let mut state = self.state.write().await;
                                 state.merge(remote_state);
-                                let merged = state.clone();
                                 drop(state);
-                                self.persist(&merged).await?;
-                                return Ok(true);
-                            } else {
-                                debug!(
-                                    doc_name = %self.name,
-                                    "Failed to deserialize payload for matching doc_name"
-                                );
+                                updated = true;
                             }
                         }
                         continue;
                     }
                     if let Ok(remote_state) = postcard::from_bytes::<T>(content) {
-                        debug!(
-                            doc_name = %self.name,
-                            "Found raw (non-envelope) document state in Automerge"
-                        );
                         let mut state = self.state.write().await;
                         state.merge(remote_state);
-                        let merged = state.clone();
                         drop(state);
-                        self.persist(&merged).await?;
-                        return Ok(true);
+                        updated = true;
                     }
                 }
             }
@@ -462,59 +555,56 @@ impl<T: DocumentSchema> Document<T> {
         }
 
         // 2. Fallback: EventStore (local events only)
-        if let Ok(events) = self.node.events_since(&self.realm_id, 0).await {
-            debug!(
-                doc_name = %self.name,
-                realm = %realm_short,
-                event_count = events.len(),
-                "Document refresh: checking EventStore events"
-            );
-            for event in events.iter().rev() {
-                if let InterfaceEvent::Message { content, .. } = event {
-                    if let Ok(env) = postcard::from_bytes::<DocumentEnvelope>(content) {
-                        debug!(
-                            doc_name = %self.name,
-                            envelope_doc_name = %env.doc_name,
-                            "Found DocumentEnvelope in EventStore"
-                        );
-                        if env.doc_name == self.name {
-                            if let Ok(remote_state) = postcard::from_bytes::<T>(&env.payload) {
-                                debug!(
-                                    doc_name = %self.name,
-                                    "Successfully deserialized document state from EventStore"
-                                );
-                                let mut state = self.state.write().await;
-                                state.merge(remote_state);
-                                let merged = state.clone();
-                                drop(state);
-                                self.persist(&merged).await?;
-                                return Ok(true);
+        if !updated {
+            if let Ok(events) = self.node.events_since(&self.realm_id, 0).await {
+                debug!(
+                    doc_name = %self.name,
+                    realm = %realm_short,
+                    event_count = events.len(),
+                    "Document refresh: checking EventStore events"
+                );
+                for event in events.iter() {
+                    if let InterfaceEvent::Message { content, .. } = event {
+                        if let Ok(env) = postcard::from_bytes::<DocumentEnvelope>(content) {
+                            if env.doc_name == self.name {
+                                if let Ok(remote_state) = postcard::from_bytes::<T>(&env.payload) {
+                                    let mut state = self.state.write().await;
+                                    state.merge(remote_state);
+                                    drop(state);
+                                    updated = true;
+                                }
                             }
+                            continue;
                         }
-                        continue;
-                    }
-                    if let Ok(remote_state) = postcard::from_bytes::<T>(content) {
-                        debug!(
-                            doc_name = %self.name,
-                            "Found raw document state in EventStore"
-                        );
-                        let mut state = self.state.write().await;
-                        state.merge(remote_state);
-                        let merged = state.clone();
-                        drop(state);
-                        self.persist(&merged).await?;
-                        return Ok(true);
+                        if let Ok(remote_state) = postcard::from_bytes::<T>(content) {
+                            let mut state = self.state.write().await;
+                            state.merge(remote_state);
+                            drop(state);
+                            updated = true;
+                        }
                     }
                 }
             }
         }
 
-        debug!(
-            doc_name = %self.name,
-            realm = %realm_short,
-            "Document refresh: no matching document state found"
-        );
-        Ok(false)
+        // Persist once after all merges and notify subscribers
+        if updated {
+            let state = self.state.read().await.clone();
+            self.persist(&state).await?;
+            let _ = self.change_tx.send(DocumentChange {
+                new_state: state,
+                author: None,
+                is_remote: true,
+            });
+        } else {
+            debug!(
+                doc_name = %self.name,
+                realm = %realm_short,
+                "Document refresh: no matching document state found"
+            );
+        }
+
+        Ok(updated)
     }
 
     /// Update the document state.
@@ -644,6 +734,15 @@ impl<T: DocumentSchema> Document<T> {
     pub fn changes(&self) -> impl Stream<Item = DocumentChange<T>> + Send + '_ {
         let rx = self.change_tx.subscribe();
         crate::stream::broadcast_to_stream(rx)
+    }
+
+    /// Subscribe to document changes, returning a raw broadcast receiver.
+    ///
+    /// Unlike `changes()` which returns a stream tied to `&self`, this
+    /// returns an owned `'static` receiver that can be moved into spawned
+    /// tasks or stored independently.
+    pub fn subscribe(&self) -> broadcast::Receiver<DocumentChange<T>> {
+        self.change_tx.subscribe()
     }
 
     /// Get the number of subscribers to this document.

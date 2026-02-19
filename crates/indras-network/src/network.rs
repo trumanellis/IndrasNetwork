@@ -619,6 +619,24 @@ impl IndrasNetwork {
         let invite_code = InviteCode::parse(invite.as_ref())?;
         let interface_id = self.inner.join_interface(invite_code.invite_key().clone()).await?;
 
+        // Derive interface encryption key from artifact seed.
+        // Realm invites use deterministic keys derived from the artifact ID
+        // (not ML-KEM key exchange, which requires knowing the invitee's key).
+        // Without this, the joiner cannot encrypt outbound or decrypt inbound
+        // messages, breaking real-time delivery (only periodic sync works).
+        if let Some(artifact_id) = invite_code.artifact_id() {
+            let key_seed = artifact_key_seed(artifact_id);
+            let interface_key = indras_crypto::InterfaceKey::from_seed(&key_seed, interface_id);
+            self.inner.set_interface_key(interface_id, interface_key.clone());
+
+            // Persist key to storage so it survives restart
+            if let Ok(Some(mut record)) = self.inner.storage().interface_store().get(&interface_id) {
+                record.encrypted = true;
+                record.encrypted_key = Some(interface_key.as_bytes().to_vec());
+                let _ = self.inner.storage().interface_store().upsert(&record);
+            }
+        }
+
         // If the invite carries an artifact ID, register it in our HomeRealm
         if let Some(artifact_id) = invite_code.artifact_id() {
             if let Ok(home) = self.home_realm().await {
@@ -1319,8 +1337,8 @@ impl IndrasNetwork {
             self.start().await?;
         }
 
-        // Get the deterministic contacts realm ID
-        let realm_id = contacts_realm_id();
+        // Get the per-user contacts realm ID
+        let realm_id = contacts_realm_id(&self.id());
 
         // Create or join the contacts realm
         let (_interface_id, _invite_key) = self
