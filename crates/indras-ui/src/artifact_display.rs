@@ -136,6 +136,8 @@ pub fn ArtifactGallery(
     on_recall: Option<EventHandler<String>>,
     #[props(default)]
     on_transfer: Option<EventHandler<String>>,
+    #[props(default)]
+    on_click: Option<EventHandler<ArtifactDisplayInfo>>,
 ) -> Element {
     rsx! {
         div {
@@ -147,6 +149,7 @@ pub fn ArtifactGallery(
                     show_actions,
                     on_recall: on_recall.clone(),
                     on_transfer: on_transfer.clone(),
+                    on_click: on_click.clone(),
                 }
             }
         }
@@ -163,6 +166,8 @@ fn ArtifactCard(
     on_recall: Option<EventHandler<String>>,
     #[props(default)]
     on_transfer: Option<EventHandler<String>>,
+    #[props(default)]
+    on_click: Option<EventHandler<ArtifactDisplayInfo>>,
 ) -> Element {
     let icon = artifact.icon();
     let size_str = artifact.formatted_size();
@@ -180,9 +185,20 @@ fn ArtifactCard(
     let can_transfer = show_actions
         && artifact.status == ArtifactDisplayStatus::Active;
 
+    let click_artifact = artifact.clone();
+
     rsx! {
         div {
             class: "artifact-gallery-card",
+            onclick: {
+                let handler = on_click.clone();
+                let info = click_artifact.clone();
+                move |_| {
+                    if let Some(ref h) = handler {
+                        h.call(info.clone());
+                    }
+                }
+            },
 
             // Thumbnail area
             div {

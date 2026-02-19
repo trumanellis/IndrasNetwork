@@ -83,6 +83,8 @@ pub fn ArtifactBrowserView(
     on_peer_filter: EventHandler<String>,
     available_peers: Vec<String>,
 ) -> Element {
+    let mut selected: Signal<Option<BrowsableArtifact>> = use_signal(|| None);
+
     // Filter by search + MIME category + peer origin
     let filtered: Vec<&BrowsableArtifact> = artifacts
         .iter()
@@ -127,6 +129,13 @@ pub fn ArtifactBrowserView(
     let local_count = local_infos.len();
     let global_count = global_infos.len();
     let digital_count = digital_infos.len();
+
+    let artifacts_for_click = artifacts.clone();
+    let on_card_click = EventHandler::new(move |info: ArtifactDisplayInfo| {
+        if let Some(ba) = artifacts_for_click.iter().find(|a| a.info.id == info.id) {
+            selected.set(Some(ba.clone()));
+        }
+    });
 
     rsx! {
         div {
@@ -242,7 +251,7 @@ pub fn ArtifactBrowserView(
                             if local_infos.is_empty() {
                                 div { class: "artifact-browser-empty", "No local artifacts" }
                             } else {
-                                ArtifactGallery { artifacts: local_infos }
+                                ArtifactGallery { artifacts: local_infos, on_click: on_card_click }
                             }
                         }
 
@@ -257,7 +266,7 @@ pub fn ArtifactBrowserView(
                             if global_infos.is_empty() {
                                 div { class: "artifact-browser-empty", "No global artifacts" }
                             } else {
-                                ArtifactGallery { artifacts: global_infos }
+                                ArtifactGallery { artifacts: global_infos, on_click: on_card_click }
                             }
                         }
 
@@ -272,8 +281,131 @@ pub fn ArtifactBrowserView(
                             if digital_infos.is_empty() {
                                 div { class: "artifact-browser-empty", "No digital artifacts" }
                             } else {
-                                ArtifactGallery { artifacts: digital_infos }
+                                ArtifactGallery { artifacts: digital_infos, on_click: on_card_click }
                             }
+                        }
+                    }
+                }
+            }
+
+            // Detail modal
+            if let Some(ref artifact) = *selected.read() {
+                ArtifactDetailModal {
+                    artifact: artifact.clone(),
+                    on_close: move |_| selected.set(None),
+                }
+            }
+        }
+    }
+}
+
+/// Modal overlay showing full artifact details.
+#[component]
+fn ArtifactDetailModal(
+    artifact: BrowsableArtifact,
+    on_close: EventHandler<()>,
+) -> Element {
+    let info = &artifact.info;
+    let icon = info.icon();
+    let size_str = info.formatted_size();
+    let status_label = info.status.label();
+    let status_class = match info.status {
+        indras_ui::artifact_display::ArtifactDisplayStatus::Active => "status-active",
+        indras_ui::artifact_display::ArtifactDisplayStatus::Recalled => "status-recalled",
+        indras_ui::artifact_display::ArtifactDisplayStatus::Transferred => "status-transferred",
+        indras_ui::artifact_display::ArtifactDisplayStatus::Expired => "status-expired",
+    };
+    let has_image = info.has_displayable_image() && info.data_url.is_some();
+    let owner = info.owner_label.clone().unwrap_or_else(|| "Unknown".to_string());
+    let mime = info.mime_type.clone().unwrap_or_else(|| "unknown".to_string());
+    let distance_str = match artifact.distance_km {
+        Some(d) => format!("{d:.1} km"),
+        None => "N/A (digital)".to_string(),
+    };
+
+    rsx! {
+        div {
+            class: "artifact-detail-overlay",
+            onclick: move |_| on_close.call(()),
+
+            div {
+                class: "artifact-detail-modal",
+                onclick: move |evt| evt.stop_propagation(),
+
+                // Header
+                div {
+                    class: "artifact-detail-header",
+                    div { class: "artifact-detail-title", "{info.name}" }
+                    button {
+                        class: "artifact-detail-close",
+                        onclick: move |_| on_close.call(()),
+                        "\u{2715}"
+                    }
+                }
+
+                // Body
+                div {
+                    class: "artifact-detail-body",
+
+                    // Preview
+                    div {
+                        class: "artifact-detail-preview",
+                        if has_image {
+                            if let Some(ref url) = info.data_url {
+                                img { src: "{url}", alt: "{info.name}" }
+                            }
+                        } else {
+                            span { class: "artifact-detail-preview-icon", "{icon}" }
+                        }
+                    }
+
+                    // Properties
+                    div {
+                        class: "artifact-detail-props",
+                        div {
+                            class: "artifact-detail-prop",
+                            span { class: "artifact-detail-prop-key", "Name" }
+                            span { class: "artifact-detail-prop-val", "{info.name}" }
+                        }
+                        div {
+                            class: "artifact-detail-prop",
+                            span { class: "artifact-detail-prop-key", "Size" }
+                            span { class: "artifact-detail-prop-val", "{size_str}" }
+                        }
+                        div {
+                            class: "artifact-detail-prop",
+                            span { class: "artifact-detail-prop-key", "MIME Type" }
+                            span { class: "artifact-detail-prop-val", "{mime}" }
+                        }
+                        div {
+                            class: "artifact-detail-prop",
+                            span { class: "artifact-detail-prop-key", "Status" }
+                            span { class: "artifact-detail-prop-val {status_class}", "{status_label}" }
+                        }
+                        div {
+                            class: "artifact-detail-prop",
+                            span { class: "artifact-detail-prop-key", "ID" }
+                            span { class: "artifact-detail-prop-val", "{info.id}" }
+                        }
+                        div {
+                            class: "artifact-detail-prop",
+                            span { class: "artifact-detail-prop-key", "Owner" }
+                            span { class: "artifact-detail-prop-val", "{owner}" }
+                        }
+                        div {
+                            class: "artifact-detail-prop",
+                            span { class: "artifact-detail-prop-key", "Grants" }
+                            span { class: "artifact-detail-prop-val", "{info.grant_count}" }
+                        }
+                        div {
+                            class: "artifact-detail-prop",
+                            span { class: "artifact-detail-prop-key", "Origin" }
+                            span { class: "artifact-detail-prop-val", "{artifact.origin_label}" }
+                        }
+                        div {
+                            class: "artifact-detail-prop",
+                            span { class: "artifact-detail-prop-key", "Distance" }
+                            span { class: "artifact-detail-prop-val", "{distance_str}" }
                         }
                     }
                 }
