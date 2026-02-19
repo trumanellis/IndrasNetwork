@@ -335,7 +335,6 @@ impl HomeRealm {
                 status: crate::access::ArtifactStatus::Active,
                 grants: Vec::new(),
                 provenance: None,
-                parent: None,
             };
             index.store(entry);
         })
@@ -403,7 +402,6 @@ impl HomeRealm {
                     status: ArtifactStatus::Active,
                     grants: Vec::new(),
                     provenance: None,
-                    parent: None,
                 };
                 index.store(entry);
             }
@@ -449,7 +447,6 @@ impl HomeRealm {
                     status: ArtifactStatus::Active,
                     grants: Vec::new(),
                     provenance: None,
-                    parent: None,
                 };
                 index.store(entry);
             }
@@ -554,86 +551,6 @@ impl HomeRealm {
     // ============================================================
     // Tree composition
     // ============================================================
-
-    /// Attach existing artifacts as children of a parent.
-    ///
-    /// All children must exist, be active, and have no existing parent.
-    pub async fn attach_children(
-        &self,
-        parent_id: &ArtifactId,
-        child_ids: &[ArtifactId],
-    ) -> Result<()> {
-        let doc = self.artifact_index().await?;
-        let parent_id = *parent_id;
-        let child_ids = child_ids.to_vec();
-        let mut result = Ok(());
-        doc.update(|index| {
-            if let Err(e) = index.attach_children(&parent_id, &child_ids) {
-                result = Err(IndraError::Artifact(format!("Attach failed: {}", e)));
-            }
-        })
-        .await?;
-        result
-    }
-
-    /// Detach all children from a parent, making them top-level.
-    ///
-    /// Inherited grants from the parent are materialized as explicit
-    /// grants on each detached child.
-    pub async fn detach_all_children(
-        &self,
-        parent_id: &ArtifactId,
-    ) -> Result<Vec<ArtifactId>> {
-        let doc = self.artifact_index().await?;
-        let parent_id = *parent_id;
-        let mut decompose_result: std::result::Result<Vec<ArtifactId>, crate::access::TreeError> =
-            Err(crate::access::TreeError::NotFound);
-        doc.update(|index| {
-            decompose_result = index.detach_all_children(&parent_id);
-        })
-        .await?;
-        decompose_result.map_err(|e| IndraError::Artifact(format!("Detach failed: {}", e)))
-    }
-
-    /// Attach a single artifact as a child of a parent.
-    pub async fn attach_child(
-        &self,
-        parent_id: &ArtifactId,
-        child_id: &ArtifactId,
-    ) -> Result<()> {
-        let doc = self.artifact_index().await?;
-        let parent_id = *parent_id;
-        let child_id = *child_id;
-        let mut result = Ok(());
-        doc.update(|index| {
-            if let Err(e) = index.attach_child(&parent_id, &child_id) {
-                result = Err(IndraError::Artifact(format!("Attach failed: {}", e)));
-            }
-        })
-        .await?;
-        result
-    }
-
-    /// Detach a child from its parent, making it top-level.
-    ///
-    /// Inherited grants are materialized onto the detached child.
-    pub async fn detach_child(
-        &self,
-        parent_id: &ArtifactId,
-        child_id: &ArtifactId,
-    ) -> Result<()> {
-        let doc = self.artifact_index().await?;
-        let parent_id = *parent_id;
-        let child_id = *child_id;
-        let mut result = Ok(());
-        doc.update(|index| {
-            if let Err(e) = index.detach_child(&parent_id, &child_id) {
-                result = Err(IndraError::Artifact(format!("Detach failed: {}", e)));
-            }
-        })
-        .await?;
-        result
-    }
 
     // ============================================================
     // Documents (generic)

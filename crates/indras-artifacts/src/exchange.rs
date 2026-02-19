@@ -12,7 +12,7 @@ const OFFERED_LABEL: &str = "offered";
 const REQUESTED_LABEL: &str = "requested";
 const CONVERSATION_LABEL: &str = "conversation";
 
-/// An Exchange is a Tree Artifact (TreeType::Exchange) representing a
+/// An Exchange is an artifact (type "exchange") representing a
 /// negotiation space between two stewards. Contains refs to the two artifacts
 /// being discussed + a Story for the negotiation conversation.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -26,7 +26,7 @@ impl Exchange {
         Self { id }
     }
 
-    /// Propose an exchange: create an Exchange tree with refs labeled
+    /// Propose an exchange: create an Exchange artifact with refs labeled
     /// "offered" and "requested", plus an empty Story for negotiation.
     pub fn propose<A: ArtifactStore, P: PayloadStore, T: AttentionStore>(
         vault: &mut Vault<A, P, T>,
@@ -35,8 +35,8 @@ impl Exchange {
         audience: Vec<PlayerId>,
         now: i64,
     ) -> Result<Self> {
-        let tree = vault.place_tree(TreeType::Exchange, audience.clone(), now)?;
-        let exchange_id = tree.id.clone();
+        let artifact = vault.place_tree("exchange", audience.clone(), now)?;
+        let exchange_id = artifact.id;
 
         // Add offered artifact (position 0)
         vault.compose(
@@ -76,7 +76,7 @@ impl Exchange {
             .iter()
             .find(|r| r.label.as_deref() == Some(CONVERSATION_LABEL))
             .ok_or(VaultError::ArtifactNotFound)?;
-        Ok(Story::from_id(conv_ref.artifact_id.clone()))
+        Ok(Story::from_id(conv_ref.artifact_id))
     }
 
     /// Get the artifact offered by the initiator.
@@ -109,7 +109,7 @@ impl Exchange {
         }
     }
 
-    /// Record this party's acceptance in the Exchange tree metadata.
+    /// Record this party's acceptance in the Exchange metadata.
     /// Fails if the exchange is already closed (rejected or completed).
     pub fn accept<A: ArtifactStore, P: PayloadStore, T: AttentionStore>(
         &self,
@@ -123,10 +123,9 @@ impl Exchange {
         let mut artifact = vault
             .get_artifact(&self.id)?
             .ok_or(VaultError::ArtifactNotFound)?;
-        let tree = artifact.as_tree_mut().ok_or(VaultError::NotATree)?;
 
         let key = format!("{ACCEPT_KEY_PREFIX}{}", player.iter().map(|b| format!("{b:02x}")).collect::<String>());
-        tree.metadata.insert(key, b"true".to_vec());
+        artifact.metadata.insert(key, b"true".to_vec());
 
         // Write updated artifact back to store
         vault.artifact_store_mut().put_artifact(&artifact)?;
@@ -142,15 +141,14 @@ impl Exchange {
         let mut artifact = vault
             .get_artifact(&self.id)?
             .ok_or(VaultError::ArtifactNotFound)?;
-        let tree = artifact.as_tree_mut().ok_or(VaultError::NotATree)?;
 
-        tree.metadata
+        artifact.metadata
             .insert(STATUS_KEY.to_string(), b"rejected".to_vec());
         let rejected_key = format!(
             "rejected_by:{}",
             player.iter().map(|b| format!("{b:02x}")).collect::<String>()
         );
-        tree.metadata
+        artifact.metadata
             .insert(rejected_key, b"true".to_vec());
 
         vault.artifact_store_mut().put_artifact(&artifact)?;
@@ -165,9 +163,8 @@ impl Exchange {
         let artifact = vault
             .get_artifact(&self.id)?
             .ok_or(VaultError::ArtifactNotFound)?;
-        let tree = artifact.as_tree().ok_or(VaultError::NotATree)?;
 
-        match tree.metadata.get(STATUS_KEY) {
+        match artifact.metadata.get(STATUS_KEY) {
             Some(v) => Ok(v == b"rejected" || v == b"completed"),
             None => Ok(false),
         }
@@ -182,10 +179,9 @@ impl Exchange {
         let artifact = vault
             .get_artifact(&self.id)?
             .ok_or(VaultError::ArtifactNotFound)?;
-        let tree = artifact.as_tree().ok_or(VaultError::NotATree)?;
 
         let key = format!("{ACCEPT_KEY_PREFIX}{}", player.iter().map(|b| format!("{b:02x}")).collect::<String>());
-        Ok(tree.metadata.contains_key(&key))
+        Ok(artifact.metadata.contains_key(&key))
     }
 
     /// Execute mutual stewardship transfer. Both parties must have accepted.
@@ -217,8 +213,8 @@ impl Exchange {
             .get_artifact(&requested_ref.artifact_id)?
             .ok_or(VaultError::ArtifactNotFound)?;
 
-        let offerer = *offered.steward();
-        let requester = *requested.steward();
+        let offerer = offered.steward;
+        let requester = requested.steward;
 
         // Both must have accepted
         if !self.is_accepted_by(vault, &offerer)? || !self.is_accepted_by(vault, &requester)? {
@@ -254,8 +250,7 @@ impl Exchange {
         let mut artifact = vault
             .get_artifact(&self.id)?
             .ok_or(VaultError::ArtifactNotFound)?;
-        let tree = artifact.as_tree_mut().ok_or(VaultError::NotATree)?;
-        tree.metadata
+        artifact.metadata
             .insert(STATUS_KEY.to_string(), b"completed".to_vec());
         vault.artifact_store_mut().put_artifact(&artifact)?;
 
@@ -269,7 +264,6 @@ impl Exchange {
         let artifact = vault
             .get_artifact(&self.id)?
             .ok_or(VaultError::ArtifactNotFound)?;
-        let tree = artifact.as_tree().ok_or(VaultError::NotATree)?;
-        Ok(tree.references.clone())
+        Ok(artifact.references.clone())
     }
 }

@@ -17,8 +17,8 @@ type Result<T> = std::result::Result<T, VaultError>;
 ///
 /// Generic over storage backends. Use `Vault::in_memory()` for testing.
 pub struct Vault<A: ArtifactStore, P: PayloadStore, T: AttentionStore> {
-    /// The Vault's own Tree Artifact (root of the player's fractal tree).
-    pub root: TreeArtifact,
+    /// The Vault's own artifact (root of the player's artifact graph).
+    pub root: Artifact,
     /// Artifact metadata storage.
     artifact_store: A,
     /// Blob payload storage (content-addressed, lazily loaded).
@@ -35,8 +35,9 @@ impl Vault<InMemoryArtifactStore, InMemoryPayloadStore, InMemoryAttentionStore> 
     /// Create a Vault with all in-memory storage for testing and standalone use.
     pub fn in_memory(player: PlayerId, now: i64) -> Result<Self> {
         let root_id = generate_tree_id();
-        let root = TreeArtifact {
+        let root = Artifact {
             id: root_id,
+            artifact_type: "vault".to_string(),
             steward: player,
             grants: vec![AccessGrant {
                 grantee: player,
@@ -45,16 +46,16 @@ impl Vault<InMemoryArtifactStore, InMemoryPayloadStore, InMemoryAttentionStore> 
                 granted_by: player,
             }],
             status: ArtifactStatus::Active,
-            parent: None,
             provenance: None,
+            created_at: now,
+            payload: None,
             references: Vec::new(),
             metadata: BTreeMap::new(),
-            artifact_type: TreeType::Vault,
-            created_at: now,
+            blessing_history: Vec::new(),
         };
 
         let mut artifact_store = InMemoryArtifactStore::new();
-        artifact_store.put_artifact(&Artifact::Tree(root.clone()))?;
+        artifact_store.put_artifact(&root)?;
 
         let attention_store = InMemoryAttentionStore::new();
         let attention_log = AttentionLog::new(player, attention_store);
@@ -80,26 +81,24 @@ impl<A: ArtifactStore, P: PayloadStore, T: AttentionStore> Vault<A, P, T> {
     // Artifact operations
     // -----------------------------------------------------------------------
 
-    /// Create a Leaf artifact from payload. Hashes content, stores the blob.
-    /// Does NOT auto-add to root tree — caller decides where to compose it.
+    /// Create a content artifact from payload. Hashes content, stores the blob.
+    /// Does NOT auto-add to root — caller decides where to compose it.
     pub fn place_leaf(
         &mut self,
         payload: &[u8],
         name: String,
         mime_type: Option<String>,
-        leaf_type: LeafType,
+        artifact_type: &str,
         now: i64,
-    ) -> Result<LeafArtifact> {
+    ) -> Result<Artifact> {
         let id = self
             .payload_store
             .store_payload(payload)
             .map_err(|e| VaultError::StoreError(e.to_string()))?;
         let player = *self.player();
-        let leaf = LeafArtifact {
+        let artifact = Artifact {
             id,
-            name,
-            size: payload.len() as u64,
-            mime_type,
+            artifact_type: artifact_type.to_string(),
             steward: player,
             grants: vec![AccessGrant {
                 grantee: player,
@@ -108,70 +107,74 @@ impl<A: ArtifactStore, P: PayloadStore, T: AttentionStore> Vault<A, P, T> {
                 granted_by: player,
             }],
             status: ArtifactStatus::Active,
-            parent: None,
             provenance: None,
-            artifact_type: leaf_type,
             created_at: now,
+            payload: Some(PayloadRef {
+                name,
+                size: payload.len() as u64,
+                mime_type,
+            }),
+            references: Vec::new(),
+            metadata: BTreeMap::new(),
             blessing_history: Vec::new(),
         };
-        self.artifact_store
-            .put_artifact(&Artifact::Leaf(leaf.clone()))?;
-        Ok(leaf)
+        self.artifact_store.put_artifact(&artifact)?;
+        Ok(artifact)
     }
 
-    /// Create a Tree artifact with given type and audience.
+    /// Create a container artifact with given type and audience.
     ///
     /// The audience list is converted to Permanent grants for each player.
     pub fn place_tree(
         &mut self,
-        tree_type: TreeType,
+        artifact_type: &str,
         audience: Vec<PlayerId>,
         now: i64,
-    ) -> Result<TreeArtifact> {
+    ) -> Result<Artifact> {
         let player = *self.player();
         let grants = audience_to_grants(&audience, now, player);
-        let tree = TreeArtifact {
+        let artifact = Artifact {
             id: generate_tree_id(),
+            artifact_type: artifact_type.to_string(),
             steward: player,
             grants,
             status: ArtifactStatus::Active,
-            parent: None,
             provenance: None,
+            created_at: now,
+            payload: None,
             references: Vec::new(),
             metadata: BTreeMap::new(),
-            artifact_type: tree_type,
-            created_at: now,
+            blessing_history: Vec::new(),
         };
-        self.artifact_store
-            .put_artifact(&Artifact::Tree(tree.clone()))?;
-        Ok(tree)
+        self.artifact_store.put_artifact(&artifact)?;
+        Ok(artifact)
     }
 
-    /// Create a Tree artifact with a specific ID (for deterministic IDs like DM stories).
+    /// Create a container artifact with a specific ID (for deterministic IDs like DM stories).
     pub fn place_tree_with_id(
         &mut self,
         id: ArtifactId,
-        tree_type: TreeType,
+        artifact_type: &str,
         audience: Vec<PlayerId>,
         now: i64,
-    ) -> Result<TreeArtifact> {
+    ) -> Result<Artifact> {
         let player = *self.player();
         let grants = audience_to_grants(&audience, now, player);
-        let tree = TreeArtifact {
+        let artifact = Artifact {
             id,
+            artifact_type: artifact_type.to_string(),
             steward: player,
             grants,
             status: ArtifactStatus::Active,
-            parent: None,
             provenance: None,
+            created_at: now,
+            payload: None,
             references: Vec::new(),
             metadata: BTreeMap::new(),
-            artifact_type: tree_type,
-            created_at: now,
+            blessing_history: Vec::new(),
         };
-        self.artifact_store
-            .put_artifact(&Artifact::Tree(tree.clone()))?;
-        Ok(tree)
+        self.artifact_store.put_artifact(&artifact)?;
+        Ok(artifact)
     }
 
     /// Get an artifact by ID.
@@ -194,29 +197,27 @@ impl<A: ArtifactStore, P: PayloadStore, T: AttentionStore> Vault<A, P, T> {
         self.payload_store.has_payload(id)
     }
 
-    /// Steward-only: add a child reference to a Tree artifact.
+    /// Steward-only: add a child reference to an artifact.
     pub fn compose(
         &mut self,
-        tree_id: &ArtifactId,
+        artifact_id: &ArtifactId,
         child_id: ArtifactId,
         position: u64,
         label: Option<String>,
     ) -> Result<()> {
-        self.require_steward(tree_id)?;
-        self.require_tree(tree_id)?;
+        self.require_steward(artifact_id)?;
         let child_ref = ArtifactRef {
             artifact_id: child_id,
             position,
             label,
         };
-        self.artifact_store.add_ref(tree_id, child_ref)
+        self.artifact_store.add_ref(artifact_id, child_ref)
     }
 
-    /// Steward-only: remove a child reference from a Tree artifact.
-    pub fn remove_ref(&mut self, tree_id: &ArtifactId, child_id: &ArtifactId) -> Result<()> {
-        self.require_steward(tree_id)?;
-        self.require_tree(tree_id)?;
-        self.artifact_store.remove_ref(tree_id, child_id)
+    /// Steward-only: remove a child reference from an artifact.
+    pub fn remove_ref(&mut self, artifact_id: &ArtifactId, child_id: &ArtifactId) -> Result<()> {
+        self.require_steward(artifact_id)?;
+        self.artifact_store.remove_ref(artifact_id, child_id)
     }
 
     /// Steward-only: grant access to an artifact.
@@ -234,7 +235,7 @@ impl<A: ArtifactStore, P: PayloadStore, T: AttentionStore> Vault<A, P, T> {
             .artifact_store
             .get_artifact(artifact_id)?
             .ok_or(VaultError::ArtifactNotFound)?;
-        if artifact.grants().iter().any(|g| g.grantee == grantee && !g.mode.is_expired(now)) {
+        if artifact.grants.iter().any(|g| g.grantee == grantee && !g.mode.is_expired(now)) {
             return Err(VaultError::AlreadyGranted);
         }
         let grant = AccessGrant {
@@ -258,7 +259,7 @@ impl<A: ArtifactStore, P: PayloadStore, T: AttentionStore> Vault<A, P, T> {
             .artifact_store
             .get_artifact(artifact_id)?
             .ok_or(VaultError::ArtifactNotFound)?;
-        let grant = artifact.grants().iter().find(|g| &g.grantee == grantee);
+        let grant = artifact.grants.iter().find(|g| &g.grantee == grantee);
         match grant {
             Some(g) if matches!(g.mode, AccessMode::Permanent) => Err(VaultError::CannotRevoke),
             Some(_) => self.artifact_store.remove_grant(artifact_id, grantee),
@@ -283,11 +284,11 @@ impl<A: ArtifactStore, P: PayloadStore, T: AttentionStore> Vault<A, P, T> {
     ) -> Result<()> {
         self.require_steward(artifact_id)?;
         self.require_active(artifact_id)?;
-        let old_steward = *self
+        let old_steward = self
             .artifact_store
             .get_artifact(artifact_id)?
             .ok_or(VaultError::ArtifactNotFound)?
-            .steward();
+            .steward;
         let record = crate::artifact::StewardshipRecord {
             from: old_steward,
             to: new_steward,
@@ -305,9 +306,9 @@ impl<A: ArtifactStore, P: PayloadStore, T: AttentionStore> Vault<A, P, T> {
         )
     }
 
-    /// Create an Inbox tree artifact owned by this player.
-    pub fn create_inbox(&mut self, now: i64) -> Result<TreeArtifact> {
-        self.place_tree(TreeType::Inbox, vec![*self.player()], now)
+    /// Create an Inbox artifact owned by this player.
+    pub fn create_inbox(&mut self, now: i64) -> Result<Artifact> {
+        self.place_tree("inbox", vec![*self.player()], now)
     }
 
     /// Add a connection request to an inbox.
@@ -319,7 +320,6 @@ impl<A: ArtifactStore, P: PayloadStore, T: AttentionStore> Vault<A, P, T> {
         now: i64,
     ) -> Result<()> {
         self.require_steward(inbox_id)?;
-        self.require_tree(inbox_id)?;
 
         let label = format!(
             "connection-request:{}",
@@ -327,12 +327,11 @@ impl<A: ArtifactStore, P: PayloadStore, T: AttentionStore> Vault<A, P, T> {
         );
 
         // Get next position
-        let tree_artifact = self
+        let inbox = self
             .artifact_store
             .get_artifact(inbox_id)?
             .ok_or(VaultError::ArtifactNotFound)?;
-        let tree = tree_artifact.as_tree().ok_or(VaultError::NotATree)?;
-        let next_pos = tree.references.len() as u64;
+        let next_pos = inbox.references.len() as u64;
 
         let child_ref = ArtifactRef {
             artifact_id,
@@ -472,19 +471,8 @@ impl<A: ArtifactStore, P: PayloadStore, T: AttentionStore> Vault<A, P, T> {
             .artifact_store
             .get_artifact(artifact_id)?
             .ok_or(VaultError::ArtifactNotFound)?;
-        if artifact.steward() != self.player() {
+        if &artifact.steward != self.player() {
             return Err(VaultError::NotSteward);
-        }
-        Ok(())
-    }
-
-    fn require_tree(&self, artifact_id: &ArtifactId) -> Result<()> {
-        let artifact = self
-            .artifact_store
-            .get_artifact(artifact_id)?
-            .ok_or(VaultError::ArtifactNotFound)?;
-        if !artifact.is_tree() {
-            return Err(VaultError::NotATree);
         }
         Ok(())
     }
@@ -494,140 +482,10 @@ impl<A: ArtifactStore, P: PayloadStore, T: AttentionStore> Vault<A, P, T> {
             .artifact_store
             .get_artifact(artifact_id)?
             .ok_or(VaultError::ArtifactNotFound)?;
-        if !artifact.status().is_active() {
+        if !artifact.status.is_active() {
             return Err(VaultError::NotActive);
         }
         Ok(())
-    }
-
-    // -----------------------------------------------------------------------
-    // Tree composition
-    // -----------------------------------------------------------------------
-
-    /// Attach a child artifact under a parent. Single-parent invariant enforced.
-    pub fn attach_child(
-        &mut self,
-        parent_id: &ArtifactId,
-        child_id: &ArtifactId,
-    ) -> Result<()> {
-        if parent_id == child_id {
-            return Err(VaultError::CycleDetected);
-        }
-        self.require_steward(parent_id)?;
-        self.require_active(parent_id)?;
-
-        let child = self
-            .artifact_store
-            .get_artifact(child_id)?
-            .ok_or(VaultError::ArtifactNotFound)?;
-        if !child.status().is_active() {
-            return Err(VaultError::NotActive);
-        }
-        if child.parent().is_some() {
-            return Err(VaultError::AlreadyHasParent);
-        }
-
-        // Cycle detection: walk parent's ancestor chain
-        if self.is_ancestor_of(child_id, parent_id) {
-            return Err(VaultError::CycleDetected);
-        }
-
-        self.artifact_store.set_parent(child_id, Some(*parent_id))?;
-
-        // Add ref in parent tree if it's a tree
-        if let Some(parent_artifact) = self.artifact_store.get_artifact(parent_id)? {
-            if parent_artifact.is_tree() {
-                let next_pos = parent_artifact
-                    .as_tree()
-                    .map(|t| t.references.len() as u64)
-                    .unwrap_or(0);
-                let child_ref = ArtifactRef {
-                    artifact_id: *child_id,
-                    position: next_pos,
-                    label: None,
-                };
-                self.artifact_store.add_ref(parent_id, child_ref)?;
-            }
-        }
-        Ok(())
-    }
-
-    /// Detach a child from its parent, making it top-level.
-    pub fn detach_child(
-        &mut self,
-        parent_id: &ArtifactId,
-        child_id: &ArtifactId,
-    ) -> Result<()> {
-        self.require_steward(parent_id)?;
-        self.require_active(parent_id)?;
-
-        let child = self
-            .artifact_store
-            .get_artifact(child_id)?
-            .ok_or(VaultError::ArtifactNotFound)?;
-        match child.parent() {
-            Some(pid) if pid == parent_id => {}
-            _ => return Err(VaultError::NotAChild),
-        }
-
-        self.artifact_store.set_parent(child_id, None)?;
-        self.artifact_store.remove_ref(parent_id, child_id)?;
-        Ok(())
-    }
-
-    /// Walk up ancestor chain from an artifact.
-    pub fn ancestors(&self, artifact_id: &ArtifactId) -> Result<Vec<ArtifactId>> {
-        let mut result = Vec::new();
-        let mut current = self.artifact_store.get_artifact(artifact_id)?;
-        while let Some(ref art) = current {
-            match art.parent() {
-                Some(pid) => {
-                    result.push(*pid);
-                    current = self.artifact_store.get_artifact(pid)?;
-                }
-                None => break,
-            }
-        }
-        Ok(result)
-    }
-
-    /// Get all descendants of an artifact (depth-first).
-    pub fn descendants(&self, artifact_id: &ArtifactId) -> Result<Vec<ArtifactId>> {
-        let mut result = Vec::new();
-        self.collect_descendants(artifact_id, &mut result)?;
-        Ok(result)
-    }
-
-    fn collect_descendants(
-        &self,
-        id: &ArtifactId,
-        result: &mut Vec<ArtifactId>,
-    ) -> Result<()> {
-        if let Some(artifact) = self.artifact_store.get_artifact(id)? {
-            if let Some(tree) = artifact.as_tree() {
-                for r in &tree.references {
-                    result.push(r.artifact_id);
-                    self.collect_descendants(&r.artifact_id, result)?;
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn is_ancestor_of(&self, candidate: &ArtifactId, descendant: &ArtifactId) -> bool {
-        let mut current = self.artifact_store.get_artifact(descendant).ok().flatten();
-        while let Some(ref art) = current {
-            match art.parent() {
-                Some(pid) => {
-                    if pid == candidate {
-                        return true;
-                    }
-                    current = self.artifact_store.get_artifact(pid).ok().flatten();
-                }
-                None => break,
-            }
-        }
-        false
     }
 }
 

@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use indras_network::{
     AccessMode, ArtifactId, ContactsRealm, Content, Document, DocumentSchema, HomeRealm,
-    IndrasNetwork, MemberId, Message, MessageId, Realm, RealmId,
+    IndrasNetwork, MemberId, Message, MessageId, Realm, RealmChatDocument, RealmId,
 };
 
 // ============================================================
@@ -517,6 +517,43 @@ impl UserData for LuaRealm {
             Ok(names)
         });
 
+        // -- CRDT Chat (Document<RealmChatDocument>) --
+
+        methods.add_async_method("chat_send", |_, this, (author, text): (String, String)| async move {
+            let id = this.realm
+                .chat_send(&author, text)
+                .await
+                .map_err(mlua::Error::external)?;
+            Ok(id)
+        });
+
+        methods.add_async_method(
+            "chat_reply",
+            |_, this, (author, parent_id, text): (String, String, String)| async move {
+                let id = this.realm
+                    .chat_reply(&author, &parent_id, text)
+                    .await
+                    .map_err(mlua::Error::external)?;
+                Ok(id)
+            },
+        );
+
+        methods.add_async_method(
+            "chat_react",
+            |_, this, (author, msg_id, emoji): (String, String, String)| async move {
+                let result = this.realm
+                    .chat_react(&author, &msg_id, &emoji)
+                    .await
+                    .map_err(mlua::Error::external)?;
+                Ok(result)
+            },
+        );
+
+        methods.add_async_method("chat_doc", |_, this, ()| async move {
+            let doc = this.realm.chat_doc().await.map_err(mlua::Error::external)?;
+            Ok(LuaChatDoc { doc: doc.clone() })
+        });
+
         // -- Alias --
 
         methods.add_async_method("set_alias", |_, this, alias: String| async move {
@@ -611,6 +648,122 @@ impl UserData for LuaDocument {
 
         methods.add_meta_method(MetaMethod::ToString, |_, this, ()| {
             Ok(format!("Document(name={})", this.doc.name()))
+        });
+    }
+}
+
+// ============================================================
+// LuaChatDoc — wraps Document<RealmChatDocument>
+// ============================================================
+
+/// Lua wrapper for Document<RealmChatDocument> providing CRDT chat access.
+struct LuaChatDoc {
+    doc: Document<RealmChatDocument>,
+}
+
+impl UserData for LuaChatDoc {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+        methods.add_async_method("visible_messages", |lua, this, ()| async move {
+            // Refresh to pick up remote changes
+            let _ = this.doc.refresh().await;
+            let guard = this.doc.read().await;
+            let msgs = guard.visible_messages();
+            let result = lua.create_table()?;
+            for (i, msg) in msgs.iter().enumerate() {
+                let t = lua.create_table()?;
+                t.set("id", msg.id.as_str())?;
+                t.set("author", msg.author.as_str())?;
+                if let Some(ref aid) = msg.author_id {
+                    t.set("author_id", aid.as_str())?;
+                }
+                t.set("content", msg.current_content.as_str())?;
+                t.set("created_at", msg.created_at)?;
+                t.set("is_deleted", msg.is_deleted)?;
+                t.set("type", format!("{:?}", msg.message_type))?;
+                if let Some(ref reply_to) = msg.reply_to {
+                    t.set("reply_to", reply_to.as_str())?;
+                }
+                // Convert reactions HashMap to Lua table
+                if !msg.reactions.is_empty() {
+                    let reactions_table = lua.create_table()?;
+                    for (emoji, authors) in &msg.reactions {
+                        let authors_table = lua.create_table()?;
+                        for (j, author) in authors.iter().enumerate() {
+                            authors_table.set(j + 1, author.as_str())?;
+                        }
+                        reactions_table.set(emoji.as_str(), authors_table)?;
+                    }
+                    t.set("reactions", reactions_table)?;
+                }
+                result.set(i + 1, t)?;
+            }
+            Ok(result)
+        });
+
+        methods.add_async_method("visible_count", |_, this, ()| async move {
+            let _ = this.doc.refresh().await;
+            let guard = this.doc.read().await;
+            Ok(guard.visible_count())
+        });
+
+        methods.add_async_method("refresh", |_, this, ()| async move {
+            this.doc.refresh().await.map_err(mlua::Error::external)
+        });
+
+        methods.add_async_method("poll_change", |_, this, timeout_secs: f64| async move {
+            use indras_network::prelude::StreamExt;
+            let mut stream = this.doc.changes();
+            let got_item = tokio::time::timeout(
+                std::time::Duration::from_secs_f64(timeout_secs),
+                stream.next(),
+            )
+            .await
+            .is_ok();
+            Ok(got_item)
+        });
+
+        methods.add_method("subscribe", |_, this, ()| {
+            let rx = this.doc.subscribe();
+            Ok(LuaChatSubscription {
+                rx: tokio::sync::Mutex::new(rx),
+            })
+        });
+
+        methods.add_meta_method(MetaMethod::ToString, |_, _this, ()| {
+            Ok("ChatDoc(chat)".to_string())
+        });
+    }
+}
+
+// ============================================================
+// LuaChatSubscription — pre-created broadcast receiver
+// ============================================================
+
+/// Lua wrapper for a pre-created change subscription.
+///
+/// Created via `doc:subscribe()` BEFORE messages are sent, then
+/// `sub:wait(timeout)` to deterministically test push notification.
+struct LuaChatSubscription {
+    rx: tokio::sync::Mutex<tokio::sync::broadcast::Receiver<
+        indras_network::document::DocumentChange<RealmChatDocument>,
+    >>,
+}
+
+impl UserData for LuaChatSubscription {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+        methods.add_async_method("wait", |_, this, timeout_secs: f64| async move {
+            let mut rx = this.rx.lock().await;
+            let got = tokio::time::timeout(
+                std::time::Duration::from_secs_f64(timeout_secs),
+                rx.recv(),
+            )
+            .await
+            .is_ok();
+            Ok(got)
+        });
+
+        methods.add_meta_method(MetaMethod::ToString, |_, _this, ()| {
+            Ok("ChatSubscription".to_string())
         });
     }
 }
@@ -713,32 +866,6 @@ impl UserData for LuaHomeRealm {
                     result.set(i + 1, t)?;
                 }
                 Ok(result)
-            },
-        );
-
-        // -- Tree composition --
-
-        methods.add_async_method(
-            "attach_child",
-            |_, this, (parent_hex, child_hex): (String, String)| async move {
-                let parent_id = parse_artifact_id(&parent_hex)?;
-                let child_id = parse_artifact_id(&child_hex)?;
-                this.home
-                    .attach_child(&parent_id, &child_id)
-                    .await
-                    .map_err(mlua::Error::external)
-            },
-        );
-
-        methods.add_async_method(
-            "detach_child",
-            |_, this, (parent_hex, child_hex): (String, String)| async move {
-                let parent_id = parse_artifact_id(&parent_hex)?;
-                let child_id = parse_artifact_id(&child_hex)?;
-                this.home
-                    .detach_child(&parent_id, &child_id)
-                    .await
-                    .map_err(mlua::Error::external)
             },
         );
 

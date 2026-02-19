@@ -323,13 +323,14 @@ impl Realm {
     pub async fn chat_send(&self, author: &str, text: String) -> Result<ChatMessageId> {
         let doc = self.chat_doc().await?;
         let id = generate_chat_id();
+        let author_id = hex::encode(&self.node.identity().as_bytes());
         let msg = EditableChatMessage::new_text(
             id.clone(),
-            format!("{:?}", self.id),
+            hex::encode(self.id.as_bytes()),
             author.to_string(),
             text,
             now_millis(),
-        );
+        ).with_author_id(author_id);
         doc.update(|chat| chat.add_message(msg)).await?;
         Ok(id)
     }
@@ -338,15 +339,16 @@ impl Realm {
     pub async fn chat_reply(&self, author: &str, parent_id: &str, text: String) -> Result<ChatMessageId> {
         let doc = self.chat_doc().await?;
         let id = generate_chat_id();
+        let author_id = hex::encode(&self.node.identity().as_bytes());
         let msg = EditableChatMessage::new_reply(
             id.clone(),
-            format!("{:?}", self.id),
+            hex::encode(self.id.as_bytes()),
             author.to_string(),
             text,
             now_millis(),
             EditableMessageType::Text,
             parent_id.to_string(),
-        );
+        ).with_author_id(author_id);
         doc.update(|chat| chat.add_message(msg)).await?;
         Ok(id)
     }

@@ -112,8 +112,14 @@ pub struct EditableChatMessage {
     pub id: ChatMessageId,
     /// Realm this message belongs to.
     pub realm_id: String,
-    /// Member ID of the author (only this user can edit).
+    /// Display name of the author (for UI rendering).
     pub author: String,
+    /// Hex-encoded MemberId of the author (for permission checks).
+    ///
+    /// When present, `can_edit`/`can_delete` use this instead of the display
+    /// name, preventing identity spoofing and surviving display name changes.
+    #[serde(default)]
+    pub author_id: Option<String>,
     /// Original tick when the message was created.
     pub created_at: u64,
     /// Latest content (or empty if deleted).
@@ -146,6 +152,7 @@ impl EditableChatMessage {
             id,
             realm_id,
             author,
+            author_id: None,
             created_at,
             current_content: content,
             versions: Vec::new(),
@@ -154,6 +161,12 @@ impl EditableChatMessage {
             reply_to: None,
             reactions: HashMap::new(),
         }
+    }
+
+    /// Set the author's MemberId (hex-encoded) for permission checks.
+    pub fn with_author_id(mut self, author_id: String) -> Self {
+        self.author_id = Some(author_id);
+        self
     }
 
     /// Create a new text message.
@@ -351,8 +364,14 @@ impl EditableChatMessage {
     }
 
     /// Check if the given member can edit this message.
+    ///
+    /// Uses `author_id` (hex MemberId) when present for secure identity
+    /// checking. Falls back to display name comparison for legacy messages.
     pub fn can_edit(&self, member_id: &str) -> bool {
-        self.author == member_id && !self.is_deleted
+        let is_author = self.author_id.as_deref()
+            .map(|aid| aid == member_id)
+            .unwrap_or_else(|| self.author == member_id);
+        is_author && !self.is_deleted
     }
 
     /// Get all versions including current, ordered oldest to newest.
@@ -479,6 +498,45 @@ impl RealmChatDocument {
         })
     }
 
+    /// Fast-path merge for a single incoming message.
+    ///
+    /// If the message is new, inserts it in sorted order via binary search.
+    /// If it already exists, applies the same conflict resolution as full merge
+    /// (prefer deleted, prefer more edits, union reactions).
+    /// Returns true if the document was modified.
+    pub fn merge_single(&mut self, msg: EditableChatMessage) -> bool {
+        // Check if message already exists
+        if let Some(existing) = self.messages.iter_mut().find(|m| m.id == msg.id) {
+            // Union reactions from both sides
+            let mut merged_reactions = existing.reactions.clone();
+            for (emoji, remote_authors) in &msg.reactions {
+                let authors = merged_reactions.entry(emoji.clone()).or_default();
+                for ra in remote_authors {
+                    if !authors.iter().any(|a| a == ra) {
+                        authors.push(ra.clone());
+                    }
+                }
+            }
+
+            let prefer_remote = (msg.is_deleted && !existing.is_deleted)
+                || msg.version_count() > existing.version_count();
+            if prefer_remote {
+                *existing = msg;
+                existing.reactions = merged_reactions;
+            } else {
+                existing.reactions = merged_reactions;
+            }
+            return true;
+        }
+
+        // New message — insert in sorted position (by created_at, then id)
+        let pos = self.messages.partition_point(|m| {
+            (m.created_at, &m.id) < (msg.created_at, &msg.id)
+        });
+        self.messages.insert(pos, msg);
+        true
+    }
+
     /// Add a reaction to a message.
     pub fn add_reaction(&mut self, msg_id: &str, author: &str, emoji: &str) -> bool {
         if let Some(msg) = self.get_message_mut(msg_id) {
@@ -497,6 +555,31 @@ impl RealmChatDocument {
 }
 
 impl DocumentSchema for RealmChatDocument {
+    /// Extract a compact delta between old and new state.
+    ///
+    /// If exactly one message was added, returns the serialized message.
+    /// Otherwise returns None (caller should send full state).
+    fn extract_delta(old: &Self, new: &Self) -> Option<Vec<u8>> {
+        if new.messages.len() == old.messages.len() + 1 {
+            // Find the single new message
+            for msg in &new.messages {
+                if !old.messages.iter().any(|m| m.id == msg.id) {
+                    return postcard::to_allocvec(msg).ok();
+                }
+            }
+        }
+        None
+    }
+
+    /// Apply a single-message delta.
+    fn apply_delta(&mut self, delta: &[u8]) -> bool {
+        if let Ok(msg) = postcard::from_bytes::<EditableChatMessage>(delta) {
+            self.merge_single(msg)
+        } else {
+            false
+        }
+    }
+
     /// Merge remote chat state with local state using set-union on message IDs.
     ///
     /// For messages present on both sides, keeps the version with more edits,

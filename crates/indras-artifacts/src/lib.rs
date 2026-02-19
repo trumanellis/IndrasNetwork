@@ -9,7 +9,7 @@
 //! ## Key Types
 //!
 //! - [`ArtifactId`]: Content-addressed (`Blob`) or document-addressed (`Doc`) identifier
-//! - [`Artifact`]: Union of [`LeafArtifact`] (immutable content) and [`TreeArtifact`] (container)
+//! - [`Artifact`]: Unified artifact with optional payload, references, and metadata
 //! - [`AccessMode`]: `Revocable`, `Permanent`, `Timed`, or `Transfer`
 //! - [`Vault`] / [`Story`] / [`Exchange`] / [`Request`]: High-level artifact containers
 //! - [`AttentionLog`] / [`compute_heat`]: Attention tracking and heat computation
@@ -17,18 +17,11 @@
 //!
 //! ## Architecture
 //!
-//! Artifacts form parent-child trees with inherited access control:
+//! Artifacts form a soft DAG via forward references. Any artifact can have
+//! content (payload), references to other artifacts, both, or neither.
+//! "Dimension" is emergent, not enforced.
 //!
-//! ```text
-//! Vault (top-level, one per user)
-//! ├── Story (narrative thread)
-//! │   ├── Leaf: Message, Image, File, Token, Attestation
-//! │   └── Gallery
-//! ├── Exchange (trade/gift)
-//! └── Request (ask for artifacts)
-//! ```
-//!
-//! Leaf IDs are BLAKE3 hashes of content; tree IDs are random or deterministic.
+//! Artifact IDs are BLAKE3 hashes of content (Blob) or random/deterministic (Doc).
 //! `dm_story_id(A, B)` is symmetric — both peers derive the same ID.
 
 pub mod access;

@@ -3,7 +3,7 @@
 //! Tests end-to-end sync scenarios with multiple peers using
 //! ArtifactDocument, HeadTracker, and RawSync.
 
-use indras_artifacts::{AccessGrant, AccessMode, ArtifactId, PlayerId, TreeType};
+use indras_artifacts::{AccessGrant, AccessMode, ArtifactId, PlayerId};
 use indras_sync::{ArtifactDocument, HeadTracker, RawSync};
 
 // ---------------------------------------------------------------------------
@@ -34,7 +34,7 @@ fn test_basic_sync() {
     let player_a = player(1);
     let player_b = player(2);
 
-    let mut doc_a = ArtifactDocument::new(&artifact_id, &player_a, &TreeType::Story, 1000);
+    let mut doc_a = ArtifactDocument::new(&artifact_id, &player_a, "story", 1000);
     doc_a.append_ref(&blob_id(10), 0, Some("intro"));
     doc_a.append_ref(&blob_id(11), 1, Some("chapter-1"));
     doc_a.append_ref(&blob_id(12), 2, Some("chapter-2"));
@@ -74,7 +74,7 @@ fn test_offline_convergence() {
     let player_a = player(2);
     let player_b = player(3);
 
-    let mut base = ArtifactDocument::new(&artifact_id, &steward, &TreeType::Gallery, 1000);
+    let mut base = ArtifactDocument::new(&artifact_id, &steward, "gallery", 1000);
     let mut doc_a = base.fork().unwrap();
     let mut doc_b = base.fork().unwrap();
 
@@ -128,7 +128,7 @@ fn test_three_peer_group() {
     let player_b = player(2);
     let player_c = player(3);
 
-    let mut doc_a = ArtifactDocument::new(&artifact_id, &player_a, &TreeType::Collection, 1000);
+    let mut doc_a = ArtifactDocument::new(&artifact_id, &player_a, "collection", 1000);
     doc_a.append_ref(&blob_id(30), 0, None);
     doc_a.append_ref(&blob_id(31), 1, None);
 
@@ -170,7 +170,7 @@ fn test_new_member_full_sync() {
     let player_a = player(1);
     let player_d = player(4);
 
-    let mut doc_a = ArtifactDocument::new(&artifact_id, &player_a, &TreeType::Vault, 1000);
+    let mut doc_a = ArtifactDocument::new(&artifact_id, &player_a, "vault", 1000);
 
     // Add refs
     doc_a.append_ref(&blob_id(40), 0, Some("item-0"));
@@ -234,7 +234,7 @@ fn test_stale_heads_idempotent() {
     let player_a = player(1);
     let player_b = player(2);
 
-    let mut doc_a = ArtifactDocument::new(&artifact_id, &player_a, &TreeType::Document, 1000);
+    let mut doc_a = ArtifactDocument::new(&artifact_id, &player_a, "document", 1000);
     let mut doc_b = doc_a.fork().unwrap();
     let mut tracker_b = HeadTracker::new();
 
@@ -275,7 +275,7 @@ fn test_concurrent_metadata() {
     let player_a = player(2);
     let player_b = player(3);
 
-    let mut base = ArtifactDocument::new(&artifact_id, &steward, &TreeType::Document, 1000);
+    let mut base = ArtifactDocument::new(&artifact_id, &steward, "document", 1000);
     let mut doc_a = base.fork().unwrap();
     let mut doc_b = base.fork().unwrap();
 
@@ -335,7 +335,7 @@ fn test_grant_sync() {
     let player_b = player(2);
     let grantee = player(99);
 
-    let mut doc_a = ArtifactDocument::new(&artifact_id, &player_a, &TreeType::Story, 1000);
+    let mut doc_a = ArtifactDocument::new(&artifact_id, &player_a, "story", 1000);
     doc_a.add_grant(&AccessGrant {
         grantee,
         mode: AccessMode::Permanent,
@@ -378,7 +378,7 @@ fn test_head_tracker_persistence() {
     for (ai, art) in artifacts.iter().enumerate() {
         for (pi, p) in peers.iter().enumerate() {
             let mut doc =
-                ArtifactDocument::new(art, p, &TreeType::Story, (ai * 100 + pi) as i64);
+                ArtifactDocument::new(art, p, "story", (ai * 100 + pi) as i64);
             doc.append_ref(&blob_id((ai * 10 + pi) as u8), 0, None);
             let heads = doc.get_heads();
             tracker.update(art, p, heads);
@@ -414,7 +414,7 @@ fn test_document_persistence_with_delta() {
     let artifact_id = doc_id(9);
     let player_a = player(1);
 
-    let mut doc = ArtifactDocument::new(&artifact_id, &player_a, &TreeType::Inbox, 1000);
+    let mut doc = ArtifactDocument::new(&artifact_id, &player_a, "inbox", 1000);
 
     // First save — baseline snapshot.
     let snapshot_v1 = doc.save();
@@ -469,7 +469,7 @@ fn test_large_ref_list() {
     let player_a = player(1);
     let player_b = player(2);
 
-    let mut doc_a = ArtifactDocument::new(&artifact_id, &player_a, &TreeType::Collection, 1000);
+    let mut doc_a = ArtifactDocument::new(&artifact_id, &player_a, "collection", 1000);
 
     for i in 0..REF_COUNT {
         // Use a blob id derived from i; wrap the byte around 255.

@@ -6,8 +6,6 @@ pub enum VaultError {
     NotSteward,
     #[error("artifact not found")]
     ArtifactNotFound,
-    #[error("artifact is not a tree")]
-    NotATree,
     #[error("already peered with this player")]
     AlreadyPeered,
     #[error("not peered with this player")]
@@ -30,10 +28,4 @@ pub enum VaultError {
     AlreadyGranted,
     #[error("cannot revoke a permanent grant")]
     CannotRevoke,
-    #[error("operation would create a cycle")]
-    CycleDetected,
-    #[error("artifact already has a parent")]
-    AlreadyHasParent,
-    #[error("artifact is not a child of the specified parent")]
-    NotAChild,
 }

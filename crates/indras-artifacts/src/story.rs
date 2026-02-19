@@ -5,8 +5,8 @@ use crate::vault::Vault;
 
 type Result<T> = std::result::Result<T, VaultError>;
 
-/// A Story is a Tree Artifact (TreeType::Story) representing a sequential
-/// journey through artifacts. A conversation is a Story where most leaves
+/// A Story is an artifact (type "story") representing a sequential
+/// journey through artifacts. A conversation is a Story where most children
 /// are chat messages. Any sequential experience is a Story.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Story {
@@ -14,19 +14,19 @@ pub struct Story {
 }
 
 impl Story {
-    /// Wrap an existing ArtifactId as a Story (must point to TreeType::Story).
+    /// Wrap an existing ArtifactId as a Story (must point to a "story" artifact).
     pub fn from_id(id: ArtifactId) -> Self {
         Self { id }
     }
 
-    /// Create a new Story tree artifact.
+    /// Create a new Story artifact.
     pub fn create<A: ArtifactStore, P: PayloadStore, T: AttentionStore>(
         vault: &mut Vault<A, P, T>,
         audience: Vec<PlayerId>,
         now: i64,
     ) -> Result<Self> {
-        let tree = vault.place_tree(TreeType::Story, audience, now)?;
-        Ok(Self { id: tree.id })
+        let artifact = vault.place_tree("story", audience, now)?;
+        Ok(Self { id: artifact.id })
     }
 
     /// Create a DM story with a deterministic ID derived from both player IDs.
@@ -39,8 +39,8 @@ impl Story {
         let self_id = *vault.player();
         let id = crate::artifact::dm_story_id(self_id, peer_id);
         let audience = vec![self_id, peer_id];
-        let tree = vault.place_tree_with_id(id, TreeType::Story, audience, now)?;
-        Ok(Self { id: tree.id })
+        let artifact = vault.place_tree_with_id(id, "story", audience, now)?;
+        Ok(Self { id: artifact.id })
     }
 
     /// Append an artifact at the next position in the Story.
@@ -65,7 +65,7 @@ impl Story {
             text.as_bytes(),
             "message".to_string(),
             None,
-            LeafType::Message,
+            "message",
             now,
         )?;
         self.append(vault, leaf.id, None)?;
@@ -77,13 +77,12 @@ impl Story {
         &self,
         vault: &Vault<A, P, T>,
     ) -> Result<Vec<(ArtifactRef, Option<Artifact>)>> {
-        let tree_artifact = vault
+        let story = vault
             .get_artifact(&self.id)?
             .ok_or(VaultError::ArtifactNotFound)?;
-        let tree = tree_artifact.as_tree().ok_or(VaultError::NotATree)?;
 
         let mut entries: Vec<(ArtifactRef, Option<Artifact>)> = Vec::new();
-        for r in &tree.references {
+        for r in &story.references {
             let artifact = vault.get_artifact(&r.artifact_id)?;
             entries.push((r.clone(), artifact));
         }
@@ -97,11 +96,10 @@ impl Story {
         &self,
         vault: &Vault<A, P, T>,
     ) -> Result<usize> {
-        let tree_artifact = vault
+        let story = vault
             .get_artifact(&self.id)?
             .ok_or(VaultError::ArtifactNotFound)?;
-        let tree = tree_artifact.as_tree().ok_or(VaultError::NotATree)?;
-        Ok(tree.references.len())
+        Ok(story.references.len())
     }
 
     /// Branch: create a sub-Story from a specific position.
@@ -115,7 +113,7 @@ impl Story {
         let sub = Story::create(vault, audience, now)?;
         vault.compose(
             &self.id,
-            sub.id.clone(),
+            sub.id,
             from_position,
             Some("branch".to_string()),
         )?;

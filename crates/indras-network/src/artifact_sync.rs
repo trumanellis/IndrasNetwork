@@ -201,7 +201,7 @@ impl ArtifactSyncRegistry {
             let doc = ArtifactDocument::new(
                 artifact_id,
                 &self.self_id,
-                &indras_artifacts::TreeType::Collection,
+                "collection",
                 entry.created_at,
             );
             self.documents.insert(*artifact_id, doc);
