@@ -23,6 +23,10 @@ pub enum AppEvent {
     OverlayOpened(String),
     OverlayClosed(String),
 
+    // Artifacts
+    ArtifactStored(String),
+    ArtifactGranted { artifact_name: String, peer_name: String },
+
     // Errors
     ActionFailed { action: String, error: String },
 }
@@ -41,6 +45,8 @@ impl AppEvent {
             AppEvent::MessageSent { .. } => "message_sent",
             AppEvent::OverlayOpened(_) => "overlay_opened",
             AppEvent::OverlayClosed(_) => "overlay_closed",
+            AppEvent::ArtifactStored(_) => "artifact_stored",
+            AppEvent::ArtifactGranted { .. } => "artifact_granted",
             AppEvent::ActionFailed { .. } => "action_failed",
         }
     }
@@ -61,6 +67,8 @@ impl AppEvent {
             AppEvent::MessageSent { text } => text == filter,
             AppEvent::OverlayOpened(name) => name == filter,
             AppEvent::OverlayClosed(name) => name == filter,
+            AppEvent::ArtifactStored(name) => name == filter,
+            AppEvent::ArtifactGranted { artifact_name, .. } => artifact_name == filter,
             _ => true,
         }
     }

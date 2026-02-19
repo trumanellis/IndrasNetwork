@@ -335,6 +335,7 @@ impl HomeRealm {
                 status: crate::access::ArtifactStatus::Active,
                 grants: Vec::new(),
                 provenance: None,
+                location: None,
             };
             index.store(entry);
         })
@@ -402,6 +403,7 @@ impl HomeRealm {
                     status: ArtifactStatus::Active,
                     grants: Vec::new(),
                     provenance: None,
+                    location: None,
                 };
                 index.store(entry);
             }
@@ -447,6 +449,7 @@ impl HomeRealm {
                     status: ArtifactStatus::Active,
                     grants: Vec::new(),
                     provenance: None,
+                    location: None,
                 };
                 index.store(entry);
             }

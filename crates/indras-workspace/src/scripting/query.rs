@@ -14,6 +14,9 @@ pub enum Query {
     SidebarItems,
     EventLog,
     OverlayOpen,
+    ArtifactCount,
+    Artifacts,
+    IdentityUri,
     Custom(String),
 }
 
@@ -32,6 +35,9 @@ impl Query {
             "sidebar_items" => Ok(Query::SidebarItems),
             "event_log" => Ok(Query::EventLog),
             "overlay_open" => Ok(Query::OverlayOpen),
+            "artifact_count" => Ok(Query::ArtifactCount),
+            "artifacts" => Ok(Query::Artifacts),
+            "identity_uri" => Ok(Query::IdentityUri),
             other => Ok(Query::Custom(other.to_string())),
         }
     }

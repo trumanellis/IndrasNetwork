@@ -16,6 +16,7 @@ use crate::components::settings::SettingsView;
 use crate::components::setup::SetupView;
 use crate::components::pass_story::PassStoryOverlay;
 use crate::components::event_log::EventLogView;
+use crate::components::artifact_browser::{ArtifactBrowserView, BrowsableArtifact, MimeCategory};
 use crate::state::workspace::{EventDirection, log_event};
 use crate::components::bottom_nav::{BottomNav, NavTab};
 use crate::components::fab::Fab;
@@ -34,7 +35,8 @@ use indras_ui::{
     ChatPanel,
 };
 use indras_ui::PeerDisplayInfo as UiPeerDisplayInfo;
-use indras_network::{IdentityCode, IndrasNetwork, HomeRealm, Realm, RealmChatDocument, EditableChatMessage};
+use indras_network::{GeoLocation, IdentityCode, IndrasNetwork, HomeRealm, Realm, RealmChatDocument, EditableChatMessage};
+use indras_ui::artifact_display::{ArtifactDisplayInfo, ArtifactDisplayStatus};
 
 #[cfg(feature = "lua-scripting")]
 use crate::scripting::channels::AppTestChannels;
@@ -116,6 +118,14 @@ pub fn RootApp() -> Element {
     let mut home_realm_handle = use_signal(|| None::<HomeRealm>);
     let mut realm_map = use_signal(|| std::collections::HashMap::<String, Realm>::new());
 
+    // Artifact browser state
+    let mut browser_artifacts = use_signal(Vec::<BrowsableArtifact>::new);
+    let mut browser_search = use_signal(String::new);
+    let mut browser_filter = use_signal(|| MimeCategory::All);
+    let mut browser_radius = use_signal(|| 100.0_f64);
+    let mut user_location = use_signal(|| None::<GeoLocation>);
+    let mut peer_filter = use_signal(String::new);
+
     // --- Lua scripting dispatcher (feature-gated) ---
     #[cfg(feature = "lua-scripting")]
     let mut lua_event_tx = use_signal(|| None::<tokio::sync::broadcast::Sender<AppEvent>>);
@@ -129,16 +139,30 @@ pub fn RootApp() -> Element {
 
         use_effect(move || {
             if let Some(ref channels) = test_channels {
-                // Extract event_tx for use in other closures
-                if let Ok(guard) = channels.try_lock() {
+                // Extract channel parts from the mutex — take() moves receivers
+                // out so each dispatcher task owns its receiver directly,
+                // avoiding the deadlock of a shared mutex held across .await.
+                if let Ok(mut guard) = channels.try_lock() {
                     lua_event_tx.set(Some(guard.event_tx.clone()));
+                    let action_rx = guard.action_rx.take();
+                    let event_tx = guard.event_tx.clone();
+                    let query_rx = guard.query_rx.take();
+                    drop(guard);
+
+                    if let (Some(action_rx), Some(query_rx)) = (action_rx, query_rx) {
+                        spawn_dispatcher(
+                            action_rx,
+                            event_tx,
+                            query_rx,
+                            workspace,
+                            contact_invite_open,
+                            contact_invite_input,
+                            home_realm_handle,
+                            user_location,
+                            network_handle,
+                        );
+                    }
                 }
-                spawn_dispatcher(
-                    Arc::clone(channels),
-                    workspace,
-                    contact_invite_open,
-                    contact_invite_input,
-                );
             }
         });
     }
@@ -185,9 +209,26 @@ pub fn RootApp() -> Element {
     use_effect(move || {
         spawn(async move {
             if is_first_run() {
-                workspace.write().phase = AppPhase::Setup;
-            } else {
-                // Returning user — load existing identity
+                // Auto-create identity if INDRAS_NAME is set (e.g., --remock)
+                if let Ok(auto_name) = std::env::var("INDRAS_NAME") {
+                    match create_identity(&auto_name, None).await {
+                        Ok(_) => {
+                            tracing::info!("Auto-created identity: {}", auto_name);
+                            // Fall through to load_identity below
+                        }
+                        Err(e) => {
+                            tracing::error!("Auto-create identity failed: {}", e);
+                            workspace.write().phase = AppPhase::Setup;
+                            return;
+                        }
+                    }
+                } else {
+                    workspace.write().phase = AppPhase::Setup;
+                    return;
+                }
+            }
+            {
+                // Load identity (works for both returning user and auto-created)
                 match load_identity().await {
                     Ok(nh) => {
                         let player_name = nh.network.display_name()
@@ -209,12 +250,6 @@ pub fn RootApp() -> Element {
                                     let mut ws = workspace.write();
                                     ws.phase = AppPhase::Workspace;
                                     log_event(&mut ws, EventDirection::System, format!("Identity loaded: {}", player_name));
-                                }
-
-                                // Emit AppReady event for Lua scripting
-                                #[cfg(feature = "lua-scripting")]
-                                if let Some(ref tx) = *lua_event_tx.read() {
-                                    let _ = tx.send(AppEvent::AppReady);
                                 }
 
                                 // Start the network (enables inbox listener for incoming connections)
@@ -334,6 +369,13 @@ pub fn RootApp() -> Element {
                                         tracing::warn!(error = %e, "Failed to initialize home realm (non-fatal)");
                                         log_event(&mut workspace.write(), EventDirection::System, format!("Home realm warning: {}", e));
                                     }
+                                }
+
+                                // Emit AppReady AFTER network + home realm are initialized,
+                                // so Lua scripts can immediately query/store artifacts.
+                                #[cfg(feature = "lua-scripting")]
+                                if let Some(ref tx) = *lua_event_tx.read() {
+                                    let _ = tx.send(AppEvent::AppReady);
                                 }
                             }
                             Err(e) => {
@@ -640,7 +682,7 @@ pub fn RootApp() -> Element {
                                     };
 
                                     match vt {
-                                        ViewType::Settings => {}
+                                        ViewType::Settings | ViewType::Artifacts => {}
                                         ViewType::Document => {
                                             // Load blocks from artifact references
                                             let mut blocks = Vec::new();
@@ -1350,11 +1392,70 @@ pub fn RootApp() -> Element {
         workspace.write().ui.active_view = ViewType::Settings;
     };
 
-    let on_tab_change = move |tab: NavTab| {
+    let mut on_tab_change = move |tab: NavTab| {
         let is_profile = tab == NavTab::Profile;
+        let is_artifacts = tab == NavTab::Artifacts;
         active_tab.set(tab);
         if is_profile {
             workspace.write().ui.active_view = ViewType::Settings;
+        } else if is_artifacts {
+            workspace.write().ui.active_view = ViewType::Artifacts;
+            // Load artifacts from home realm
+            let hr = home_realm_handle;
+            let ul = user_location;
+            spawn(async move {
+                let hr_read = hr.read();
+                if let Some(ref home) = *hr_read {
+                    if let Ok(index) = home.artifact_index().await {
+                        let data = index.read().await;
+                        let loc = ul.read().clone();
+                        let peers_state = workspace.read().peers.entries.clone();
+                        let browsable: Vec<BrowsableArtifact> = data
+                            .active_artifacts()
+                            .map(|entry| {
+                                let distance_km = match (&loc, &entry.location) {
+                                    (Some(ul), Some(al)) => Some(ul.distance_km(al)),
+                                    _ => None,
+                                };
+                                let status = if entry.status.is_active() {
+                                    ArtifactDisplayStatus::Active
+                                } else {
+                                    ArtifactDisplayStatus::Recalled
+                                };
+                                let origin_label = match &entry.provenance {
+                                    None => "Mine".to_string(),
+                                    Some(p) => {
+                                        peers_state.iter()
+                                            .find(|peer| peer.player_id == p.received_from)
+                                            .map(|peer| peer.name.clone())
+                                            .unwrap_or_else(|| format!("{:02x}{:02x}..", p.received_from[0], p.received_from[1]))
+                                    }
+                                };
+                                let owner_label = match &entry.provenance {
+                                    Some(_) => Some(format!("From {}", origin_label)),
+                                    None if entry.grants.is_empty() => Some("Private".into()),
+                                    None => Some(format!("Shared with {}", entry.grants.len())),
+                                };
+                                BrowsableArtifact {
+                                    info: ArtifactDisplayInfo {
+                                        id: entry.hash_hex(),
+                                        name: entry.name.clone(),
+                                        size: entry.size,
+                                        mime_type: entry.mime_type.clone(),
+                                        status,
+                                        data_url: None,
+                                        grant_count: entry.grants.len(),
+                                        owner_label,
+                                    },
+                                    distance_km,
+                                    origin_label,
+                                }
+                            })
+                            .collect();
+                        browser_artifacts.set(browsable);
+                    }
+                }
+            });
         }
     };
 
@@ -1582,13 +1683,6 @@ pub fn RootApp() -> Element {
                                             log_event(&mut ws, EventDirection::System, format!("Identity created: {}", name));
                                         }
 
-                                        // Emit events for Lua scripting
-                                        #[cfg(feature = "lua-scripting")]
-                                        if let Some(ref tx) = *lua_event_tx.read() {
-                                            let _ = tx.send(AppEvent::IdentityCreated(name.clone()));
-                                            let _ = tx.send(AppEvent::AppReady);
-                                        }
-
                                         // Start the network (enables inbox listener for incoming connections)
                                         log_event(&mut workspace.write(), EventDirection::System, "Starting network...".to_string());
                                         if let Err(e) = net.start().await {
@@ -1613,6 +1707,13 @@ pub fn RootApp() -> Element {
                                                 tracing::warn!(error = %e, "Failed to initialize home realm (non-fatal)");
                                                 log_event(&mut workspace.write(), EventDirection::System, format!("Home realm warning: {}", e));
                                             }
+                                        }
+
+                                        // Emit events AFTER network + home realm are initialized
+                                        #[cfg(feature = "lua-scripting")]
+                                        if let Some(ref tx) = *lua_event_tx.read() {
+                                            let _ = tx.send(AppEvent::IdentityCreated(name.clone()));
+                                            let _ = tx.send(AppEvent::AppReady);
                                         }
                                     }
                                     Err(e) => setup_error.set(Some(format!("{}", e))),
@@ -1704,6 +1805,11 @@ pub fn RootApp() -> Element {
                         }
                         button {
                             class: "sidebar-footer-btn",
+                            onclick: move |_| on_tab_change(NavTab::Artifacts),
+                            "\u{1F4E6} Artifacts"
+                        }
+                        button {
+                            class: "sidebar-footer-btn",
                             "\u{1F50D} Search"
                         }
                     }
@@ -1735,6 +1841,10 @@ pub fn RootApp() -> Element {
                                     network_handle: network_handle,
                                     on_open_pass_story: move |_| {
                                         pass_story_open.set(true);
+                                    },
+                                    user_location: user_location.read().clone(),
+                                    on_location_change: move |loc: Option<GeoLocation>| {
+                                        user_location.set(loc);
                                     },
                                 }
                             }
@@ -1943,6 +2053,34 @@ pub fn RootApp() -> Element {
                                             });
                                         },
                                     }
+                                }
+                            }
+                        }
+                        ViewType::Artifacts => {
+                            let current_artifacts = browser_artifacts.read().clone();
+                            let current_search = browser_search.read().clone();
+                            let current_filter = browser_filter.read().clone();
+                            let current_radius = *browser_radius.read();
+                            let current_peer_filter = peer_filter.read().clone();
+                            // Compute distinct origin labels for peer filter chips
+                            let mut peers: Vec<String> = current_artifacts.iter()
+                                .map(|a| a.origin_label.clone())
+                                .collect::<std::collections::BTreeSet<_>>()
+                                .into_iter()
+                                .collect();
+                            peers.sort();
+                            rsx! {
+                                ArtifactBrowserView {
+                                    artifacts: current_artifacts,
+                                    search_query: current_search,
+                                    on_search: move |q: String| browser_search.set(q),
+                                    active_filter: current_filter,
+                                    on_filter: move |f: MimeCategory| browser_filter.set(f),
+                                    radius_km: current_radius,
+                                    on_radius_change: move |r: f64| browser_radius.set(r),
+                                    peer_filter: current_peer_filter,
+                                    on_peer_filter: move |p: String| peer_filter.set(p),
+                                    available_peers: peers,
                                 }
                             }
                         }
