@@ -429,11 +429,38 @@ impl EditableChatMessage {
     }
 }
 
+/// Delta describing a single change to the chat document.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum ChatDelta {
+    /// A brand-new message.
+    NewMessage(EditableChatMessage),
+    /// Content of an existing message was edited.
+    EditMessage {
+        id: ChatMessageId,
+        new_content: String,
+        tick: u64,
+    },
+    /// A message was soft-deleted.
+    DeleteMessage { id: ChatMessageId, tick: u64 },
+    /// A reaction was added to a message.
+    AddReaction {
+        msg_id: ChatMessageId,
+        emoji: String,
+        author: String,
+    },
+    /// A reaction was removed from a message.
+    RemoveReaction {
+        msg_id: ChatMessageId,
+        emoji: String,
+        author: String,
+    },
+}
+
 /// The realm chat document containing all messages.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct RealmChatDocument {
-    /// All messages in the realm, ordered by creation time.
-    pub messages: Vec<EditableChatMessage>,
+    /// All messages keyed by ID for O(1) lookup.
+    messages: HashMap<ChatMessageId, EditableChatMessage>,
 }
 
 impl RealmChatDocument {
@@ -444,17 +471,29 @@ impl RealmChatDocument {
 
     /// Add a new message to the chat.
     pub fn add_message(&mut self, message: EditableChatMessage) {
-        self.messages.push(message);
+        self.messages.insert(message.id.clone(), message);
     }
 
-    /// Find a message by ID.
+    /// Find a message by ID (O(1)).
     pub fn get_message(&self, id: &str) -> Option<&EditableChatMessage> {
-        self.messages.iter().find(|m| m.id == id)
+        self.messages.get(id)
     }
 
-    /// Find a message by ID (mutable).
+    /// Find a message by ID, mutable (O(1)).
     pub fn get_message_mut(&mut self, id: &str) -> Option<&mut EditableChatMessage> {
-        self.messages.iter_mut().find(|m| m.id == id)
+        self.messages.get_mut(id)
+    }
+
+    /// All messages sorted by `(created_at, id)` for display.
+    pub fn messages_sorted(&self) -> Vec<&EditableChatMessage> {
+        let mut sorted: Vec<_> = self.messages.values().collect();
+        sorted.sort_by(|a, b| a.created_at.cmp(&b.created_at).then_with(|| a.id.cmp(&b.id)));
+        sorted
+    }
+
+    /// Iterate messages in arbitrary order (no sort cost).
+    pub fn iter_messages(&self) -> impl Iterator<Item = &EditableChatMessage> {
+        self.messages.values()
     }
 
     /// Edit a message if the member is the author.
@@ -481,9 +520,11 @@ impl RealmChatDocument {
         false
     }
 
-    /// Get all non-deleted messages.
+    /// Get all non-deleted messages, sorted by `(created_at, id)`.
     pub fn visible_messages(&self) -> Vec<&EditableChatMessage> {
-        self.messages.iter().filter(|m| !m.is_deleted).collect()
+        let mut visible: Vec<_> = self.messages.values().filter(|m| !m.is_deleted).collect();
+        visible.sort_by(|a, b| a.created_at.cmp(&b.created_at).then_with(|| a.id.cmp(&b.id)));
+        visible
     }
 
     /// Get message count (including deleted).
@@ -493,7 +534,7 @@ impl RealmChatDocument {
 
     /// Get visible message count (excluding deleted).
     pub fn visible_count(&self) -> usize {
-        self.messages.iter().filter(|m| !m.is_deleted).count()
+        self.messages.values().filter(|m| !m.is_deleted).count()
     }
 
     /// Get a preview of a message for reply display.
@@ -510,15 +551,14 @@ impl RealmChatDocument {
         })
     }
 
-    /// Fast-path merge for a single incoming message.
+    /// Fast-path merge for a single incoming message (O(1) lookup).
     ///
-    /// If the message is new, inserts it in sorted order via binary search.
-    /// If it already exists, applies the same conflict resolution as full merge
+    /// If the message is new, inserts it directly.
+    /// If it already exists, applies conflict resolution
     /// (prefer deleted, prefer more edits, union reactions).
     /// Returns true if the document was modified.
     pub fn merge_single(&mut self, msg: EditableChatMessage) -> bool {
-        // Check if message already exists
-        if let Some(existing) = self.messages.iter_mut().find(|m| m.id == msg.id) {
+        if let Some(existing) = self.messages.get_mut(&msg.id) {
             // Union reactions from both sides
             let mut merged_reactions = existing.reactions.clone();
             for (emoji, remote_authors) in &msg.reactions {
@@ -541,12 +581,44 @@ impl RealmChatDocument {
             return true;
         }
 
-        // New message — insert in sorted position (by created_at, then id)
-        let pos = self.messages.partition_point(|m| {
-            (m.created_at, &m.id) < (msg.created_at, &msg.id)
-        });
-        self.messages.insert(pos, msg);
+        // New message — O(1) insert
+        self.messages.insert(msg.id.clone(), msg);
         true
+    }
+
+    /// Apply a single `ChatDelta` to this document. Returns true if modified.
+    fn apply_single_delta(&mut self, delta: ChatDelta) -> bool {
+        match delta {
+            ChatDelta::NewMessage(msg) => self.merge_single(msg),
+            ChatDelta::EditMessage { id, new_content, tick } => {
+                if let Some(msg) = self.messages.get_mut(&id) {
+                    msg.edit(new_content, tick)
+                } else {
+                    false
+                }
+            }
+            ChatDelta::DeleteMessage { id, tick } => {
+                if let Some(msg) = self.messages.get_mut(&id) {
+                    msg.delete(tick)
+                } else {
+                    false
+                }
+            }
+            ChatDelta::AddReaction { msg_id, emoji, author } => {
+                if let Some(msg) = self.messages.get_mut(&msg_id) {
+                    msg.add_reaction(&emoji, &author)
+                } else {
+                    false
+                }
+            }
+            ChatDelta::RemoveReaction { msg_id, emoji, author } => {
+                if let Some(msg) = self.messages.get_mut(&msg_id) {
+                    msg.remove_reaction(&emoji, &author)
+                } else {
+                    false
+                }
+            }
+        }
     }
 
     /// Add a reaction to a message.
@@ -569,41 +641,92 @@ impl RealmChatDocument {
 impl DocumentSchema for RealmChatDocument {
     /// Extract a compact delta between old and new state.
     ///
-    /// If exactly one message was added, returns the serialized message.
-    /// Otherwise returns None (caller should send full state).
+    /// Diffs old vs new and produces a `Vec<ChatDelta>` covering new messages,
+    /// edits, deletes, and reaction changes. Returns `None` only if nothing
+    /// changed (caller would send full state as fallback).
     fn extract_delta(old: &Self, new: &Self) -> Option<Vec<u8>> {
-        if new.messages.len() == old.messages.len() + 1 {
-            // Find the single new message
-            for msg in &new.messages {
-                if !old.messages.iter().any(|m| m.id == msg.id) {
-                    return postcard::to_allocvec(msg).ok();
+        let mut deltas = Vec::new();
+
+        for (id, new_msg) in &new.messages {
+            match old.messages.get(id) {
+                None => {
+                    // Brand-new message
+                    deltas.push(ChatDelta::NewMessage(new_msg.clone()));
+                }
+                Some(old_msg) => {
+                    // Check for delete
+                    if new_msg.is_deleted && !old_msg.is_deleted {
+                        deltas.push(ChatDelta::DeleteMessage {
+                            id: id.clone(),
+                            tick: new_msg.versions.last().map(|v| v.edited_at).unwrap_or(0),
+                        });
+                    }
+                    // Check for edit (content changed, not a delete)
+                    else if new_msg.current_content != old_msg.current_content && !new_msg.is_deleted {
+                        deltas.push(ChatDelta::EditMessage {
+                            id: id.clone(),
+                            new_content: new_msg.current_content.clone(),
+                            tick: new_msg.versions.last().map(|v| v.edited_at).unwrap_or(0),
+                        });
+                    }
+                    // Check for reaction changes
+                    for (emoji, new_authors) in &new_msg.reactions {
+                        let old_authors = old_msg.reactions.get(emoji).map(|v| v.as_slice()).unwrap_or(&[]);
+                        for author in new_authors {
+                            if !old_authors.iter().any(|a| a == author) {
+                                deltas.push(ChatDelta::AddReaction {
+                                    msg_id: id.clone(),
+                                    emoji: emoji.clone(),
+                                    author: author.clone(),
+                                });
+                            }
+                        }
+                    }
+                    for (emoji, old_authors) in &old_msg.reactions {
+                        let new_authors = new_msg.reactions.get(emoji).map(|v| v.as_slice()).unwrap_or(&[]);
+                        for author in old_authors {
+                            if !new_authors.iter().any(|a| a == author) {
+                                deltas.push(ChatDelta::RemoveReaction {
+                                    msg_id: id.clone(),
+                                    emoji: emoji.clone(),
+                                    author: author.clone(),
+                                });
+                            }
+                        }
+                    }
                 }
             }
         }
-        None
+
+        if deltas.is_empty() {
+            return None;
+        }
+        postcard::to_allocvec(&deltas).ok()
     }
 
-    /// Apply a single-message delta.
+    /// Apply a delta. Tries `Vec<ChatDelta>` first, falls back to legacy
+    /// single `EditableChatMessage`.
     fn apply_delta(&mut self, delta: &[u8]) -> bool {
-        if let Ok(msg) = postcard::from_bytes::<EditableChatMessage>(delta) {
-            self.merge_single(msg)
-        } else {
-            false
+        // Try new Vec<ChatDelta> format
+        if let Ok(deltas) = postcard::from_bytes::<Vec<ChatDelta>>(delta) {
+            return deltas.into_iter().fold(false, |changed, d| {
+                changed | self.apply_single_delta(d)
+            });
         }
+        // Fallback: legacy single EditableChatMessage
+        if let Ok(msg) = postcard::from_bytes::<EditableChatMessage>(delta) {
+            return self.merge_single(msg);
+        }
+        false
     }
 
     /// Merge remote chat state with local state using set-union on message IDs.
     ///
     /// For messages present on both sides, keeps the version with more edits,
-    /// or the deleted version if either side deleted it.
+    /// or the deleted version if either side deleted it. Reactions are unioned.
     fn merge(&mut self, remote: Self) {
-        // Index local messages by ID
-        let mut by_id: HashMap<String, EditableChatMessage> =
-            self.messages.drain(..).map(|m| (m.id.clone(), m)).collect();
-
-        // Merge each remote message
-        for remote_msg in remote.messages {
-            match by_id.get(&remote_msg.id) {
+        for (id, remote_msg) in remote.messages {
+            match self.messages.get(&id) {
                 Some(local_msg) => {
                     // Union reactions from both sides
                     let mut merged_reactions = local_msg.reactions.clone();
@@ -622,24 +745,18 @@ impl DocumentSchema for RealmChatDocument {
                     if prefer_remote {
                         let mut winner = remote_msg;
                         winner.reactions = merged_reactions;
-                        by_id.insert(winner.id.clone(), winner);
+                        self.messages.insert(id, winner);
                     } else {
-                        let mut winner = local_msg.clone();
-                        winner.reactions = merged_reactions;
-                        by_id.insert(winner.id.clone(), winner);
+                        // Keep local but update reactions
+                        self.messages.get_mut(&id).unwrap().reactions = merged_reactions;
                     }
                 }
                 None => {
                     // Remote has a message we don't — add it
-                    by_id.insert(remote_msg.id.clone(), remote_msg);
+                    self.messages.insert(id, remote_msg);
                 }
             }
         }
-
-        // Reconstruct sorted by created_at, then by ID for deterministic order
-        let mut merged: Vec<_> = by_id.into_values().collect();
-        merged.sort_by(|a, b| a.created_at.cmp(&b.created_at).then_with(|| a.id.cmp(&b.id)));
-        self.messages = merged;
     }
 }
 
@@ -923,10 +1040,11 @@ mod tests {
 
         local.merge(remote);
 
-        assert_eq!(local.messages.len(), 3);
-        assert_eq!(local.messages[0].id, "msg-1");
-        assert_eq!(local.messages[1].id, "msg-3"); // sorted by created_at
-        assert_eq!(local.messages[2].id, "msg-2");
+        assert_eq!(local.total_count(), 3);
+        let sorted = local.messages_sorted();
+        assert_eq!(sorted[0].id, "msg-1");
+        assert_eq!(sorted[1].id, "msg-3"); // sorted by created_at
+        assert_eq!(sorted[2].id, "msg-2");
     }
 
     #[test]
@@ -945,9 +1063,10 @@ mod tests {
 
         local.merge(remote);
 
-        assert_eq!(local.messages.len(), 1);
-        assert_eq!(local.messages[0].current_content, "Edited");
-        assert!(local.messages[0].is_edited());
+        assert_eq!(local.total_count(), 1);
+        let msg = local.get_message("msg-1").unwrap();
+        assert_eq!(msg.current_content, "Edited");
+        assert!(msg.is_edited());
     }
 
     #[test]
@@ -966,8 +1085,8 @@ mod tests {
 
         local.merge(remote);
 
-        assert_eq!(local.messages.len(), 1);
-        assert!(local.messages[0].is_deleted);
+        assert_eq!(local.total_count(), 1);
+        assert!(local.get_message("msg-1").unwrap().is_deleted);
     }
 
     #[test]
@@ -995,12 +1114,11 @@ mod tests {
         joy_state.merge(love_state.clone());
 
         // Both should converge to the same 3 messages
-        assert_eq!(love_state.messages.len(), 3);
-        assert_eq!(joy_state.messages.len(), 3);
-        assert_eq!(
-            love_state.messages.iter().map(|m| &m.id).collect::<Vec<_>>(),
-            joy_state.messages.iter().map(|m| &m.id).collect::<Vec<_>>(),
-        );
+        assert_eq!(love_state.total_count(), 3);
+        assert_eq!(joy_state.total_count(), 3);
+        let love_ids: Vec<_> = love_state.messages_sorted().iter().map(|m| &m.id).cloned().collect();
+        let joy_ids: Vec<_> = joy_state.messages_sorted().iter().map(|m| &m.id).cloned().collect();
+        assert_eq!(love_ids, joy_ids);
     }
 
     #[test]
@@ -1089,6 +1207,229 @@ mod tests {
         let msg: EditableChatMessage = serde_json::from_str(json).unwrap();
         assert_eq!(msg.reply_to, None);
         assert!(msg.reactions.is_empty());
+    }
+
+    #[test]
+    fn test_extract_delta_edit() {
+        let mut old = RealmChatDocument::new();
+        old.add_message(EditableChatMessage::new_text(
+            "msg-1".into(), "realm".into(), "alice".into(), "Hello".into(), 100,
+        ));
+
+        let mut new = old.clone();
+        new.edit_message("msg-1", "alice", "Hello edited".into(), 200);
+
+        let delta_bytes = RealmChatDocument::extract_delta(&old, &new).unwrap();
+        let deltas: Vec<ChatDelta> = postcard::from_bytes(&delta_bytes).unwrap();
+        assert_eq!(deltas.len(), 1);
+        match &deltas[0] {
+            ChatDelta::EditMessage { id, new_content, .. } => {
+                assert_eq!(id, "msg-1");
+                assert_eq!(new_content, "Hello edited");
+            }
+            other => panic!("Expected EditMessage, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_extract_delta_delete() {
+        let mut old = RealmChatDocument::new();
+        old.add_message(EditableChatMessage::new_text(
+            "msg-1".into(), "realm".into(), "alice".into(), "Hello".into(), 100,
+        ));
+
+        let mut new = old.clone();
+        new.delete_message("msg-1", "alice", 200);
+
+        let delta_bytes = RealmChatDocument::extract_delta(&old, &new).unwrap();
+        let deltas: Vec<ChatDelta> = postcard::from_bytes(&delta_bytes).unwrap();
+        assert_eq!(deltas.len(), 1);
+        match &deltas[0] {
+            ChatDelta::DeleteMessage { id, .. } => assert_eq!(id, "msg-1"),
+            other => panic!("Expected DeleteMessage, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_extract_delta_reaction() {
+        let mut old = RealmChatDocument::new();
+        old.add_message(EditableChatMessage::new_text(
+            "msg-1".into(), "realm".into(), "alice".into(), "Hello".into(), 100,
+        ));
+
+        let mut new = old.clone();
+        new.add_reaction("msg-1", "bob", "👍");
+
+        let delta_bytes = RealmChatDocument::extract_delta(&old, &new).unwrap();
+        let deltas: Vec<ChatDelta> = postcard::from_bytes(&delta_bytes).unwrap();
+        assert_eq!(deltas.len(), 1);
+        match &deltas[0] {
+            ChatDelta::AddReaction { msg_id, emoji, author } => {
+                assert_eq!(msg_id, "msg-1");
+                assert_eq!(emoji, "👍");
+                assert_eq!(author, "bob");
+            }
+            other => panic!("Expected AddReaction, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_apply_delta_roundtrip() {
+        let mut old = RealmChatDocument::new();
+        old.add_message(EditableChatMessage::new_text(
+            "msg-1".into(), "realm".into(), "alice".into(), "Hello".into(), 100,
+        ));
+
+        // Make several changes
+        let mut new = old.clone();
+        new.add_message(EditableChatMessage::new_text(
+            "msg-2".into(), "realm".into(), "bob".into(), "World".into(), 200,
+        ));
+        new.edit_message("msg-1", "alice", "Hello edited".into(), 300);
+        new.add_reaction("msg-1", "bob", "👍");
+
+        // Extract delta and apply to a copy of old
+        let delta_bytes = RealmChatDocument::extract_delta(&old, &new).unwrap();
+        let applied = old.apply_delta(&delta_bytes);
+        assert!(applied);
+
+        // Verify state matches
+        assert_eq!(old.total_count(), 2);
+        assert_eq!(old.get_message("msg-1").unwrap().current_content, "Hello edited");
+        assert!(old.get_message("msg-2").is_some());
+        assert_eq!(old.get_message("msg-1").unwrap().reactions["👍"], vec!["bob".to_string()]);
+    }
+
+    #[test]
+    fn test_hashmap_serde_roundtrip() {
+        let mut doc = RealmChatDocument::new();
+        doc.add_message(EditableChatMessage::new_text(
+            "msg-1".into(), "realm".into(), "alice".into(), "Hello".into(), 100,
+        ));
+        doc.add_message(EditableChatMessage::new_text(
+            "msg-2".into(), "realm".into(), "bob".into(), "World".into(), 200,
+        ));
+
+        // Serialize with postcard and deserialize back
+        let bytes = postcard::to_allocvec(&doc).unwrap();
+        let restored: RealmChatDocument = postcard::from_bytes(&bytes).unwrap();
+
+        assert_eq!(restored.total_count(), 2);
+        assert_eq!(restored.get_message("msg-1").unwrap().current_content, "Hello");
+        assert_eq!(restored.get_message("msg-2").unwrap().current_content, "World");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Delivery receipts
+// ---------------------------------------------------------------------------
+
+/// Delivery status for a chat message.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum DeliveryStatus {
+    /// Message persisted locally, not yet confirmed by any peer.
+    Sent,
+    /// At least one peer has acknowledged receipt.
+    Delivered,
+}
+
+impl Default for DeliveryStatus {
+    fn default() -> Self {
+        Self::Sent
+    }
+}
+
+/// A lightweight acknowledgement that a peer received and merged a chat message.
+///
+/// Sent on the `"chat-acks"` document to avoid recursion with the `"chat"`
+/// document listener.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct ChatAck {
+    /// The ID of the message being acknowledged.
+    pub message_id: ChatMessageId,
+    /// Hex-encoded identity of the receiver who is sending this ACK.
+    pub receiver: String,
+    /// Tick at which the ACK was generated.
+    pub acked_at: u64,
+}
+
+/// Document that collects delivery acknowledgements for chat messages.
+///
+/// Keyed by `(message_id, receiver)` so duplicate ACKs are idempotent.
+/// Stored on the `"chat-acks"` document name within a realm.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct ChatAckDocument {
+    /// All received ACKs. Outer key: message_id, inner: set of receiver IDs.
+    pub acks: HashMap<ChatMessageId, Vec<String>>,
+}
+
+impl ChatAckDocument {
+    /// Record an acknowledgement. Returns `true` if this is a new ACK.
+    pub fn record_ack(&mut self, ack: &ChatAck) -> bool {
+        let receivers = self.acks.entry(ack.message_id.clone()).or_default();
+        if receivers.iter().any(|r| r == &ack.receiver) {
+            return false;
+        }
+        receivers.push(ack.receiver.clone());
+        true
+    }
+
+    /// Check the delivery status of a message.
+    pub fn delivery_status(&self, message_id: &str) -> DeliveryStatus {
+        match self.acks.get(message_id) {
+            Some(receivers) if !receivers.is_empty() => DeliveryStatus::Delivered,
+            _ => DeliveryStatus::Sent,
+        }
+    }
+
+    /// Get the list of receivers who have acknowledged a message.
+    pub fn receivers(&self, message_id: &str) -> &[String] {
+        self.acks.get(message_id).map(|v| v.as_slice()).unwrap_or(&[])
+    }
+}
+
+impl DocumentSchema for ChatAckDocument {
+    /// Single-ACK delta extraction.
+    fn extract_delta(old: &Self, new: &Self) -> Option<Vec<u8>> {
+        // Find the single new ACK (if exactly one was added)
+        let mut new_ack = None;
+        for (msg_id, new_receivers) in &new.acks {
+            let old_receivers = old.acks.get(msg_id).map(|v| v.as_slice()).unwrap_or(&[]);
+            for r in new_receivers {
+                if !old_receivers.iter().any(|or| or == r) {
+                    if new_ack.is_some() {
+                        return None; // More than one new ACK, send full state
+                    }
+                    new_ack = Some(ChatAck {
+                        message_id: msg_id.clone(),
+                        receiver: r.clone(),
+                        acked_at: 0, // Not needed for merge
+                    });
+                }
+            }
+        }
+        new_ack.and_then(|ack| postcard::to_allocvec(&ack).ok())
+    }
+
+    /// Apply a single-ACK delta.
+    fn apply_delta(&mut self, delta: &[u8]) -> bool {
+        if let Ok(ack) = postcard::from_bytes::<ChatAck>(delta) {
+            self.record_ack(&ack)
+        } else {
+            false
+        }
+    }
+
+    /// Set-union merge: combine all ACKs from both sides.
+    fn merge(&mut self, remote: Self) {
+        for (msg_id, remote_receivers) in remote.acks {
+            let local_receivers = self.acks.entry(msg_id).or_default();
+            for r in remote_receivers {
+                if !local_receivers.iter().any(|lr| lr == &r) {
+                    local_receivers.push(r);
+                }
+            }
+        }
     }
 }
 

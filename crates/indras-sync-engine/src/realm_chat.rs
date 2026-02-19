@@ -5,10 +5,12 @@
 //! to avoid collision with the older `MessageDocument` (`"messages"`).
 
 use indras_network::chat_message::{
-    ChatMessageId, EditableChatMessage, EditableMessageType, RealmChatDocument,
+    ChatAck, ChatAckDocument, ChatMessageId, DeliveryStatus, EditableChatMessage,
+    EditableMessageType, RealmChatDocument,
 };
 use indras_network::document::Document;
 use indras_network::error::Result;
+use indras_network::escape::PeerIdentity;
 use indras_network::Realm;
 use tracing::debug;
 
@@ -68,6 +70,21 @@ pub trait RealmChat {
     ///
     /// Returns true if the reaction was removed.
     async fn unreact_chat(&self, msg_id: &str, author: &str, emoji: &str) -> Result<bool>;
+
+    /// Get the chat-acks document for this realm.
+    async fn chat_ack_document(&self) -> Result<Document<ChatAckDocument>>;
+
+    /// Send a delivery acknowledgement for a list of message IDs.
+    ///
+    /// Called when remote chat messages are received and merged.
+    async fn send_chat_acks(&self, message_ids: &[String], tick: u64) -> Result<()>;
+
+    /// Query the delivery status of a message.
+    async fn chat_delivery_status(&self, message_id: &str) -> Result<DeliveryStatus>;
+
+    /// Spawn a background task that automatically ACKs incoming remote chat
+    /// messages. Returns a `JoinHandle` the caller can use to cancel.
+    async fn spawn_chat_ack_responder(&self, tick: u64) -> Result<tokio::task::JoinHandle<()>>;
 }
 
 impl RealmChat for Realm {
@@ -215,5 +232,84 @@ impl RealmChat for Realm {
 
         debug!(msg_id = %msg_id, removed = result, "Unreact result");
         Ok(result)
+    }
+
+    async fn chat_ack_document(&self) -> Result<Document<ChatAckDocument>> {
+        self.document::<ChatAckDocument>("chat-acks").await
+    }
+
+    async fn send_chat_acks(&self, message_ids: &[String], tick: u64) -> Result<()> {
+        if message_ids.is_empty() {
+            return Ok(());
+        }
+
+        let our_id = hex::encode(self.node().identity().as_bytes());
+        let ack_doc = self.chat_ack_document().await?;
+
+        ack_doc
+            .update(|d| {
+                for msg_id in message_ids {
+                    let ack = ChatAck {
+                        message_id: msg_id.clone(),
+                        receiver: our_id.clone(),
+                        acked_at: tick,
+                    };
+                    d.record_ack(&ack);
+                }
+            })
+            .await?;
+
+        debug!(
+            count = message_ids.len(),
+            "Sent chat delivery ACKs"
+        );
+        Ok(())
+    }
+
+    async fn chat_delivery_status(&self, message_id: &str) -> Result<DeliveryStatus> {
+        let ack_doc = self.chat_ack_document().await?;
+        let state = ack_doc.read().await;
+        Ok(state.delivery_status(message_id))
+    }
+
+    async fn spawn_chat_ack_responder(&self, tick: u64) -> Result<tokio::task::JoinHandle<()>> {
+        let chat_doc = self.chat_document().await?;
+        let mut rx = chat_doc.subscribe();
+        let realm = self.clone();
+
+        let handle = tokio::spawn(async move {
+            loop {
+                match rx.recv().await {
+                    Ok(change) => {
+                        if !change.is_remote {
+                            continue;
+                        }
+                        // Collect message IDs from the new state that we should ACK.
+                        // We ACK all messages from the incoming change's state that
+                        // weren't authored by us.
+                        let our_id = hex::encode(realm.node().identity().as_bytes());
+                        let msg_ids: Vec<String> = change
+                            .new_state
+                            .iter_messages()
+                            .filter(|m| {
+                                m.author_id.as_deref() != Some(&our_id)
+                                    && m.author != our_id
+                            })
+                            .map(|m| m.id.clone())
+                            .collect();
+
+                        if !msg_ids.is_empty() {
+                            if let Err(e) = realm.send_chat_acks(&msg_ids, tick).await {
+                                debug!(error = %e, "Failed to send chat ACKs");
+                            }
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        });
+
+        Ok(handle)
     }
 }

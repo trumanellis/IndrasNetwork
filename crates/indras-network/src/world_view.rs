@@ -150,11 +150,10 @@ impl WorldView {
                             // For chat documents, try to deserialize and extract message info
                             if name == "chat" {
                                 if let Ok(chat_doc) = postcard::from_bytes::<RealmChatDocument>(&data) {
-                                    let msg_count = chat_doc.messages.len();
-                                    info.chat_message_count = Some(msg_count);
+                                    info.chat_message_count = Some(chat_doc.total_count());
                                     // Include last 5 message IDs for easy diffing
-                                    let recent: Vec<String> = chat_doc
-                                        .messages
+                                    let sorted = chat_doc.messages_sorted();
+                                    let recent: Vec<String> = sorted
                                         .iter()
                                         .rev()
                                         .take(5)

@@ -137,7 +137,8 @@ pub use access::{
 pub use artifact_index::{ArtifactIndex, GeoLocation, HomeArtifactEntry};
 pub use artifact_recovery::{ArtifactRecoveryRequest, ArtifactRecoveryResponse, RecoverableArtifact, RecoveryManifest};
 pub use chat_message::{
-    ChatMessageId, ChatMessageVersion, EditableChatMessage, EditableMessageType, RealmChatDocument,
+    ChatAck, ChatAckDocument, ChatDelta, ChatMessageId, ChatMessageVersion, DeliveryStatus,
+    EditableChatMessage, EditableMessageType, RealmChatDocument,
 };
 pub use config::{NetworkBuilder, NetworkConfig, Preset};
 pub use contacts::{ContactEntry, ContactStatus, ContactsDocument, ContactsRealm};
