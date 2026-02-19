@@ -43,13 +43,21 @@ use crate::scripting::dispatcher::spawn_dispatcher;
 #[cfg(feature = "lua-scripting")]
 use crate::scripting::event::AppEvent;
 
+/// Convert a MemberId to a hex string for identity comparison.
+fn member_id_hex(id: &[u8; 32]) -> String {
+    id.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
 /// Convert a CRDT chat message to the UI's StoryMessage format.
 fn chat_msg_to_story(
     msg: &EditableChatMessage,
     my_name: &str,
+    my_id: Option<&str>,
     chat_doc: &RealmChatDocument,
 ) -> StoryMessage {
-    let is_self = msg.author == my_name;
+    let is_self = msg.author_id.as_deref()
+        .and_then(|aid| my_id.map(|mid| aid == mid))
+        .unwrap_or_else(|| msg.author == my_name);
     let letter = msg.author.chars().next().unwrap_or('?').to_string();
     let time = {
         let dt = chrono::DateTime::from_timestamp_millis(msg.created_at as i64)
@@ -247,17 +255,43 @@ pub fn RootApp() -> Element {
                                                     }
 
                                                     let mut nodes = Vec::new();
+                                                    let mut contacts_section_added = false;
+
+                                                    // Get vault for artifact type lookups
+                                                    let vault_for_restore = vault_handle.read().as_ref()
+                                                        .map(|vh| Arc::clone(&vh.vault));
+
                                                     // Top-level entries (no parent)
                                                     let top_level: Vec<_> = entries.iter().filter(|e| e.parent.is_none()).collect();
                                                     for entry in &top_level {
                                                         let node_id = format!("{:?}", entry.id);
-                                                        let section = if nodes.is_empty() {
-                                                            Some("Vault".to_string())
-                                                        } else {
-                                                            None
-                                                        };
                                                         let children: Vec<_> = data.children_of(&entry.id);
                                                         let has_children = !children.is_empty();
+
+                                                        // Look up artifact from vault to get TreeType
+                                                        let (icon, view_type_str, section) = if let Some(ref vault_arc) = vault_for_restore {
+                                                            let v = vault_arc.lock().await;
+                                                            if let Ok(Some(Artifact::Tree(tree))) = v.get_artifact(&entry.id) {
+                                                                let ic = NavigationState::icon_for_tree_type(&tree.artifact_type);
+                                                                let vt = NavigationState::view_type_for_tree(&tree.artifact_type);
+                                                                let is_contact = matches!(&tree.artifact_type, TreeType::Custom(s) if s == "Contact");
+                                                                let sect = if nodes.is_empty() {
+                                                                    Some("Vault".to_string())
+                                                                } else if is_contact && !contacts_section_added {
+                                                                    contacts_section_added = true;
+                                                                    Some("Contacts".to_string())
+                                                                } else {
+                                                                    None
+                                                                };
+                                                                (ic.to_string(), vt.to_string(), sect)
+                                                            } else {
+                                                                let sect = if nodes.is_empty() { Some("Vault".to_string()) } else { None };
+                                                                ("\u{1F4C4}".to_string(), "document".to_string(), sect)
+                                                            }
+                                                        } else {
+                                                            let sect = if nodes.is_empty() { Some("Vault".to_string()) } else { None };
+                                                            ("\u{1F4C4}".to_string(), "document".to_string(), sect)
+                                                        };
 
                                                         // Use realm alias as label if available
                                                         let label = if let Some(realm) = art_to_realm.get(&entry.id) {
@@ -273,14 +307,13 @@ pub fn RootApp() -> Element {
                                                             id: node_id.clone(),
                                                             artifact_id: Some(entry.id),
                                                             label,
-                                                            icon: "\u{1F4C4}".to_string(),
+                                                            icon,
                                                             heat_level: 0,
                                                             depth: 0,
                                                             has_children,
                                                             expanded: has_children,
-                                                            active: false,
                                                             section,
-                                                            view_type: "document".to_string(),
+                                                            view_type: view_type_str,
                                                         });
 
                                                         // Insert realm into realm_map if found
@@ -291,6 +324,28 @@ pub fn RootApp() -> Element {
                                                         // Add children at depth 1
                                                         for child in &children {
                                                             let child_node_id = format!("{:?}", child.id);
+
+                                                            // Look up child artifact type from vault
+                                                            let (child_icon, child_vt, child_section) = if let Some(ref vault_arc) = vault_for_restore {
+                                                                let v = vault_arc.lock().await;
+                                                                if let Ok(Some(Artifact::Tree(child_tree))) = v.get_artifact(&child.id) {
+                                                                    let ic = NavigationState::icon_for_tree_type(&child_tree.artifact_type);
+                                                                    let vt = NavigationState::view_type_for_tree(&child_tree.artifact_type);
+                                                                    let is_contact = matches!(&child_tree.artifact_type, TreeType::Custom(s) if s == "Contact");
+                                                                    let sect = if is_contact && !contacts_section_added {
+                                                                        contacts_section_added = true;
+                                                                        Some("Contacts".to_string())
+                                                                    } else {
+                                                                        None
+                                                                    };
+                                                                    (ic.to_string(), vt.to_string(), sect)
+                                                                } else {
+                                                                    ("\u{1F4C4}".to_string(), "document".to_string(), None)
+                                                                }
+                                                            } else {
+                                                                ("\u{1F4C4}".to_string(), "document".to_string(), None)
+                                                            };
+
                                                             let child_label = if let Some(realm) = art_to_realm.get(&child.id) {
                                                                 match realm.get_alias().await {
                                                                     Ok(Some(alias)) => alias,
@@ -303,14 +358,13 @@ pub fn RootApp() -> Element {
                                                                 id: child_node_id.clone(),
                                                                 artifact_id: Some(child.id),
                                                                 label: child_label,
-                                                                icon: "\u{1F4C4}".to_string(),
+                                                                icon: child_icon,
                                                                 heat_level: 0,
                                                                 depth: 1,
                                                                 has_children: false,
                                                                 expanded: false,
-                                                                active: false,
-                                                                section: None,
-                                                                view_type: "document".to_string(),
+                                                                section: child_section,
+                                                                view_type: child_vt,
                                                             });
                                                             if let Some(realm) = art_to_realm.remove(&child.id) {
                                                                 realm_map.write().insert(child_node_id, realm);
@@ -517,7 +571,6 @@ pub fn RootApp() -> Element {
                                                                 depth: 0,
                                                                 has_children,
                                                                 expanded: has_children,
-                                                                active: false,
                                                                 section,
                                                                 view_type: view_type_str.to_string(),
                                                             });
@@ -865,19 +918,48 @@ pub fn RootApp() -> Element {
                             }
 
                             // If this tree has an associated realm, load chat from CRDT document.
+                            // Subscribe to changes BEFORE reading initial state to avoid
+                            // missing messages that arrive between load and subscription.
                             let realm = realm_map.read().get(&tree_node_id).cloned();
                             if let Some(realm) = realm {
                                 match realm.chat_doc().await {
                                     Ok(doc) => {
-                                        let my_name = {
+                                        // 1. Spawn changes listener FIRST (creates broadcast subscription)
+                                        let doc_for_changes = doc.clone();
+                                        spawn(async move {
+                                            use futures::StreamExt;
+                                            let mut changes = Box::pin(doc_for_changes.changes());
+                                            while let Some(_change) = changes.next().await {
+                                                let (my_name, my_id) = {
+                                                    let guard = network_handle.read();
+                                                    let name = guard.as_ref()
+                                                        .and_then(|nh| nh.network.display_name().map(|s| s.to_string()))
+                                                        .unwrap_or_default();
+                                                    let id = guard.as_ref()
+                                                        .map(|nh| member_id_hex(&nh.network.id()));
+                                                    (name, id)
+                                                };
+                                                let data = doc_for_changes.read().await;
+                                                let messages: Vec<StoryMessage> = data.visible_messages().iter()
+                                                    .map(|msg| chat_msg_to_story(msg, &my_name, my_id.as_deref(), &data))
+                                                    .collect();
+                                                story_messages.set(messages);
+                                            }
+                                        });
+
+                                        // 2. Read initial state (subscription already active above)
+                                        let (my_name, my_id) = {
                                             let guard = network_handle.read();
-                                            guard.as_ref()
+                                            let name = guard.as_ref()
                                                 .and_then(|nh| nh.network.display_name().map(|s| s.to_string()))
-                                                .unwrap_or_default()
+                                                .unwrap_or_default();
+                                            let id = guard.as_ref()
+                                                .map(|nh| member_id_hex(&nh.network.id()));
+                                            (name, id)
                                         };
                                         let data = doc.read().await;
                                         let realm_messages: Vec<StoryMessage> = data.visible_messages().iter()
-                                            .map(|msg| chat_msg_to_story(msg, &my_name, &data))
+                                            .map(|msg| chat_msg_to_story(msg, &my_name, my_id.as_deref(), &data))
                                             .collect();
                                         if vt == ViewType::Story {
                                             story_messages.set(realm_messages);
@@ -980,29 +1062,8 @@ pub fn RootApp() -> Element {
                                     });
                                 }
 
-                                // Subscribe to CRDT chat document changes for real-time updates
-                                let realm_for_changes = realm_map.read().get(&tree_node_id).cloned();
-                                if let Some(realm) = realm_for_changes {
-                                    spawn(async move {
-                                        if let Ok(doc) = realm.chat_doc().await {
-                                            use futures::StreamExt;
-                                            let mut changes = Box::pin(doc.changes());
-                                            while let Some(_change) = changes.next().await {
-                                                let my_name = {
-                                                    let guard = network_handle.read();
-                                                    guard.as_ref()
-                                                        .and_then(|nh| nh.network.display_name().map(|s| s.to_string()))
-                                                        .unwrap_or_default()
-                                                };
-                                                let data = doc.read().await;
-                                                let messages: Vec<StoryMessage> = data.visible_messages().iter()
-                                                    .map(|msg| chat_msg_to_story(msg, &my_name, &data))
-                                                    .collect();
-                                                story_messages.set(messages);
-                                            }
-                                        }
-                                    });
-                                }
+                                // Changes subscription moved earlier (next to chat_doc load)
+                                // to eliminate gap where messages could be missed.
                             }
                         });
                     }
@@ -1036,10 +1097,6 @@ pub fn RootApp() -> Element {
         if crumb_id == "root" {
             workspace.write().nav.current_id = None;
             workspace.write().nav.breadcrumbs.truncate(1);
-            // Clear active state
-            for node in &mut workspace.write().nav.vault_tree {
-                node.active = false;
-            }
         }
     };
 
@@ -1216,7 +1273,6 @@ pub fn RootApp() -> Element {
                                         depth: 0,
                                         has_children,
                                         expanded: has_children,
-                                        active: false,
                                         section,
                                         view_type: view_type_str.to_string(),
                                     });
@@ -1241,7 +1297,6 @@ pub fn RootApp() -> Element {
                                                         depth: 1,
                                                         has_children: false,
                                                         expanded: false,
-                                                        active: false,
                                                         section: None,
                                                         view_type: child_vt.to_string(),
                                                     });
@@ -1259,11 +1314,6 @@ pub fn RootApp() -> Element {
                         let new_node_id = format!("{:?}", tree.id);
                         ws_signal.write().nav.navigate_to(new_node_id.clone(), label.to_string());
 
-                        // Mark as active
-                        for node in &mut ws_signal.write().nav.vault_tree {
-                            node.active = node.id == new_node_id;
-                        }
-
                         // Log artifact creation
                         log_event(&mut ws_signal.write(), EventDirection::System, format!("Created: {}", label));
                     }
@@ -1271,12 +1321,13 @@ pub fn RootApp() -> Element {
                     // Leaf block actions - add to currently active tree
                     SlashAction::Text | SlashAction::Heading | SlashAction::Code |
                     SlashAction::Callout | SlashAction::Todo | SlashAction::Image | SlashAction::Divider => {
-                        // Find the active tree
+                        // Find the active tree via current_id
                         let active_tree_id = {
-                            let tree_nodes = ws_signal.read().nav.vault_tree.clone();
-                            tree_nodes.iter()
-                                .find(|n| n.active)
-                                .and_then(|n| n.artifact_id.clone())
+                            let ws = ws_signal.read();
+                            ws.nav.current_id.as_ref()
+                                .and_then(|cid| ws.nav.vault_tree.iter()
+                                    .find(|n| &n.id == cid)
+                                    .and_then(|n| n.artifact_id.clone()))
                         };
 
                         let active_tree_id = match active_tree_id {
@@ -1403,6 +1454,7 @@ pub fn RootApp() -> Element {
 
     // Convert VaultTreeNode -> indras_ui::TreeNode for sidebar, filtering collapsed children
     let sidebar_nodes: Vec<TreeNode> = {
+        let current = ws.nav.current_id.as_ref();
         let mut nodes = Vec::new();
         let mut skip_depth: Option<usize> = None;
         for n in ws.nav.vault_tree.iter() {
@@ -1426,7 +1478,7 @@ pub fn RootApp() -> Element {
                 depth: n.depth,
                 has_children: n.has_children,
                 expanded: n.expanded,
-                active: n.active,
+                active: current == Some(&n.id),
                 section: n.section.clone(),
                 view_type: n.view_type.clone(),
             });
@@ -1785,9 +1837,13 @@ pub fn RootApp() -> Element {
                         }
                         ViewType::Story => {
                             // Check if this is a Contact (relationship story) or regular story
-                            let is_contact = workspace.read().nav.vault_tree.iter()
-                                .find(|n| n.active)
-                                .map_or(false, |n| n.icon == "\u{1F464}");
+                            // Use current_id rather than active flag — sidebar rebuilds can reset active
+                            let is_contact = {
+                                let ws = workspace.read();
+                                ws.nav.current_id.as_ref()
+                                    .and_then(|id| ws.nav.vault_tree.iter().find(|n| &n.id == id))
+                                    .map_or(false, |n| n.icon == "\u{1F464}")
+                            };
 
                             if is_contact {
                                 // Use ChatPanel for Contact relationship stories
@@ -1893,13 +1949,15 @@ pub fn RootApp() -> Element {
                                                         let my_name = net.as_ref()
                                                             .and_then(|n| n.display_name().map(|s| s.to_string()))
                                                             .unwrap_or_default();
+                                                        let my_id = net.as_ref()
+                                                            .map(|n| member_id_hex(&n.id()));
                                                         let data = doc.read().await;
                                                         let messages: Vec<StoryMessage> = data.visible_messages().iter()
                                                             .filter(|msg| {
                                                                 query.is_empty() || msg.current_content.to_lowercase()
                                                                     .contains(&query.to_lowercase())
                                                             })
-                                                            .map(|msg| chat_msg_to_story(msg, &my_name, &data))
+                                                            .map(|msg| chat_msg_to_story(msg, &my_name, my_id.as_deref(), &data))
                                                             .collect();
                                                         story_messages.set(messages);
                                                     }
@@ -2261,7 +2319,6 @@ pub fn RootApp() -> Element {
                                                             depth: 0,
                                                             has_children,
                                                             expanded: has_children,
-                                                            active: false,
                                                             section,
                                                             view_type: view_type_str.to_string(),
                                                         });
@@ -2286,7 +2343,6 @@ pub fn RootApp() -> Element {
                                                                             depth: 1,
                                                                             has_children: false,
                                                                             expanded: false,
-                                                                            active: false,
                                                                             section: None,
                                                                             view_type: child_vt.to_string(),
                                                                         });
