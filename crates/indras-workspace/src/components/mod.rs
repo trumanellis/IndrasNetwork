@@ -5,8 +5,6 @@ pub mod story;
 pub mod quest;
 pub mod settings;
 pub mod blocks;
-pub mod bottom_nav;
-pub mod fab;
 pub mod setup;
 pub mod pass_story;
 pub mod event_log;

@@ -18,8 +18,6 @@ use crate::components::pass_story::PassStoryOverlay;
 use crate::components::event_log::EventLogView;
 use crate::components::artifact_browser::{ArtifactBrowserView, BrowsableArtifact, MimeCategory};
 use crate::state::workspace::{EventDirection, log_event};
-use crate::components::bottom_nav::{BottomNav, NavTab};
-use crate::components::fab::Fab;
 use crate::state::workspace::{WorkspaceState, ViewType, AppPhase, PeerDisplayInfo};
 use crate::state::navigation::{NavigationState, VaultTreeNode};
 use crate::state::editor::{EditorState, DocumentMeta, BlockDocumentSchema};
@@ -27,7 +25,7 @@ use crate::state::editor::{EditorState, DocumentMeta, BlockDocumentSchema};
 use indras_artifacts::Intention;
 use indras_ui::{
     IdentityRow, PeerStrip,
-    VaultSidebar, TreeNode,
+    NavigationSidebar, NavDestination, CreateAction, RecentItem,
     SlashMenu, SlashAction,
     DetailPanel, PropertyRow, AudienceMember, HeatEntry, TrailEvent, ReferenceItem, SyncEntry,
     MarkdownPreviewOverlay, PreviewFile, PreviewViewMode,
@@ -35,7 +33,7 @@ use indras_ui::{
     ChatPanel,
 };
 use indras_ui::PeerDisplayInfo as UiPeerDisplayInfo;
-use indras_network::{GeoLocation, IdentityCode, IndrasNetwork, HomeRealm, Realm, RealmChatDocument, EditableChatMessage, EditableMessageType, AccessMode};
+use indras_network::{ArtifactStatus, GeoLocation, HomeArtifactEntry, IdentityCode, IndrasNetwork, HomeRealm, Realm, RealmChatDocument, EditableChatMessage, EditableMessageType, AccessMode};
 use indras_ui::artifact_display::{ArtifactDisplayInfo, ArtifactDisplayStatus};
 
 #[cfg(feature = "lua-scripting")]
@@ -90,6 +88,122 @@ fn chat_msg_to_story(
     }
 }
 
+/// Rebuild the sidebar vault_tree from the ArtifactIndex (single source of truth).
+///
+/// Reads all active artifacts from the home realm's index and builds
+/// VaultTreeNode entries using the stored `artifact_type` for icons and view types.
+/// Also resolves realm aliases for labels and populates `realm_map`.
+async fn rebuild_sidebar_from_index(
+    home: &HomeRealm,
+    network: &IndrasNetwork,
+    mut workspace: Signal<WorkspaceState>,
+    mut realm_map: Signal<std::collections::HashMap<String, Realm>>,
+) {
+    let doc = match home.artifact_index().await {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::warn!(error = %e, "Failed to read artifact index for sidebar rebuild");
+            return;
+        }
+    };
+    let data = doc.read().await;
+    let mut entries: Vec<_> = data.active_artifacts().collect();
+    if entries.is_empty() {
+        return;
+    }
+
+    // Sort by category so section headers group correctly:
+    // 0 = vault (file/document/story/realm/gallery/etc), 1 = contact,
+    // 2 = quest/need/offering/intention, 3 = exchange, 4 = collection
+    fn category_order(t: &str) -> u8 {
+        match t {
+            "contact" => 1,
+            "quest" | "need" | "offering" | "intention" => 2,
+            "exchange" => 3,
+            "collection" => 4,
+            _ => 0,
+        }
+    }
+    entries.sort_by_key(|e| category_order(&e.artifact_type));
+
+    // Build realm lookup: artifact_id -> Realm
+    let mut art_to_realm = std::collections::HashMap::new();
+    for rid in network.realms() {
+        if let Some(realm) = network.get_realm_by_id(&rid) {
+            if let Some(art_id) = realm.artifact_id() {
+                art_to_realm.insert(*art_id, realm);
+            }
+        }
+    }
+
+    let mut nodes = Vec::new();
+    let mut contacts_section_added = false;
+    let mut quest_section_added = false;
+    let mut exchange_section_added = false;
+    let mut tokens_section_added = false;
+
+    for entry in &entries {
+        let node_id = format!("{:?}", entry.id);
+        let icon = NavigationState::icon_for_type(&entry.artifact_type);
+        let view_type_str = NavigationState::view_type_for(&entry.artifact_type);
+
+        let is_contact = entry.artifact_type == "contact";
+        let is_quest_type = matches!(
+            entry.artifact_type.as_str(),
+            "quest" | "need" | "offering" | "intention"
+        );
+        let section = if nodes.is_empty() {
+            Some("Vault".to_string())
+        } else if is_contact && !contacts_section_added {
+            contacts_section_added = true;
+            Some("Contacts".to_string())
+        } else if is_quest_type && !quest_section_added {
+            quest_section_added = true;
+            Some("Intentions & Quests".to_string())
+        } else if entry.artifact_type == "exchange" && !exchange_section_added {
+            exchange_section_added = true;
+            Some("Exchanges".to_string())
+        } else if entry.artifact_type == "collection" && !tokens_section_added {
+            tokens_section_added = true;
+            Some("Tokens".to_string())
+        } else {
+            None
+        };
+
+        // Use realm alias as label if available
+        let label = if let Some(realm) = art_to_realm.get(&entry.id) {
+            match realm.get_alias().await {
+                Ok(Some(alias)) => alias,
+                _ => entry.name.clone(),
+            }
+        } else {
+            entry.name.clone()
+        };
+
+        nodes.push(VaultTreeNode {
+            id: node_id.clone(),
+            artifact_id: Some(entry.id),
+            label,
+            icon: icon.to_string(),
+            heat_level: 0,
+            depth: 0,
+            has_children: false,
+            expanded: false,
+            section,
+            view_type: view_type_str.to_string(),
+        });
+
+        // Insert realm into realm_map if found
+        if let Some(realm) = art_to_realm.remove(&entry.id) {
+            realm_map.write().insert(node_id, realm);
+        }
+    }
+
+    if !nodes.is_empty() {
+        workspace.write().nav.vault_tree = nodes;
+    }
+}
+
 /// Root application component.
 #[component]
 pub fn RootApp() -> Element {
@@ -97,7 +211,6 @@ pub fn RootApp() -> Element {
     let mut vault_handle = use_signal(|| None::<VaultHandle>);
     let mut story_messages = use_signal(Vec::<StoryMessage>::new);
     let mut quest_data = use_signal(|| None::<QuestViewData>);
-    let mut active_tab = use_signal(|| NavTab::Vault);
     // token_picker_open removed — inline pickers per-proof now
     let mut preview_open = use_signal(|| false);
     let mut preview_file = use_signal(|| None::<PreviewFile>);
@@ -267,95 +380,10 @@ pub fn RootApp() -> Element {
                                         log_event(&mut workspace.write(), EventDirection::System, "Home realm initialized".to_string());
 
                                         // Restore sidebar from HomeRealm artifact index
-                                        match hr_clone.artifact_index().await {
-                                            Ok(doc) => {
-                                                let data = doc.read().await;
-                                                let entries: Vec<_> = data.active_artifacts().collect();
-                                                if !entries.is_empty() {
-                                                    // Build realm lookup: artifact_id -> Realm
-                                                    let mut art_to_realm = std::collections::HashMap::new();
-                                                    for rid in net.realms() {
-                                                        if let Some(realm) = net.get_realm_by_id(&rid) {
-                                                            if let Some(art_id) = realm.artifact_id() {
-                                                                art_to_realm.insert(*art_id, realm);
-                                                            }
-                                                        }
-                                                    }
-
-                                                    let mut nodes = Vec::new();
-                                                    let mut contacts_section_added = false;
-
-                                                    // Get vault for artifact type lookups
-                                                    let vault_for_restore = vault_handle.read().as_ref()
-                                                        .map(|vh| Arc::clone(&vh.vault));
-
-                                                    // All entries are flat (no parent/child nesting)
-                                                    for entry in &entries {
-                                                        let node_id = format!("{:?}", entry.id);
-
-                                                        // Look up artifact from vault to get type
-                                                        let (icon, view_type_str, section) = if let Some(ref vault_arc) = vault_for_restore {
-                                                            let v = vault_arc.lock().await;
-                                                            if let Ok(Some(artifact)) = v.get_artifact(&entry.id) {
-                                                                let ic = NavigationState::icon_for_type(&artifact.artifact_type);
-                                                                let vt = NavigationState::view_type_for(&artifact.artifact_type);
-                                                                let is_contact = artifact.artifact_type == "contact";
-                                                                let sect = if nodes.is_empty() {
-                                                                    Some("Vault".to_string())
-                                                                } else if is_contact && !contacts_section_added {
-                                                                    contacts_section_added = true;
-                                                                    Some("Contacts".to_string())
-                                                                } else {
-                                                                    None
-                                                                };
-                                                                (ic.to_string(), vt.to_string(), sect)
-                                                            } else {
-                                                                let sect = if nodes.is_empty() { Some("Vault".to_string()) } else { None };
-                                                                ("\u{1F4C4}".to_string(), "document".to_string(), sect)
-                                                            }
-                                                        } else {
-                                                            let sect = if nodes.is_empty() { Some("Vault".to_string()) } else { None };
-                                                            ("\u{1F4C4}".to_string(), "document".to_string(), sect)
-                                                        };
-
-                                                        // Use realm alias as label if available
-                                                        let label = if let Some(realm) = art_to_realm.get(&entry.id) {
-                                                            match realm.get_alias().await {
-                                                                Ok(Some(alias)) => alias,
-                                                                _ => entry.name.clone(),
-                                                            }
-                                                        } else {
-                                                            entry.name.clone()
-                                                        };
-
-                                                        nodes.push(VaultTreeNode {
-                                                            id: node_id.clone(),
-                                                            artifact_id: Some(entry.id),
-                                                            label,
-                                                            icon,
-                                                            heat_level: 0,
-                                                            depth: 0,
-                                                            has_children: false,
-                                                            expanded: false,
-                                                            section,
-                                                            view_type: view_type_str,
-                                                        });
-
-                                                        // Insert realm into realm_map if found
-                                                        if let Some(realm) = art_to_realm.remove(&entry.id) {
-                                                            realm_map.write().insert(node_id, realm);
-                                                        }
-                                                    }
-
-                                                    if !nodes.is_empty() {
-                                                        workspace.write().nav.vault_tree = nodes;
-                                                        log_event(&mut workspace.write(), EventDirection::System, format!("Restored {} artifacts from home realm", entries.len()));
-                                                    }
-                                                }
-                                            }
-                                            Err(e) => {
-                                                tracing::warn!(error = %e, "Failed to read artifact index (non-fatal)");
-                                            }
+                                        rebuild_sidebar_from_index(&hr_clone, &net, workspace, realm_map).await;
+                                        let restored_count = workspace.read().nav.vault_tree.len();
+                                        if restored_count > 0 {
+                                            log_event(&mut workspace.write(), EventDirection::System, format!("Restored {} artifacts from home realm", restored_count));
                                         }
                                     }
                                     Err(e) => {
@@ -502,65 +530,37 @@ pub fn RootApp() -> Element {
                                             }
                                         }
 
-                                        // Rebuild sidebar if new Contact tree was created
+                                        // Store contact in ArtifactIndex and rebuild sidebar
                                         if sidebar_needs_rebuild {
-                                            if let Ok(Some(rebuilt_root)) = vault.get_artifact(&vault.root.id) {
-                                                let mut nodes = Vec::new();
-                                                let mut quest_section_added = false;
-                                                let mut exchange_section_added = false;
-                                                let mut tokens_section_added = false;
-                                                let mut contacts_section_added = false;
+                                            // Get the new contact's ArtifactId from vault root's last reference
+                                            let contact_art_id = vault.get_artifact(&vault.root.id)
+                                                .ok().flatten()
+                                                .and_then(|root| root.references.last().map(|r| r.artifact_id));
+                                            drop(vault);
 
-                                                for aref in &rebuilt_root.references {
-                                                    if let Ok(Some(artifact)) = vault.get_artifact(&aref.artifact_id) {
-                                                        let view_type_str = NavigationState::view_type_for(&artifact.artifact_type);
-                                                        let icon = NavigationState::icon_for_type(&artifact.artifact_type);
-                                                        let heat_val = vault.heat(&aref.artifact_id, now).unwrap_or(0.0);
-                                                        let heat_lvl = indras_ui::heat_level(heat_val);
-                                                        let label_str = aref.label.clone().unwrap_or_default();
-
-                                                        let is_quest_type = matches!(
-                                                            artifact.artifact_type.as_str(),
-                                                            "quest" | "need" | "offering" | "intention"
-                                                        );
-                                                        let is_contact = artifact.artifact_type == "contact";
-                                                        let section = if nodes.is_empty() {
-                                                            Some("Vault".to_string())
-                                                        } else if is_contact && !contacts_section_added {
-                                                            contacts_section_added = true;
-                                                            Some("Contacts".to_string())
-                                                        } else if is_quest_type && !quest_section_added {
-                                                            quest_section_added = true;
-                                                            Some("Intentions & Quests".to_string())
-                                                        } else if artifact.artifact_type == "exchange" && !exchange_section_added {
-                                                            exchange_section_added = true;
-                                                            Some("Exchanges".to_string())
-                                                        } else if artifact.artifact_type == "collection" && !tokens_section_added {
-                                                            tokens_section_added = true;
-                                                            Some("Tokens".to_string())
-                                                        } else {
-                                                            None
+                                            if let Some(contact_art_id) = contact_art_id {
+                                                if let Some(home) = home_realm_handle.read().as_ref().cloned() {
+                                                    if let Ok(doc) = home.artifact_index().await {
+                                                        let index_entry = HomeArtifactEntry {
+                                                            id: contact_art_id,
+                                                            name: entry.name.clone(),
+                                                            artifact_type: "contact".to_string(),
+                                                            mime_type: None,
+                                                            size: 0,
+                                                            created_at: now,
+                                                            encrypted_key: None,
+                                                            status: ArtifactStatus::Active,
+                                                            grants: vec![],
+                                                            provenance: None,
+                                                            location: None,
                                                         };
-
-                                                        let node_id = format!("{:?}", aref.artifact_id);
-                                                        let has_children = !artifact.references.is_empty();
-
-                                                        nodes.push(VaultTreeNode {
-                                                            id: node_id,
-                                                            artifact_id: Some(aref.artifact_id.clone()),
-                                                            label: label_str,
-                                                            icon: icon.to_string(),
-                                                            heat_level: heat_lvl,
-                                                            depth: 0,
-                                                            has_children,
-                                                            expanded: has_children,
-                                                            section,
-                                                            view_type: view_type_str.to_string(),
-                                                        });
+                                                        let _ = doc.update(|index| { index.store(index_entry); }).await;
+                                                    }
+                                                    let net = network_handle.read().as_ref().map(|nh| nh.network.clone());
+                                                    if let Some(net) = net {
+                                                        rebuild_sidebar_from_index(&home, &net, workspace, realm_map).await;
                                                     }
                                                 }
-
-                                                workspace.write().nav.vault_tree = nodes;
                                             }
                                         }
                                     }
@@ -625,6 +625,26 @@ pub fn RootApp() -> Element {
 
                                                     log_event(&mut workspace.write(), EventDirection::Received,
                                                         format!("Joined shared Intention: {}", name));
+
+                                                    // Store in ArtifactIndex
+                                                    if let Some(home) = home_realm_handle.read().as_ref().cloned() {
+                                                        if let Ok(doc) = home.artifact_index().await {
+                                                            let entry = HomeArtifactEntry {
+                                                                id: intention.id,
+                                                                name: name.clone(),
+                                                                artifact_type: "intention".to_string(),
+                                                                mime_type: None,
+                                                                size: 0,
+                                                                created_at: join_now,
+                                                                encrypted_key: None,
+                                                                status: ArtifactStatus::Active,
+                                                                grants: vec![],
+                                                                provenance: None,
+                                                                location: None,
+                                                            };
+                                                            let _ = doc.update(|index| { index.store(entry); }).await;
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -636,62 +656,8 @@ pub fn RootApp() -> Element {
 
                     // Rebuild sidebar once if any new intentions were joined
                     if any_joined {
-                        if let Some(vh) = vault_handle.read().clone() {
-                            let vault = vh.vault.lock().await;
-                            let rebuild_now = chrono::Utc::now().timestamp_millis();
-                            if let Ok(Some(rebuilt_root)) = vault.get_artifact(&vault.root.id) {
-                                let mut nodes = Vec::new();
-                                let mut quest_section_added = false;
-                                let mut contacts_section_added = false;
-                                let mut exchange_section_added = false;
-                                let mut tokens_section_added = false;
-                                for aref in &rebuilt_root.references {
-                                    if let Ok(Some(artifact)) = vault.get_artifact(&aref.artifact_id) {
-                                        let view_type_str = NavigationState::view_type_for(&artifact.artifact_type);
-                                        let icon = NavigationState::icon_for_type(&artifact.artifact_type);
-                                        let heat_val = vault.heat(&aref.artifact_id, rebuild_now).unwrap_or(0.0);
-                                        let heat_lvl = indras_ui::heat_level(heat_val);
-                                        let label_str = aref.label.clone().unwrap_or_default();
-                                        let is_quest_type = matches!(
-                                            artifact.artifact_type.as_str(),
-                                            "quest" | "need" | "offering" | "intention"
-                                        );
-                                        let is_contact = artifact.artifact_type == "contact";
-                                        let section = if nodes.is_empty() {
-                                            Some("Vault".to_string())
-                                        } else if is_contact && !contacts_section_added {
-                                            contacts_section_added = true;
-                                            Some("Contacts".to_string())
-                                        } else if is_quest_type && !quest_section_added {
-                                            quest_section_added = true;
-                                            Some("Intentions & Quests".to_string())
-                                        } else if artifact.artifact_type == "exchange" && !exchange_section_added {
-                                            exchange_section_added = true;
-                                            Some("Exchanges".to_string())
-                                        } else if artifact.artifact_type == "collection" && !tokens_section_added {
-                                            tokens_section_added = true;
-                                            Some("Tokens".to_string())
-                                        } else {
-                                            None
-                                        };
-                                        let nid = format!("{:?}", aref.artifact_id);
-                                        let has_children = !artifact.references.is_empty();
-                                        nodes.push(VaultTreeNode {
-                                            id: nid,
-                                            artifact_id: Some(aref.artifact_id.clone()),
-                                            label: label_str,
-                                            icon: icon.to_string(),
-                                            heat_level: heat_lvl,
-                                            depth: 0,
-                                            has_children,
-                                            expanded: has_children,
-                                            section,
-                                            view_type: view_type_str.to_string(),
-                                        });
-                                    }
-                                }
-                                workspace.write().nav.vault_tree = nodes;
-                            }
+                        if let Some(home) = home_realm_handle.read().as_ref().cloned() {
+                            rebuild_sidebar_from_index(&home, &net, workspace, realm_map).await;
                         }
                     }
                 }
@@ -1348,18 +1314,6 @@ pub fn RootApp() -> Element {
         }
     };
 
-    let on_tree_toggle = move |node_id: String| {
-        workspace.write().nav.toggle_expand(&node_id);
-        // Update the expanded state in the vault tree nodes
-        let _expanded = workspace.read().nav.expanded_nodes.contains(&node_id);
-        for node in &mut workspace.write().nav.vault_tree {
-            if node.id == node_id {
-                node.expanded = !node.expanded;
-                break;
-            }
-        }
-    };
-
     let on_crumb_click = move |crumb_id: String| {
         // Navigate to the breadcrumb target
         if crumb_id == "root" {
@@ -1379,7 +1333,7 @@ pub fn RootApp() -> Element {
         workspace.write().ui.sidebar_open = !is_open;
     };
 
-    let on_slash_select = {
+    let mut on_slash_select = {
         let vault_handle = vault_handle.clone();
         move |action: SlashAction| {
             workspace.write().ui.slash_menu_open = false;
@@ -1469,101 +1423,33 @@ pub fn RootApp() -> Element {
                                 }
                             }
                         }
-                        // Re-acquire vault lock for sidebar rebuild
-                        let vh = match vh_signal.read().clone() {
-                            Some(h) => h,
-                            None => return,
-                        };
-                        let vault = vh.vault.lock().await;
-
-                        // Rebuild sidebar tree (read from store, not stale root field)
-                        let mut nodes = Vec::new();
-                        let rebuilt_root = match vault.get_artifact(&vault.root.id) {
-                            Ok(Some(a)) => a,
-                            _ => return,
-                        };
-                        let root_refs = &rebuilt_root.references;
-                        let mut quest_section_added = false;
-                        let mut exchange_section_added = false;
-                        let mut tokens_section_added = false;
-                        let mut contacts_section_added = false;
-
-                        for aref in root_refs {
-                            if let Ok(Some(artifact)) = vault.get_artifact(&aref.artifact_id) {
-                                let view_type_str = NavigationState::view_type_for(&artifact.artifact_type);
-                                let icon = NavigationState::icon_for_type(&artifact.artifact_type);
-                                let heat_val = vault.heat(&aref.artifact_id, now).unwrap_or(0.0);
-                                let heat_lvl = indras_ui::heat_level(heat_val);
-                                let label_str = aref.label.clone().unwrap_or_default();
-
-                                let is_quest_type = matches!(
-                                    artifact.artifact_type.as_str(),
-                                    "quest" | "need" | "offering" | "intention"
-                                );
-                                let is_contact = artifact.artifact_type == "contact";
-                                let section = if nodes.is_empty() {
-                                    Some("Vault".to_string())
-                                } else if is_contact && !contacts_section_added {
-                                    contacts_section_added = true;
-                                    Some("Contacts".to_string())
-                                } else if is_quest_type && !quest_section_added {
-                                    quest_section_added = true;
-                                    Some("Intentions & Quests".to_string())
-                                } else if artifact.artifact_type == "exchange" && !exchange_section_added {
-                                    exchange_section_added = true;
-                                    Some("Exchanges".to_string())
-                                } else if artifact.artifact_type == "collection" && !tokens_section_added {
-                                    tokens_section_added = true;
-                                    Some("Tokens".to_string())
-                                } else {
-                                    None
+                        // Store in ArtifactIndex so artifact browser sees it
+                        if let Some(home) = home_realm_handle.read().as_ref().cloned() {
+                            if let Ok(doc) = home.artifact_index().await {
+                                let entry = HomeArtifactEntry {
+                                    id: tree.id,
+                                    name: label.to_string(),
+                                    artifact_type: tree_type.to_string(),
+                                    mime_type: None,
+                                    size: 0,
+                                    created_at: now,
+                                    encrypted_key: None,
+                                    status: ArtifactStatus::Active,
+                                    grants: vec![],
+                                    provenance: None,
+                                    location: None,
                                 };
-
-                                let node_id = format!("{:?}", aref.artifact_id);
-                                let has_children = !artifact.references.is_empty();
-
-                                nodes.push(VaultTreeNode {
-                                    id: node_id.clone(),
-                                    artifact_id: Some(aref.artifact_id.clone()),
-                                    label: label_str.clone(),
-                                    icon: icon.to_string(),
-                                    heat_level: heat_lvl,
-                                    depth: 0,
-                                    has_children,
-                                    expanded: has_children,
-                                    section,
-                                    view_type: view_type_str.to_string(),
-                                });
-
-                                if has_children {
-                                    for child_ref in &artifact.references {
-                                        if let Ok(Some(child_artifact)) = vault.get_artifact(&child_ref.artifact_id) {
-                                            let child_vt = NavigationState::view_type_for(&child_artifact.artifact_type);
-                                            let child_icon = NavigationState::icon_for_type(&child_artifact.artifact_type);
-                                            let child_heat = vault.heat(&child_ref.artifact_id, now).unwrap_or(0.0);
-                                            let child_heat_lvl = indras_ui::heat_level(child_heat);
-                                            let child_label = child_ref.label.clone().unwrap_or_default();
-                                            let child_node_id = format!("{:?}", child_ref.artifact_id);
-
-                                            nodes.push(VaultTreeNode {
-                                                id: child_node_id,
-                                                artifact_id: Some(child_ref.artifact_id.clone()),
-                                                label: child_label,
-                                                icon: child_icon.to_string(),
-                                                heat_level: child_heat_lvl,
-                                                depth: 1,
-                                                has_children: false,
-                                                expanded: false,
-                                                section: None,
-                                                view_type: child_vt.to_string(),
-                                            });
-                                        }
-                                    }
-                                }
+                                let _ = doc.update(|index| { index.store(entry); }).await;
                             }
                         }
 
-                        ws_signal.write().nav.vault_tree = nodes;
+                        // Rebuild sidebar from ArtifactIndex
+                        if let Some(home) = home_realm_handle.read().as_ref().cloned() {
+                            let net = network_handle.read().as_ref().map(|nh| nh.network.clone());
+                            if let Some(net) = net {
+                                rebuild_sidebar_from_index(&home, &net, ws_signal, realm_map).await;
+                            }
+                        }
 
                         // Navigate to the new tree
                         let new_node_id = format!("{:?}", tree.id);
@@ -1670,79 +1556,97 @@ pub fn RootApp() -> Element {
         workspace.write().ui.active_detail_tab = 1; // Audience tab
     };
 
-    let on_fab_click = move |_: ()| {
-        workspace.write().ui.slash_menu_open = true;
-    };
-
     let on_settings = move |_: ()| {
         workspace.write().ui.active_view = ViewType::Settings;
     };
 
-    let mut on_tab_change = move |tab: NavTab| {
-        let is_profile = tab == NavTab::Profile;
-        let is_artifacts = tab == NavTab::Artifacts;
-        active_tab.set(tab);
-        if is_profile {
-            workspace.write().ui.active_view = ViewType::Settings;
-        } else if is_artifacts {
-            workspace.write().ui.active_view = ViewType::Artifacts;
-            // Load artifacts from home realm
-            let hr = home_realm_handle;
-            let ul = user_location;
-            spawn(async move {
-                let hr_read = hr.read();
-                if let Some(ref home) = *hr_read {
-                    if let Ok(index) = home.artifact_index().await {
-                        let data = index.read().await;
-                        let loc = ul.read().clone();
-                        let peers_state = workspace.read().peers.entries.clone();
-                        let browsable: Vec<BrowsableArtifact> = data
-                            .active_artifacts()
-                            .map(|entry| {
-                                let distance_km = match (&loc, &entry.location) {
-                                    (Some(ul), Some(al)) => Some(ul.distance_km(al)),
-                                    _ => None,
-                                };
-                                let status = if entry.status.is_active() {
-                                    ArtifactDisplayStatus::Active
-                                } else {
-                                    ArtifactDisplayStatus::Recalled
-                                };
-                                let origin_label = match &entry.provenance {
-                                    None => "Mine".to_string(),
-                                    Some(p) => {
-                                        peers_state.iter()
-                                            .find(|peer| peer.player_id == p.received_from)
-                                            .map(|peer| peer.name.clone())
-                                            .unwrap_or_else(|| format!("{:02x}{:02x}..", p.received_from[0], p.received_from[1]))
+    // Navigation hub: map NavDestination → ViewType (with async artifact loading for Artifacts)
+    let on_navigate = move |dest: NavDestination| {
+        match dest {
+            NavDestination::Home => {
+                workspace.write().ui.active_view = ViewType::Document;
+            }
+            NavDestination::Artifacts => {
+                workspace.write().ui.active_view = ViewType::Artifacts;
+                let hr = home_realm_handle;
+                let ul = user_location;
+                spawn(async move {
+                    let hr_read = hr.read();
+                    if let Some(ref home) = *hr_read {
+                        if let Ok(index) = home.artifact_index().await {
+                            let data = index.read().await;
+                            let loc = ul.read().clone();
+                            let peers_state = workspace.read().peers.entries.clone();
+                            let browsable: Vec<BrowsableArtifact> = data
+                                .active_artifacts()
+                                .map(|entry| {
+                                    let distance_km = match (&loc, &entry.location) {
+                                        (Some(ul), Some(al)) => Some(ul.distance_km(al)),
+                                        _ => None,
+                                    };
+                                    let status = if entry.status.is_active() {
+                                        ArtifactDisplayStatus::Active
+                                    } else {
+                                        ArtifactDisplayStatus::Recalled
+                                    };
+                                    let origin_label = match &entry.provenance {
+                                        None => "Mine".to_string(),
+                                        Some(p) => {
+                                            peers_state.iter()
+                                                .find(|peer| peer.player_id == p.received_from)
+                                                .map(|peer| peer.name.clone())
+                                                .unwrap_or_else(|| format!("{:02x}{:02x}..", p.received_from[0], p.received_from[1]))
+                                        }
+                                    };
+                                    let owner_label = match &entry.provenance {
+                                        Some(_) => Some(format!("From {}", origin_label)),
+                                        None if entry.grants.is_empty() => Some("Private".into()),
+                                        None => Some(format!("Shared with {}", entry.grants.len())),
+                                    };
+                                    BrowsableArtifact {
+                                        info: ArtifactDisplayInfo {
+                                            id: entry.hash_hex(),
+                                            name: entry.name.clone(),
+                                            size: entry.size,
+                                            mime_type: entry.mime_type.clone(),
+                                            status,
+                                            data_url: None,
+                                            grant_count: entry.grants.len(),
+                                            owner_label,
+                                        },
+                                        distance_km,
+                                        origin_label,
                                     }
-                                };
-                                let owner_label = match &entry.provenance {
-                                    Some(_) => Some(format!("From {}", origin_label)),
-                                    None if entry.grants.is_empty() => Some("Private".into()),
-                                    None => Some(format!("Shared with {}", entry.grants.len())),
-                                };
-                                BrowsableArtifact {
-                                    info: ArtifactDisplayInfo {
-                                        id: entry.hash_hex(),
-                                        name: entry.name.clone(),
-                                        size: entry.size,
-                                        mime_type: entry.mime_type.clone(),
-                                        status,
-                                        data_url: None,
-                                        grant_count: entry.grants.len(),
-                                        owner_label,
-                                    },
-                                    distance_km,
-                                    origin_label,
-                                }
-                            })
-                            .collect();
-                        browser_artifacts.set(browsable);
+                                })
+                                .collect();
+                            browser_artifacts.set(browsable);
+                        }
                     }
-                }
-            });
+                });
+            }
+            NavDestination::Contacts => {
+                workspace.write().ui.active_view = ViewType::Story;
+            }
+            NavDestination::Quests => {
+                workspace.write().ui.active_view = ViewType::Quest;
+            }
+            NavDestination::Settings => {
+                workspace.write().ui.active_view = ViewType::Settings;
+            }
         }
+    };
+
+    // Create hub: map CreateAction → SlashAction and delegate to on_slash_select
+    let on_create = move |action: CreateAction| {
+        let slash = match action {
+            CreateAction::Document => SlashAction::Document,
+            CreateAction::Story => SlashAction::Story,
+            CreateAction::Quest => SlashAction::Quest,
+            CreateAction::Need => SlashAction::Need,
+            CreateAction::Offering => SlashAction::Offering,
+            CreateAction::Intention => SlashAction::Intention,
+        };
+        on_slash_select(slash);
     };
 
     // --- Build render data ---
@@ -1760,39 +1664,27 @@ pub fn RootApp() -> Element {
         Some(ws.editor.meta.steward_name.clone())
     };
 
-    // Convert VaultTreeNode -> indras_ui::TreeNode for sidebar, filtering collapsed children
-    let sidebar_nodes: Vec<TreeNode> = {
-        let current = ws.nav.current_id.as_ref();
-        let mut nodes = Vec::new();
-        let mut skip_depth: Option<usize> = None;
-        for n in ws.nav.vault_tree.iter() {
-            // Skip children of collapsed parents
-            if let Some(sd) = skip_depth {
-                if n.depth > sd {
-                    continue;
-                } else {
-                    skip_depth = None;
-                }
-            }
-            // If this node has children but is collapsed, skip its children
-            if n.has_children && !n.expanded {
-                skip_depth = Some(n.depth);
-            }
-            nodes.push(TreeNode {
-                id: n.id.clone(),
-                label: n.label.clone(),
-                icon: n.icon.clone(),
-                heat_level: n.heat_level,
-                depth: n.depth,
-                has_children: n.has_children,
-                expanded: n.expanded,
-                active: current == Some(&n.id),
-                section: n.section.clone(),
-                view_type: n.view_type.clone(),
-            });
-        }
-        nodes
+    // Derive active navigation destination from current view
+    let active_destination = match &active_view {
+        ViewType::Document => NavDestination::Home,
+        ViewType::Story => NavDestination::Contacts,
+        ViewType::Artifacts => NavDestination::Artifacts,
+        ViewType::Quest => NavDestination::Quests,
+        ViewType::Settings => NavDestination::Settings,
     };
+
+    // Build recent items from recent_artifact_ids cross-referenced with vault_tree
+    let recent_items: Vec<RecentItem> = ws.nav.recent_artifact_ids.iter()
+        .filter_map(|id| {
+            ws.nav.vault_tree.iter().find(|n| n.id == *id).map(|n| {
+                RecentItem {
+                    id: n.id.clone(),
+                    label: n.label.clone(),
+                    icon: n.icon.clone(),
+                }
+            })
+        })
+        .collect();
 
     // Build peer strip data
     let ui_peers: Vec<UiPeerDisplayInfo> = ws.peers.entries.iter().map(|p| {
@@ -1896,7 +1788,7 @@ pub fn RootApp() -> Element {
     let editor = ws.editor.clone();
     let current_story_messages = story_messages.read().clone();
     let current_quest_data = quest_data.read().clone();
-    let current_active_tab = active_tab.read().clone();
+
 
     drop(ws); // Release the read borrow
 
@@ -2074,30 +1966,12 @@ pub fn RootApp() -> Element {
                         },
                     }
 
-                    VaultSidebar {
-                        nodes: sidebar_nodes,
-                        on_click: on_tree_click,
-                        on_toggle: on_tree_toggle,
-                    }
-
-                    div {
-                        class: "sidebar-footer",
-                        button {
-                            class: "sidebar-footer-btn",
-                            onclick: move |_| {
-                                workspace.write().ui.slash_menu_open = true;
-                            },
-                            "\u{26A1} New"
-                        }
-                        button {
-                            class: "sidebar-footer-btn",
-                            onclick: move |_| on_tab_change(NavTab::Artifacts),
-                            "\u{1F4E6} Artifacts"
-                        }
-                        button {
-                            class: "sidebar-footer-btn",
-                            "\u{1F50D} Search"
-                        }
+                    NavigationSidebar {
+                        active: active_destination,
+                        recent_items: recent_items,
+                        on_navigate: on_navigate,
+                        on_create: on_create,
+                        on_recent_click: on_tree_click,
                     }
                 }
 
@@ -2712,91 +2586,30 @@ pub fn RootApp() -> Element {
                                             Some(contact_label),
                                         );
 
-                                        // Rebuild sidebar tree so Contact appears immediately
-                                        if let Ok(Some(rebuilt_root)) = vault.get_artifact(&vault.root.id) {
-                                            let mut nodes = Vec::new();
-                                            let root_refs = &rebuilt_root.references;
-                                            let mut quest_section_added = false;
-                                            let mut exchange_section_added = false;
-                                            let mut tokens_section_added = false;
-                                            let mut contacts_section_added = false;
-
-                                            for aref in root_refs {
-                                                if let Ok(Some(art)) = vault.get_artifact(&aref.artifact_id) {
-                                                    let view_type_str = NavigationState::view_type_for(&art.artifact_type);
-                                                    let icon = NavigationState::icon_for_type(&art.artifact_type);
-                                                    let heat_val = vault.heat(&aref.artifact_id, now).unwrap_or(0.0);
-                                                    let heat_lvl = indras_ui::heat_level(heat_val);
-                                                    let label_str = aref.label.clone().unwrap_or_default();
-
-                                                    let is_quest_type = matches!(
-                                                        art.artifact_type.as_str(),
-                                                        "quest" | "need" | "offering" | "intention"
-                                                    );
-                                                    let is_contact = art.artifact_type == "contact";
-                                                    let section = if nodes.is_empty() {
-                                                        Some("Vault".to_string())
-                                                    } else if is_contact && !contacts_section_added {
-                                                        contacts_section_added = true;
-                                                        Some("Contacts".to_string())
-                                                    } else if is_quest_type && !quest_section_added {
-                                                        quest_section_added = true;
-                                                        Some("Intentions & Quests".to_string())
-                                                    } else if art.artifact_type == "exchange" && !exchange_section_added {
-                                                        exchange_section_added = true;
-                                                        Some("Exchanges".to_string())
-                                                    } else if art.artifact_type == "collection" && !tokens_section_added {
-                                                        tokens_section_added = true;
-                                                        Some("Tokens".to_string())
-                                                    } else {
-                                                        None
-                                                    };
-
-                                                    let node_id = format!("{:?}", aref.artifact_id);
-                                                    let has_children = !art.references.is_empty();
-
-                                                    nodes.push(VaultTreeNode {
-                                                        id: node_id.clone(),
-                                                        artifact_id: Some(aref.artifact_id.clone()),
-                                                        label: label_str,
-                                                        icon: icon.to_string(),
-                                                        heat_level: heat_lvl,
-                                                        depth: 0,
-                                                        has_children,
-                                                        expanded: has_children,
-                                                        section,
-                                                        view_type: view_type_str.to_string(),
-                                                    });
-
-                                                    if has_children {
-                                                        for child_ref in &art.references {
-                                                            if let Ok(Some(child_artifact)) = vault.get_artifact(&child_ref.artifact_id) {
-                                                                let child_vt = NavigationState::view_type_for(&child_artifact.artifact_type);
-                                                                let child_icon = NavigationState::icon_for_type(&child_artifact.artifact_type);
-                                                                let child_heat = vault.heat(&child_ref.artifact_id, now).unwrap_or(0.0);
-                                                                let child_heat_lvl = indras_ui::heat_level(child_heat);
-                                                                let child_label = child_ref.label.clone().unwrap_or_default();
-                                                                let child_node_id = format!("{:?}", child_ref.artifact_id);
-
-                                                                nodes.push(VaultTreeNode {
-                                                                    id: child_node_id,
-                                                                    artifact_id: Some(child_ref.artifact_id.clone()),
-                                                                    label: child_label,
-                                                                    icon: child_icon.to_string(),
-                                                                    heat_level: child_heat_lvl,
-                                                                    depth: 1,
-                                                                    has_children: false,
-                                                                    expanded: false,
-                                                                    section: None,
-                                                                    view_type: child_vt.to_string(),
-                                                                });
-                                                            }
-                                                        }
-                                                    }
-                                                }
+                                        // Store contact in ArtifactIndex and rebuild sidebar
+                                        let contact_aid = contact_tree.id;
+                                        drop(vault);
+                                        if let Some(home) = home_realm_handle.read().as_ref().cloned() {
+                                            if let Ok(doc) = home.artifact_index().await {
+                                                let entry = HomeArtifactEntry {
+                                                    id: contact_aid,
+                                                    name: peer_display.clone(),
+                                                    artifact_type: "contact".to_string(),
+                                                    mime_type: None,
+                                                    size: 0,
+                                                    created_at: now,
+                                                    encrypted_key: None,
+                                                    status: ArtifactStatus::Active,
+                                                    grants: vec![],
+                                                    provenance: None,
+                                                    location: None,
+                                                };
+                                                let _ = doc.update(|index| { index.store(entry); }).await;
                                             }
-
-                                            workspace.write().nav.vault_tree = nodes;
+                                            let net = network_handle.read().as_ref().map(|nh| nh.network.clone());
+                                            if let Some(net) = net {
+                                                rebuild_sidebar_from_index(&home, &net, workspace, realm_map).await;
+                                            }
                                         }
                                     }
                                     Err(e) => {
@@ -2987,82 +2800,35 @@ pub fn RootApp() -> Element {
                                         }
                                     }
 
-                                    // Rebuild sidebar
-                                    let vh = match vh_signal.read().clone() {
-                                        Some(h) => h,
-                                        None => return,
-                                    };
-                                    let vault = vh.vault.lock().await;
-                                    let now = chrono::Utc::now().timestamp_millis();
-                                    let root = match vault.get_artifact(&vault.root.id) {
-                                        Ok(Some(a)) => a,
-                                        _ => return,
-                                    };
-                                    let mut nodes = Vec::new();
-                                    let mut quest_section_added = false;
-                                    let mut contacts_section_added = false;
-                                    let mut exchange_section_added = false;
-                                    let mut tokens_section_added = false;
-                                    for aref in &root.references {
-                                        if let Ok(Some(artifact)) = vault.get_artifact(&aref.artifact_id) {
-                                            let view_type_str = NavigationState::view_type_for(&artifact.artifact_type);
-                                            let icon = NavigationState::icon_for_type(&artifact.artifact_type);
-                                            let heat_val = vault.heat(&aref.artifact_id, now).unwrap_or(0.0);
-                                            let heat_lvl = indras_ui::heat_level(heat_val);
-                                            let label_str = aref.label.clone().unwrap_or_default();
-                                            let is_quest_type = matches!(
-                                                artifact.artifact_type.as_str(),
-                                                "quest" | "need" | "offering" | "intention"
-                                            );
-                                            let is_contact = artifact.artifact_type == "contact";
-                                            let section = if nodes.is_empty() {
-                                                Some("Vault".to_string())
-                                            } else if is_contact && !contacts_section_added {
-                                                contacts_section_added = true;
-                                                Some("Contacts".to_string())
-                                            } else if is_quest_type && !quest_section_added {
-                                                quest_section_added = true;
-                                                Some("Intentions & Quests".to_string())
-                                            } else if artifact.artifact_type == "exchange" && !exchange_section_added {
-                                                exchange_section_added = true;
-                                                Some("Exchanges".to_string())
-                                            } else if artifact.artifact_type == "collection" && !tokens_section_added {
-                                                tokens_section_added = true;
-                                                Some("Tokens".to_string())
-                                            } else {
-                                                None
+                                    // Store in ArtifactIndex and rebuild sidebar
+                                    if let Some(home) = hr_signal.read().as_ref().cloned() {
+                                        if let Ok(doc) = home.artifact_index().await {
+                                            let entry = HomeArtifactEntry {
+                                                id: intention.id,
+                                                name: title.clone(),
+                                                artifact_type: "intention".to_string(),
+                                                mime_type: None,
+                                                size: 0,
+                                                created_at: now,
+                                                encrypted_key: None,
+                                                status: ArtifactStatus::Active,
+                                                grants: vec![],
+                                                provenance: None,
+                                                location: None,
                                             };
-                                            let node_id = format!("{:?}", aref.artifact_id);
-                                            let has_children = !artifact.references.is_empty();
-                                            nodes.push(VaultTreeNode {
-                                                id: node_id,
-                                                artifact_id: Some(aref.artifact_id),
-                                                label: label_str,
-                                                icon: icon.to_string(),
-                                                heat_level: heat_lvl,
-                                                depth: 0,
-                                                has_children,
-                                                expanded: has_children,
-                                                section,
-                                                view_type: view_type_str.to_string(),
-                                            });
+                                            let _ = doc.update(|index| { index.store(entry); }).await;
+                                        }
+                                        let net = nh_signal.read().as_ref().map(|nh| nh.network.clone());
+                                        if let Some(net) = net {
+                                            rebuild_sidebar_from_index(&home, &net, ws_signal, rm_signal).await;
                                         }
                                     }
-                                    ws_signal.write().nav.vault_tree = nodes;
                                 });
                             },
                         }
                     }
                 }
 
-                // Floating action button (mobile)
-                Fab { on_click: on_fab_click }
-
-                // Bottom navigation (mobile)
-                BottomNav {
-                    active_tab: current_active_tab,
-                    on_tab_change: on_tab_change,
-                }
             }
         },
     }
