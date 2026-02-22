@@ -902,8 +902,8 @@ struct LuaContactsRealm {
 
 impl UserData for LuaContactsRealm {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
-        methods.add_method("id", |_, this, ()| {
-            Ok(hex::encode(this.contacts.id().as_bytes()))
+        methods.add_method("id", |_, _this, ()| {
+            Ok("contacts".to_string())
         });
 
         methods.add_async_method(
@@ -1012,8 +1012,8 @@ impl UserData for LuaContactsRealm {
 
         methods.add_meta_method(MetaMethod::ToString, |_, this, ()| {
             Ok(format!(
-                "ContactsRealm(id={})",
-                hex::encode(&this.contacts.id().as_bytes()[..4])
+                "ContactsRealm(count={})",
+                this.contacts.contact_count()
             ))
         });
     }

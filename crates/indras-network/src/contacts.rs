@@ -1,31 +1,16 @@
-//! Contacts - contact management and key exchange realm.
+//! Contacts - contact management via the home realm.
 //!
-//! The ContactsRealm is a special global realm used for managing contacts
-//! and exchanging cryptographic keys. When you add someone as a contact,
-//! you automatically subscribe to all peer-set realm combinations with them.
+//! ContactsRealm wraps a `Document<ContactsDocument>` stored inside the
+//! user's HomeRealm, eliminating the need for a separate contacts
+//! interface/realm. When you add someone as a contact, you automatically
+//! subscribe to all peer-set realm combinations with them.
 
 use crate::document::Document;
 use crate::error::{IndraError, Result};
 use crate::member::MemberId;
-use crate::network::RealmId;
 
-use indras_node::IndrasNode;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::sync::Arc;
-
-/// Per-user identifier for the contacts realm.
-///
-/// Derived from the user's MemberId so each node has a unique contacts
-/// interface. A global constant would cause all nodes to share the same
-/// interface_id, and since `create_interface_with_id` generates a random
-/// key, they'd each have a different key → `aead::Error` on every sync.
-pub fn contacts_realm_id(member_id: &MemberId) -> RealmId {
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(b"contacts-v2:");
-    hasher.update(member_id);
-    indras_core::InterfaceId::new(*hasher.finalize().as_bytes())
-}
 
 /// Connection status for a contact.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -190,58 +175,33 @@ impl ContactsDocument {
     }
 }
 
-/// A wrapper around the contacts realm providing contact management.
+/// A wrapper around the contacts document providing contact management.
 ///
-/// The ContactsRealm is a special realm used for:
-/// - Storing your contact list
-/// - Exchanging cryptographic keys with contacts
-/// - Auto-subscribing to peer-set realms with your contacts
+/// ContactsRealm stores contacts as a named document inside the user's
+/// HomeRealm, avoiding a separate interface/realm for contacts.
 ///
 /// # Example
 ///
 /// ```ignore
-/// // Join the contacts realm
 /// let contacts = network.join_contacts_realm().await?;
 ///
-/// // Add a friend
 /// contacts.add_contact(friend_id).await?;
 ///
-/// // List all contacts
 /// for contact in contacts.contacts_list() {
 ///     println!("Contact: {:?}", contact);
 /// }
 /// ```
 pub struct ContactsRealm {
-    /// The realm ID (from contacts_realm_id(member_id)).
-    id: RealmId,
-    /// The contacts document.
+    /// The contacts document (stored in the home realm).
     document: Document<ContactsDocument>,
-    /// Reference to the underlying node.
-    node: Arc<IndrasNode>,
     /// Our own member ID.
     self_id: MemberId,
 }
 
 impl ContactsRealm {
-    /// Create a new ContactsRealm wrapper.
-    pub(crate) async fn new(
-        id: RealmId,
-        node: Arc<IndrasNode>,
-        self_id: MemberId,
-    ) -> Result<Self> {
-        let document = Document::new(id, "contacts".to_string(), Arc::clone(&node)).await?;
-
-        Ok(Self {
-            id,
-            document,
-            node,
-            self_id,
-        })
-    }
-
-    /// Get the realm ID.
-    pub fn id(&self) -> RealmId {
-        self.id
+    /// Create a ContactsRealm from a home realm's contacts document.
+    pub(crate) fn from_home(document: Document<ContactsDocument>, self_id: MemberId) -> Self {
+        Self { document, self_id }
     }
 
     /// Get access to the contacts document.
@@ -420,18 +380,12 @@ impl ContactsRealm {
         self.document.read().await.get_status(member_id)
     }
 
-    /// Access the underlying node.
-    pub fn node(&self) -> &IndrasNode {
-        &self.node
-    }
 }
 
 impl Clone for ContactsRealm {
     fn clone(&self) -> Self {
         Self {
-            id: self.id,
             document: self.document.clone(),
-            node: Arc::clone(&self.node),
             self_id: self.self_id,
         }
     }
@@ -440,16 +394,8 @@ impl Clone for ContactsRealm {
 impl std::fmt::Debug for ContactsRealm {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ContactsRealm")
-            .field("id", &hex::encode(&self.id.as_bytes()[..8]))
             .field("contact_count", &self.contact_count())
             .finish()
-    }
-}
-
-// Simple hex encoding for debug output
-mod hex {
-    pub fn encode(bytes: &[u8]) -> String {
-        bytes.iter().map(|b| format!("{:02x}", b)).collect()
     }
 }
 
@@ -531,20 +477,6 @@ mod tests {
         // Opt back in
         doc.set_relayable(&member1, true);
         assert_eq!(doc.relayable_sentiments().len(), 1);
-    }
-
-    #[test]
-    fn test_contacts_realm_id() {
-        // Should be deterministic for the same member
-        let member = [1u8; 32];
-        let id1 = contacts_realm_id(&member);
-        let id2 = contacts_realm_id(&member);
-        assert_eq!(id1, id2);
-
-        // Different members get different realm IDs
-        let other = [2u8; 32];
-        let id3 = contacts_realm_id(&other);
-        assert_ne!(id1, id3);
     }
 
     #[test]

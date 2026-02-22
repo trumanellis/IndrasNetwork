@@ -174,17 +174,40 @@ async fn refresh_conversations(
     handle: &NetworkHandle,
     mut conversations: Signal<Vec<ConversationSummary>>,
 ) {
-    let realm_ids = handle.network.realms();
+    let realm_ids = handle.network.conversation_realms();
+
+    // Pre-load contacts data (async) for DM name resolution
+    let contacts_data = if let Some(contacts) = handle.network.contacts_realm().await {
+        if let Ok(doc) = contacts.contacts().await {
+            Some(doc.read().await.clone())
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     let mut convos = Vec::new();
 
     for realm_id in realm_ids {
         if let Some(realm) = handle.network.get_realm_by_id(&realm_id) {
-            let display_name = realm.name()
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| {
+            let raw_name = realm.name().map(|s| s.to_string());
+
+            // Resolve DM display names from contacts
+            let display_name = if raw_name.as_deref() == Some("DM") {
+                handle.network.dm_peer_for_realm(&realm_id)
+                    .and_then(|peer_id| {
+                        contacts_data.as_ref()
+                            .and_then(|data| data.get_display_name(&peer_id).map(|s| s.to_string()))
+                            .or_else(|| Some(format!("DM {}", hex::encode(&peer_id[..4]))))
+                    })
+                    .unwrap_or_else(|| "DM".to_string())
+            } else {
+                raw_name.unwrap_or_else(|| {
                     let id_hex = hex::encode(realm_id.as_bytes());
                     format!("Chat {}", &id_hex[..8])
-                });
+                })
+            };
 
             // Try to get last message preview
             let (last_msg, last_time) = match realm.chat_doc().await {
