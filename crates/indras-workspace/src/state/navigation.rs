@@ -32,6 +32,8 @@ pub struct NavigationState {
     pub current_id: Option<String>,
     pub expanded_nodes: HashSet<String>,
     pub vault_tree: Vec<VaultTreeNode>,
+    /// Most-recently-accessed artifact IDs (newest first, max 5).
+    pub recent_artifact_ids: Vec<String>,
 }
 
 impl NavigationState {
@@ -44,10 +46,11 @@ impl NavigationState {
             current_id: None,
             expanded_nodes: HashSet::new(),
             vault_tree: Vec::new(),
+            recent_artifact_ids: Vec::new(),
         }
     }
 
-    /// Navigate to an artifact, updating breadcrumbs.
+    /// Navigate to an artifact, updating breadcrumbs and recent list.
     pub fn navigate_to(&mut self, id: String, label: String) {
         // Add to breadcrumbs (simplified - just append)
         self.current_id = Some(id.clone());
@@ -57,9 +60,13 @@ impl NavigationState {
             // Truncate to this position
             self.breadcrumbs.truncate(pos + 1);
         } else {
-            self.breadcrumbs.push(BreadcrumbEntry { id, label });
+            self.breadcrumbs.push(BreadcrumbEntry { id: id.clone(), label });
         }
 
+        // Maintain most-recent-first list, capped at 5
+        self.recent_artifact_ids.retain(|r| r != &id);
+        self.recent_artifact_ids.insert(0, id);
+        self.recent_artifact_ids.truncate(5);
     }
 
     /// Toggle expand/collapse of a tree node.

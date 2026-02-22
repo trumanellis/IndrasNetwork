@@ -14,7 +14,7 @@ pub mod chat;
 pub mod identity_row;
 pub mod peer_strip;
 pub mod heat_display;
-pub mod vault_sidebar;
+pub mod navigation_sidebar;
 pub mod slash_menu;
 pub mod detail_panel;
 
@@ -28,7 +28,7 @@ pub use artifact_display::{ArtifactDisplayInfo, ArtifactDisplayStatus, ArtifactG
 pub use identity_row::IdentityRow;
 pub use peer_strip::{PeerStrip, PeerDisplayInfo};
 pub use heat_display::{HeatDot, HeatBar, heat_level};
-pub use vault_sidebar::{VaultSidebar, TreeNode};
+pub use navigation_sidebar::{NavigationSidebar, NavDestination, CreateAction, RecentItem};
 pub use slash_menu::{SlashMenu, SlashAction};
 pub use detail_panel::{DetailPanel, PropertyRow, AudienceMember, HeatEntry, TrailEvent, ReferenceItem, SyncEntry};
 pub use chat::ChatPanel;

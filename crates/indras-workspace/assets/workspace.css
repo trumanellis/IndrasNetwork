@@ -39,7 +39,6 @@
   --radius-xl: 20px;
   --sidebar-w: 280px;
   --detail-w: 320px;
-  --bottom-nav-h: 56px;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --transition: 150ms ease;
   --transition-slide: 280ms cubic-bezier(0.4,0,0.2,1);
@@ -108,9 +107,6 @@ button{font-family:var(--font-body)}
 .tree-item[data-heat="5"] .tree-label{color:var(--heat-5)}
 .tree-item[data-heat="4"] .tree-label{color:var(--heat-4)}
 .tree-item[data-heat="3"] .tree-label{color:var(--heat-3)}
-.sidebar-footer{padding:10px 16px;border-top:1px solid var(--border-subtle);display:flex;gap:8px;flex-shrink:0}
-.sidebar-footer-btn{flex:1;padding:8px;background:var(--bg-raised);border:1px solid var(--border-dim);border-radius:var(--radius-sm);color:var(--text-secondary);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;min-height:38px}
-.sidebar-footer-btn:active{background:var(--bg-active)}
 
 /* ================================================================
    MAIN
@@ -490,19 +486,6 @@ button{font-family:var(--font-body)}
 .slash-item-name{font-size:14px;font-weight:500}
 .slash-item-desc{font-size:11px;color:var(--text-muted)}
 
-/* ================================================================
-   BOTTOM NAV + FAB (mobile)
-   ================================================================ */
-.bottom-nav{display:none;position:fixed;bottom:0;left:0;right:0;background:var(--bg-deep);border-top:1px solid var(--border-subtle);z-index:60;padding-bottom:var(--safe-bottom)}
-.bottom-nav-inner{display:flex;height:var(--bottom-nav-h)}
-.bottom-nav-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:var(--text-muted);font-size:10px;cursor:pointer;border:none;background:none;font-family:var(--font-body);min-height:44px;position:relative}
-.bottom-nav-item:active{color:var(--text-primary)}
-.bottom-nav-item.active{color:var(--accent-teal)}
-.bottom-nav-item .nav-icon{font-size:20px;line-height:1}
-.bottom-nav-item.active::after{content:'';position:absolute;top:0;left:25%;right:25%;height:2px;background:var(--accent-teal);border-radius:0 0 2px 2px}
-.nav-heat-badge{position:absolute;top:4px;right:calc(50% - 18px);width:6px;height:6px;border-radius:50%;background:var(--heat-5);box-shadow:0 0 6px rgba(255,217,61,0.4)}
-.fab{display:none;position:fixed;z-index:55;width:52px;height:52px;border-radius:50%;background:var(--accent-teal);color:var(--bg-void);border:none;font-size:26px;cursor:pointer;box-shadow:0 4px 20px rgba(0,212,170,0.3);align-items:center;justify-content:center}
-.fab:active{transform:scale(0.92)}
 
 /* ================================================================
    VIEW: SETTINGS
@@ -556,8 +539,6 @@ button{font-family:var(--font-body)}
   .tree-item{padding:8px 8px 8px 10px;gap:6px}
   .tree-label{font-size:13px;max-width:120px}
   .tree-section-label{padding:12px 10px 4px;font-size:9px}
-  .sidebar-footer{padding:8px;gap:4px}
-  .sidebar-footer-btn{padding:6px;font-size:11px}
 }
 @media (max-width:768px){
   /* Tablet-small: sidebar stays in-grid but even more compact */
@@ -588,11 +569,9 @@ button{font-family:var(--font-body)}
   .detail-panel{position:fixed;right:0;top:0;bottom:0;width:92vw;max-width:380px;transform:translateX(100%);transition:transform var(--transition-slide);box-shadow:-8px 0 32px rgba(0,0,0,0.5)}
   .detail-panel.open{transform:translateX(0)}
   .app.detail-closed .detail-panel{display:flex;transform:translateX(100%)}
-  .content-scroll,.story-scroll,.request-scroll{padding-bottom:calc(var(--bottom-nav-h) + var(--safe-bottom) + 20px)}
-  .compose-bar{padding-bottom:calc(12px + var(--bottom-nav-h) + var(--safe-bottom))}
-  .bottom-nav{display:block}
-  .fab{display:flex;bottom:calc(var(--bottom-nav-h) + var(--safe-bottom) + 16px);right:16px}
-  .slash-menu{bottom:calc(var(--bottom-nav-h) + var(--safe-bottom) + 8px);left:8px;right:8px;width:auto;max-height:60vh;border-radius:var(--radius-xl)}
+  .content-scroll,.story-scroll,.request-scroll{padding-bottom:calc(var(--safe-bottom) + 20px)}
+  .compose-bar{padding-bottom:calc(12px + var(--safe-bottom))}
+  .slash-menu{bottom:calc(var(--safe-bottom) + 8px);left:8px;right:8px;width:auto;max-height:60vh;border-radius:var(--radius-xl)}
 }
 @media (max-width:400px){
   .content-body{padding:0 12px}
