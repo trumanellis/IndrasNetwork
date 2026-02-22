@@ -2,11 +2,8 @@
 
 use dioxus::desktop::{Config, LogicalPosition, LogicalSize, WindowBuilder};
 
-mod bridge;
-mod components;
-mod state;
-
-const CHAT_CSS: &str = include_str!("style.css");
+use indras_chat::components;
+use indras_chat::CHAT_CSS;
 
 fn main() {
     tracing_subscriber::fmt()

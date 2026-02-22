@@ -4060,6 +4060,7 @@ dependencies = [
  "dioxus",
  "futures",
  "indras-artifacts",
+ "indras-chat",
  "indras-crypto",
  "indras-network",
  "indras-ui",

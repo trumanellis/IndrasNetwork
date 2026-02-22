@@ -1,7 +1,6 @@
 pub mod app;
 pub mod topbar;
 pub mod document;
-pub mod story;
 pub mod quest;
 pub mod settings;
 pub mod blocks;
