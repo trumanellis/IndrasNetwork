@@ -1,7 +1,8 @@
-//! Artifact browser — 3-column location-based view (Nearby / Distant / Untagged).
+//! Artifact browser — 3-column location-based view (Local / Global / Digital).
 
 use dioxus::prelude::*;
 use indras_ui::artifact_display::{ArtifactDisplayInfo, ArtifactGallery};
+use indras_ui::markdown::{is_markdown_file, render_markdown_to_html};
 
 /// MIME-type filter category.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -60,6 +61,14 @@ impl MimeCategory {
     }
 }
 
+/// A single resolved grant for display in the audience popup.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GrantDisplay {
+    pub peer_name: String,
+    pub peer_letter: String,
+    pub mode_label: String,
+}
+
 /// An artifact with computed distance and origin for the browser view.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BrowsableArtifact {
@@ -67,6 +76,10 @@ pub struct BrowsableArtifact {
     pub distance_km: Option<f64>,
     /// "Mine" or the peer name this artifact was received from.
     pub origin_label: String,
+    /// Inline text content for markdown/text artifacts.
+    pub content: Option<String>,
+    /// Pre-resolved grants for audience popup display.
+    pub grants: Vec<GrantDisplay>,
 }
 
 /// 3-column artifact browser view.
@@ -83,6 +96,8 @@ pub fn ArtifactBrowserView(
     on_peer_filter: EventHandler<String>,
     available_peers: Vec<String>,
 ) -> Element {
+    let mut selected: Signal<Option<BrowsableArtifact>> = use_signal(|| None);
+
     // Filter by search + MIME category + peer origin
     let filtered: Vec<&BrowsableArtifact> = artifacts
         .iter()
@@ -96,37 +111,44 @@ pub fn ArtifactBrowserView(
         .collect();
 
     // Partition into 3 columns
-    let mut nearby: Vec<&BrowsableArtifact> = Vec::new();
-    let mut distant: Vec<&BrowsableArtifact> = Vec::new();
-    let mut untagged: Vec<&BrowsableArtifact> = Vec::new();
+    let mut local: Vec<&BrowsableArtifact> = Vec::new();
+    let mut global: Vec<&BrowsableArtifact> = Vec::new();
+    let mut digital: Vec<&BrowsableArtifact> = Vec::new();
 
     for a in &filtered {
         match a.distance_km {
-            Some(d) if d <= radius_km => nearby.push(a),
-            Some(_) => distant.push(a),
-            None => untagged.push(a),
+            Some(d) if d <= radius_km => local.push(a),
+            Some(_) => global.push(a),
+            None => digital.push(a),
         }
     }
 
-    nearby.sort_by(|a, b| {
+    local.sort_by(|a, b| {
         a.distance_km
             .partial_cmp(&b.distance_km)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
-    distant.sort_by(|a, b| {
+    global.sort_by(|a, b| {
         a.distance_km
             .partial_cmp(&b.distance_km)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
-    untagged.sort_by(|a, b| a.info.name.cmp(&b.info.name));
+    digital.sort_by(|a, b| a.info.name.cmp(&b.info.name));
 
-    let nearby_infos: Vec<ArtifactDisplayInfo> = nearby.iter().map(|a| a.info.clone()).collect();
-    let distant_infos: Vec<ArtifactDisplayInfo> = distant.iter().map(|a| a.info.clone()).collect();
-    let untagged_infos: Vec<ArtifactDisplayInfo> = untagged.iter().map(|a| a.info.clone()).collect();
+    let local_infos: Vec<ArtifactDisplayInfo> = local.iter().map(|a| a.info.clone()).collect();
+    let global_infos: Vec<ArtifactDisplayInfo> = global.iter().map(|a| a.info.clone()).collect();
+    let digital_infos: Vec<ArtifactDisplayInfo> = digital.iter().map(|a| a.info.clone()).collect();
 
-    let nearby_count = nearby_infos.len();
-    let distant_count = distant_infos.len();
-    let untagged_count = untagged_infos.len();
+    let local_count = local_infos.len();
+    let global_count = global_infos.len();
+    let digital_count = digital_infos.len();
+
+    let artifacts_for_click = artifacts.clone();
+    let on_card_click = EventHandler::new(move |info: ArtifactDisplayInfo| {
+        if let Some(ba) = artifacts_for_click.iter().find(|a| a.info.id == info.id) {
+            selected.set(Some(ba.clone()));
+        }
+    });
 
     rsx! {
         div {
@@ -231,51 +253,199 @@ pub fn ArtifactBrowserView(
                     div {
                         class: "artifact-browser-columns",
 
-                        // Nearby column
+                        // Local column
                         div {
                             class: "artifact-browser-column",
                             div {
                                 class: "artifact-browser-column-header",
-                                "Nearby"
-                                span { class: "artifact-browser-column-count", "{nearby_count}" }
+                                "Local"
+                                span { class: "artifact-browser-column-count", "{local_count}" }
                             }
-                            if nearby_infos.is_empty() {
-                                div { class: "artifact-browser-empty", "No nearby artifacts" }
+                            if local_infos.is_empty() {
+                                div { class: "artifact-browser-empty", "No local artifacts" }
                             } else {
-                                ArtifactGallery { artifacts: nearby_infos }
+                                ArtifactGallery { artifacts: local_infos, on_click: on_card_click }
                             }
                         }
 
-                        // Distant column
+                        // Global column
                         div {
                             class: "artifact-browser-column",
                             div {
                                 class: "artifact-browser-column-header",
-                                "Distant"
-                                span { class: "artifact-browser-column-count", "{distant_count}" }
+                                "Global"
+                                span { class: "artifact-browser-column-count", "{global_count}" }
                             }
-                            if distant_infos.is_empty() {
-                                div { class: "artifact-browser-empty", "No distant artifacts" }
+                            if global_infos.is_empty() {
+                                div { class: "artifact-browser-empty", "No global artifacts" }
                             } else {
-                                ArtifactGallery { artifacts: distant_infos }
+                                ArtifactGallery { artifacts: global_infos, on_click: on_card_click }
                             }
                         }
 
-                        // Untagged column
+                        // Digital column
                         div {
                             class: "artifact-browser-column",
                             div {
                                 class: "artifact-browser-column-header",
-                                "Untagged"
-                                span { class: "artifact-browser-column-count", "{untagged_count}" }
+                                "Digital"
+                                span { class: "artifact-browser-column-count", "{digital_count}" }
                             }
-                            if untagged_infos.is_empty() {
-                                div { class: "artifact-browser-empty", "No untagged artifacts" }
+                            if digital_infos.is_empty() {
+                                div { class: "artifact-browser-empty", "No digital artifacts" }
                             } else {
-                                ArtifactGallery { artifacts: untagged_infos }
+                                ArtifactGallery { artifacts: digital_infos, on_click: on_card_click }
                             }
                         }
                     }
+                }
+            }
+
+            // Detail modal
+            if let Some(ref artifact) = *selected.read() {
+                ArtifactDetailModal {
+                    artifact: artifact.clone(),
+                    on_close: move |_| selected.set(None),
+                }
+            }
+        }
+    }
+}
+
+/// Modal overlay showing full artifact details with content-first layout.
+///
+/// For markdown files: shows rendered HTML (default) or raw text with a toggle.
+/// For images with data_url: shows the image.
+/// For text with content: shows raw text in a `<pre>` block.
+/// Otherwise: shows icon fallback.
+#[component]
+fn ArtifactDetailModal(
+    artifact: BrowsableArtifact,
+    on_close: EventHandler<()>,
+) -> Element {
+    let mut view_raw = use_signal(|| false);
+    let mut show_audience = use_signal(|| false);
+
+    let info = &artifact.info;
+    let icon = info.icon();
+    let size_str = info.formatted_size();
+    let status_label = info.status.label();
+    let status_class = match info.status {
+        indras_ui::artifact_display::ArtifactDisplayStatus::Active => "status-active",
+        indras_ui::artifact_display::ArtifactDisplayStatus::Recalled => "status-recalled",
+        indras_ui::artifact_display::ArtifactDisplayStatus::Transferred => "status-transferred",
+        indras_ui::artifact_display::ArtifactDisplayStatus::Expired => "status-expired",
+    };
+    let has_image = info.has_displayable_image() && info.data_url.is_some();
+    let mime = info.mime_type.clone().unwrap_or_else(|| "unknown".to_string());
+    let is_md = is_markdown_file(&info.name, &mime);
+    let distance_str = match artifact.distance_km {
+        Some(d) => format!("{d:.1} km"),
+        None => "N/A (digital)".to_string(),
+    };
+
+    let rendered_html = if is_md && !*view_raw.read() {
+        artifact.content.as_ref().map(|c| render_markdown_to_html(c))
+    } else {
+        None
+    };
+
+    let is_raw = *view_raw.read();
+    let audience_open = *show_audience.read();
+
+    rsx! {
+        div {
+            class: "artifact-detail-overlay",
+            onclick: move |_| on_close.call(()),
+
+            div {
+                class: "artifact-detail-modal",
+                onclick: move |evt| evt.stop_propagation(),
+
+                // Header: filename + toggle + close
+                div {
+                    class: "artifact-detail-header",
+                    div { class: "artifact-detail-title", "{info.name}" }
+                    div {
+                        class: "artifact-detail-controls",
+                        if is_md && artifact.content.is_some() {
+                            button {
+                                class: "artifact-detail-toggle",
+                                onclick: move |_| view_raw.set(!is_raw),
+                                if is_raw { "View Rendered" } else { "View Raw" }
+                            }
+                        }
+                        button {
+                            class: "artifact-detail-close",
+                            onclick: move |_| on_close.call(()),
+                            "\u{2715}"
+                        }
+                    }
+                }
+
+                // Content area (takes most of modal space)
+                div {
+                    class: "artifact-detail-content",
+                    if has_image {
+                        if let Some(ref url) = info.data_url {
+                            img { src: "{url}", alt: "{info.name}" }
+                        }
+                    } else if let Some(ref html) = rendered_html {
+                        div { class: "markdown-rendered", dangerous_inner_html: "{html}" }
+                    } else if let Some(ref text) = artifact.content {
+                        pre { class: "markdown-raw", "{text}" }
+                    } else {
+                        div {
+                            class: "artifact-detail-icon-fallback",
+                            span { class: "artifact-detail-preview-icon", "{icon}" }
+                        }
+                    }
+                }
+
+                // Properties bar (condensed horizontal strip)
+                div {
+                    class: "artifact-detail-props-bar",
+                    span { class: "artifact-detail-prop-chip", "{size_str}" }
+                    span { class: "artifact-detail-prop-chip", "{mime}" }
+                    span { class: "artifact-detail-prop-chip {status_class}", "{status_label}" }
+
+                    // Origin chip — clickable to show audience popup
+                    div {
+                        class: "artifact-detail-origin-wrap",
+                        span {
+                            class: "artifact-detail-prop-chip artifact-detail-origin",
+                            onclick: move |_| show_audience.set(!audience_open),
+                            "{artifact.origin_label}"
+                        }
+                        if audience_open {
+                            div {
+                                class: "artifact-audience-popup",
+                                onclick: move |evt| evt.stop_propagation(),
+                                div {
+                                    class: "artifact-audience-row artifact-audience-steward",
+                                    span { class: "artifact-audience-letter", "S" }
+                                    span { class: "artifact-audience-name", "Steward: {artifact.origin_label}" }
+                                }
+                                if artifact.grants.is_empty() {
+                                    div {
+                                        class: "artifact-audience-row artifact-audience-empty",
+                                        "Private \u{2014} no grants"
+                                    }
+                                } else {
+                                    for grant in artifact.grants.iter() {
+                                        div {
+                                            class: "artifact-audience-row",
+                                            span { class: "artifact-audience-letter", "{grant.peer_letter}" }
+                                            span { class: "artifact-audience-name", "{grant.peer_name}" }
+                                            span { class: "artifact-audience-mode", "{grant.mode_label}" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    span { class: "artifact-detail-prop-chip", "{distance_str}" }
                 }
             }
         }
