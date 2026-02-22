@@ -3518,6 +3518,24 @@ dependencies = [
 name = "indras-chat"
 version = "1.0.0"
 dependencies = [
+ "chrono",
+ "dioxus",
+ "futures",
+ "hex",
+ "indras-crypto",
+ "indras-network",
+ "indras-sync-engine",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "indras-chat-example"
+version = "1.0.0"
+dependencies = [
  "anyhow",
  "chrono",
  "clap",
@@ -4042,6 +4060,7 @@ dependencies = [
  "dioxus",
  "futures",
  "indras-artifacts",
+ "indras-chat",
  "indras-crypto",
  "indras-network",
  "indras-ui",
