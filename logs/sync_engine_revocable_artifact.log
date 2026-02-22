@@ -1,1 +1,1 @@
-{"timestamp":"2026-01-31T18:57:38.319329Z","level":"ERROR","message":"Script not found: scripts/scenarios/sync_engine_revocable_artifact.lua","target":"lua_runner","filename":"simulation/src/bin/lua_runner.rs","line_number":90}
+{"timestamp":"2026-02-19T15:40:35.404150Z","level":"ERROR","message":"Script not found: scripts/scenarios/sync_engine_revocable_artifact.lua","target":"lua_runner","filename":"simulation/src/bin/lua_runner.rs","line_number":91}

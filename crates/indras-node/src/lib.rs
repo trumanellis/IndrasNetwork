@@ -1191,8 +1191,26 @@ impl IndrasNode {
             let mut sent_count = 0u32;
             for member in &targets {
                 if *member != self.identity && transport.is_connected(member) {
-                    let _ = transport.send(member, bytes.clone()).await;
-                    sent_count += 1;
+                    if let Err(e) = transport.send(member, bytes.clone()).await {
+                        // Eager retry: spawn a single delayed retry (500ms) for
+                        // this peer before falling back to the 5-second sync interval.
+                        let transport_retry = transport.clone();
+                        let peer = *member;
+                        let retry_bytes = bytes.clone();
+                        debug!(
+                            peer = %peer.short_id(),
+                            error = %e,
+                            "Send failed, scheduling eager retry in 500ms"
+                        );
+                        tokio::spawn(async move {
+                            tokio::time::sleep(Duration::from_millis(500)).await;
+                            if transport_retry.is_connected(&peer) {
+                                let _ = transport_retry.send(&peer, retry_bytes).await;
+                            }
+                        });
+                    } else {
+                        sent_count += 1;
+                    }
                 }
             }
             debug!(

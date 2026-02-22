@@ -1,0 +1,1 @@
+{"timestamp":"2026-02-19T15:39:36.368446Z","level":"ERROR","message":"Script not found: scripts/scenarios/sync_engine_home_realm_stress.lua","target":"lua_runner","filename":"simulation/src/bin/lua_runner.rs","line_number":91}
