@@ -578,6 +578,14 @@ impl HomeRealm {
         Document::new(self.id, name.to_string(), Arc::clone(&self.node)).await
     }
 
+    /// Get the contacts document stored in the home realm.
+    ///
+    /// Contacts are stored as a named document inside the home realm,
+    /// eliminating the need for a separate contacts realm/interface.
+    pub async fn contacts(&self) -> Result<Document<crate::contacts::ContactsDocument>> {
+        self.document::<crate::contacts::ContactsDocument>("contacts").await
+    }
+
     // ============================================================
     // Escape hatches
     // ============================================================

@@ -3,7 +3,7 @@
 //! Provides a high-level API for building P2P applications on Indra's Network.
 
 use crate::config::{NetworkBuilder, NetworkConfig, Preset};
-use crate::contacts::{contacts_realm_id, ContactsRealm};
+use crate::contacts::ContactsRealm;
 use crate::direct_connect::{inbox_key_seed, inbox_realm_id, is_initiator, ConnectionNotify};
 use crate::encounter;
 use crate::error::{IndraError, Result};
@@ -674,6 +674,36 @@ impl IndrasNetwork {
         self.realms.iter().map(|r| *r.key()).collect()
     }
 
+    /// List only conversation realms (DMs + shared realms).
+    ///
+    /// Filters out infrastructure realms (Home, Inbox) that should not
+    /// appear in the chat sidebar.
+    pub fn conversation_realms(&self) -> Vec<RealmId> {
+        let my_id = self.id();
+        let home_id = home_realm_id(my_id);
+        let inbox_id = inbox_realm_id(my_id);
+
+        self.realms
+            .iter()
+            .map(|r| *r.key())
+            .filter(|id| *id != home_id && *id != inbox_id)
+            .collect()
+    }
+
+    /// Get the DM peer for a realm, if it's a DM realm.
+    ///
+    /// Searches the peer-realm mapping for an entry matching this realm ID
+    /// and returns the other member (not self).
+    pub fn dm_peer_for_realm(&self, realm_id: &RealmId) -> Option<MemberId> {
+        let my_id = self.id();
+        self.peer_realms
+            .iter()
+            .find(|entry| entry.value() == realm_id)
+            .and_then(|entry| {
+                entry.key().iter().find(|id| **id != my_id).copied()
+            })
+    }
+
     /// Leave a realm.
     ///
     /// Removes the realm from local state and disconnects from peers.
@@ -1337,31 +1367,12 @@ impl IndrasNetwork {
             self.start().await?;
         }
 
-        // Get the per-user contacts realm ID
-        let realm_id = contacts_realm_id(&self.id());
-
-        // Create or join the contacts realm
-        let (_interface_id, _invite_key) = self
-            .inner
-            .create_interface_with_id(realm_id, Some("Contacts"))
-            .await?;
-
-        // Cache the realm state
-        self.realms.insert(
-            realm_id,
-            RealmState {
-                name: Some("Contacts".to_string()),
-                artifact_id: None,
-            },
-        );
+        // Get the contacts document from the home realm
+        let home = self.home_realm().await?;
+        let document = home.contacts().await?;
 
         // Create the contacts realm wrapper
-        let contacts = ContactsRealm::new(
-            realm_id,
-            Arc::clone(&self.inner),
-            self.id(),
-        )
-        .await?;
+        let contacts = ContactsRealm::from_home(document, self.id());
 
         // Cache it
         {
