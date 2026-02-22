@@ -2,6 +2,7 @@
 
 use dioxus::prelude::*;
 use indras_ui::artifact_display::{ArtifactDisplayInfo, ArtifactGallery};
+use indras_ui::markdown::{is_markdown_file, render_markdown_to_html};
 
 /// MIME-type filter category.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -60,6 +61,14 @@ impl MimeCategory {
     }
 }
 
+/// A single resolved grant for display in the audience popup.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GrantDisplay {
+    pub peer_name: String,
+    pub peer_letter: String,
+    pub mode_label: String,
+}
+
 /// An artifact with computed distance and origin for the browser view.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BrowsableArtifact {
@@ -67,6 +76,10 @@ pub struct BrowsableArtifact {
     pub distance_km: Option<f64>,
     /// "Mine" or the peer name this artifact was received from.
     pub origin_label: String,
+    /// Inline text content for markdown/text artifacts.
+    pub content: Option<String>,
+    /// Pre-resolved grants for audience popup display.
+    pub grants: Vec<GrantDisplay>,
 }
 
 /// 3-column artifact browser view.
@@ -299,12 +312,20 @@ pub fn ArtifactBrowserView(
     }
 }
 
-/// Modal overlay showing full artifact details.
+/// Modal overlay showing full artifact details with content-first layout.
+///
+/// For markdown files: shows rendered HTML (default) or raw text with a toggle.
+/// For images with data_url: shows the image.
+/// For text with content: shows raw text in a `<pre>` block.
+/// Otherwise: shows icon fallback.
 #[component]
 fn ArtifactDetailModal(
     artifact: BrowsableArtifact,
     on_close: EventHandler<()>,
 ) -> Element {
+    let mut view_raw = use_signal(|| false);
+    let mut show_audience = use_signal(|| false);
+
     let info = &artifact.info;
     let icon = info.icon();
     let size_str = info.formatted_size();
@@ -316,12 +337,21 @@ fn ArtifactDetailModal(
         indras_ui::artifact_display::ArtifactDisplayStatus::Expired => "status-expired",
     };
     let has_image = info.has_displayable_image() && info.data_url.is_some();
-    let owner = info.owner_label.clone().unwrap_or_else(|| "Unknown".to_string());
     let mime = info.mime_type.clone().unwrap_or_else(|| "unknown".to_string());
+    let is_md = is_markdown_file(&info.name, &mime);
     let distance_str = match artifact.distance_km {
         Some(d) => format!("{d:.1} km"),
         None => "N/A (digital)".to_string(),
     };
+
+    let rendered_html = if is_md && !*view_raw.read() {
+        artifact.content.as_ref().map(|c| render_markdown_to_html(c))
+    } else {
+        None
+    };
+
+    let is_raw = *view_raw.read();
+    let audience_open = *show_audience.read();
 
     rsx! {
         div {
@@ -332,82 +362,90 @@ fn ArtifactDetailModal(
                 class: "artifact-detail-modal",
                 onclick: move |evt| evt.stop_propagation(),
 
-                // Header
+                // Header: filename + toggle + close
                 div {
                     class: "artifact-detail-header",
                     div { class: "artifact-detail-title", "{info.name}" }
-                    button {
-                        class: "artifact-detail-close",
-                        onclick: move |_| on_close.call(()),
-                        "\u{2715}"
+                    div {
+                        class: "artifact-detail-controls",
+                        if is_md && artifact.content.is_some() {
+                            button {
+                                class: "artifact-detail-toggle",
+                                onclick: move |_| view_raw.set(!is_raw),
+                                if is_raw { "View Rendered" } else { "View Raw" }
+                            }
+                        }
+                        button {
+                            class: "artifact-detail-close",
+                            onclick: move |_| on_close.call(()),
+                            "\u{2715}"
+                        }
                     }
                 }
 
-                // Body
+                // Content area (takes most of modal space)
                 div {
-                    class: "artifact-detail-body",
-
-                    // Preview
-                    div {
-                        class: "artifact-detail-preview",
-                        if has_image {
-                            if let Some(ref url) = info.data_url {
-                                img { src: "{url}", alt: "{info.name}" }
-                            }
-                        } else {
+                    class: "artifact-detail-content",
+                    if has_image {
+                        if let Some(ref url) = info.data_url {
+                            img { src: "{url}", alt: "{info.name}" }
+                        }
+                    } else if let Some(ref html) = rendered_html {
+                        div { class: "markdown-rendered", dangerous_inner_html: "{html}" }
+                    } else if let Some(ref text) = artifact.content {
+                        pre { class: "markdown-raw", "{text}" }
+                    } else {
+                        div {
+                            class: "artifact-detail-icon-fallback",
                             span { class: "artifact-detail-preview-icon", "{icon}" }
                         }
                     }
+                }
 
-                    // Properties
+                // Properties bar (condensed horizontal strip)
+                div {
+                    class: "artifact-detail-props-bar",
+                    span { class: "artifact-detail-prop-chip", "{size_str}" }
+                    span { class: "artifact-detail-prop-chip", "{mime}" }
+                    span { class: "artifact-detail-prop-chip {status_class}", "{status_label}" }
+
+                    // Origin chip — clickable to show audience popup
                     div {
-                        class: "artifact-detail-props",
-                        div {
-                            class: "artifact-detail-prop",
-                            span { class: "artifact-detail-prop-key", "Name" }
-                            span { class: "artifact-detail-prop-val", "{info.name}" }
+                        class: "artifact-detail-origin-wrap",
+                        span {
+                            class: "artifact-detail-prop-chip artifact-detail-origin",
+                            onclick: move |_| show_audience.set(!audience_open),
+                            "{artifact.origin_label}"
                         }
-                        div {
-                            class: "artifact-detail-prop",
-                            span { class: "artifact-detail-prop-key", "Size" }
-                            span { class: "artifact-detail-prop-val", "{size_str}" }
-                        }
-                        div {
-                            class: "artifact-detail-prop",
-                            span { class: "artifact-detail-prop-key", "MIME Type" }
-                            span { class: "artifact-detail-prop-val", "{mime}" }
-                        }
-                        div {
-                            class: "artifact-detail-prop",
-                            span { class: "artifact-detail-prop-key", "Status" }
-                            span { class: "artifact-detail-prop-val {status_class}", "{status_label}" }
-                        }
-                        div {
-                            class: "artifact-detail-prop",
-                            span { class: "artifact-detail-prop-key", "ID" }
-                            span { class: "artifact-detail-prop-val", "{info.id}" }
-                        }
-                        div {
-                            class: "artifact-detail-prop",
-                            span { class: "artifact-detail-prop-key", "Owner" }
-                            span { class: "artifact-detail-prop-val", "{owner}" }
-                        }
-                        div {
-                            class: "artifact-detail-prop",
-                            span { class: "artifact-detail-prop-key", "Grants" }
-                            span { class: "artifact-detail-prop-val", "{info.grant_count}" }
-                        }
-                        div {
-                            class: "artifact-detail-prop",
-                            span { class: "artifact-detail-prop-key", "Origin" }
-                            span { class: "artifact-detail-prop-val", "{artifact.origin_label}" }
-                        }
-                        div {
-                            class: "artifact-detail-prop",
-                            span { class: "artifact-detail-prop-key", "Distance" }
-                            span { class: "artifact-detail-prop-val", "{distance_str}" }
+                        if audience_open {
+                            div {
+                                class: "artifact-audience-popup",
+                                onclick: move |evt| evt.stop_propagation(),
+                                div {
+                                    class: "artifact-audience-row artifact-audience-steward",
+                                    span { class: "artifact-audience-letter", "S" }
+                                    span { class: "artifact-audience-name", "Steward: {artifact.origin_label}" }
+                                }
+                                if artifact.grants.is_empty() {
+                                    div {
+                                        class: "artifact-audience-row artifact-audience-empty",
+                                        "Private \u{2014} no grants"
+                                    }
+                                } else {
+                                    for grant in artifact.grants.iter() {
+                                        div {
+                                            class: "artifact-audience-row",
+                                            span { class: "artifact-audience-letter", "{grant.peer_letter}" }
+                                            span { class: "artifact-audience-name", "{grant.peer_name}" }
+                                            span { class: "artifact-audience-mode", "{grant.mode_label}" }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
+
+                    span { class: "artifact-detail-prop-chip", "{distance_str}" }
                 }
             }
         }

@@ -16,7 +16,7 @@ use crate::components::settings::SettingsView;
 use crate::components::setup::SetupView;
 use crate::components::pass_story::PassStoryOverlay;
 use crate::components::event_log::EventLogView;
-use crate::components::artifact_browser::{ArtifactBrowserView, BrowsableArtifact, MimeCategory};
+use crate::components::artifact_browser::{ArtifactBrowserView, BrowsableArtifact, GrantDisplay, MimeCategory};
 use crate::state::workspace::{EventDirection, log_event};
 use crate::state::workspace::{WorkspaceState, ViewType, AppPhase, PeerDisplayInfo};
 use crate::state::navigation::{NavigationState, VaultTreeNode};
@@ -553,6 +553,7 @@ pub fn RootApp() -> Element {
                                                             grants: vec![],
                                                             provenance: None,
                                                             location: None,
+                                                            content: None,
                                                         };
                                                         let _ = doc.update(|index| { index.store(index_entry); }).await;
                                                     }
@@ -641,6 +642,7 @@ pub fn RootApp() -> Element {
                                                                 grants: vec![],
                                                                 provenance: None,
                                                                 location: None,
+                                                                content: None,
                                                             };
                                                             let _ = doc.update(|index| { index.store(entry); }).await;
                                                         }
@@ -1438,6 +1440,7 @@ pub fn RootApp() -> Element {
                                     grants: vec![],
                                     provenance: None,
                                     location: None,
+                                    content: None,
                                 };
                                 let _ = doc.update(|index| { index.store(entry); }).await;
                             }
@@ -1603,6 +1606,16 @@ pub fn RootApp() -> Element {
                                         None if entry.grants.is_empty() => Some("Private".into()),
                                         None => Some(format!("Shared with {}", entry.grants.len())),
                                     };
+                                    let grants: Vec<GrantDisplay> = entry.grants.iter().map(|g| {
+                                        let peer = peers_state.iter().find(|p| p.player_id == g.grantee);
+                                        GrantDisplay {
+                                            peer_name: peer.map(|p| p.name.clone())
+                                                .unwrap_or_else(|| format!("{:02x}{:02x}..", g.grantee[0], g.grantee[1])),
+                                            peer_letter: peer.map(|p| p.letter.clone())
+                                                .unwrap_or_else(|| "?".to_string()),
+                                            mode_label: g.mode.label().to_string(),
+                                        }
+                                    }).collect();
                                     BrowsableArtifact {
                                         info: ArtifactDisplayInfo {
                                             id: entry.hash_hex(),
@@ -1616,6 +1629,8 @@ pub fn RootApp() -> Element {
                                         },
                                         distance_km,
                                         origin_label,
+                                        content: entry.content.clone(),
+                                        grants,
                                     }
                                 })
                                 .collect();
@@ -2603,6 +2618,7 @@ pub fn RootApp() -> Element {
                                                     grants: vec![],
                                                     provenance: None,
                                                     location: None,
+                                                    content: None,
                                                 };
                                                 let _ = doc.update(|index| { index.store(entry); }).await;
                                             }
@@ -2815,6 +2831,7 @@ pub fn RootApp() -> Element {
                                                 grants: vec![],
                                                 provenance: None,
                                                 location: None,
+                                                content: None,
                                             };
                                             let _ = doc.update(|index| { index.store(entry); }).await;
                                         }
