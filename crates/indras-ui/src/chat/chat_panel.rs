@@ -16,31 +16,6 @@ use super::chat_input::ChatInput;
 use super::chat_messages::ChatMessageList;
 use super::chat_state::{convert_editable_to_view, ChatState, ChatStatus, ReplyPreview};
 
-/// Re-read messages from the chat document and update the signal.
-///
-/// Called after own mutations (send/edit/delete) to work around Document
-/// instance isolation — each `chat_document()` call creates a new instance
-/// with its own broadcast channel, so the stream listener never sees our
-/// own changes.
-async fn reload_messages(
-    chat: &mut Signal<ChatState>,
-    realm: &indras_network::Realm,
-    my_id_hex: &str,
-    peer_name: &str,
-) {
-    if let Ok(doc) = realm.chat_document().await {
-        let data = doc.read().await;
-        let views: Vec<_> = data
-            .visible_messages()
-            .iter()
-            .map(|m| convert_editable_to_view(m, my_id_hex, peer_name, Some(&data), None))
-            .collect();
-        let mut s = chat.write();
-        s.messages = views;
-        s.should_scroll_bottom = true;
-    }
-}
-
 /// Get or lazily create the DM realm for a peer.
 ///
 /// First checks the in-memory cache. If the realm isn't there (e.g. after
@@ -195,10 +170,8 @@ pub fn ChatPanel(
     // Event handlers
     let on_send = {
         let my_id_hex = my_id_hex.clone();
-        let peer_name = peer_name.clone();
         move |text: String| {
             let my_id_hex = my_id_hex.clone();
-            let peer_name = peer_name.clone();
             spawn(async move {
                 chat.write().status = ChatStatus::Sending;
                 chat.write().draft.clear();
@@ -229,7 +202,6 @@ pub fn ChatPanel(
                 match realm.send_chat(&realm_id_hex, &my_id_hex, text.clone(), tick).await {
                     Ok(_) => {
                         chat.write().replying_to = None;
-                        reload_messages(&mut chat, &realm, &my_id_hex, &peer_name).await;
                         chat.write().status = ChatStatus::Idle;
                     }
                     Err(e) => {
@@ -244,10 +216,8 @@ pub fn ChatPanel(
 
     let on_send_reply = {
         let my_id_hex = my_id_hex.clone();
-        let peer_name = peer_name.clone();
         move |(text, reply_to_id): (String, String)| {
             let my_id_hex = my_id_hex.clone();
-            let peer_name = peer_name.clone();
             spawn(async move {
                 chat.write().status = ChatStatus::Sending;
                 chat.write().draft.clear();
@@ -278,7 +248,6 @@ pub fn ChatPanel(
                 match realm.send_chat_reply(&realm_id_hex, &my_id_hex, text.clone(), tick, &reply_to_id).await {
                     Ok(_) => {
                         chat.write().replying_to = None;
-                        reload_messages(&mut chat, &realm, &my_id_hex, &peer_name).await;
                         chat.write().status = ChatStatus::Idle;
                     }
                     Err(e) => {
@@ -299,10 +268,8 @@ pub fn ChatPanel(
 
     let on_edit_save = {
         let my_id_hex = my_id_hex.clone();
-        let peer_name = peer_name.clone();
         move |(msg_id, new_content): (String, String)| {
             let my_id_hex = my_id_hex.clone();
-            let peer_name = peer_name.clone();
             spawn(async move {
                 let net = {
                     let guard = network.read();
@@ -321,7 +288,6 @@ pub fn ChatPanel(
                 let tick = current_tick();
                 match realm.edit_chat(&msg_id, &my_id_hex, new_content, tick).await {
                     Ok(true) => {
-                        reload_messages(&mut chat, &realm, &my_id_hex, &peer_name).await;
                         let mut s = chat.write();
                         s.editing_id = None;
                         s.edit_draft.clear();
@@ -345,10 +311,8 @@ pub fn ChatPanel(
 
     let on_delete = {
         let my_id_hex = my_id_hex.clone();
-        let peer_name = peer_name.clone();
         move |msg_id: String| {
             let my_id_hex = my_id_hex.clone();
-            let peer_name = peer_name.clone();
             spawn(async move {
                 let net = {
                     let guard = network.read();
@@ -366,9 +330,7 @@ pub fn ChatPanel(
 
                 let tick = current_tick();
                 match realm.delete_chat(&msg_id, &my_id_hex, tick).await {
-                    Ok(_) => {
-                        reload_messages(&mut chat, &realm, &my_id_hex, &peer_name).await;
-                    }
+                    Ok(_) => {}
                     Err(e) => {
                         chat.write().error = Some(e.to_string());
                     }
@@ -418,10 +380,8 @@ pub fn ChatPanel(
 
     let on_react = {
         let my_id_hex = my_id_hex.clone();
-        let peer_name = peer_name.clone();
         move |(msg_id, emoji): (String, String)| {
             let my_id_hex = my_id_hex.clone();
-            let peer_name = peer_name.clone();
             spawn(async move {
                 let net = {
                     let guard = network.read();
@@ -454,8 +414,6 @@ pub fn ChatPanel(
 
                 // Close reaction picker
                 chat.write().reaction_picker_msg_id = None;
-
-                reload_messages(&mut chat, &realm, &my_id_hex, &peer_name).await;
             });
         }
     };

@@ -1,47 +1,40 @@
-# Merge: Artifact Browser with Lua-Scripted Seeding
+# Merge Queue
 
-Branch `feature/artifact-browser` (worktree: `IndrasNetwork-artifact-browser`)
+## Completed
+
+- **feature/artifact-browser** — merged into main (2026-02-22). 3-column artifact browser UI, artifact detail modal, navigation sidebar, audience popup. Worktree removed, branch deleted.
+- **feature/telegram-chat** — merged into main (2026-02-22). New `indras-chat` crate with P2P Telegram-style chat, replaced workspace StoryView with embedded ChatLayout. Worktree removed, branch deleted. Conflict in app.rs resolved (import merge + `infer_artifact_type` re-applied).
+
+Branch `feature/telegram-chat` (worktree: `IndrasNetwork-telegram-chat`)
 
 ## What Changed
 
-3-column artifact browser (list / detail / map), Lua-scripted artifact creation through real HomeRealm API with BLAKE3 content-addressed IDs, `grant_access()` for P2P sync, `--remock` flag for clean-start with auto-connect. **42 files changed, +3108 -1253 lines.**
+New `indras-chat` crate: a standalone P2P Telegram-style chat app with Dioxus desktop UI. Also replaces the workspace's broken StoryView with an embedded `ChatLayout` from indras-chat. **23 files changed, +2184 -736 lines.**
 
-### Backend (indras-network, indras-artifacts)
+### Commit 1: `af89c21` — Add indras-chat crate
 
-- **artifact_index.rs** — `GeoLocation`, `ArtifactProvenance`, tree composition (`attach_children`, `detach`), `active_artifacts()` / `active_count()` / `accessible_by()` queries, `grant` / `revoke_access` / `recall` / `transfer` operations
-- **access.rs** — `AccessGrant`, `AccessMode`, `GrantError`, `RevokeError`, `TransferError`, `TreeError` types
-- **home_realm.rs** — `grant_access`, `revoke_access`, `recall`, `transfer`, `ensure_dm_story`, `ensure_realm_artifact`, `shared_with`, `attach_children/child`, `detach_all_children/child` methods; `ArtifactSyncRegistry` reconciliation on grant changes
-- **artifact.rs / store.rs / vault.rs** — Reworked artifact primitives (indras-artifacts crate)
-- **document.rs** — Simplified document schema
+New crate `crates/indras-chat/` — standalone Telegram-style chat app:
 
-### Scripting (indras-workspace/scripting)
+- **bridge.rs** — `NetworkHandle` wrapping `Arc<IndrasNetwork>`, identity creation/loading, platform-specific data dirs
+- **state.rs** — `AppPhase`, `ChatContext` (Dioxus signals), `ConversationSummary`
+- **components/app.rs** — `App` (root with first-run detection), `MainLayout` (sidebar + chat + contact add), `ChatLayout` (embeddable entry point accepting `NetworkArc`)
+- **components/sidebar.rs** — Conversation list with last-message preview, add-contact button
+- **components/chat_view.rs** — Message list with auto-scroll, send/reply functionality
+- **components/message_bubble.rs** — Chat bubbles with sender avatar, timestamp, self/other styling
+- **components/message_input.rs** — Compose bar with send button
+- **components/contact_add.rs** — Add contact by identity URI
+- **components/setup.rs** — First-run onboarding (name + optional PassStory)
+- **style.css** — Full Telegram-style dark theme (792 lines)
+- **main.rs** — Desktop app entry point with window geometry from env vars
+- **se** — Launch script updates for multi-instance tiling
 
-- **action.rs** — `StoreArtifact`, `GrantArtifact`, `SetUserLocation`, `ConnectToPeer` actions
-- **dispatcher.rs** — `StoreArtifact` uses `home.share_artifact()` for real BLAKE3 IDs; `GrantArtifact` calls `home.grant_access()` with `AccessMode::Revocable`; deadlock fix (each dispatcher owns its receiver directly, no shared mutex)
-- **event.rs** — `ArtifactStored`, `ArtifactGranted`, `PeerConnected` events
-- **query.rs** — `ArtifactCount`, `Artifacts`, `IdentityUri` queries
-- **lua_runtime.rs** — `store_artifact`, `grant_artifact`, `connect_to`, `file_write`, `file_read`, `set_user_location` Lua bindings
-- **channels.rs** — `Option<Receiver>` pattern for `.take()` extraction (avoids mutex deadlock)
+### Commit 2: `ee117ae` — Replace workspace StoryView with ChatLayout
 
-### UI (indras-workspace/components)
-
-- **artifact_browser.rs** (new) — 3-column layout: filterable list (MIME chips + peer filter), detail panel (metadata + location), Leaflet map with markers
-- **app.rs** — Artifact loading from `HomeRealm::artifact_index()`, `origin_label` derivation from provenance, peer filter signal, `--seed-script` support, auto-identity creation via `INDRAS_NAME` env var
-- **workspace.css** — Artifact browser styles, filter chips, map container
-
-### Lua Scenarios
-
-- **fresh_mock.lua** (new) — Full flow: app_ready → publish identity URI → connect peers via `/tmp/indras-mesh/` → 4-phase artifact seeding (create → share → grant → receive)
-- **mock_artifacts.lua** (new) — Same 4-phase seeding without auto-connect (for `--mock`)
-
-### Script & CLI
-
-- **se** — `--remock` flag (clean + auto-connect + seed), `INDRAS_PEERS` env var, `--features lua-scripting`, `/tmp/indras-mesh` cleanup
-- **main.rs** — `--seed-script=` flag (runs Lua without exit, unlike `--script=`)
-
-### Deleted
-
-- **mock_artifacts.rs** — Replaced by Lua-scripted seeding
+- **indras-chat** made lib+bin crate (`[lib]` section, `lib.rs` re-exports)
+- **Deleted** `crates/indras-workspace/src/components/story.rs` (347 lines) — `StoryView`, `StoryMessage`, `StoryArtifactRef`, `render_message` all removed
+- **Simplified** `crates/indras-workspace/src/components/app.rs` (394 lines removed) — removed `chat_msg_to_story()`, `story_messages` signal, `network_for_chat` signal, CRDT chat doc subscription, all StoryMessage construction, entire ViewType::Story rendering block
+- **ViewType::Story** now renders `indras_chat::components::app::ChatLayout` with the workspace's existing `Arc<IndrasNetwork>`
+- **Chat CSS** injected via `indras_chat::CHAT_CSS` in workspace's `<style>` tags
 
 ## Merge Steps
 
@@ -49,63 +42,41 @@ Branch `feature/artifact-browser` (worktree: `IndrasNetwork-artifact-browser`)
 cd /Users/truman/Code/IndrasNetwork
 
 # 1. Merge
-git merge feature/artifact-browser
+git merge feature/telegram-chat
 
 # 2. Verify
-cargo build -p indras-artifacts
-cargo test -p indras-artifacts
-cargo build -p indras-network
-cargo test -p indras-network --lib artifact_index
-cargo build -p indras-workspace --features lua-scripting
+cargo build -p indras-chat
+cargo build -p indras-workspace
 
 # 3. Clean up worktree
-git worktree remove ../IndrasNetwork-artifact-browser
+git worktree remove ../IndrasNetwork-telegram-chat
 
 # 4. Delete the branch
-git branch -d feature/artifact-browser
+git branch -d feature/telegram-chat
 ```
 
 ## If Not Fast-Forward
 
 ```bash
 # Option A: Merge (preserves history)
-git merge feature/artifact-browser
+git merge feature/telegram-chat
 
 # Option B: Rebase branch first (linear history)
-git checkout feature/artifact-browser
+git checkout feature/telegram-chat
 git rebase main
 git checkout main
-git merge feature/artifact-browser
+git merge feature/telegram-chat
 ```
 
 Conflicts would likely be in:
-- `crates/indras-network/src/artifact_index.rs` — if artifact index was modified on main
-- `crates/indras-network/src/home_realm.rs` — if HomeRealm methods were added on main
-- `crates/indras-workspace/src/components/app.rs` — if app component was restructured
-- `crates/indras-network/src/document.rs` — if document schema changed
-- `se` — if launch script was modified
+- `crates/indras-workspace/src/components/app.rs` — if app component was restructured on main
+- `crates/indras-workspace/src/components/mod.rs` — if modules were added/removed on main
+- `Cargo.toml` / `Cargo.lock` — workspace member list
 
 ## Test Summary
 
-- indras-artifacts integration tests pass
-- indras-network artifact_index tests pass
-- indras-workspace builds cleanly with `--features lua-scripting`, zero warnings
-- Lua seeding produces 12 artifacts per instance with consistent BLAKE3 ArtifactIds
+- `cargo build -p indras-chat` — zero errors, zero warnings
+- `cargo build -p indras-workspace` — zero errors, zero warnings
+- StoryView fully removed, no dead code remaining
 
-All pass as of commit `7ab5438`.
-
----
-
-## Update: Artifact Detail Modal (commit `519dc45`)
-
-### Additional Changes
-
-- **Column rename** — `Nearby/Distant/Untagged` → `Local/Global/Digital` (commit `b49d157`)
-- **Artifact detail modal** — Click any artifact card to open a detail overlay showing thumbnail/preview, name, size, MIME type, status, ID, owner, grant count, origin, and distance
-- **on_click prop** — `ArtifactGallery` and `ArtifactCard` in `indras-ui` now accept an optional `on_click` callback
-
-### Files Changed
-
-- `crates/indras-ui/src/artifact_display.rs` — `on_click: Option<EventHandler<ArtifactDisplayInfo>>` prop
-- `crates/indras-workspace/src/components/artifact_browser.rs` — `ArtifactDetailModal` component, selected-artifact state
-- `crates/indras-workspace/assets/workspace.css` — Modal overlay styles (reuses `.pass-story-overlay` pattern)
+All pass as of commit `ee117ae`.

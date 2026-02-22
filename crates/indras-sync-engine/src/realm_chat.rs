@@ -89,7 +89,7 @@ pub trait RealmChat {
 
 impl RealmChat for Realm {
     async fn chat_document(&self) -> Result<Document<RealmChatDocument>> {
-        self.document::<RealmChatDocument>("chat").await
+        Ok(self.chat_doc().await?.clone())
     }
 
     async fn send_chat(

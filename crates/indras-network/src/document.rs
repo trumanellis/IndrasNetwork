@@ -190,7 +190,7 @@ impl<T: DocumentSchema> Document<T> {
         name: String,
         node: Arc<IndrasNode>,
     ) -> Result<Self> {
-        let (change_tx, _) = broadcast::channel(512);
+        let (change_tx, _) = broadcast::channel(2048);
 
         // Try to load existing state, or create default
         let state = Self::load_or_create(&node, &realm_id, &name).await?;
@@ -207,6 +207,10 @@ impl<T: DocumentSchema> Document<T> {
 
         // Spawn background listener for remote updates
         doc.spawn_listener();
+
+        // Post-load refresh: catch any CRDT events that arrived between
+        // load_or_create and spawn_listener starting to receive.
+        let _ = doc.refresh().await;
 
         Ok(doc)
     }
