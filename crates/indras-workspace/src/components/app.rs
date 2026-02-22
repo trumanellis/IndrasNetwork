@@ -10,7 +10,6 @@ use crate::bridge::vault_bridge::{VaultHandle, InMemoryVault};
 use crate::bridge::network_bridge::{NetworkHandle, is_first_run, create_identity, load_identity};
 use crate::components::topbar::Topbar;
 use crate::components::document::DocumentView;
-use crate::components::story::{StoryView, StoryMessage, StoryArtifactRef};
 use crate::components::quest::{QuestView, QuestKind, ProofEntry, AttentionItem, PledgedToken, AttentionPeerSummary, StewardshipChainEntry, format_duration_secs, PeerOption, IntentionCreateOverlay};
 use crate::components::settings::SettingsView;
 use crate::components::setup::SetupView;
@@ -32,10 +31,9 @@ use indras_ui::{
     DetailPanel, PropertyRow, AudienceMember, HeatEntry, TrailEvent, ReferenceItem, SyncEntry,
     MarkdownPreviewOverlay, PreviewFile, PreviewViewMode,
     ContactInviteOverlay,
-    ChatPanel,
 };
 use indras_ui::PeerDisplayInfo as UiPeerDisplayInfo;
-use indras_network::{GeoLocation, IdentityCode, IndrasNetwork, HomeRealm, Realm, RealmChatDocument, EditableChatMessage, EditableMessageType, AccessMode};
+use indras_network::{GeoLocation, IdentityCode, HomeRealm, Realm, EditableChatMessage, EditableMessageType, AccessMode};
 use indras_ui::artifact_display::{ArtifactDisplayInfo, ArtifactDisplayStatus};
 
 #[cfg(feature = "lua-scripting")]
@@ -45,63 +43,19 @@ use crate::scripting::dispatcher::spawn_dispatcher;
 #[cfg(feature = "lua-scripting")]
 use crate::scripting::event::AppEvent;
 
-/// Convert a MemberId to a hex string for identity comparison.
-fn member_id_hex(id: &[u8; 32]) -> String {
-    id.iter().map(|b| format!("{:02x}", b)).collect()
-}
 
-/// Convert a CRDT chat message to the UI's StoryMessage format.
-fn chat_msg_to_story(
-    msg: &EditableChatMessage,
-    my_name: &str,
-    my_id: Option<&str>,
-    chat_doc: &RealmChatDocument,
-) -> StoryMessage {
-    let is_self = msg.author_id.as_deref()
-        .and_then(|aid| my_id.map(|mid| aid == mid))
-        .unwrap_or_else(|| msg.author == my_name);
-    let letter = msg.author.chars().next().unwrap_or('?').to_string();
-    let time = {
-        let dt = chrono::DateTime::from_timestamp_millis(msg.created_at as i64)
-            .unwrap_or_default();
-        dt.format("%H:%M").to_string()
-    };
-    let reactions: Vec<(String, usize)> = msg.reactions.iter()
-        .map(|(emoji, authors)| (emoji.clone(), authors.len()))
-        .collect();
-    let reply_to_preview = msg.reply_to.as_ref()
-        .and_then(|id| chat_doc.reply_preview(id))
-        .map(|(author, text)| format!("{}: {}", author, text));
-
-    StoryMessage {
-        sender_name: msg.author.clone(),
-        sender_letter: letter,
-        sender_color_class: String::new(),
-        content: msg.current_content.clone(),
-        time,
-        is_self,
-        artifact_ref: None,
-        image_ref: if msg.is_image() { Some(true) } else { None },
-        branch_label: None,
-        day_separator: None,
-        message_id: Some(msg.id.clone()),
-        reactions,
-        reply_to_preview,
-    }
-}
 
 /// Root application component.
 #[component]
 pub fn RootApp() -> Element {
     let mut workspace = use_signal(WorkspaceState::new);
     let mut vault_handle = use_signal(|| None::<VaultHandle>);
-    let mut story_messages = use_signal(Vec::<StoryMessage>::new);
     let mut quest_data = use_signal(|| None::<QuestViewData>);
     let mut active_tab = use_signal(|| NavTab::Vault);
     // token_picker_open removed — inline pickers per-proof now
-    let mut preview_open = use_signal(|| false);
-    let mut preview_file = use_signal(|| None::<PreviewFile>);
-    let mut preview_view_mode = use_signal(|| PreviewViewMode::Rendered);
+    let preview_open = use_signal(|| false);
+    let preview_file = use_signal(|| None::<PreviewFile>);
+    let preview_view_mode = use_signal(|| PreviewViewMode::Rendered);
     let mut network_handle = use_signal(|| None::<NetworkHandle>);
     let mut setup_error = use_signal(|| None::<String>);
     let mut setup_loading = use_signal(|| false);
@@ -112,7 +66,6 @@ pub fn RootApp() -> Element {
     let mut contact_invite_status = use_signal(|| None::<String>);
     let mut contact_parsed_name = use_signal(|| None::<String>);
     let mut contact_copy_feedback = use_signal(|| false);
-    let mut network_for_chat = use_signal(|| None::<Arc<IndrasNetwork>>);
     let mut contact_invite_uri = use_signal(String::new);
     let mut contact_display_name_sig = use_signal(String::new);
     let mut contact_member_id_short_sig = use_signal(String::new);
@@ -237,7 +190,6 @@ pub fn RootApp() -> Element {
                                     player_name: player_name.clone(),
                                 }));
                                 let net = Arc::clone(&nh.network);
-                                network_for_chat.set(Some(Arc::clone(&net)));
                                 network_handle.set(Some(nh));
                                 {
                                     let mut ws = workspace.write();
@@ -832,82 +784,7 @@ pub fn RootApp() -> Element {
                                             workspace.write().editor = editor;
                                         }
                                         ViewType::Story => {
-                                            // Load story messages from tree references
-                                            // Extended label format: "msg:Name[:artifact:ArtName:ArtType][:image][:branch:Label][:day:DayLabel]"
-                                            let mut msgs = Vec::new();
-                                            let times = ["14:22", "14:25", "14:31", "14:33", "14:38", "14:40", "09:14", "09:22"];
-                                            for (i, child_ref) in artifact.references.iter().enumerate() {
-                                                let content = if let Ok(Some(payload)) = vault.get_payload(&child_ref.artifact_id) {
-                                                    String::from_utf8_lossy(&payload).to_string()
-                                                } else {
-                                                    String::new()
-                                                };
-
-                                                let label_str = child_ref.label.as_deref().unwrap_or("");
-                                                let parts: Vec<&str> = label_str.split(':').collect();
-
-                                                // First part is "msg", second is sender name
-                                                let sender_name = parts.get(1).unwrap_or(&"Unknown").to_string();
-                                                let is_self = sender_name == vh.player_name;
-                                                let letter = sender_name.chars().next().unwrap_or('?').to_string();
-                                                let color_class = format!("peer-dot-{}", sender_name.to_lowercase());
-                                                let time = times.get(i).unwrap_or(&"now").to_string();
-
-                                                // Parse optional rich metadata from label parts
-                                                let mut artifact_ref = None;
-                                                let mut image_ref = None;
-                                                let mut branch_label = None;
-                                                let mut day_separator = None;
-
-                                                let mut j = 2;
-                                                while j < parts.len() {
-                                                    match parts[j] {
-                                                        "artifact" => {
-                                                            let art_name = parts.get(j + 1).unwrap_or(&"").to_string();
-                                                            let art_type = parts.get(j + 2).unwrap_or(&"Document").to_string();
-                                                            artifact_ref = Some(StoryArtifactRef {
-                                                                icon: "\u{1F4C4}".to_string(),
-                                                                name: art_name,
-                                                                artifact_type: art_type,
-                                                                artifact_id: None,
-                                                            });
-                                                            j += 3;
-                                                        }
-                                                        "image" => {
-                                                            image_ref = Some(true);
-                                                            j += 1;
-                                                        }
-                                                        "branch" => {
-                                                            branch_label = Some(parts.get(j + 1).unwrap_or(&"").to_string());
-                                                            j += 2;
-                                                        }
-                                                        "day" => {
-                                                            day_separator = Some(parts.get(j + 1).unwrap_or(&"").to_string());
-                                                            j += 2;
-                                                        }
-                                                        _ => { j += 1; }
-                                                    }
-                                                }
-
-                                                msgs.push(StoryMessage {
-                                                    sender_name,
-                                                    sender_letter: letter,
-                                                    sender_color_class: color_class,
-                                                    content,
-                                                    time,
-                                                    is_self,
-                                                    artifact_ref,
-                                                    image_ref,
-                                                    branch_label,
-                                                    day_separator,
-                                                    message_id: None,
-                                                    reactions: vec![],
-                                                    reply_to_preview: None,
-                                                });
-                                            }
-                                            story_messages.set(msgs);
-
-                                            // Also set editor meta for topbar steward display
+                                            // Editor meta for topbar steward display
                                             workspace.write().editor.meta.steward_name = steward_name;
                                             workspace.write().editor.meta.audience_count = audience_count;
                                             workspace.write().editor.title = label.clone();
@@ -1180,76 +1057,6 @@ pub fn RootApp() -> Element {
                                         }
                                         Err(e) => {
                                             tracing::warn!(error = %e, "Failed to load CRDT document for Document view");
-                                        }
-                                    }
-                                }
-                            }
-
-                            // If this tree has an associated realm, load chat from CRDT document.
-                            // Subscribe to changes BEFORE reading initial state to avoid
-                            // missing messages that arrive between load and subscription.
-                            let realm = realm_map.read().get(&tree_node_id).cloned();
-                            if let Some(realm) = realm {
-                                match realm.chat_doc().await {
-                                    Ok(doc) => {
-                                        // 1. Spawn changes listener FIRST (creates broadcast subscription)
-                                        let doc_for_changes = doc.clone();
-                                        spawn(async move {
-                                            use futures::StreamExt;
-                                            let mut changes = Box::pin(doc_for_changes.changes());
-                                            while let Some(_change) = changes.next().await {
-                                                let (my_name, my_id) = {
-                                                    let guard = network_handle.read();
-                                                    let name = guard.as_ref()
-                                                        .and_then(|nh| nh.network.display_name().map(|s| s.to_string()))
-                                                        .unwrap_or_default();
-                                                    let id = guard.as_ref()
-                                                        .map(|nh| member_id_hex(&nh.network.id()));
-                                                    (name, id)
-                                                };
-                                                let data = doc_for_changes.read().await;
-                                                let messages: Vec<StoryMessage> = data.visible_messages().iter()
-                                                    .map(|msg| chat_msg_to_story(msg, &my_name, my_id.as_deref(), &data))
-                                                    .collect();
-                                                story_messages.set(messages);
-                                            }
-                                        });
-
-                                        // 2. Read initial state (subscription already active above)
-                                        let (my_name, my_id) = {
-                                            let guard = network_handle.read();
-                                            let name = guard.as_ref()
-                                                .and_then(|nh| nh.network.display_name().map(|s| s.to_string()))
-                                                .unwrap_or_default();
-                                            let id = guard.as_ref()
-                                                .map(|nh| member_id_hex(&nh.network.id()));
-                                            (name, id)
-                                        };
-                                        let data = doc.read().await;
-                                        let realm_messages: Vec<StoryMessage> = data.visible_messages().iter()
-                                            .map(|msg| chat_msg_to_story(msg, &my_name, my_id.as_deref(), &data))
-                                            .collect();
-                                        if vt == ViewType::Story {
-                                            story_messages.set(realm_messages);
-                                        }
-                                    }
-                                    Err(e) => {
-                                        tracing::warn!(error = %e, "Failed to load chat document");
-                                    }
-                                }
-                            }
-
-                            // Mark messages as read for stories
-                            if vt == ViewType::Story {
-                                let realm_for_read = realm_map.read().get(&tree_node_id).cloned();
-                                if let Some(realm) = realm_for_read {
-                                    let my_id = {
-                                        let guard = network_handle.read();
-                                        guard.as_ref().map(|nh| nh.network.id())
-                                    };
-                                    if let Some(mid) = my_id {
-                                        if let Err(e) = realm.mark_read(mid).await {
-                                            tracing::warn!(error = %e, "Failed to mark messages as read");
                                         }
                                     }
                                 }
@@ -1894,7 +1701,6 @@ pub fn RootApp() -> Element {
     ];
 
     let editor = ws.editor.clone();
-    let current_story_messages = story_messages.read().clone();
     let current_quest_data = quest_data.read().clone();
     let current_active_tab = active_tab.read().clone();
 
@@ -1961,7 +1767,6 @@ pub fn RootApp() -> Element {
                                             player_name: name.clone(),
                                         }));
                                         let net = Arc::clone(&nh.network);
-                                        network_for_chat.set(Some(Arc::clone(&net)));
                                         network_handle.set(Some(nh));
                                         {
                                             let mut ws = workspace.write();
@@ -2153,191 +1958,20 @@ pub fn RootApp() -> Element {
                             }
                         }
                         ViewType::Story => {
-                            // Check if this is a Contact (relationship story) or regular story
-                            // Use current_id rather than active flag — sidebar rebuilds can reset active
-                            let is_contact = {
-                                let ws = workspace.read();
-                                ws.nav.current_id.as_ref()
-                                    .and_then(|id| ws.nav.vault_tree.iter().find(|n| &n.id == id))
-                                    .map_or(false, |n| n.icon == "\u{1F464}")
-                            };
-
-                            if is_contact {
-                                // Use ChatPanel for Contact relationship stories
-                                let peer_name = editor.title.clone();
-                                let chat_peer_id = workspace.read().peers.entries.iter()
-                                    .find(|p| p.name == peer_name)
-                                    .map(|p| p.player_id)
-                                    .unwrap_or([0u8; 32]);
-                                let chat_my_id = vault_handle.read().as_ref()
-                                    .map(|vh| vh.player_id)
-                                    .unwrap_or([0u8; 32]);
+                            let net = network_handle.read().as_ref()
+                                .map(|nh| Arc::clone(&nh.network));
+                            if let Some(network) = net {
                                 rsx! {
-                                    div {
-                                        class: "view active",
-                                        ChatPanel {
-                                            network: network_for_chat,
-                                            peer_id: chat_peer_id,
-                                            my_id: chat_my_id,
-                                            peer_name: peer_name,
-                                        }
+                                    indras_chat::components::app::ChatLayout {
+                                        network: indras_chat::components::app::NetworkArc(network),
                                     }
                                 }
                             } else {
-                                // Regular story view
-                                let title = editor.title.clone();
-                                let audience_count = editor.meta.audience_count;
-                                let message_count = current_story_messages.len();
                                 rsx! {
-                                    StoryView {
-                                        title: title,
-                                        audience_count: audience_count,
-                                        message_count: message_count,
-                                        messages: current_story_messages,
-                                        on_artifact_click: move |aref: StoryArtifactRef| {
-                                            // Show preview immediately
-                                            preview_file.set(Some(PreviewFile {
-                                                name: aref.name.clone(),
-                                                content: format!("# {}\n\nType: {}", aref.name, aref.artifact_type),
-                                                raw_content: format!("# {}\n\nType: {}", aref.name, aref.artifact_type),
-                                                mime_type: "text/markdown".to_string(),
-                                                data_url: None,
-                                            }));
-                                            preview_view_mode.set(PreviewViewMode::Rendered);
-                                            preview_open.set(true);
-
-                                            // Log download request (full download pipeline requires ArtifactId propagation)
-                                            if let Some(ref aid_str) = aref.artifact_id {
-                                                tracing::info!(artifact = %aid_str, name = %aref.name, "Artifact download requested");
-                                            }
-                                        },
-                                        on_send: move |text: String| {
-                                            let node_id = workspace.read().nav.current_id.clone();
-                                            let realm = node_id.as_ref().and_then(|id| realm_map.read().get(id).cloned());
-                                            let net = network_handle.read().as_ref().map(|nh| nh.network.clone());
-                                            spawn(async move {
-                                                if let Some(realm) = realm {
-                                                    let my_name = net.as_ref()
-                                                        .and_then(|n| n.display_name().map(|s| s.to_string()))
-                                                        .unwrap_or_else(|| "Me".to_string());
-                                                    if let Err(e) = realm.chat_send(&my_name, text).await {
-                                                        tracing::error!(error = %e, "Failed to send chat message");
-                                                    }
-                                                }
-                                            });
-                                        },
-                                        on_reply: move |(msg_id, text): (String, String)| {
-                                            let node_id = workspace.read().nav.current_id.clone();
-                                            let realm = node_id.as_ref().and_then(|id| realm_map.read().get(id).cloned());
-                                            let net = network_handle.read().as_ref().map(|nh| nh.network.clone());
-                                            spawn(async move {
-                                                if let Some(realm) = realm {
-                                                    let my_name = net.as_ref()
-                                                        .and_then(|n| n.display_name().map(|s| s.to_string()))
-                                                        .unwrap_or_else(|| "Me".to_string());
-                                                    if let Err(e) = realm.chat_reply(&my_name, &msg_id, text).await {
-                                                        tracing::error!(error = %e, "Failed to send reply");
-                                                    }
-                                                }
-                                            });
-                                        },
-                                        on_react: move |(msg_id, emoji): (String, String)| {
-                                            let node_id = workspace.read().nav.current_id.clone();
-                                            let realm = node_id.as_ref().and_then(|id| realm_map.read().get(id).cloned());
-                                            let net = network_handle.read().as_ref().map(|nh| nh.network.clone());
-                                            spawn(async move {
-                                                if let Some(realm) = realm {
-                                                    let my_name = net.as_ref()
-                                                        .and_then(|n| n.display_name().map(|s| s.to_string()))
-                                                        .unwrap_or_else(|| "Me".to_string());
-                                                    if let Err(e) = realm.chat_react(&my_name, &msg_id, &emoji).await {
-                                                        tracing::error!(error = %e, "Failed to send reaction");
-                                                    }
-                                                }
-                                            });
-                                        },
-                                        on_search: move |query: String| {
-                                            let node_id = workspace.read().nav.current_id.clone();
-                                            let realm = node_id.as_ref().and_then(|id| realm_map.read().get(id).cloned());
-                                            let net = network_handle.read().as_ref().map(|nh| nh.network.clone());
-                                            spawn(async move {
-                                                if let Some(realm) = realm {
-                                                    if let Ok(doc) = realm.chat_doc().await {
-                                                        let my_name = net.as_ref()
-                                                            .and_then(|n| n.display_name().map(|s| s.to_string()))
-                                                            .unwrap_or_default();
-                                                        let my_id = net.as_ref()
-                                                            .map(|n| member_id_hex(&n.id()));
-                                                        let data = doc.read().await;
-                                                        let messages: Vec<StoryMessage> = data.visible_messages().iter()
-                                                            .filter(|msg| {
-                                                                query.is_empty() || msg.current_content.to_lowercase()
-                                                                    .contains(&query.to_lowercase())
-                                                            })
-                                                            .map(|msg| chat_msg_to_story(msg, &my_name, my_id.as_deref(), &data))
-                                                            .collect();
-                                                        story_messages.set(messages);
-                                                    }
-                                                }
-                                            });
-                                        },
-                                        on_attach: move |_: ()| {
-                                            let node_id = workspace.read().nav.current_id.clone();
-                                            let realm = node_id.as_ref().and_then(|id| realm_map.read().get(id).cloned());
-                                            let net = network_handle.read().as_ref().map(|nh| nh.network.clone());
-                                            spawn(async move {
-                                                // Open native file picker
-                                                let file = rfd::AsyncFileDialog::new()
-                                                    .set_title("Share a file")
-                                                    .pick_file()
-                                                    .await;
-                                                let Some(file) = file else { return; };
-                                                let path = file.path().to_path_buf();
-                                                let file_name = file.file_name();
-
-                                                if let Some(realm) = realm {
-                                                    match realm.share_artifact(&path).await {
-                                                        Ok(_artifact_id) => {
-                                                            // Send a message with artifact reference
-                                                            let msg_text = format!("Shared: {}", file_name);
-                                                            if let Err(e) = realm.send(msg_text.clone()).await {
-                                                                tracing::error!(error = %e, "Failed to send share message");
-                                                                return;
-                                                            }
-                                                            // Add to local UI
-                                                            let my_name = net.as_ref()
-                                                                .and_then(|n| n.display_name().map(|s| s.to_string()))
-                                                                .unwrap_or_else(|| "Me".to_string());
-                                                            let letter = my_name.chars().next().unwrap_or('?').to_string();
-                                                            let now = chrono::Local::now().format("%H:%M").to_string();
-                                                            story_messages.write().push(StoryMessage {
-                                                                sender_name: my_name,
-                                                                sender_letter: letter,
-                                                                sender_color_class: String::new(),
-                                                                content: msg_text,
-                                                                time: now,
-                                                                is_self: true,
-                                                                artifact_ref: Some(StoryArtifactRef {
-                                                                    icon: "\u{1F4CE}".to_string(),
-                                                                    name: file_name,
-                                                                    artifact_type: "File".to_string(),
-                                                                    artifact_id: Some(format!("{:?}", _artifact_id)),
-                                                                }),
-                                                                image_ref: None,
-                                                                branch_label: None,
-                                                                day_separator: None,
-                                                                message_id: None,
-                                                                reactions: vec![],
-                                                                reply_to_preview: None,
-                                                            });
-                                                        }
-                                                        Err(e) => {
-                                                            tracing::error!(error = %e, "Failed to share artifact");
-                                                        }
-                                                    }
-                                                }
-                                            });
-                                        },
+                                    div { class: "view active",
+                                        div { class: "chat-empty",
+                                            "Network not connected"
+                                        }
                                     }
                                 }
                             }

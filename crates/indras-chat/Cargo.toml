@@ -9,6 +9,10 @@ description = "P2P Telegram-style chat for Indras Network"
 name = "indras-chat"
 path = "src/main.rs"
 
+[lib]
+name = "indras_chat"
+path = "src/lib.rs"
+
 [dependencies]
 # UI framework
 dioxus = { version = "0.7", features = ["desktop"] }

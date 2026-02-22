@@ -4,6 +4,7 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 use crate::state::{AppPhase, ChatContext, ConversationSummary};
 use crate::bridge::{self, NetworkHandle};
+use indras_network::IndrasNetwork;
 
 /// Root application component.
 #[component]
@@ -101,6 +102,62 @@ fn MainLayout(handle: Arc<NetworkHandle>) -> Element {
                     on_close: move |_| {
                         ctx.show_add_contact.set(false);
                         // Refresh conversations after adding contact
+                        let net = ctx.handle.read().clone();
+                        spawn(async move {
+                            refresh_conversations(&net, ctx.conversations).await;
+                        });
+                    },
+                }
+            }
+        }
+    }
+}
+
+/// Newtype wrapper so `Arc<IndrasNetwork>` satisfies Dioxus `#[component]`'s `PartialEq` bound.
+/// Equality is by pointer identity.
+#[derive(Clone)]
+pub struct NetworkArc(pub Arc<IndrasNetwork>);
+
+impl PartialEq for NetworkArc {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+/// Embeddable chat layout for use in other apps (e.g., indras-workspace).
+/// Accepts a raw IndrasNetwork instance — no identity/setup flow.
+#[component]
+pub fn ChatLayout(network: NetworkArc) -> Element {
+    let network = network.0;
+    let handle = Arc::new(NetworkHandle { network });
+
+    // Provide shared chat context
+    let mut ctx = use_context_provider(|| ChatContext {
+        handle: Signal::new(handle.clone()),
+        active_chat: Signal::new(None),
+        conversations: Signal::new(Vec::new()),
+        show_add_contact: Signal::new(false),
+        typing_peers: Signal::new(Vec::new()),
+    });
+
+    // Spawn background task to populate conversations
+    let net = handle.clone();
+    use_effect(move || {
+        let net = net.clone();
+        spawn(async move {
+            refresh_conversations(&net, ctx.conversations).await;
+        });
+    });
+
+    rsx! {
+        div { class: "main-layout",
+            super::sidebar::Sidebar {}
+            super::chat_view::ChatView {}
+
+            if *ctx.show_add_contact.read() {
+                super::contact_add::ContactAdd {
+                    on_close: move |_| {
+                        ctx.show_add_contact.set(false);
                         let net = ctx.handle.read().clone();
                         spawn(async move {
                             refresh_conversations(&net, ctx.conversations).await;
