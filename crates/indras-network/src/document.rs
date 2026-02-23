@@ -746,20 +746,22 @@ impl<T: DocumentSchema> Document<T> {
             "Document update: sending to network"
         );
 
-        self.node.send_message(&self.realm_id, message).await?;
-
-        debug!(
-            doc_name = %self.name,
-            realm = %realm_short,
-            "Document update: sent successfully"
-        );
-
-        // Notify local subscribers
+        // Notify local subscribers FIRST (optimistic update)
         let _ = self.change_tx.send(DocumentChange {
             new_state,
             author: None, // Local change
             is_remote: false,
         });
+
+        // Then send to network (best-effort for remote delivery)
+        if let Err(e) = self.node.send_message(&self.realm_id, message).await {
+            tracing::warn!(
+                doc_name = %self.name,
+                realm = %realm_short,
+                error = %e,
+                "Failed to send document update to network"
+            );
+        }
 
         Ok(())
     }
@@ -809,14 +811,21 @@ impl<T: DocumentSchema> Document<T> {
         // Persist to local storage
         self.persist(&new_state).await?;
 
-        self.node.send_message(&self.realm_id, message).await?;
-
-        // Notify local subscribers
+        // Notify local subscribers FIRST (optimistic update)
         let _ = self.change_tx.send(DocumentChange {
             new_state,
             author: None,
             is_remote: false,
         });
+
+        // Then send to network (best-effort for remote delivery)
+        if let Err(e) = self.node.send_message(&self.realm_id, message).await {
+            tracing::warn!(
+                doc_name = %self.name,
+                error = %e,
+                "Failed to send document update to network"
+            );
+        }
 
         Ok(result)
     }
