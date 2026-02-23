@@ -3,8 +3,8 @@
 use std::sync::Arc;
 use dioxus::prelude::*;
 use crate::state::{AppPhase, ChatContext, ConversationSummary};
-use crate::bridge::{self, NetworkHandle};
-use indras_network::IndrasNetwork;
+use crate::bridge;
+use indras_peering::{PeerEvent, PeeringRuntime};
 
 /// Root application component.
 #[component]
@@ -22,8 +22,8 @@ pub fn App() -> Element {
             } else {
                 spawn(async move {
                     match bridge::load_identity().await {
-                        Ok(handle) => {
-                            phase.set(AppPhase::Running(Arc::new(handle)));
+                        Ok(runtime) => {
+                            phase.set(AppPhase::Running(runtime));
                         }
                         Err(e) => {
                             error.set(Some(e));
@@ -51,8 +51,8 @@ pub fn App() -> Element {
                     error.set(None);
                     spawn(async move {
                         match bridge::create_identity(&name, slots).await {
-                            Ok(handle) => {
-                                phase.set(AppPhase::Running(Arc::new(handle)));
+                            Ok(runtime) => {
+                                phase.set(AppPhase::Running(runtime));
                             }
                             Err(e) => {
                                 error.set(Some(e));
@@ -65,30 +65,71 @@ pub fn App() -> Element {
                 loading: *loading.read(),
             }
         },
-        AppPhase::Running(handle) => rsx! {
-            MainLayout { handle }
+        AppPhase::Running(runtime) => rsx! {
+            MainLayout { runtime: PeeringArc(runtime) }
         },
     }
 }
 
-/// Main chat layout with shared context.
+/// Newtype wrapper so `Arc<PeeringRuntime>` satisfies Dioxus `#[component]`'s `PartialEq` bound.
+/// Equality is by pointer identity.
+#[derive(Clone)]
+pub struct PeeringArc(pub Arc<PeeringRuntime>);
+
+impl PartialEq for PeeringArc {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+/// Main chat layout with shared context (standalone mode — owns shutdown).
 #[component]
-fn MainLayout(handle: Arc<NetworkHandle>) -> Element {
+fn MainLayout(runtime: PeeringArc) -> Element {
+    let runtime = runtime.0;
+
     // Provide shared chat context
     let mut ctx = use_context_provider(|| ChatContext {
-        handle: Signal::new(handle.clone()),
+        runtime: Signal::new(runtime.clone()),
         active_chat: Signal::new(None),
         conversations: Signal::new(Vec::new()),
+        peers: Signal::new(Vec::new()),
         show_add_contact: Signal::new(false),
         typing_peers: Signal::new(Vec::new()),
     });
 
-    // Spawn background task to populate conversations
-    let net = handle.clone();
+    // Spawn event consumer loop driven by PeeringRuntime events
+    let rt = runtime.clone();
     use_effect(move || {
-        let net = net.clone();
+        let rt = rt.clone();
         spawn(async move {
-            refresh_conversations(&net, ctx.conversations).await;
+            // Initial conversation refresh
+            refresh_conversations(&rt, ctx.conversations).await;
+
+            // Subscribe to peering events
+            let mut rx = rt.subscribe();
+            loop {
+                match rx.recv().await {
+                    Ok(event) => match event {
+                        PeerEvent::PeersChanged { peers } => {
+                            ctx.peers.set(peers);
+                        }
+                        PeerEvent::ConversationOpened { .. } => {
+                            refresh_conversations(&rt, ctx.conversations).await;
+                        }
+                        PeerEvent::PeerConnected { .. } | PeerEvent::PeerDisconnected { .. } => {
+                            // Peer list changes are handled by PeersChanged
+                        }
+                        PeerEvent::NetworkEvent(_) => {
+                            // Could trigger conversation refresh for new messages
+                        }
+                        _ => {}
+                    },
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::warn!(skipped = n, "event consumer lagged");
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
         });
     });
 
@@ -102,9 +143,9 @@ fn MainLayout(handle: Arc<NetworkHandle>) -> Element {
                     on_close: move |_| {
                         ctx.show_add_contact.set(false);
                         // Refresh conversations after adding contact
-                        let net = ctx.handle.read().clone();
+                        let rt = ctx.runtime.read().clone();
                         spawn(async move {
-                            refresh_conversations(&net, ctx.conversations).await;
+                            refresh_conversations(&rt, ctx.conversations).await;
                         });
                     },
                 }
@@ -113,39 +154,47 @@ fn MainLayout(handle: Arc<NetworkHandle>) -> Element {
     }
 }
 
-/// Newtype wrapper so `Arc<IndrasNetwork>` satisfies Dioxus `#[component]`'s `PartialEq` bound.
-/// Equality is by pointer identity.
-#[derive(Clone)]
-pub struct NetworkArc(pub Arc<IndrasNetwork>);
-
-impl PartialEq for NetworkArc {
-    fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.0, &other.0)
-    }
-}
-
 /// Embeddable chat layout for use in other apps (e.g., indras-workspace).
-/// Accepts a raw IndrasNetwork instance — no identity/setup flow.
+/// Accepts a `PeeringRuntime` instance — no identity/setup flow.
 #[component]
-pub fn ChatLayout(network: NetworkArc) -> Element {
-    let network = network.0;
-    let handle = Arc::new(NetworkHandle { network });
+pub fn ChatLayout(runtime: PeeringArc) -> Element {
+    let runtime = runtime.0;
 
     // Provide shared chat context
     let mut ctx = use_context_provider(|| ChatContext {
-        handle: Signal::new(handle.clone()),
+        runtime: Signal::new(runtime.clone()),
         active_chat: Signal::new(None),
         conversations: Signal::new(Vec::new()),
+        peers: Signal::new(Vec::new()),
         show_add_contact: Signal::new(false),
         typing_peers: Signal::new(Vec::new()),
     });
 
-    // Spawn background task to populate conversations
-    let net = handle.clone();
+    // Spawn event consumer loop
+    let rt = runtime.clone();
     use_effect(move || {
-        let net = net.clone();
+        let rt = rt.clone();
         spawn(async move {
-            refresh_conversations(&net, ctx.conversations).await;
+            refresh_conversations(&rt, ctx.conversations).await;
+
+            let mut rx = rt.subscribe();
+            loop {
+                match rx.recv().await {
+                    Ok(event) => match event {
+                        PeerEvent::PeersChanged { peers } => {
+                            ctx.peers.set(peers);
+                        }
+                        PeerEvent::ConversationOpened { .. } => {
+                            refresh_conversations(&rt, ctx.conversations).await;
+                        }
+                        _ => {}
+                    },
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::warn!(skipped = n, "event consumer lagged");
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
         });
     });
 
@@ -158,9 +207,9 @@ pub fn ChatLayout(network: NetworkArc) -> Element {
                 super::contact_add::ContactAdd {
                     on_close: move |_| {
                         ctx.show_add_contact.set(false);
-                        let net = ctx.handle.read().clone();
+                        let rt = ctx.runtime.read().clone();
                         spawn(async move {
-                            refresh_conversations(&net, ctx.conversations).await;
+                            refresh_conversations(&rt, ctx.conversations).await;
                         });
                     },
                 }
@@ -171,14 +220,15 @@ pub fn ChatLayout(network: NetworkArc) -> Element {
 
 /// Refresh the conversation list from network realms.
 async fn refresh_conversations(
-    handle: &NetworkHandle,
+    runtime: &PeeringRuntime,
     mut conversations: Signal<Vec<ConversationSummary>>,
 ) {
-    let realm_ids = handle.network.realms();
+    let network = runtime.network();
+    let realm_ids = network.realms();
     let mut convos = Vec::new();
 
     for realm_id in realm_ids {
-        if let Some(realm) = handle.network.get_realm_by_id(&realm_id) {
+        if let Some(realm) = network.get_realm_by_id(&realm_id) {
             let display_name = realm.name()
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| {

@@ -1,0 +1,29 @@
+[package]
+name = "indras-peering"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Reusable P2P peering lifecycle for Indras Network"
+
+[lib]
+name = "indras_peering"
+path = "src/lib.rs"
+
+[dependencies]
+# Indras crates
+indras-network = { path = "../indras-network" }
+indras-crypto = { path = "../indras-crypto" }
+
+# Async runtime
+tokio = { version = "1", features = ["sync", "time", "rt", "macros"] }
+tokio-util = "0.7"
+futures = "0.3"
+
+# Utilities
+tracing = "0.1"
+thiserror = "2.0"
+chrono = "0.4"
+hex = "0.4"
+
+[dev-dependencies]
+tempfile = "3"
