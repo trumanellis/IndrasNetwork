@@ -19,6 +19,7 @@ dioxus = { version = "0.7", features = ["desktop"] }
 
 # Indras crates
 indras-network = { path = "../indras-network" }
+indras-peering = { path = "../indras-peering" }
 indras-sync-engine = { path = "../indras-sync-engine" }
 indras-crypto = { path = "../indras-crypto" }
 

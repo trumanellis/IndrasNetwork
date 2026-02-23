@@ -1,26 +1,8 @@
-//! Network bridge — connects IndrasNetwork to Dioxus signals.
+//! Network bridge — connects PeeringRuntime to Dioxus signals.
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use indras_network::IndrasNetwork;
-
-/// Handle to the running IndrasNetwork instance.
-#[derive(Clone)]
-pub struct NetworkHandle {
-    pub network: Arc<IndrasNetwork>,
-}
-
-impl std::fmt::Debug for NetworkHandle {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("NetworkHandle").finish_non_exhaustive()
-    }
-}
-
-impl PartialEq for NetworkHandle {
-    fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.network, &other.network)
-    }
-}
+use indras_peering::{PeeringConfig, PeeringRuntime};
 
 /// Platform-specific data directory for identity persistence.
 pub fn default_data_dir() -> PathBuf {
@@ -54,50 +36,42 @@ pub fn default_data_dir() -> PathBuf {
 
 /// Check if this is the user's first run (no identity keys on disk).
 pub fn is_first_run() -> bool {
-    IndrasNetwork::is_first_run(default_data_dir())
+    PeeringRuntime::is_first_run(default_data_dir())
 }
 
 /// Create a new identity with display name and optional PassStory protection.
 pub async fn create_identity(
     display_name: &str,
     pass_story_slots: Option<[String; 23]>,
-) -> Result<NetworkHandle, String> {
+) -> Result<Arc<PeeringRuntime>, String> {
     let data_dir = default_data_dir();
     let _ = std::fs::create_dir_all(&data_dir);
+    let config = PeeringConfig::new(&data_dir);
 
-    let mut builder = IndrasNetwork::builder()
-        .data_dir(&data_dir)
-        .display_name(display_name);
+    let pass_story = match pass_story_slots {
+        Some(slots) => {
+            let story = indras_crypto::PassStory::from_normalized(slots)
+                .map_err(|e| format!("{e}"))?;
+            Some(story)
+        }
+        None => None,
+    };
 
-    if let Some(slots) = pass_story_slots {
-        let story = indras_crypto::PassStory::from_normalized(slots)
-            .map_err(|e| format!("{}", e))?;
-        builder = builder.pass_story(story);
-    }
-
-    let net = builder
-        .build()
+    let runtime = PeeringRuntime::create(display_name, pass_story, config)
         .await
-        .map_err(|e| format!("{}", e))?;
+        .map_err(|e| format!("{e}"))?;
 
-    net.start().await.map_err(|e| format!("{}", e))?;
-
-    Ok(NetworkHandle {
-        network: Arc::new(net),
-    })
+    Ok(Arc::new(runtime))
 }
 
 /// Load an existing identity (returning user).
-pub async fn load_identity() -> Result<NetworkHandle, String> {
+pub async fn load_identity() -> Result<Arc<PeeringRuntime>, String> {
     let data_dir = default_data_dir();
+    let config = PeeringConfig::new(&data_dir);
 
-    let net = IndrasNetwork::new(&data_dir)
+    let runtime = PeeringRuntime::boot(config)
         .await
-        .map_err(|e| format!("{}", e))?;
+        .map_err(|e| format!("{e}"))?;
 
-    net.start().await.map_err(|e| format!("{}", e))?;
-
-    Ok(NetworkHandle {
-        network: Arc::new(net),
-    })
+    Ok(Arc::new(runtime))
 }

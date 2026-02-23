@@ -189,6 +189,7 @@ pub fn RootApp() -> Element {
     let preview_file = use_signal(|| None::<PreviewFile>);
     let preview_view_mode = use_signal(|| PreviewViewMode::Rendered);
     let mut network_handle = use_signal(|| None::<NetworkHandle>);
+    let mut peering_runtime = use_signal(|| None::<std::sync::Arc<indras_peering::PeeringRuntime>>);
     let mut setup_error = use_signal(|| None::<String>);
     let mut setup_loading = use_signal(|| false);
     let mut pass_story_open = use_signal(|| false);
@@ -341,6 +342,20 @@ pub fn RootApp() -> Element {
                                 // Join contacts realm so inbox listener can store contacts
                                 if let Err(e) = net.join_contacts_realm().await {
                                     tracing::warn!(error = %e, "Failed to join contacts realm (non-fatal)");
+                                }
+
+                                // Create PeeringRuntime for the embedded chat view
+                                let peering_config = indras_peering::PeeringConfig::new(
+                                    &crate::bridge::network_bridge::default_data_dir(),
+                                );
+                                match indras_peering::PeeringRuntime::attach(Arc::clone(&net), peering_config).await {
+                                    Ok(pr) => {
+                                        peering_runtime.set(Some(std::sync::Arc::new(pr)));
+                                        log_event(&mut workspace.write(), EventDirection::System, "Peering runtime attached".to_string());
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(error = %e, "Failed to attach peering runtime (non-fatal)");
+                                    }
                                 }
 
                                 // Initialize home realm for persistent artifact storage
@@ -1708,6 +1723,20 @@ pub fn RootApp() -> Element {
                                             tracing::warn!(error = %e, "Failed to join contacts realm (non-fatal)");
                                         }
 
+                                        // Create PeeringRuntime for the embedded chat view
+                                        let peering_config = indras_peering::PeeringConfig::new(
+                                            &crate::bridge::network_bridge::default_data_dir(),
+                                        );
+                                        match indras_peering::PeeringRuntime::attach(Arc::clone(&net), peering_config).await {
+                                            Ok(pr) => {
+                                                peering_runtime.set(Some(std::sync::Arc::new(pr)));
+                                                log_event(&mut workspace.write(), EventDirection::System, "Peering runtime attached".to_string());
+                                            }
+                                            Err(e) => {
+                                                tracing::warn!(error = %e, "Failed to attach peering runtime (non-fatal)");
+                                            }
+                                        }
+
                                         // Initialize home realm for persistent artifact storage
                                         match net.home_realm().await {
                                             Ok(hr) => {
@@ -1860,12 +1889,11 @@ pub fn RootApp() -> Element {
                             }
                         }
                         ViewType::Story => {
-                            let net = network_handle.read().as_ref()
-                                .map(|nh| Arc::clone(&nh.network));
-                            if let Some(network) = net {
+                            let peering = peering_runtime.read().clone();
+                            if let Some(pr) = peering {
                                 rsx! {
                                     indras_chat::components::app::ChatLayout {
-                                        network: indras_chat::components::app::NetworkArc(network),
+                                        runtime: indras_chat::components::app::PeeringArc(pr),
                                     }
                                 }
                             } else {

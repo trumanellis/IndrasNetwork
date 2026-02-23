@@ -3524,6 +3524,7 @@ dependencies = [
  "hex",
  "indras-crypto",
  "indras-network",
+ "indras-peering",
  "indras-sync-engine",
  "serde",
  "serde_json",
@@ -3850,6 +3851,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "indras-peering"
+version = "1.0.0"
+dependencies = [
+ "chrono",
+ "futures",
+ "hex",
+ "indras-crypto",
+ "indras-network",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "indras-realm-viewer"
 version = "1.0.0"
 dependencies = [
@@ -4063,6 +4080,7 @@ dependencies = [
  "indras-chat",
  "indras-crypto",
  "indras-network",
+ "indras-peering",
  "indras-ui",
  "mlua",
  "rand 0.9.2",
