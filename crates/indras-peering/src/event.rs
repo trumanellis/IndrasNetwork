@@ -24,25 +24,43 @@ pub struct PeerInfo {
 #[derive(Debug, Clone)]
 pub enum PeerEvent {
     /// A new peer appeared in the contacts list.
-    PeerConnected { peer: PeerInfo },
+    PeerConnected {
+        /// The newly connected peer.
+        peer: PeerInfo,
+    },
     /// A peer disappeared from the contacts list.
-    PeerDisconnected { member_id: MemberId },
+    PeerDisconnected {
+        /// Identity of the departed peer.
+        member_id: MemberId,
+    },
     /// The full peer list changed (emitted on every poll diff).
-    PeersChanged { peers: Vec<PeerInfo> },
+    PeersChanged {
+        /// Current complete peer list.
+        peers: Vec<PeerInfo>,
+    },
     /// A new DM conversation was opened via `connect` / `connect_by_code`.
-    ConversationOpened { realm_id: RealmId, peer: PeerInfo },
+    ConversationOpened {
+        /// The DM realm created for this conversation.
+        realm_id: RealmId,
+        /// The remote peer in the conversation.
+        peer: PeerInfo,
+    },
     /// World view was saved to disk.
     WorldViewSaved,
     /// A raw network event forwarded from `IndrasNetwork::events()`.
     NetworkEvent(GlobalEvent),
     /// A contact was blocked (removed + left all shared realms).
     PeerBlocked {
+        /// Identity of the blocked peer.
         member_id: MemberId,
+        /// Realms that were left as part of the block cascade.
         left_realms: Vec<RealmId>,
     },
     /// Sentiment toward a peer was updated.
     SentimentChanged {
+        /// Identity of the peer whose sentiment changed.
         member_id: MemberId,
+        /// New sentiment value (-1, 0, or 1).
         sentiment: i8,
     },
     /// Non-fatal warning.
