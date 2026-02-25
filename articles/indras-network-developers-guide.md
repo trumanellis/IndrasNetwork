@@ -845,8 +845,9 @@ let is_contact: bool = contacts_realm.is_contact(&member_id).await;
 let contact_ids: Vec<MemberId> = contacts_realm.contacts_list();
 let contact_ids: Vec<MemberId> = contacts_realm.contacts_list_async().await;
 
-// Get the full entry for a contact
+// Get the full entry for a contact (sync and async variants)
 let entry: Option<ContactEntry> = contacts_realm.get_contact_entry(&member_id);
+let entry: Option<ContactEntry> = contacts_realm.get_contact_entry_async(&member_id).await;
 
 // Contact count
 let count: usize = contacts_realm.contact_count();
