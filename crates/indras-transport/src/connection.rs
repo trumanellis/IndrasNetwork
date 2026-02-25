@@ -192,12 +192,17 @@ impl ConnectionManager {
 
     /// Connect to a peer by their public key
     ///
-    /// This requires the peer to be discoverable via relays.
+    /// Includes our relay URL so the connection can be routed through the relay
+    /// even when DNS discovery is unavailable.
     pub async fn connect_by_key(
         &self,
         public_key: PublicKey,
     ) -> Result<Connection, ConnectionError> {
-        let addr = EndpointAddr::new(public_key);
+        let mut addr = EndpointAddr::new(public_key);
+        // Add our relay URL — peers on the same relay can connect through it
+        for relay_url in self.endpoint.addr().relay_urls() {
+            addr = addr.with_relay_url(relay_url.clone());
+        }
         self.connect(addr).await
     }
 

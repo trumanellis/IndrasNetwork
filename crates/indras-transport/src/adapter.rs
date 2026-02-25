@@ -428,6 +428,8 @@ impl IrohNetworkAdapter {
         let discovery_service = self.discovery_service.clone();
         let connection_manager = self.connection_manager.clone();
         let peer_addresses = self.peer_addresses.clone();
+        let handled_peers = self.handled_peers.clone();
+        let message_tx = self.message_tx.clone();
         let mut shutdown_rx = self.shutdown.subscribe();
 
         tokio::spawn(async move {
@@ -441,23 +443,57 @@ impl IrohNetworkAdapter {
                     }
                     Ok(event) = events.recv() => {
                         match event {
-                            PeerEvent::Discovered(info) => {
-                                // Auto-connect to discovered peers
+                            PeerEvent::Discovered(info) | PeerEvent::Updated(info) => {
                                 let peer_id = info.identity;
                                 if !connection_manager.is_connected(&peer_id) {
-                                    // Try to get address from our cache
-                                    if let Some(addr) = peer_addresses.get(&peer_id)
-                                        && let Err(e) = connection_manager.connect(addr.clone()).await {
-                                            debug!(
-                                                peer = %peer_id.short_id(),
-                                                error = %e,
-                                                "Failed to auto-connect"
+                                    let result = if let Some(addr) = peer_addresses.get(&peer_id) {
+                                        connection_manager.connect(addr.clone()).await
+                                    } else {
+                                        connection_manager.connect_by_key(*peer_id.public_key()).await
+                                    };
+                                    match result {
+                                        Ok(conn) => {
+                                            debug!(peer = %peer_id.short_id(), "Auto-connected to discovered peer");
+                                            handled_peers.remove(&peer_id);
+                                            Self::ensure_connection_handler_inner(
+                                                peer_id,
+                                                conn,
+                                                message_tx.clone(),
+                                                handled_peers.clone(),
                                             );
                                         }
+                                        Err(e) => {
+                                            debug!(peer = %peer_id.short_id(), error = %e, "Auto-connect failed");
+                                        }
+                                    }
+                                }
+                            }
+                            PeerEvent::RealmPeerJoined { peer_info, .. } => {
+                                let peer_id = peer_info.peer_id;
+                                if !connection_manager.is_connected(&peer_id) {
+                                    let result = if let Some(addr) = peer_addresses.get(&peer_id) {
+                                        connection_manager.connect(addr.clone()).await
+                                    } else {
+                                        connection_manager.connect_by_key(*peer_id.public_key()).await
+                                    };
+                                    match result {
+                                        Ok(conn) => {
+                                            debug!(peer = %peer_id.short_id(), "Auto-connected to realm peer");
+                                            handled_peers.remove(&peer_id);
+                                            Self::ensure_connection_handler_inner(
+                                                peer_id,
+                                                conn,
+                                                message_tx.clone(),
+                                                handled_peers.clone(),
+                                            );
+                                        }
+                                        Err(e) => {
+                                            debug!(peer = %peer_id.short_id(), error = %e, "Realm auto-connect failed");
+                                        }
+                                    }
                                 }
                             }
                             PeerEvent::Lost(peer_id) => {
-                                // Clean up connection
                                 connection_manager.close_connection(&peer_id);
                             }
                             _ => {}

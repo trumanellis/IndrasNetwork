@@ -46,6 +46,8 @@ pub struct ConnectionNotify {
     pub dm_realm_id: InterfaceId,
     /// Timestamp (millis since epoch).
     pub timestamp_millis: u64,
+    /// Optional endpoint address for direct QUIC connection.
+    pub endpoint_addr: Option<Vec<u8>>,
 }
 
 impl ConnectionNotify {
@@ -60,12 +62,19 @@ impl ConnectionNotify {
             dm_realm_id,
             display_name: None,
             timestamp_millis: now,
+            endpoint_addr: None,
         }
     }
 
     /// Set the display name.
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.display_name = Some(name.into());
+        self
+    }
+
+    /// Set the endpoint address.
+    pub fn with_endpoint_addr(mut self, addr: Vec<u8>) -> Self {
+        self.endpoint_addr = Some(addr);
         self
     }
 

@@ -24,6 +24,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::Arc;
+use tokio::sync::OnceCell;
 use tokio::sync::RwLock;
 
 /// Unique identifier for a realm.
@@ -112,6 +113,9 @@ pub struct IndrasNetwork {
 struct RealmState {
     name: Option<String>,
     artifact_id: Option<crate::artifact::ArtifactId>,
+    /// Shared chat document handle — all Realm instances for the same realm
+    /// share this OnceCell so they use the same broadcast channel.
+    chat_doc: Arc<OnceCell<crate::document::Document<crate::chat_message::RealmChatDocument>>>,
 }
 
 impl IndrasNetwork {
@@ -332,6 +336,7 @@ impl IndrasNetwork {
             RealmState {
                 name: Some("Inbox".to_string()),
                 artifact_id: None,
+                chat_doc: Arc::new(OnceCell::new()),
             },
         );
 
@@ -428,6 +433,12 @@ impl IndrasNetwork {
                     };
 
                     // Establish transport connectivity to peer
+                    if notify.endpoint_addr.is_some() {
+                        tracing::debug!(
+                            peer = %hex::encode(&peer_id[..8]),
+                            "Inbox: notification includes endpoint address"
+                        );
+                    }
                     if let Err(e) = inner.connect_to_peer(&peer_id).await {
                         tracing::debug!(
                             peer = %hex::encode(&peer_id[..8]),
@@ -453,6 +464,7 @@ impl IndrasNetwork {
                                 RealmState {
                                     name: Some("DM".to_string()),
                                     artifact_id: Some(dm_artifact_id),
+                                    chat_doc: Arc::new(OnceCell::new()),
                                 },
                             );
 
@@ -485,7 +497,13 @@ impl IndrasNetwork {
                                 // Add peer as member so send_message delivers to them
                                 let _ = inner.add_member(&sender_inbox_id, peer_identity).await;
 
-                                let reply = ConnectionNotify::new(my_id, dm_realm_id);
+                                let mut reply = ConnectionNotify::new(my_id, dm_realm_id);
+                                // Include our endpoint address in reciprocal notification
+                                if let Some(addr) = inner.endpoint_addr().await {
+                                    if let Ok(addr_bytes) = postcard::to_allocvec(&addr) {
+                                        reply = reply.with_endpoint_addr(addr_bytes);
+                                    }
+                                }
                                 if let Ok(payload) = reply.to_bytes() {
                                     let _ = inner.send_message(&sender_inbox_id, payload).await;
                                 }
@@ -584,6 +602,7 @@ impl IndrasNetwork {
             RealmState {
                 name: Some(name.to_string()),
                 artifact_id: Some(artifact_id),
+                chat_doc: Arc::new(OnceCell::new()),
             },
         );
 
@@ -647,7 +666,7 @@ impl IndrasNetwork {
         }
 
         // Cache the realm state
-        self.realms.insert(interface_id, RealmState { name: None, artifact_id: invite_code.artifact_id().cloned() });
+        self.realms.insert(interface_id, RealmState { name: None, artifact_id: invite_code.artifact_id().cloned(), chat_doc: Arc::new(OnceCell::new()) });
 
         Ok(Realm::new(
             interface_id,
@@ -663,9 +682,13 @@ impl IndrasNetwork {
     /// Returns None if the realm is not loaded.
     pub fn get_realm_by_id(&self, id: &RealmId) -> Option<Realm> {
         self.realms.get(id).map(|state| {
-            // We need to reconstruct the invite code, which we may not have
-            // For now, return a realm without a valid invite code
-            Realm::from_id(*id, state.name.clone(), state.artifact_id.clone(), Arc::clone(&self.inner))
+            Realm::from_id_with_chat_doc(
+                *id,
+                state.name.clone(),
+                state.artifact_id.clone(),
+                Arc::clone(&self.inner),
+                Arc::clone(&state.chat_doc),
+            )
         })
     }
 
@@ -779,7 +802,7 @@ impl IndrasNetwork {
 
         // 2. Check if already loaded
         if let Some(state) = self.realms.get(&realm_id) {
-            return Ok(Realm::from_id(realm_id, state.name.clone(), state.artifact_id.clone(), Arc::clone(&self.inner)));
+            return Ok(Realm::from_id_with_chat_doc(realm_id, state.name.clone(), state.artifact_id.clone(), Arc::clone(&self.inner), Arc::clone(&state.chat_doc)));
         }
 
         // 3. Establish transport connectivity to peer via relay
@@ -818,6 +841,7 @@ impl IndrasNetwork {
             RealmState {
                 name: Some("DM".to_string()),
                 artifact_id: Some(artifact_id),
+                chat_doc: Arc::new(OnceCell::new()),
             },
         );
 
@@ -893,6 +917,12 @@ impl IndrasNetwork {
         let mut notify = ConnectionNotify::new(my_id, dm_realm_id);
         if let Some(name) = self.display_name() {
             notify = notify.with_name(name);
+        }
+        // Include our endpoint address so peer can connect directly
+        if let Some(addr) = self.inner.endpoint_addr().await {
+            if let Ok(addr_bytes) = postcard::to_allocvec(&addr) {
+                notify = notify.with_endpoint_addr(addr_bytes);
+            }
         }
 
         // Serialize and send as a message on the peer's inbox
@@ -1207,7 +1237,7 @@ impl IndrasNetwork {
 
         // Check if already loaded (skip contact validation for existing realms)
         if let Some(state) = self.realms.get(&realm_id) {
-            return Ok(Realm::from_id(realm_id, state.name.clone(), state.artifact_id.clone(), Arc::clone(&self.inner)));
+            return Ok(Realm::from_id_with_chat_doc(realm_id, state.name.clone(), state.artifact_id.clone(), Arc::clone(&self.inner), Arc::clone(&state.chat_doc)));
         }
 
         // Enforce: all peers must be contacts before creating a new realm
@@ -1252,7 +1282,7 @@ impl IndrasNetwork {
             .await?;
 
         // Cache the realm state
-        self.realms.insert(interface_id, RealmState { name: None, artifact_id: None });
+        self.realms.insert(interface_id, RealmState { name: None, artifact_id: None, chat_doc: Arc::new(OnceCell::new()) });
 
         // Cache the peer mapping
         self.peer_realms.insert(normalized, interface_id);
@@ -1278,7 +1308,7 @@ impl IndrasNetwork {
         let realm_id = Self::compute_realm_id_for_peers(&normalized);
 
         self.realms.get(&realm_id).map(|state| {
-            Realm::from_id(realm_id, state.name.clone(), state.artifact_id.clone(), Arc::clone(&self.inner))
+            Realm::from_id_with_chat_doc(realm_id, state.name.clone(), state.artifact_id.clone(), Arc::clone(&self.inner), Arc::clone(&state.chat_doc))
         })
     }
 
@@ -1448,6 +1478,7 @@ impl IndrasNetwork {
             RealmState {
                 name: Some("Home".to_string()),
                 artifact_id: None,
+                chat_doc: Arc::new(OnceCell::new()),
             },
         );
 
