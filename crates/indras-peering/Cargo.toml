@@ -12,6 +12,7 @@ path = "src/lib.rs"
 [dependencies]
 # Indras crates
 indras-network = { path = "../indras-network" }
+indras-sync-engine = { path = "../indras-sync-engine" }
 indras-crypto = { path = "../indras-crypto" }
 
 # Async runtime

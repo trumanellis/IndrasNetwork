@@ -105,8 +105,11 @@ fn MainLayout(runtime: PeeringArc) -> Element {
             // Initial conversation refresh
             refresh_conversations(&rt, ctx.conversations).await;
 
-            // Subscribe to peering events
-            let mut rx = rt.subscribe();
+            // Atomically subscribe + snapshot to avoid race
+            let (mut rx, initial_peers) = rt.subscribe_with_snapshot();
+            if !initial_peers.is_empty() {
+                ctx.peers.set(initial_peers);
+            }
             loop {
                 match rx.recv().await {
                     Ok(event) => match event {
@@ -177,7 +180,11 @@ pub fn ChatLayout(runtime: PeeringArc) -> Element {
         spawn(async move {
             refresh_conversations(&rt, ctx.conversations).await;
 
-            let mut rx = rt.subscribe();
+            // Atomically subscribe + snapshot to avoid race
+            let (mut rx, initial_peers) = rt.subscribe_with_snapshot();
+            if !initial_peers.is_empty() {
+                ctx.peers.set(initial_peers);
+            }
             loop {
                 match rx.recv().await {
                     Ok(event) => match event {

@@ -17,8 +17,17 @@ mod tasks;
 
 pub use config::PeeringConfig;
 pub use error::PeeringError;
-pub use event::{PeerEvent, PeerInfo};
+pub use event::{ContactStatus, PeerEvent, PeerInfo};
 pub use runtime::PeeringRuntime;
+
+// Re-export MemberId for consumer convenience
+pub use indras_network::MemberId;
+
+// Re-export contact/sentiment types so apps don't need lower-layer deps
+pub use indras_network::contacts::ContactEntry;
+pub use indras_sync_engine::sentiment::{
+    RelayedSentiment, SentimentRelayDocument, SentimentView, DEFAULT_RELAY_ATTENUATION,
+};
 
 /// Convenience alias for peering results.
 pub type Result<T> = std::result::Result<T, PeeringError>;

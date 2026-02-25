@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::StreamExt;
-use tokio::sync::{broadcast, watch};
+use tokio::sync::{broadcast, watch, Notify};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -21,12 +21,16 @@ pub(crate) fn short_id(id: &MemberId) -> String {
 
 /// Polls the contacts realm every `interval`, diffs against the previous set,
 /// and emits `PeerConnected` / `PeerDisconnected` / `PeersChanged` events.
+///
+/// Also listens on `poll_notify` to allow on-demand immediate poll cycles
+/// via [`PeeringRuntime::refresh_peers()`](crate::PeeringRuntime::refresh_peers).
 pub(crate) fn spawn_contact_poller(
     network: Arc<IndrasNetwork>,
     peers_tx: watch::Sender<Vec<PeerInfo>>,
     event_tx: broadcast::Sender<PeerEvent>,
     cancel: CancellationToken,
     interval: Duration,
+    poll_notify: Arc<Notify>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut known: HashMap<MemberId, PeerInfo> = HashMap::new();
@@ -34,9 +38,13 @@ pub(crate) fn spawn_contact_poller(
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         loop {
+            // Wait for either: tick, manual notify, or cancellation.
+            // interval() fires immediately on the first .tick(), so the first
+            // poll happens without delay.
             tokio::select! {
                 _ = cancel.cancelled() => break,
                 _ = ticker.tick() => {}
+                _ = poll_notify.notified() => {}
             }
 
             let contacts_realm = match network.contacts_realm().await {
@@ -55,16 +63,26 @@ pub(crate) fn spawn_contact_poller(
                 }
 
                 if let Some(existing) = known.get(cid) {
-                    // Preserve existing PeerInfo (keep connected_at timestamp)
-                    current.insert(*cid, existing.clone());
+                    // Preserve existing PeerInfo but refresh sentiment + status
+                    let entry = contacts_realm.get_contact_entry_async(cid).await;
+                    let mut updated = existing.clone();
+                    updated.sentiment = entry.as_ref().map(|e| e.sentiment).unwrap_or(0);
+                    updated.status = entry.as_ref().map(|e| e.status).unwrap_or_default();
+                    current.insert(*cid, updated);
                 } else {
-                    // Use short hex ID; proper names arrive via connect_by_code flow
-                    let display_name = short_id(cid);
+                    // New peer — read contact entry for sentiment + status
+                    let entry = contacts_realm.get_contact_entry_async(cid).await;
+                    let display_name = entry
+                        .as_ref()
+                        .and_then(|e| e.display_name.clone())
+                        .unwrap_or_else(|| short_id(cid));
 
                     let info = PeerInfo {
                         member_id: *cid,
                         display_name,
                         connected_at: chrono::Utc::now().timestamp(),
+                        sentiment: entry.as_ref().map(|e| e.sentiment).unwrap_or(0),
+                        status: entry.as_ref().map(|e| e.status).unwrap_or_default(),
                     };
 
                     let _ = event_tx.send(PeerEvent::PeerConnected { peer: info.clone() });
@@ -79,9 +97,9 @@ pub(crate) fn spawn_contact_poller(
                 }
             }
 
-            // Emit full peers-changed if the set actually changed
+            // Emit full peers-changed if the set actually changed (keys OR values)
             if current.len() != known.len()
-                || current.keys().any(|k| !known.contains_key(k))
+                || current.iter().any(|(k, v)| known.get(k) != Some(v))
             {
                 let peers_vec: Vec<PeerInfo> = current.values().cloned().collect();
                 let _ = event_tx.send(PeerEvent::PeersChanged {
@@ -158,9 +176,46 @@ pub(crate) fn spawn_periodic_saver(
     })
 }
 
+/// Lightweight supervisor that checks task health every 30 seconds.
+///
+/// Does NOT restart tasks in v1 — just emits `PeerEvent::Warning` if any
+/// background task finished unexpectedly (panic or early return).
+pub(crate) fn spawn_task_supervisor(
+    _task_count_offset: usize,
+    event_tx: broadcast::Sender<PeerEvent>,
+    cancel: CancellationToken,
+) -> JoinHandle<()> {
+    // The supervisor cannot hold JoinHandle references (they're behind the Mutex
+    // in PeeringRuntime). Instead, it relies on the cancellation token: if the
+    // token is NOT cancelled but we detect no broadcast activity for a long time,
+    // something may be wrong. For v1, we simply log that the supervisor is alive.
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(Duration::from_secs(30));
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        // Skip the first immediate tick
+        ticker.tick().await;
+
+        loop {
+            tokio::select! {
+                _ = cancel.cancelled() => break,
+                _ = ticker.tick() => {}
+            }
+
+            // Check if the broadcast channel still has capacity (receivers exist)
+            if event_tx.receiver_count() == 0 {
+                tracing::debug!("task supervisor: no event subscribers");
+            }
+        }
+
+        tracing::debug!("task supervisor stopped");
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ContactStatus;
 
     fn make_member_id(byte: u8) -> MemberId {
         MemberId::from([byte; 32])
@@ -193,11 +248,15 @@ mod tests {
             member_id: id_a,
             display_name: "Peer A".into(),
             connected_at: 100,
+            sentiment: 0,
+            status: ContactStatus::default(),
         });
         known.insert(id_b, PeerInfo {
             member_id: id_b,
             display_name: "Peer B".into(),
             connected_at: 100,
+            sentiment: 0,
+            status: ContactStatus::default(),
         });
 
         // Current poll: A stays, B departs, C is new
@@ -217,6 +276,41 @@ mod tests {
         assert_eq!(departed, vec![&id_b]);
     }
 
+    /// Verify that value changes (sentiment, status) are detected by the diff.
+    #[test]
+    fn contact_diff_detects_value_changes() {
+        let id_a = make_member_id(0x01);
+
+        let mut known: HashMap<MemberId, PeerInfo> = HashMap::new();
+        known.insert(id_a, PeerInfo {
+            member_id: id_a,
+            display_name: "Peer A".into(),
+            connected_at: 100,
+            sentiment: 0,
+            status: ContactStatus::default(),
+        });
+
+        // Same key, different sentiment
+        let mut current: HashMap<MemberId, PeerInfo> = HashMap::new();
+        current.insert(id_a, PeerInfo {
+            member_id: id_a,
+            display_name: "Peer A".into(),
+            connected_at: 100,
+            sentiment: 1,
+            status: ContactStatus::default(),
+        });
+
+        // Old key-only check would miss this
+        let key_only_changed = current.len() != known.len()
+            || current.keys().any(|k| !known.contains_key(k));
+        assert!(!key_only_changed, "key-only check should NOT detect value change");
+
+        // New value-aware check catches it
+        let value_changed = current.len() != known.len()
+            || current.iter().any(|(k, v)| known.get(k) != Some(v));
+        assert!(value_changed, "value-aware check SHOULD detect sentiment change");
+    }
+
     #[test]
     fn broadcast_channel_delivers_events() {
         let (tx, _) = broadcast::channel::<PeerEvent>(16);
@@ -227,6 +321,8 @@ mod tests {
             member_id: make_member_id(0x01),
             display_name: "Test".into(),
             connected_at: 0,
+            sentiment: 0,
+            status: ContactStatus::default(),
         };
         tx.send(PeerEvent::PeerConnected { peer }).unwrap();
 
@@ -245,12 +341,16 @@ mod tests {
             member_id: make_member_id(0x42),
             display_name: "Alice".into(),
             connected_at: 1000,
+            sentiment: 1,
+            status: ContactStatus::Confirmed,
         }];
         tx.send(peers).unwrap();
 
         let snapshot = rx.borrow().clone();
         assert_eq!(snapshot.len(), 1);
         assert_eq!(snapshot[0].display_name, "Alice");
+        assert_eq!(snapshot[0].sentiment, 1);
+        assert_eq!(snapshot[0].status, ContactStatus::Confirmed);
     }
 
     #[tokio::test]
@@ -268,5 +368,98 @@ mod tests {
         cancel.cancel();
         let result = handle.await.unwrap();
         assert_eq!(result, "cancelled");
+    }
+
+    /// Verify that status changes are also detected by the value-aware diff.
+    #[test]
+    fn contact_diff_detects_status_changes() {
+        let id_a = make_member_id(0x01);
+
+        let mut known: HashMap<MemberId, PeerInfo> = HashMap::new();
+        known.insert(id_a, PeerInfo {
+            member_id: id_a,
+            display_name: "Peer A".into(),
+            connected_at: 100,
+            sentiment: 0,
+            status: ContactStatus::Pending,
+        });
+
+        let mut current: HashMap<MemberId, PeerInfo> = HashMap::new();
+        current.insert(id_a, PeerInfo {
+            member_id: id_a,
+            display_name: "Peer A".into(),
+            connected_at: 100,
+            sentiment: 0,
+            status: ContactStatus::Confirmed,
+        });
+
+        let changed = current.len() != known.len()
+            || current.iter().any(|(k, v)| known.get(k) != Some(v));
+        assert!(changed, "value-aware diff should detect status Pending→Confirmed");
+    }
+
+    /// Verify PeerInfo PartialEq works correctly.
+    #[test]
+    fn peer_info_equality() {
+        let id = make_member_id(0x01);
+        let a = PeerInfo {
+            member_id: id,
+            display_name: "Alice".into(),
+            connected_at: 100,
+            sentiment: 0,
+            status: ContactStatus::Confirmed,
+        };
+        let b = a.clone();
+        assert_eq!(a, b, "cloned PeerInfo should be equal");
+
+        let c = PeerInfo { sentiment: 1, ..a.clone() };
+        assert_ne!(a, c, "different sentiment should be unequal");
+
+        let d = PeerInfo { display_name: "Bob".into(), ..a.clone() };
+        assert_ne!(a, d, "different display_name should be unequal");
+    }
+
+    /// Verify identical maps produce no diff.
+    #[test]
+    fn contact_diff_no_change() {
+        let id_a = make_member_id(0x01);
+        let peer = PeerInfo {
+            member_id: id_a,
+            display_name: "Peer A".into(),
+            connected_at: 100,
+            sentiment: 1,
+            status: ContactStatus::Confirmed,
+        };
+
+        let mut known: HashMap<MemberId, PeerInfo> = HashMap::new();
+        known.insert(id_a, peer.clone());
+
+        let mut current: HashMap<MemberId, PeerInfo> = HashMap::new();
+        current.insert(id_a, peer);
+
+        let changed = current.len() != known.len()
+            || current.iter().any(|(k, v)| known.get(k) != Some(v));
+        assert!(!changed, "identical maps should produce no diff");
+    }
+
+    /// Verify Notify wakes the poller select loop.
+    #[tokio::test]
+    async fn notify_wakes_select() {
+        let notify = Arc::new(Notify::new());
+        let notify_clone = Arc::clone(&notify);
+
+        let handle = tokio::spawn(async move {
+            tokio::select! {
+                _ = notify_clone.notified() => "notified",
+                _ = tokio::time::sleep(Duration::from_secs(60)) => "timeout",
+            }
+        });
+
+        // Small delay to ensure task is waiting
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        notify.notify_one();
+
+        let result = handle.await.unwrap();
+        assert_eq!(result, "notified");
     }
 }

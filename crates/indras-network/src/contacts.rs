@@ -359,8 +359,16 @@ impl ContactsRealm {
     }
 
     /// Get the full contact entry for a member.
+    ///
+    /// **Warning**: Uses `read_blocking()` — do NOT call from async contexts.
+    /// Use [`get_contact_entry_async`](Self::get_contact_entry_async) instead.
     pub fn get_contact_entry(&self, member_id: &MemberId) -> Option<ContactEntry> {
         self.document.read_blocking().get_entry(member_id).cloned()
+    }
+
+    /// Get the full contact entry for a member (async-safe).
+    pub async fn get_contact_entry_async(&self, member_id: &MemberId) -> Option<ContactEntry> {
+        self.document.read().await.get_entry(member_id).cloned()
     }
 
     /// Set whether sentiment for a contact is relayable to second-degree contacts.
