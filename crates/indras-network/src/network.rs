@@ -1195,7 +1195,7 @@ impl IndrasNetwork {
             }
             Some(contacts) => {
                 // Verify all peers (except ourselves) are in our contacts
-                let my_contacts = contacts.contacts_list_async().await;
+                let my_contacts = contacts.contacts_list().await;
                 for peer in &normalized {
                     if *peer != my_id && !my_contacts.contains(peer) {
                         return Err(IndraError::InvalidOperation(
