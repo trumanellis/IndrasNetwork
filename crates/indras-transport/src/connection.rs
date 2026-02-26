@@ -25,6 +25,12 @@ pub struct ConnectionConfig {
     pub idle_timeout_ms: u64,
     /// Whether to accept incoming connections
     pub accept_incoming: bool,
+    /// Local-only mode: disables DNS/pkarr discovery and relay servers.
+    ///
+    /// When true, peers can only find each other via gossip on the local network.
+    /// Eliminates warnings about failed DNS resolution and pkarr publishing
+    /// when there is no internet connectivity.
+    pub local_only: bool,
 }
 
 impl Default for ConnectionConfig {
@@ -34,6 +40,7 @@ impl Default for ConnectionConfig {
             connect_timeout_ms: 10_000,
             idle_timeout_ms: 60_000,
             accept_incoming: true,
+            local_only: false,
         }
     }
 }
@@ -90,8 +97,16 @@ impl ConnectionManager {
     ) -> Result<Self, ConnectionError> {
         // Note: ALPNs are registered by the Router, not the Endpoint directly.
         // The Router calls .accept(ALPN, handler) which registers ALPNs on the endpoint.
-        let builder = Endpoint::builder()
+        let mut builder = Endpoint::builder()
             .secret_key(secret_key.clone());
+
+        // In local-only mode, disable DNS/pkarr discovery and relay servers.
+        // This prevents warnings about failed DNS resolution when offline.
+        if config.local_only {
+            builder = builder
+                .clear_discovery()
+                .relay_mode(iroh::RelayMode::Disabled);
+        }
 
         let endpoint = builder
             .bind()
