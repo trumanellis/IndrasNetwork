@@ -77,6 +77,11 @@ pub struct NetworkConfig {
     /// When set, uses StoryKeystore with pass story authentication
     /// instead of passphrase-based EncryptedKeystore.
     pub pass_story: Option<indras_crypto::story_template::PassStory>,
+    /// Local-only mode: disables DNS/pkarr discovery and relay servers.
+    ///
+    /// When true, peers can only connect via local network gossip.
+    /// Eliminates warnings about failed DNS resolution when offline.
+    pub local_only: bool,
     /// Underlying node configuration.
     pub(crate) node_config: Option<NodeConfig>,
 }
@@ -93,6 +98,7 @@ impl Default for NetworkConfig {
             enforce_pq_signatures: false,
             passphrase: None,
             pass_story: None,
+            local_only: true,
             node_config: None,
         }
     }
@@ -126,6 +132,10 @@ impl NetworkConfig {
 
         if let Some(ref name) = self.display_name {
             config = config.with_display_name(name.clone());
+        }
+
+        if self.local_only {
+            config.transport.connection.local_only = true;
         }
 
         config
@@ -194,6 +204,15 @@ impl NetworkBuilder {
     /// narrative as a cryptographic key source.
     pub fn pass_story(mut self, story: indras_crypto::story_template::PassStory) -> Self {
         self.config.pass_story = Some(story);
+        self
+    }
+
+    /// Enable local-only mode (no DNS/pkarr discovery, no relay servers).
+    ///
+    /// Use this when peers are on the same local network and internet
+    /// connectivity is unavailable or unneeded.
+    pub fn local_only(mut self) -> Self {
+        self.config.local_only = true;
         self
     }
 
