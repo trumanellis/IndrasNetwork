@@ -196,7 +196,7 @@ impl PeeringRuntime {
 
         // Try to enrich with contact entry data (async-safe)
         let (sentiment, status) = if let Some(cr) = self.network.contacts_realm().await {
-            match cr.get_contact_entry_async(&member.id()).await {
+            match cr.get_contact_entry(&member.id()).await {
                 Some(entry) => (entry.sentiment, entry.status),
                 None => (0, ContactStatus::default()),
             }
@@ -269,7 +269,7 @@ impl PeeringRuntime {
     /// Get sentiment toward a specific contact.
     pub async fn get_sentiment(&self, peer_id: MemberId) -> crate::Result<Option<i8>> {
         let contacts = self.contacts_realm().await?;
-        Ok(contacts.get_sentiment_async(&peer_id).await)
+        Ok(contacts.get_sentiment(&peer_id).await)
     }
 
     /// Set whether sentiment toward a contact is relayable to second-degree peers.
@@ -289,7 +289,7 @@ impl PeeringRuntime {
         peer_id: MemberId,
     ) -> crate::Result<Option<ContactEntry>> {
         let contacts = self.contacts_realm().await?;
-        Ok(contacts.get_contact_entry_async(&peer_id).await)
+        Ok(contacts.get_contact_entry(&peer_id).await)
     }
 
     /// Build an aggregated sentiment view about a member from direct + relayed signals.
@@ -297,7 +297,7 @@ impl PeeringRuntime {
     /// Currently returns direct signals only (relayed signals require relay document sync).
     pub async fn sentiment_view(&self, about: MemberId) -> crate::Result<SentimentView> {
         let contacts = self.contacts_realm().await?;
-        let direct = contacts.contacts_with_sentiment();
+        let direct = contacts.contacts_with_sentiment().await;
 
         // Filter to only the entries about the target member
         let direct_about: Vec<(MemberId, i8)> = direct

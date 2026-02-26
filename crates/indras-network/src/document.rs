@@ -577,13 +577,6 @@ impl<T: DocumentSchema> Document<T> {
         }
     }
 
-    /// Read the current state synchronously (blocking).
-    ///
-    /// Use `read()` in async contexts.
-    pub fn read_blocking(&self) -> T {
-        self.state.blocking_read().clone()
-    }
-
     /// Refresh document state from the realm's event log.
     ///
     /// When a peer first joins a realm, events may arrive after the initial

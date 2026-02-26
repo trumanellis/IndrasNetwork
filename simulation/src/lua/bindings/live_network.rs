@@ -950,7 +950,7 @@ impl UserData for LuaContactsRealm {
         methods.add_async_method("contacts_list", |_, this, ()| async move {
             let ids: Vec<String> = this
                 .contacts
-                .contacts_list_async()
+                .contacts_list()
                 .await
                 .iter()
                 .map(hex::encode)
@@ -959,7 +959,7 @@ impl UserData for LuaContactsRealm {
         });
 
         methods.add_async_method("contact_count", |_, this, ()| async move {
-            Ok(this.contacts.contact_count_async().await)
+            Ok(this.contacts.contact_count().await)
         });
 
         methods.add_async_method(
@@ -975,7 +975,7 @@ impl UserData for LuaContactsRealm {
 
         methods.add_async_method("get_status", |_, this, member_id_hex: String| async move {
             let member_id = parse_member_id(&member_id_hex)?;
-            Ok(this.contacts.get_status_async(&member_id).await.map(|s| match s {
+            Ok(this.contacts.get_status(&member_id).await.map(|s| match s {
                 indras_network::ContactStatus::Pending => "pending".to_string(),
                 indras_network::ContactStatus::Confirmed => "confirmed".to_string(),
             }))
@@ -994,7 +994,7 @@ impl UserData for LuaContactsRealm {
 
         methods.add_async_method("get_sentiment", |_, this, member_id_hex: String| async move {
             let member_id = parse_member_id(&member_id_hex)?;
-            Ok(this.contacts.get_sentiment_async(&member_id).await)
+            Ok(this.contacts.get_sentiment(&member_id).await)
         });
 
         methods.add_async_method(

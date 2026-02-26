@@ -52,7 +52,7 @@ pub(crate) fn spawn_contact_poller(
                 None => continue,
             };
 
-            let contact_ids = contacts_realm.contacts_list_async().await;
+            let contact_ids = contacts_realm.contacts_list().await;
             let my_id = network.id();
 
             // Build the current set from the contacts document
@@ -64,14 +64,14 @@ pub(crate) fn spawn_contact_poller(
 
                 if let Some(existing) = known.get(cid) {
                     // Preserve existing PeerInfo but refresh sentiment + status
-                    let entry = contacts_realm.get_contact_entry_async(cid).await;
+                    let entry = contacts_realm.get_contact_entry(cid).await;
                     let mut updated = existing.clone();
                     updated.sentiment = entry.as_ref().map(|e| e.sentiment).unwrap_or(0);
                     updated.status = entry.as_ref().map(|e| e.status).unwrap_or_default();
                     current.insert(*cid, updated);
                 } else {
                     // New peer — read contact entry for sentiment + status
-                    let entry = contacts_realm.get_contact_entry_async(cid).await;
+                    let entry = contacts_realm.get_contact_entry(cid).await;
                     let display_name = entry
                         .as_ref()
                         .and_then(|e| e.display_name.clone())
