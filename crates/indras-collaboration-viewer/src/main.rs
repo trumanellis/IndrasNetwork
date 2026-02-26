@@ -13,7 +13,7 @@ mod theme;
 
 use components::{ControlBar, Header, PeerPanel, POVDashboard, RightPanel, VisualizationPanel};
 use state::{CollaborationState, EventType, Peer, Phase, PlanSection, Quest, QuestStatus, ScenarioData};
-use theme::{ThemedRoot, ThemeSwitcher};
+use theme::{ThemedRoot, SkinSwitcher};
 
 // Embed CSS
 const STYLES_CSS: &str = include_str!("../assets/styles.css");
@@ -106,7 +106,7 @@ fn App() -> Element {
 
     rsx! {
         ThemedRoot {
-            ThemeSwitcher {}
+            SkinSwitcher {}
             // Conditionally render Overview or POV Dashboard
             if let Some(pov_peer) = current_state.selected_pov {
                 // POV Mode

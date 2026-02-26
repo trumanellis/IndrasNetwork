@@ -1,44 +1,41 @@
-//! Theme system for the home realm viewer.
-//!
-//! Implements the SyncEngine Design System v2 "Minimal Terminal" aesthetic.
+//! Skin system for the home realm viewer.
 
 use dioxus::prelude::*;
 
-/// Available themes for the home viewer.
+/// Available skins for the home viewer.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Theme {
-    /// SyncEngine Design System v2 - void-black, gold, cyan, moss
+pub enum Skin {
     #[default]
-    MinimalTerminal,
+    Technical,
 }
 
-impl Theme {
-    /// Returns the CSS class value for this theme.
+impl Skin {
+    /// Returns the CSS data-skin value for this skin.
     pub fn css_value(&self) -> &'static str {
         match self {
-            Theme::MinimalTerminal => "minimal-terminal",
+            Skin::Technical => "technical",
         }
     }
 
-    /// Returns the display name for this theme.
+    /// Returns the display name for this skin.
     pub fn display_name(&self) -> &'static str {
         match self {
-            Theme::MinimalTerminal => "Minimal Terminal",
+            Skin::Technical => "Technical",
         }
     }
 }
 
-/// Global signal for the current theme.
-pub static CURRENT_THEME: GlobalSignal<Theme> = GlobalSignal::new(|| Theme::default());
+/// Global signal for the current skin.
+pub static CURRENT_SKIN: GlobalSignal<Skin> = GlobalSignal::new(|| Skin::default());
 
-/// Root component that applies the current theme.
+/// Root component that applies the current skin.
 #[component]
 pub fn ThemedRoot(children: Element) -> Element {
-    let theme = *CURRENT_THEME.read();
+    let skin = *CURRENT_SKIN.read();
     rsx! {
         div {
             class: "themed-root",
-            "data-theme": "{theme.css_value()}",
+            "data-skin": "{skin.css_value()}",
             {children}
         }
     }

@@ -76,7 +76,7 @@ pub fn log_event(state: &mut Signal<GenesisState>, direction: EventDirection, me
 pub fn App() -> Element {
     // Set theme inside component where Dioxus runtime is available
     use_hook(|| {
-        *indras_ui::CURRENT_THEME.write() = indras_ui::Theme::MinimalTerminal;
+        *indras_ui::CURRENT_SKIN.write() = indras_ui::Skin::Technical;
     });
 
     let mut state = use_signal(GenesisState::new);

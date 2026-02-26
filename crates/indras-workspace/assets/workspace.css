@@ -1,37 +1,7 @@
 /* ================================================================
-   TOKENS
+   TOKENS (layout-only; colors come from [data-skin] in shared.css)
    ================================================================ */
 :root {
-  --bg-void: #050507;
-  --bg-deep: #0a0a0e;
-  --bg-surface: #111116;
-  --bg-raised: #18181f;
-  --bg-hover: #1f1f28;
-  --bg-active: #262630;
-  --text-primary: #e8e4d9;
-  --text-secondary: #8a8a96;
-  --text-muted: #55555f;
-  --text-ghost: #33333a;
-  --border-subtle: #1a1a22;
-  --border-dim: #252530;
-  --border-visible: #35354a;
-  --accent-teal: #00d4aa;
-  --accent-teal-dim: rgba(0,212,170,0.12);
-  --accent-gold: #d4af37;
-  --accent-gold-dim: rgba(212,175,55,0.12);
-  --accent-rose: #ff6b9d;
-  --accent-rose-dim: rgba(255,107,157,0.12);
-  --accent-violet: #b19cd9;
-  --accent-violet-dim: rgba(177,156,217,0.12);
-  --accent-sky: #6bcfff;
-  --accent-sky-dim: rgba(107,207,255,0.12);
-  --heat-0: #55555f;
-  --heat-1: #7a6b40;
-  --heat-2: #b8922e;
-  --heat-3: #d4af37;
-  --heat-4: #e8c547;
-  --heat-5: #ffd93d;
-  --font-body: 'DM Sans', -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
   --radius-sm: 6px;
   --radius-md: 10px;
@@ -49,9 +19,9 @@
    ================================================================ */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html{height:100%;overflow:hidden}
-body{font-family:var(--font-body);background:var(--bg-void);color:var(--text-primary);height:100%;overflow:hidden;font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+body{font-family:var(--s-font);background:var(--s-bg);color:var(--s-tx);height:100%;overflow:hidden;font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
 body>div{height:100%}
-button{font-family:var(--font-body)}
+button{font-family:var(--s-font)}
 
 /* ================================================================
    APP SHELL
@@ -490,7 +460,7 @@ button{font-family:var(--font-body)}
 /* ================================================================
    VIEW: SETTINGS
    ================================================================ */
-.settings-section .theme-switcher{position:static;z-index:auto;display:flex;align-items:center;gap:8px}
+.settings-section .skin-switcher{position:static;z-index:auto;display:flex;align-items:center;gap:8px}
 .settings-section{padding:20px 24px;border-bottom:1px solid var(--border-subtle)}
 .settings-section-title{font-size:10px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);margin-bottom:14px}
 .settings-identity{display:flex;align-items:center;gap:16px;padding:8px 0}

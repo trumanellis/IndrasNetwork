@@ -9,7 +9,7 @@ use crate::state::{
     member_name, short_id, format_duration_millis, AppState, ArtifactInfo, ArtifactStatus, ClaimInfo,
     DraftArtifact, QuestAttention, QuestInfo, QuestStatus, RealmInfo, TokenOfGratitude, UploadStatus,
 };
-use crate::theme::{ThemeSwitcher, ThemedRoot};
+use crate::theme::{SkinSwitcher, ThemedRoot};
 
 pub mod omni;
 pub mod scenario_picker;
@@ -72,7 +72,7 @@ pub fn App(state: Signal<AppState>) -> Element {
     } else {
         rsx! {
             ThemedRoot {
-                ThemeSwitcher {}
+                SkinSwitcher {}
                 div { class: "app-container",
                     Header { state }
                     main { class: "main-content",
@@ -1911,7 +1911,7 @@ pub fn POVDashboard(state: Signal<AppState>) -> Element {
 
     rsx! {
         ThemedRoot {
-            ThemeSwitcher {}
+            SkinSwitcher {}
             div { class: "pov-dashboard {color_class}",
                 POVHeader {
                     name: name.clone(),

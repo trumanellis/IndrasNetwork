@@ -1,97 +1,108 @@
-//! Theme system for Indras Network applications.
+//! Skin system for Indras Network applications.
 //!
-//! Provides 5 themes: Quiet Protocol, Mystic, Neon, Light, and Minimal Terminal.
+//! Provides 7 skins: Technical, Organic, Botanical, Jewels, Modern, Contemplative, and Solarpunk.
+//! Each skin is a self-contained visual identity: colors, fonts, border radii, accent.
 
 use dioxus::prelude::*;
 
-/// Available themes for the application.
+/// Available skins for the application.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Theme {
+pub enum Skin {
     #[default]
-    QuietProtocol,
-    Mystic,
-    Neon,
-    Light,
-    MinimalTerminal,
+    Technical,
+    Organic,
+    Botanical,
+    Jewels,
+    Modern,
+    Contemplative,
+    Solarpunk,
 }
 
-impl Theme {
-    /// Returns the CSS data-theme attribute value.
+impl Skin {
+    /// Returns the CSS data-skin attribute value.
     pub fn css_value(&self) -> &'static str {
         match self {
-            Theme::QuietProtocol => "quiet-protocol",
-            Theme::Mystic => "mystic",
-            Theme::Neon => "neon",
-            Theme::Light => "light",
-            Theme::MinimalTerminal => "minimal-terminal",
+            Skin::Technical => "technical",
+            Skin::Organic => "organic",
+            Skin::Botanical => "botanical",
+            Skin::Jewels => "jewels",
+            Skin::Modern => "modern",
+            Skin::Contemplative => "contemplative",
+            Skin::Solarpunk => "solarpunk",
         }
     }
 
-    /// Returns the display name for the theme.
+    /// Returns the display name for the skin.
     pub fn display_name(&self) -> &'static str {
         match self {
-            Theme::QuietProtocol => "Quiet Protocol",
-            Theme::Mystic => "Mystic Terminal",
-            Theme::Neon => "Neon",
-            Theme::Light => "Light",
-            Theme::MinimalTerminal => "Minimal Terminal",
+            Skin::Technical => "Technical",
+            Skin::Organic => "Organic",
+            Skin::Botanical => "Botanical",
+            Skin::Jewels => "Jewels",
+            Skin::Modern => "Modern",
+            Skin::Contemplative => "Contemplative",
+            Skin::Solarpunk => "Solarpunk",
         }
     }
 
-    /// Returns all available themes.
-    pub fn all() -> &'static [Theme] {
+    /// Returns all available skins.
+    pub fn all() -> &'static [Skin] {
         &[
-            Theme::QuietProtocol,
-            Theme::Mystic,
-            Theme::Neon,
-            Theme::Light,
-            Theme::MinimalTerminal,
+            Skin::Technical,
+            Skin::Organic,
+            Skin::Botanical,
+            Skin::Jewels,
+            Skin::Modern,
+            Skin::Contemplative,
+            Skin::Solarpunk,
         ]
     }
 }
 
-/// Global signal for current theme.
-pub static CURRENT_THEME: GlobalSignal<Theme> = GlobalSignal::new(|| Theme::default());
+/// Global signal for current skin.
+pub static CURRENT_SKIN: GlobalSignal<Skin> = GlobalSignal::new(|| Skin::default());
 
 /// Themed root wrapper component.
 #[component]
 pub fn ThemedRoot(children: Element) -> Element {
-    let theme = *CURRENT_THEME.read();
+    let skin = *CURRENT_SKIN.read();
 
     rsx! {
         div {
             class: "themed-root",
-            "data-theme": "{theme.css_value()}",
+            "data-skin": "{skin.css_value()}",
             {children}
         }
     }
 }
 
-/// Theme switcher dropdown component.
+/// Skin switcher dropdown component.
 #[component]
-pub fn ThemeSwitcher() -> Element {
-    let current_theme = *CURRENT_THEME.read();
+pub fn SkinSwitcher() -> Element {
+    let current_skin = *CURRENT_SKIN.read();
 
     rsx! {
-        div { class: "theme-switcher",
+        div { class: "skin-switcher",
             select {
-                value: "{current_theme.css_value()}",
+                value: "{current_skin.css_value()}",
                 onchange: move |evt| {
                     let value = evt.value();
-                    let new_theme = match value.as_str() {
-                        "mystic" => Theme::Mystic,
-                        "neon" => Theme::Neon,
-                        "light" => Theme::Light,
-                        "minimal-terminal" => Theme::MinimalTerminal,
-                        _ => Theme::QuietProtocol,
+                    let new_skin = match value.as_str() {
+                        "organic" => Skin::Organic,
+                        "botanical" => Skin::Botanical,
+                        "jewels" => Skin::Jewels,
+                        "modern" => Skin::Modern,
+                        "contemplative" => Skin::Contemplative,
+                        "solarpunk" => Skin::Solarpunk,
+                        _ => Skin::Technical,
                     };
-                    *CURRENT_THEME.write() = new_theme;
+                    *CURRENT_SKIN.write() = new_skin;
                 },
-                for t in Theme::all() {
+                for s in Skin::all() {
                     option {
-                        value: "{t.css_value()}",
-                        selected: *t == current_theme,
-                        "{t.display_name()}"
+                        value: "{s.css_value()}",
+                        selected: *s == current_skin,
+                        "{s.display_name()}"
                     }
                 }
             }
