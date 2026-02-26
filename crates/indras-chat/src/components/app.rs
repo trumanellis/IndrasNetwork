@@ -81,6 +81,7 @@ fn MainLayout(handle: Arc<NetworkHandle>) -> Element {
         conversations: Signal::new(Vec::new()),
         show_add_contact: Signal::new(false),
         typing_peers: Signal::new(Vec::new()),
+        system_events: Signal::new(std::collections::HashMap::new()),
     });
 
     // Spawn background task to populate conversations
@@ -132,12 +133,13 @@ pub fn ChatLayout(network: NetworkArc) -> Element {
     let handle = Arc::new(NetworkHandle { network });
 
     // Provide shared chat context
-    let mut ctx = use_context_provider(|| ChatContext {
+    let ctx = use_context_provider(|| ChatContext {
         handle: Signal::new(handle.clone()),
         active_chat: Signal::new(None),
         conversations: Signal::new(Vec::new()),
         show_add_contact: Signal::new(false),
         typing_peers: Signal::new(Vec::new()),
+        system_events: Signal::new(std::collections::HashMap::new()),
     });
 
     // Spawn background task to populate conversations
@@ -153,18 +155,6 @@ pub fn ChatLayout(network: NetworkArc) -> Element {
         div { class: "main-layout",
             super::sidebar::Sidebar {}
             super::chat_view::ChatView {}
-
-            if *ctx.show_add_contact.read() {
-                super::contact_add::ContactAdd {
-                    on_close: move |_| {
-                        ctx.show_add_contact.set(false);
-                        let net = ctx.handle.read().clone();
-                        spawn(async move {
-                            refresh_conversations(&net, ctx.conversations).await;
-                        });
-                    },
-                }
-            }
         }
     }
 }

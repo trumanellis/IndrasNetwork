@@ -2,9 +2,8 @@
 
 use dioxus::prelude::*;
 use futures::StreamExt;
-use indras_network::{Content, RealmId};
-use indras_network::chat_message::{TypingIndicator, TYPING_EXTENSION_TYPE};
-use crate::state::ChatContext;
+use indras_network::RealmId;
+use crate::state::{ChatContext, SystemEventSnapshot};
 use super::message_bubble::DeliveryStatus;
 
 /// A snapshot of a chat message for display.
@@ -18,6 +17,22 @@ struct MessageSnapshot {
     is_edited: bool,
     reply_preview: Option<(String, String)>,
     reactions: Vec<(String, usize)>,
+}
+
+/// A timeline entry — either a user message or a system event.
+#[derive(Clone, Debug)]
+enum TimelineEntry {
+    Message(MessageSnapshot),
+    System(SystemEventSnapshot),
+}
+
+impl TimelineEntry {
+    fn timestamp(&self) -> u64 {
+        match self {
+            Self::Message(m) => m.created_at,
+            Self::System(s) => s.timestamp,
+        }
+    }
 }
 
 /// Chat view component — shows empty state or the active conversation.
@@ -46,7 +61,7 @@ pub fn ChatView() -> Element {
 fn ActiveChat(realm_id: RealmId) -> Element {
     let ctx = use_context::<ChatContext>();
     let handle = ctx.handle.read().clone();
-    let mut messages = use_signal(Vec::<MessageSnapshot>::new);
+    let mut timeline = use_signal(Vec::<TimelineEntry>::new);
     let mut chat_name = use_signal(|| "Chat".to_string());
     let mut send_error = use_signal(|| None::<String>);
 
@@ -80,124 +95,144 @@ fn ActiveChat(realm_id: RealmId) -> Element {
                 }
             };
 
-            // Load initial messages
+            // Load initial messages + persisted system events
             {
                 let state = doc.read().await;
                 let snapshots = build_snapshots(&*state);
-                messages.set(snapshots);
+                let mut entries: Vec<TimelineEntry> = snapshots.into_iter().map(TimelineEntry::Message).collect();
+                // Restore persisted system events for this realm
+                if let Some(saved) = ctx.system_events.read().get(&realm_id) {
+                    entries.extend(saved.iter().cloned().map(TimelineEntry::System));
+                }
+                entries.sort_by_key(|e| e.timestamp());
+                timeline.set(entries);
             }
 
             // Subscribe to changes
             let mut changes = doc.changes();
             while let Some(change) = changes.next().await {
                 let snapshots = build_snapshots(&change.new_state);
-                messages.set(snapshots);
+                let mut current = timeline.read().clone();
+                // Keep system events, replace messages
+                current.retain(|e| matches!(e, TimelineEntry::System(_)));
+                current.extend(snapshots.into_iter().map(TimelineEntry::Message));
+                current.sort_by_key(|e| e.timestamp());
+                timeline.set(current);
             }
         });
     });
 
-    // Listen for typing indicators from peers
+    // Listen for system events (transport, gossip, sync)
     use_effect(move || {
         let handle = ctx.handle.read().clone();
-        let mut typing_peers = ctx.typing_peers;
+        let mut sys_events = ctx.system_events;
         spawn(async move {
             let realm = match handle.network.get_realm_by_id(&realm_id) {
                 Some(r) => r,
                 None => return,
             };
-            let msg_stream = realm.messages();
-            let mut msg_stream = std::pin::pin!(msg_stream);
-            while let Some(msg) = msg_stream.next().await {
-                if let Content::Extension { ref type_id, ref payload } = msg.content {
-                    if type_id == TYPING_EXTENSION_TYPE {
-                        if let Ok(indicator) = serde_json::from_slice::<TypingIndicator>(payload) {
-                            let name = msg.sender.name();
-                            if indicator.is_typing {
-                                let mut peers = typing_peers.read().clone();
-                                if !peers.contains(&name) {
-                                    peers.push(name.clone());
-                                    typing_peers.set(peers);
-                                }
-                                // Auto-dismiss after 5 seconds
-                                let dismiss_name = name;
-                                spawn(async move {
-                                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                                    let mut peers = typing_peers.read().clone();
-                                    peers.retain(|n| n != &dismiss_name);
-                                    typing_peers.set(peers);
-                                });
-                            } else {
-                                let mut peers = typing_peers.read().clone();
-                                peers.retain(|n| n != &name);
-                                typing_peers.set(peers);
-                            }
-                        }
+            let mut events = std::pin::pin!(realm.system_events());
+            let mut counter = 0u64;
+            while let Some(evt) = events.next().await {
+                counter += 1;
+                let snapshot = SystemEventSnapshot {
+                    id: format!("sys-{}-{}", evt.timestamp(), counter),
+                    text: evt.display_text(),
+                    timestamp: evt.timestamp(),
+                };
+
+                // Persist to context (survives chat switching)
+                {
+                    let mut map = sys_events.write();
+                    let realm_events = map.entry(realm_id).or_insert_with(Vec::new);
+                    realm_events.push(snapshot.clone());
+                    // Cap at 200 per realm
+                    if realm_events.len() > 200 {
+                        let drain_count = realm_events.len() - 200;
+                        realm_events.drain(..drain_count);
                     }
                 }
+
+                // Update local timeline
+                let mut current = timeline.read().clone();
+                current.push(TimelineEntry::System(snapshot));
+                current.sort_by_key(|e| e.timestamp());
+                timeline.set(current);
             }
         });
     });
 
-    let current_messages = messages.read().clone();
+    let current_timeline = timeline.read().clone();
     let chat_title = chat_name.read().clone();
     let my_id_display = my_id.clone();
 
     rsx! {
         div { class: "chat-view",
             // Header
-            div { class: "chat-header",
-                div { class: "chat-header-avatar",
+            div { class: "chat-panel-header",
+                div { class: "bubble-avatar member-light",
                     {chat_title.chars().next().unwrap_or('?').to_uppercase().to_string()}
                 }
                 div {
-                    div { class: "chat-header-name", "{chat_title}" }
-                    {
-                        let typing = ctx.typing_peers.read().clone();
-                        if !typing.is_empty() {
-                            let names = typing.join(", ");
-                            rsx! {
-                                div { class: "typing-indicator", "{names} typing..." }
-                            }
-                        } else {
-                            rsx! {}
-                        }
-                    }
+                    h2 { class: "panel-title", "{chat_title}" }
                 }
             }
 
-            // Messages
+            // Messages and system events
             div { class: "chat-messages",
-                for msg in current_messages.iter() {
+                for entry in current_timeline.iter() {
                     {
-                        let is_mine = msg.author == my_id_display
-                            || ctx.handle.read().network.display_name()
-                                .is_some_and(|n| n == msg.author);
-                        let status = if is_mine {
-                            DeliveryStatus::Sent
-                        } else {
-                            DeliveryStatus::Delivered
-                        };
-
-                        if msg.is_deleted {
-                            rsx! {
-                                div {
-                                    key: "{msg.id}",
-                                    class: "message-bubble theirs",
-                                    div { class: "message-deleted", "This message was deleted" }
+                        match entry {
+                            TimelineEntry::System(evt) => {
+                                let ts_secs = evt.timestamp / 1000;
+                                let mins = (ts_secs / 60) % 60;
+                                let hours = (ts_secs / 3600) % 24;
+                                let time_str = format!("{:02}:{:02}", hours, mins);
+                                rsx! {
+                                    div {
+                                        key: "{evt.id}",
+                                        class: "system-event-row",
+                                        div { class: "system-event-bubble",
+                                            span { class: "system-event-text", "{evt.text}" }
+                                            span { class: "system-event-time", "{time_str}" }
+                                        }
+                                    }
                                 }
                             }
-                        } else {
-                            rsx! {
-                                super::message_bubble::MessageBubble {
-                                    key: "{msg.id}",
-                                    content: msg.content.clone(),
-                                    author: msg.author.clone(),
-                                    is_mine,
-                                    timestamp: msg.created_at,
-                                    status,
-                                    is_edited: msg.is_edited,
-                                    reply_preview: msg.reply_preview.clone(),
-                                    reactions: msg.reactions.clone(),
+                            TimelineEntry::Message(msg) => {
+                                let is_mine = msg.author == my_id_display
+                                    || ctx.handle.read().network.display_name()
+                                        .is_some_and(|n| n == msg.author);
+                                let status = if is_mine {
+                                    DeliveryStatus::Sent
+                                } else {
+                                    DeliveryStatus::Delivered
+                                };
+
+                                if msg.is_deleted {
+                                    rsx! {
+                                        div {
+                                            key: "{msg.id}",
+                                            class: "chat-bubble-row bubble-left",
+                                            div { class: "chat-bubble chat-bubble-received bubble-deleted",
+                                                div { class: "bubble-deleted-text", "This message was deleted" }
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    rsx! {
+                                        super::message_bubble::MessageBubble {
+                                            key: "{msg.id}",
+                                            content: msg.content.clone(),
+                                            author: msg.author.clone(),
+                                            is_mine,
+                                            timestamp: msg.created_at,
+                                            status,
+                                            is_edited: msg.is_edited,
+                                            reply_preview: msg.reply_preview.clone(),
+                                            reactions: msg.reactions.clone(),
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -207,7 +242,9 @@ fn ActiveChat(realm_id: RealmId) -> Element {
 
             // Error display
             if let Some(ref err) = *send_error.read() {
-                div { class: "setup-error", "{err}" }
+                div { class: "chat-error-toast",
+                    span { "{err}" }
+                }
             }
 
             // Message input
@@ -231,24 +268,7 @@ fn ActiveChat(realm_id: RealmId) -> Element {
                         }
                     });
                 },
-                on_typing: move |_: ()| {
-                    let handle = ctx.handle.read().clone();
-                    spawn(async move {
-                        let realm = match handle.network.get_realm_by_id(&realm_id) {
-                            Some(r) => r,
-                            None => return,
-                        };
-                        let indicator = TypingIndicator {
-                            is_typing: true,
-                            realm_id: format!("{:?}", realm_id),
-                        };
-                        let payload = serde_json::to_vec(&indicator).unwrap_or_default();
-                        let _ = realm.send(Content::Extension {
-                            type_id: TYPING_EXTENSION_TYPE.to_string(),
-                            payload,
-                        }).await;
-                    });
-                },
+                on_typing: move |_: ()| {},
             }
         }
     }
