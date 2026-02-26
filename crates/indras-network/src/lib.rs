@@ -124,6 +124,7 @@ pub mod read_tracker;
 pub mod realm;
 pub mod realm_alias;
 pub mod stream;
+pub mod system_event;
 pub(crate) mod util;
 pub mod world_view;
 
@@ -157,6 +158,7 @@ pub use read_tracker::ReadTrackerDocument;
 pub use document_registry::DocumentRegistryDocument;
 pub use network::{GlobalEvent, IdentityBackup};
 pub use realm::Realm;
+pub use system_event::SystemEvent;
 pub use realm_alias::{RealmAlias, RealmAliasDocument, MAX_ALIAS_LENGTH};
 pub use world_view::WorldView;
 

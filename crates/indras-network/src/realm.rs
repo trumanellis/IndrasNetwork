@@ -20,12 +20,13 @@ use futures::Stream;
 use indras_core::{InterfaceEvent, MembershipChange, PeerIdentity};
 use indras_node::{IndrasNode, ReceivedEvent};
 use indras_storage::ContentRef;
-use indras_transport::IrohIdentity;
+use indras_transport::{IrohIdentity, PeerEvent};
 use serde::Serialize;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::watch;
 use tokio::sync::OnceCell;
+use crate::system_event::SystemEvent;
 use crate::chat_message::{RealmChatDocument, EditableChatMessage, EditableMessageType, ChatMessageId};
 use tracing::debug;
 
@@ -83,15 +84,25 @@ impl Realm {
         }
     }
 
-    /// Create a realm from just an ID (used when loading existing realms).
-    pub(crate) fn from_id(id: RealmId, name: Option<String>, artifact_id: Option<ArtifactId>, node: Arc<IndrasNode>) -> Self {
+    /// Create a realm from an ID with a shared chat document handle.
+    ///
+    /// Unlike `from_id`, this shares the `chat_doc` OnceCell so that all
+    /// Realm instances for the same realm use the same Document (and its
+    /// broadcast channel). This is critical for subscriptions to see sends.
+    pub(crate) fn from_id_with_chat_doc(
+        id: RealmId,
+        name: Option<String>,
+        artifact_id: Option<ArtifactId>,
+        node: Arc<IndrasNode>,
+        chat_doc: Arc<OnceCell<Document<RealmChatDocument>>>,
+    ) -> Self {
         Self {
             id,
             name,
             artifact_id,
             invite: None,
             node,
-            chat_doc: Arc::new(OnceCell::new()),
+            chat_doc,
         }
     }
 
@@ -984,6 +995,180 @@ impl Realm {
         let (download, _cancel_rx) = ArtifactDownload::new(*artifact_id, name.to_string(), progress_rx, destination);
 
         Ok(download)
+    }
+
+    // ============================================================
+    // System Events
+    // ============================================================
+
+    /// Get a stream of ephemeral system events for inline display.
+    ///
+    /// Merges three event sources into one stream:
+    /// - Transport `PeerEvent`s (discovery, realm joins/leaves)
+    /// - CRDT sync notifications
+    ///
+    /// Events are in-memory only and not persisted.
+    pub fn system_events(&self) -> impl Stream<Item = SystemEvent> + Send {
+        let node = Arc::clone(&self.node);
+        let realm_id = self.id;
+        let (tx, rx) = tokio::sync::mpsc::channel::<SystemEvent>(256);
+
+        // Task 1: PeerEvents → SystemEvent
+        // Wait for transport to be ready by watching the node's started flag,
+        // then subscribe once.
+        let tx1 = tx.clone();
+        let node1 = Arc::clone(&node);
+        tokio::spawn(async move {
+            // Wait until the node's transport is started (event-driven via notify)
+            let peer_rx = loop {
+                if node1.is_started() {
+                    if let Some(rx) = node1.subscribe_peer_events().await {
+                        break rx;
+                    }
+                }
+                // Transport not yet available — yield once and retry.
+                // This only loops during the brief startup window.
+                tokio::task::yield_now().await;
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            };
+            let mut stream = broadcast_to_stream(peer_rx);
+            use futures::StreamExt;
+            while let Some(evt) = stream.next().await {
+                let sys = match evt {
+                    PeerEvent::Discovered(info) => SystemEvent::PeerDiscovered {
+                        peer_id_short: info.identity.short_id(),
+                        peer_name: info.presence.display_name.clone(),
+                        timestamp: now_millis(),
+                    },
+                    PeerEvent::Updated(info) => SystemEvent::PeerUpdated {
+                        peer_id_short: info.identity.short_id(),
+                        peer_name: info.presence.display_name.clone(),
+                        timestamp: now_millis(),
+                    },
+                    PeerEvent::Lost(id) => SystemEvent::PeerLost {
+                        peer_id_short: id.short_id(),
+                        timestamp: now_millis(),
+                    },
+                    PeerEvent::RealmPeerJoined { interface_id, peer_info } => {
+                        if interface_id != realm_id {
+                            continue;
+                        }
+                        SystemEvent::RealmPeerJoined {
+                            peer_id_short: peer_info.peer_id.short_id(),
+                            peer_name: peer_info.display_name.clone(),
+                            has_pq_keys: peer_info.pq_encapsulation_key.is_some(),
+                            timestamp: now_millis(),
+                        }
+                    }
+                    PeerEvent::RealmPeerLeft { interface_id, peer_id } => {
+                        if interface_id != realm_id {
+                            continue;
+                        }
+                        SystemEvent::RealmPeerLeft {
+                            peer_id_short: peer_id.short_id(),
+                            timestamp: now_millis(),
+                        }
+                    }
+                    PeerEvent::IntroductionRequested { interface_id, requester, known_peers } => {
+                        if interface_id != realm_id {
+                            continue;
+                        }
+                        SystemEvent::IntroductionRequested {
+                            requester_short: requester.short_id(),
+                            known_count: known_peers.len(),
+                            timestamp: now_millis(),
+                        }
+                    }
+                };
+                if tx1.send(sys).await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        // Task 2: InterfaceEvents (MembershipChange) → SystemEvent
+        let tx2 = tx.clone();
+        let node2 = Arc::clone(&node);
+        tokio::spawn(async move {
+            let iface_rx = match node2.events(&realm_id) {
+                Ok(rx) => rx,
+                Err(_) => return,
+            };
+            let mut stream = broadcast_to_stream(iface_rx);
+            use futures::StreamExt;
+            while let Some(event) = stream.next().await {
+                let sys = match &event.event {
+                    InterfaceEvent::MembershipChange { change, .. } => {
+                        match change {
+                            MembershipChange::Joined { peer } => Some(SystemEvent::MemberJoined {
+                                peer_id_short: peer.short_id(),
+                                timestamp: now_millis(),
+                            }),
+                            MembershipChange::Left { peer } => Some(SystemEvent::MemberLeft {
+                                peer_id_short: peer.short_id(),
+                                timestamp: now_millis(),
+                            }),
+                            MembershipChange::Created { creator } => Some(SystemEvent::RealmCreated {
+                                creator_short: creator.short_id(),
+                                timestamp: now_millis(),
+                            }),
+                            MembershipChange::Removed { peer, .. } => Some(SystemEvent::MemberLeft {
+                                peer_id_short: peer.short_id(),
+                                timestamp: now_millis(),
+                            }),
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                };
+                if let Some(sys) = sys {
+                    if tx2.send(sys).await.is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+
+        // Task 3: SyncEvents → SystemEvent (debounced: at most 1 per 5s)
+        let tx3 = tx;
+        let node3 = Arc::clone(&node);
+        tokio::spawn(async move {
+            let sync_rx = match node3.sync_events(&realm_id) {
+                Ok(rx) => rx,
+                Err(_) => return,
+            };
+            let mut stream = broadcast_to_stream(sync_rx);
+            use futures::StreamExt;
+            let mut last_emitted: u64 = 0;
+            const DEBOUNCE_MS: u64 = 30_000; // 30s debounce to avoid flooding
+            let mut skip_count: u32 = 0;
+            const INITIAL_SKIP: u32 = 3; // Skip first few syncs (startup catchup)
+            while let Some(()) = stream.next().await {
+                skip_count += 1;
+                if skip_count <= INITIAL_SKIP {
+                    continue; // Skip initial sync burst on connection
+                }
+                let now = now_millis();
+                if now.saturating_sub(last_emitted) < DEBOUNCE_MS {
+                    continue; // Suppress rapid-fire sync notifications
+                }
+                last_emitted = now;
+                let sys = SystemEvent::DocumentSynced {
+                    is_remote: true,
+                    timestamp: now,
+                };
+                if tx3.send(sys).await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        async_stream::stream! {
+            let mut rx = rx;
+            while let Some(evt) = rx.recv().await {
+                yield evt;
+            }
+        }
     }
 
     // ============================================================

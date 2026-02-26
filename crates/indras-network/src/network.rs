@@ -16,7 +16,7 @@ use crate::realm::Realm;
 use crate::artifact::{generate_tree_id, dm_story_id};
 
 use dashmap::DashMap;
-use indras_core::InterfaceId;
+use indras_core::{InterfaceId, PeerIdentity};
 use indras_node::{IndrasNode, ReceivedEvent};
 use indras_storage::CompositeStorage;
 use indras_transport::IrohIdentity;
@@ -305,7 +305,78 @@ impl IndrasNetwork {
         // Join our inbox realm to receive connection notifications
         self.join_inbox().await?;
 
+        // Restore realms from persisted node interfaces.
+        // The node already loaded them in load_persisted_interfaces(),
+        // but IndrasNetwork.realms needs to be populated too.
+        self.restore_realms().await;
+
         Ok(())
+    }
+
+    /// Populate `self.realms` and `self.peer_realms` from persisted node interfaces.
+    ///
+    /// Called during `start()` to restore DM and group realms that were created
+    /// in previous sessions. Without this, the sidebar shows empty after restart.
+    async fn restore_realms(&self) {
+        let my_id = self.id();
+        let home_id = home_realm_id(my_id);
+        let inbox_id = inbox_realm_id(my_id);
+
+        for interface_id in self.inner.list_interfaces() {
+            // Skip home and inbox (managed separately)
+            if interface_id == home_id || interface_id == inbox_id {
+                continue;
+            }
+
+            // Skip if already tracked
+            if self.realms.contains_key(&interface_id) {
+                continue;
+            }
+
+            // Get the interface name from storage
+            let name = self.inner.storage()
+                .interface_store()
+                .all()
+                .ok()
+                .and_then(|records| {
+                    records.into_iter()
+                        .find(|r| r.interface_id == *interface_id.as_bytes())
+                        .and_then(|r| r.name)
+                });
+
+            // Insert into realms
+            self.realms.insert(
+                interface_id,
+                RealmState {
+                    name: name.clone(),
+                    artifact_id: None,
+                    chat_doc: Arc::new(OnceCell::new()),
+                },
+            );
+
+            // For DM realms, restore peer_realms mapping from interface members
+            if name.as_deref() == Some("DM") {
+                if let Ok(members) = self.inner.members(&interface_id).await {
+                    let mut peers: Vec<MemberId> = members
+                        .into_iter()
+                        .map(|id| {
+                            let id_bytes = id.as_bytes();
+                            let mut bytes = [0u8; 32];
+                            bytes.copy_from_slice(&id_bytes[..32.min(id_bytes.len())]);
+                            bytes
+                        })
+                        .collect();
+                    peers.sort();
+                    self.peer_realms.insert(peers, interface_id);
+                }
+            }
+
+            tracing::debug!(
+                realm = %hex::encode(&interface_id.as_bytes()[..8]),
+                name = ?name,
+                "Restored realm from persisted interface"
+            );
+        }
     }
 
     /// Join our own inbox realm and spawn a listener for connection notifications.
@@ -708,8 +779,18 @@ impl IndrasNetwork {
 
         self.realms
             .iter()
+            .filter(|r| {
+                let id = *r.key();
+                if id == home_id || id == inbox_id {
+                    return false;
+                }
+                // Filter out internal realms (peer inboxes, artifact-sync)
+                match r.value().name.as_deref() {
+                    Some("PeerInbox") | Some("artifact-sync") => false,
+                    _ => true,
+                }
+            })
             .map(|r| *r.key())
-            .filter(|id| *id != home_id && *id != inbox_id)
             .collect()
     }
 
