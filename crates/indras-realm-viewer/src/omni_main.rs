@@ -65,8 +65,8 @@ fn main() {
 
     // Set initial theme
     if args.theme == "light" {
-        *indras_realm_viewer::theme::CURRENT_THEME.write() =
-            indras_realm_viewer::theme::Theme::Light;
+        *indras_realm_viewer::theme::CURRENT_SKIN.write() =
+            indras_realm_viewer::theme::Skin::Botanical;
     }
 
     // Launch the desktop app

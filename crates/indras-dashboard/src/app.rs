@@ -3,7 +3,7 @@ use crate::layout::compute_layout;
 use crate::runner::document_runner::DocumentRunner;
 use crate::runner::{MetricsUpdate, ScenarioRunner};
 use crate::state::*;
-use crate::theme::{ThemeSwitcher, ThemedRoot};
+use crate::theme::{SkinSwitcher, ThemedRoot};
 use dioxus::prelude::*;
 use indras_simulation::{from_edges, MeshBuilder, NetworkEvent, PacketId, SimConfig, Simulation};
 use std::sync::Arc;
@@ -303,7 +303,7 @@ pub fn App() -> Element {
 
     rsx! {
         ThemedRoot {
-            ThemeSwitcher {}
+            SkinSwitcher {}
             div { class: "dashboard",
                 // Header section
                 Header {}

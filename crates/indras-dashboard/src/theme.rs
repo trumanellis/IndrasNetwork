@@ -1,91 +1,104 @@
-// Theme system for Dioxus Desktop
+// Skin system for Dioxus Desktop
 //
-// Uses a wrapper div with data-theme attribute instead of web_sys
-// since this is a desktop application.
+// Uses a wrapper div with data-skin attribute for skin switching.
 
 use dioxus::prelude::*;
 
-/// Available themes
+/// Available skins
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub enum Theme {
+pub enum Skin {
     #[default]
-    QuietProtocol,
-    Mystic,
-    Neon,
-    Light,
+    Technical,
+    Organic,
+    Botanical,
+    Jewels,
+    Modern,
+    Contemplative,
+    Solarpunk,
 }
 
-impl Theme {
-    /// CSS data-theme attribute value
+impl Skin {
+    /// CSS data-skin attribute value
     pub fn as_str(&self) -> &'static str {
         match self {
-            Theme::QuietProtocol => "quiet-protocol",
-            Theme::Mystic => "mystic",
-            Theme::Neon => "neon",
-            Theme::Light => "light",
+            Skin::Technical => "technical",
+            Skin::Organic => "organic",
+            Skin::Botanical => "botanical",
+            Skin::Jewels => "jewels",
+            Skin::Modern => "modern",
+            Skin::Contemplative => "contemplative",
+            Skin::Solarpunk => "solarpunk",
         }
     }
 
     /// Display name for UI
     pub fn display_name(&self) -> &'static str {
         match self {
-            Theme::QuietProtocol => "Quiet Protocol",
-            Theme::Mystic => "Mystic Terminal",
-            Theme::Neon => "Neon",
-            Theme::Light => "Light",
+            Skin::Technical => "Technical",
+            Skin::Organic => "Organic",
+            Skin::Botanical => "Botanical",
+            Skin::Jewels => "Jewels",
+            Skin::Modern => "Modern",
+            Skin::Contemplative => "Contemplative",
+            Skin::Solarpunk => "Solarpunk",
         }
     }
 
-    /// All available themes
-    pub fn all() -> &'static [Theme] {
+    /// All available skins
+    pub fn all() -> &'static [Skin] {
         &[
-            Theme::QuietProtocol,
-            Theme::Mystic,
-            Theme::Neon,
-            Theme::Light,
+            Skin::Technical,
+            Skin::Organic,
+            Skin::Botanical,
+            Skin::Jewels,
+            Skin::Modern,
+            Skin::Contemplative,
+            Skin::Solarpunk,
         ]
     }
 }
 
-/// Global theme signal - use this throughout your app
-pub static CURRENT_THEME: GlobalSignal<Theme> = Signal::global(Theme::default);
+/// Global skin signal
+pub static CURRENT_SKIN: GlobalSignal<Skin> = Signal::global(Skin::default);
 
-/// Hook to access and modify the current theme
-pub fn use_theme() -> (Theme, impl Fn(Theme)) {
-    let theme = *CURRENT_THEME.read();
-    let set_theme = move |new_theme: Theme| {
-        *CURRENT_THEME.write() = new_theme;
+/// Hook to access and modify the current skin
+pub fn use_skin() -> (Skin, impl Fn(Skin)) {
+    let skin = *CURRENT_SKIN.read();
+    let set_skin = move |new_skin: Skin| {
+        *CURRENT_SKIN.write() = new_skin;
     };
-    (theme, set_theme)
+    (skin, set_skin)
 }
 
-/// Theme switcher component - renders a dropdown for theme selection
+/// Skin switcher component
 #[component]
-pub fn ThemeSwitcher() -> Element {
-    let current_theme = *CURRENT_THEME.read();
+pub fn SkinSwitcher() -> Element {
+    let current_skin = *CURRENT_SKIN.read();
 
     rsx! {
-        div { class: "theme-switcher",
-            label { class: "theme-label", "Theme" }
+        div { class: "skin-switcher",
+            label { class: "skin-label", "Skin" }
             select {
-                class: "theme-select",
-                value: current_theme.as_str(),
+                class: "skin-select",
+                value: current_skin.as_str(),
                 onchange: move |e| {
                     let value = e.value();
-                    let new_theme = match value.as_str() {
-                        "quiet-protocol" => Theme::QuietProtocol,
-                        "mystic" => Theme::Mystic,
-                        "neon" => Theme::Neon,
-                        "light" => Theme::Light,
-                        _ => Theme::default(),
+                    let new_skin = match value.as_str() {
+                        "organic" => Skin::Organic,
+                        "botanical" => Skin::Botanical,
+                        "jewels" => Skin::Jewels,
+                        "modern" => Skin::Modern,
+                        "contemplative" => Skin::Contemplative,
+                        "solarpunk" => Skin::Solarpunk,
+                        _ => Skin::Technical,
                     };
-                    *CURRENT_THEME.write() = new_theme;
+                    *CURRENT_SKIN.write() = new_skin;
                 },
-                for theme in Theme::all() {
+                for skin in Skin::all() {
                     option {
-                        value: theme.as_str(),
-                        selected: *theme == current_theme,
-                        "{theme.display_name()}"
+                        value: skin.as_str(),
+                        selected: *skin == current_skin,
+                        "{skin.display_name()}"
                     }
                 }
             }
@@ -93,23 +106,14 @@ pub fn ThemeSwitcher() -> Element {
     }
 }
 
-/// Themed wrapper component - wraps children with data-theme attribute
-///
-/// Use this at the root of your app to enable theme switching:
-/// ```rust
-/// rsx! {
-///     ThemedRoot {
-///         // Your app content here
-///     }
-/// }
-/// ```
+/// Themed wrapper component - wraps children with data-skin attribute
 #[component]
 pub fn ThemedRoot(children: Element) -> Element {
-    let theme = *CURRENT_THEME.read();
+    let skin = *CURRENT_SKIN.read();
 
     rsx! {
         div {
-            "data-theme": theme.as_str(),
+            "data-skin": skin.as_str(),
             style: "min-height: 100vh; width: 100%;",
             {children}
         }

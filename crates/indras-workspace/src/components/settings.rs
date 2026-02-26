@@ -1,7 +1,7 @@
 //! Settings view with identity display, connect, PassStory trigger, and theme switcher.
 
 use dioxus::prelude::*;
-use indras_ui::ThemeSwitcher;
+use indras_ui::SkinSwitcher;
 use crate::bridge::network_bridge::NetworkHandle;
 use indras_network::{EncounterHandle, GeoLocation};
 
@@ -328,7 +328,7 @@ pub fn SettingsView(
                     div {
                         class: "settings-section",
                         div { class: "settings-section-title", "Appearance" }
-                        ThemeSwitcher {}
+                        SkinSwitcher {}
                     }
                 }
             }

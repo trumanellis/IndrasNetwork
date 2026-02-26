@@ -10,7 +10,7 @@ use crate::state::{
     member_name, short_id, format_duration_millis,
     AppState, MemberScreen, ArtifactState, ArtifactStatus, ArtifactInfo, DraftArtifactInfo,
 };
-use crate::theme::{ThemeSwitcher, ThemedRoot};
+use crate::theme::{SkinSwitcher, ThemedRoot};
 
 use super::{
     member_color_class, member_color_var,
@@ -38,7 +38,7 @@ pub fn OmniApp(state: Signal<AppState>) -> Element {
     rsx! {
         document::Title { "{narrative}" }
         ThemedRoot {
-            ThemeSwitcher {}
+            SkinSwitcher {}
             OmniDashboard { state }
             FloatingControlBar { state }
         }
