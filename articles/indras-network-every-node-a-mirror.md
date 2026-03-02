@@ -185,4 +185,4 @@ In Indra's Net, every jewel reflects every other. Every node in our network carr
 
 **Subscribe** for future articles on the social and economic layers built on this foundation.
 
-**Developers:** [Indra's Network is open source →](https://github.com/IndrasNetwork)
+**Developers:** [Indra's Network on GitHub →](https://github.com/IndrasNetwork)

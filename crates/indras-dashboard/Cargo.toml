@@ -3,7 +3,6 @@ name = "indras-dashboard"
 version = "1.0.0"
 edition = "2021"
 description = "Real-time dashboard for monitoring Indras Network simulation stress tests"
-license = "MIT OR Apache-2.0"
 
 [[bin]]
 name = "indras-dashboard"

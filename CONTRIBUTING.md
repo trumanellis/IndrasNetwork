@@ -713,10 +713,4 @@ Maintainers may merge with:
 - **Feature Requests**: Open an issue describing use case
 - **Design Discussions**: Start in discussions before coding
 
-## License
-
-By contributing to Indra's Network, you agree that your contributions will be licensed under the MIT OR Apache-2.0 license.
-
----
-
 **Thank you for contributing to Indra's Network!**
