@@ -255,7 +255,3 @@ realm.send("Hello!").await?;
 - **[Nobody Owns the Conversation](/articles/nobody-owns-the-conversation.md)** — How single stewardship and fractal composition solve the problem that group ownership never could
 - **[The Heartbeat of Community](/articles/the-heartbeat-of-community.md)** — How subjective value, trust chains, and proof of life turn tokens into letters of introduction
 - **[Your Network Has an Immune System](/articles/your-network-has-an-immune-system.md)** — How decentralized sentiment turns a communication mesh into a living, self-protecting organism
-
-## License
-
-MIT OR Apache-2.0
