@@ -635,11 +635,8 @@ The document is identified by name within a realm. If it doesn't exist yet, it's
 ### Reading
 
 ```rust
-// Async read (acquires lock)
+// Read (acquires lock)
 let data: TodoList = doc.read().await;
-
-// Blocking read (for sync contexts)
-let data: TodoList = doc.read_blocking();
 
 // Force refresh from storage
 doc.refresh().await?;
@@ -817,13 +814,13 @@ contacts_realm.update_sentiment(&member_id, 1).await?; // Mark as trusted
 contacts_realm.update_sentiment(&member_id, -1).await?; // Mark as blocked
 
 // Query sentiment
-let sentiment: Option<i8> = contacts_realm.get_sentiment(&member_id);
+let sentiment: Option<i8> = contacts_realm.get_sentiment(&member_id).await;
 
 // Get contacts with sentiment values
-let with_sentiment: Vec<(MemberId, i8)> = contacts_realm.contacts_with_sentiment();
+let with_sentiment: Vec<(MemberId, i8)> = contacts_realm.contacts_with_sentiment().await;
 
 // Get only relayable sentiments (for second-degree relay)
-let relayable: Vec<(MemberId, i8)> = contacts_realm.relayable_sentiments();
+let relayable: Vec<(MemberId, i8)> = contacts_realm.relayable_sentiments().await;
 ```
 
 ### Managing Contacts
@@ -841,15 +838,14 @@ contacts_realm.remove_contact(&member_id).await?;
 // Check if a member is a contact
 let is_contact: bool = contacts_realm.is_contact(&member_id).await;
 
-// List all contact IDs (sync and async variants)
-let contact_ids: Vec<MemberId> = contacts_realm.contacts_list();
-let contact_ids: Vec<MemberId> = contacts_realm.contacts_list_async().await;
+// List all contact IDs
+let contact_ids: Vec<MemberId> = contacts_realm.contacts_list().await;
 
 // Get the full entry for a contact
-let entry: Option<ContactEntry> = contacts_realm.get_contact_entry(&member_id);
+let entry: Option<ContactEntry> = contacts_realm.get_contact_entry(&member_id).await;
 
 // Contact count
-let count: usize = contacts_realm.contact_count();
+let count: usize = contacts_realm.contact_count().await;
 
 // Toggle relayable
 contacts_realm.set_relayable(&member_id, true).await?;
@@ -858,8 +854,7 @@ contacts_realm.set_relayable(&member_id, true).await?;
 contacts_realm.confirm_contact(&member_id).await?;
 
 // Check status
-let status: Option<ContactStatus> = contacts_realm.get_status(&member_id);
-let status: Option<ContactStatus> = contacts_realm.get_status_async(&member_id).await;
+let status: Option<ContactStatus> = contacts_realm.get_status(&member_id).await;
 ```
 
 ### ContactsDocument

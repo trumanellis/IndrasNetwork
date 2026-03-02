@@ -885,7 +885,7 @@ fn render_contact_item(
                             let net = network.read();
                             if let Some(ref net) = *net {
                                 // connect() is idempotent - loads/creates DM realm if not present
-                                let _ = net.connect(mid).await;
+                                let _ = net.connect(mid).await.map(|(r, _)| r);
                             }
                             drop(net);
 

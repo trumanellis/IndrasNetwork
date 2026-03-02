@@ -151,10 +151,9 @@ fn message_to_table(lua: &Lua, msg: &Message) -> Result<Table> {
 
 /// Lua wrapper for IndrasNetwork.
 ///
-/// Uses `Arc<tokio::sync::RwLock<IndrasNetwork>>` because `set_display_name`
-/// requires `&mut self` while most other methods take `&self`.
+/// Wraps `Arc<IndrasNetwork>` for Lua userdata access.
 struct LuaNetwork {
-    network: Arc<tokio::sync::RwLock<IndrasNetwork>>,
+    network: Arc<IndrasNetwork>,
     _temp_dir: Option<tempfile::TempDir>,
 }
 
@@ -163,65 +162,65 @@ impl UserData for LuaNetwork {
         // -- Lifecycle --
 
         methods.add_async_method("start", |_, this, ()| async move {
-            let net = this.network.read().await;
+            let net = &this.network;
             net.start().await.map_err(mlua::Error::external)
         });
 
         methods.add_async_method("stop", |_, this, ()| async move {
-            let net = this.network.read().await;
+            let net = &this.network;
             net.stop().await.map_err(mlua::Error::external)
         });
 
         methods.add_async_method("is_running", |_, this, ()| async move {
-            let net = this.network.read().await;
+            let net = &this.network;
             Ok(net.is_running())
         });
 
         // -- Identity --
 
         methods.add_async_method("id", |_, this, ()| async move {
-            let net = this.network.read().await;
+            let net = &this.network;
             Ok(hex::encode(net.id()))
         });
 
         methods.add_async_method("display_name", |_, this, ()| async move {
-            let net = this.network.read().await;
+            let net = &this.network;
             Ok(net.display_name().map(|s| s.to_string()))
         });
 
         methods.add_async_method("set_display_name", |_, this, name: String| async move {
-            let mut net = this.network.write().await;
+            let net = &this.network;
             net.set_display_name(name)
                 .await
                 .map_err(mlua::Error::external)
         });
 
         methods.add_async_method("identity_code", |_, this, ()| async move {
-            let net = this.network.read().await;
+            let net = &this.network;
             Ok(net.identity_code())
         });
 
         methods.add_async_method("identity_uri", |_, this, ()| async move {
-            let net = this.network.read().await;
+            let net = &this.network;
             Ok(net.identity_uri())
         });
 
         // -- Realm operations --
 
         methods.add_async_method("create_realm", |_, this, name: String| async move {
-            let net = this.network.read().await;
+            let net = &this.network;
             let realm = net.create_realm(&name).await.map_err(mlua::Error::external)?;
             Ok(LuaRealm { realm })
         });
 
         methods.add_async_method("join", |_, this, invite: String| async move {
-            let net = this.network.read().await;
+            let net = &this.network;
             let realm = net.join(&invite).await.map_err(mlua::Error::external)?;
             Ok(LuaRealm { realm })
         });
 
         methods.add_async_method("realms", |_, this, ()| async move {
-            let net = this.network.read().await;
+            let net = &this.network;
             let ids: Vec<String> = net
                 .realms()
                 .iter()
@@ -232,13 +231,13 @@ impl UserData for LuaNetwork {
 
         methods.add_async_method("get_realm", |_, this, realm_id_hex: String| async move {
             let rid = parse_realm_id(&realm_id_hex)?;
-            let net = this.network.read().await;
+            let net = &this.network;
             Ok(net.get_realm_by_id(&rid).map(|realm| LuaRealm { realm }))
         });
 
         methods.add_async_method("leave_realm", |_, this, realm_id_hex: String| async move {
             let rid = parse_realm_id(&realm_id_hex)?;
-            let net = this.network.read().await;
+            let net = &this.network;
             net.leave_realm(&rid).await.map_err(mlua::Error::external)
         });
 
@@ -246,14 +245,14 @@ impl UserData for LuaNetwork {
 
         methods.add_async_method("connect", |_, this, peer_id_hex: String| async move {
             let peer_id = parse_member_id(&peer_id_hex)?;
-            let net = this.network.read().await;
-            let realm = net.connect(peer_id).await.map_err(mlua::Error::external)?;
+            let net = &this.network;
+            let (realm, _) = net.connect(peer_id).await.map_err(mlua::Error::external)?;
             Ok(LuaRealm { realm })
         });
 
         methods.add_async_method("connect_by_code", |_, this, code: String| async move {
-            let net = this.network.read().await;
-            let realm = net
+            let net = &this.network;
+            let (realm, _) = net
                 .connect_by_code(&code)
                 .await
                 .map_err(mlua::Error::external)?;
@@ -263,13 +262,13 @@ impl UserData for LuaNetwork {
         // -- Special realms --
 
         methods.add_async_method("home_realm", |_, this, ()| async move {
-            let net = this.network.read().await;
+            let net = &this.network;
             let home = net.home_realm().await.map_err(mlua::Error::external)?;
             Ok(LuaHomeRealm { home })
         });
 
         methods.add_async_method("contacts_realm", |_, this, ()| async move {
-            let net = this.network.read().await;
+            let net = &this.network;
             let contacts = net
                 .join_contacts_realm()
                 .await
@@ -280,7 +279,7 @@ impl UserData for LuaNetwork {
         // -- Identity export --
 
         methods.add_async_method("export_identity", |_, this, ()| async move {
-            let net = this.network.read().await;
+            let net = &this.network;
             let bytes = net
                 .export_identity()
                 .await
@@ -294,16 +293,14 @@ impl UserData for LuaNetwork {
             "connect_to",
             |_, this, other: mlua::AnyUserData| async move {
                 let other_ref = other.borrow::<LuaNetwork>()?;
-                let other_net = other_ref.network.read().await;
-                let addr = other_net
+                let addr = other_ref.network
                     .node()
                     .endpoint_addr()
                     .await
                     .ok_or_else(|| mlua::Error::external("Target network not started"))?;
-                drop(other_net);
                 drop(other_ref);
 
-                let net = this.network.read().await;
+                let net = &this.network;
                 net.node()
                     .connect_by_addr(addr)
                     .await
@@ -314,7 +311,7 @@ impl UserData for LuaNetwork {
         // -- ToString --
 
         methods.add_async_method("__tostring_async", |_, this, ()| async move {
-            let net = this.network.read().await;
+            let net = &this.network;
             Ok(format!(
                 "Network(id={}, running={})",
                 hex::encode(&net.id()[..4]),
@@ -950,7 +947,7 @@ impl UserData for LuaContactsRealm {
         methods.add_async_method("contacts_list", |_, this, ()| async move {
             let ids: Vec<String> = this
                 .contacts
-                .contacts_list_async()
+                .contacts_list()
                 .await
                 .iter()
                 .map(hex::encode)
@@ -959,7 +956,7 @@ impl UserData for LuaContactsRealm {
         });
 
         methods.add_async_method("contact_count", |_, this, ()| async move {
-            Ok(this.contacts.contact_count_async().await)
+            Ok(this.contacts.contact_count().await)
         });
 
         methods.add_async_method(
@@ -975,7 +972,7 @@ impl UserData for LuaContactsRealm {
 
         methods.add_async_method("get_status", |_, this, member_id_hex: String| async move {
             let member_id = parse_member_id(&member_id_hex)?;
-            Ok(this.contacts.get_status_async(&member_id).await.map(|s| match s {
+            Ok(this.contacts.get_status(&member_id).await.map(|s| match s {
                 indras_network::ContactStatus::Pending => "pending".to_string(),
                 indras_network::ContactStatus::Confirmed => "confirmed".to_string(),
             }))
@@ -994,7 +991,7 @@ impl UserData for LuaContactsRealm {
 
         methods.add_async_method("get_sentiment", |_, this, member_id_hex: String| async move {
             let member_id = parse_member_id(&member_id_hex)?;
-            Ok(this.contacts.get_sentiment_async(&member_id).await)
+            Ok(this.contacts.get_sentiment(&member_id).await)
         });
 
         methods.add_async_method(
@@ -1010,10 +1007,10 @@ impl UserData for LuaContactsRealm {
 
         // -- ToString --
 
-        methods.add_meta_method(MetaMethod::ToString, |_, this, ()| {
+        methods.add_async_meta_method(MetaMethod::ToString, |_, this, ()| async move {
             Ok(format!(
                 "ContactsRealm(count={})",
-                this.contacts.contact_count()
+                this.contacts.contact_count().await
             ))
         });
     }
@@ -1045,7 +1042,7 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
                 .map_err(mlua::Error::external)?;
 
             Ok(LuaNetwork {
-                network: Arc::new(tokio::sync::RwLock::new(network)),
+                network: network,
                 _temp_dir: temp_dir,
             })
         })?,

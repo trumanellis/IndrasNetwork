@@ -31,7 +31,8 @@ async fn get_or_create_peer_realm(
         return Ok(realm);
     }
     // DM realm not in memory — create it (handles restart + race conditions)
-    net.connect(peer_id).await
+    let (realm, _) = net.connect(peer_id).await?;
+    Ok(realm)
 }
 
 /// Hex-encode a 32-byte ID.

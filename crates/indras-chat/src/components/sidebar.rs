@@ -7,14 +7,14 @@ use crate::state::ChatContext;
 #[component]
 pub fn Sidebar() -> Element {
     let mut ctx = use_context::<ChatContext>();
-    let handle = ctx.handle.read().clone();
+    let runtime = ctx.runtime.read().clone();
     let conversations = ctx.conversations.read().clone();
     let active_chat = ctx.active_chat.read().clone();
 
-    let display_name = handle.network.display_name()
+    let display_name = runtime.display_name()
         .map(|s| s.to_string())
         .unwrap_or_else(|| "Anonymous".to_string());
-    let identity_code = handle.network.identity_code();
+    let identity_code = runtime.identity_code();
 
     rsx! {
         div { class: "sidebar",
