@@ -89,6 +89,48 @@ let network = IndrasNetwork::preset(Preset::Chat)
 
 ## Architecture
 
+```mermaid
+graph TD
+    subgraph "SDK"
+        NET[indras-network]
+    end
+    subgraph "Coordination"
+        NODE[indras-node]
+    end
+    subgraph "Sync & Messaging"
+        SYNC[indras-sync]
+        MSG[indras-messaging]
+    end
+    subgraph "Protocol"
+        ROUTING[indras-routing]
+        GOSSIP[indras-gossip]
+    end
+    subgraph "Infrastructure"
+        TRANSPORT[indras-transport]
+        STORAGE[indras-storage]
+    end
+    subgraph "Foundation"
+        CORE[indras-core]
+        CRYPTO[indras-crypto]
+    end
+
+    NET --> NODE
+    NET --> MSG
+    NET --> SYNC
+    NODE --> TRANSPORT
+    NODE --> STORAGE
+    NODE --> SYNC
+    MSG --> ROUTING
+    MSG --> GOSSIP
+    MSG --> CRYPTO
+    SYNC --> GOSSIP
+    ROUTING --> STORAGE
+    GOSSIP --> TRANSPORT
+    TRANSPORT --> CORE
+    STORAGE --> CORE
+    CRYPTO --> CORE
+```
+
 Indra's Network is organized as a Rust workspace with specialized crates:
 
 | Crate | Purpose |
@@ -112,6 +154,39 @@ Indra's Network is organized as a Rust workspace with specialized crates:
 **Applications:** `indras-dashboard`, `indras-chat`, `indras-home-viewer`, `indras-realm-viewer`, `indras-collaboration-viewer`, `indras-ui`, `indras-genesis`, `indras-workspace`
 
 **Examples:** `chat-app`, `sync-demo`, `indras-notes`
+
+### How Messages Flow
+
+```mermaid
+sequenceDiagram
+    participant App as Your App
+    participant Realm as Realm
+    participant Node as IndrasNode
+    participant Sync as Automerge Doc
+    participant Gossip as Gossip
+    participant Peer as Remote Peer
+
+    App->>Realm: realm.send("Hello!")
+    Realm->>Node: send_message(realm_id, bytes)
+    Node->>Sync: append event to CRDT
+    Node->>Gossip: broadcast to realm topic
+    Gossip->>Peer: deliver via iroh (QUIC)
+    Peer-->>Gossip: delivery confirmed
+    Note over Node,Peer: Offline peers receive via store-and-forward
+```
+
+### Realm Lifecycle
+
+```mermaid
+flowchart LR
+    A["network.create_realm()"] --> B[Generate Invite Code]
+    B --> C[Share Code with Peer]
+    C --> D["peer.join_realm(code)"]
+    D --> E[Gossip Discovery]
+    E --> F[CRDT State Sync]
+    F --> G[Send Messages & Sync Documents]
+    G -->|new peers| C
+```
 
 ## Common Use Cases
 
