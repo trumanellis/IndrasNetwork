@@ -67,17 +67,22 @@ impl RealmTokens for Realm {
         caller: MemberId,
     ) -> Result<()> {
         let token_doc = self.tokens().await?;
-        let mut pledger = [0u8; 32];
+        let pledger;
 
         {
             let guard = token_doc.read().await;
-            if let Some(token) = guard.find(&token_id) {
-                if token.steward != caller {
-                    return Err(IndraError::InvalidOperation(
-                        "Not authorized: only the token's steward can pledge it".into(),
-                    ));
+            match guard.find(&token_id) {
+                Some(token) => {
+                    if token.steward != caller {
+                        return Err(IndraError::InvalidOperation(
+                            "Not authorized: only the token's steward can pledge it".into(),
+                        ));
+                    }
+                    pledger = token.steward;
                 }
-                pledger = token.steward;
+                None => {
+                    return Err(IndraError::InvalidOperation("Token not found".into()));
+                }
             }
         }
 
@@ -106,20 +111,23 @@ impl RealmTokens for Realm {
         caller: MemberId,
     ) -> Result<()> {
         let token_doc = self.tokens().await?;
-        let mut from_steward = [0u8; 32];
-        let mut target_intention_id = [0u8; 16];
+        let from_steward;
+        let target_intention_id;
 
         {
             let guard = token_doc.read().await;
-            if let Some(token) = guard.find(&token_id) {
-                if token.steward != caller {
-                    return Err(IndraError::InvalidOperation(
-                        "Not authorized: only the token's steward can release it".into(),
-                    ));
+            match guard.find(&token_id) {
+                Some(token) => {
+                    if token.steward != caller {
+                        return Err(IndraError::InvalidOperation(
+                            "Not authorized: only the token's steward can release it".into(),
+                        ));
+                    }
+                    from_steward = token.steward;
+                    target_intention_id = token.pledged_to.unwrap_or([0u8; 16]);
                 }
-                from_steward = token.steward;
-                if let Some(intention_id) = token.pledged_to {
-                    target_intention_id = intention_id;
+                None => {
+                    return Err(IndraError::InvalidOperation("Token not found".into()));
                 }
             }
         }
@@ -145,20 +153,23 @@ impl RealmTokens for Realm {
 
     async fn withdraw_token(&self, token_id: TokenOfGratitudeId, caller: MemberId) -> Result<()> {
         let token_doc = self.tokens().await?;
-        let mut steward = [0u8; 32];
-        let mut target_intention_id = [0u8; 16];
+        let steward;
+        let target_intention_id;
 
         {
             let guard = token_doc.read().await;
-            if let Some(token) = guard.find(&token_id) {
-                if token.steward != caller {
-                    return Err(IndraError::InvalidOperation(
-                        "Not authorized: only the token's steward can withdraw it".into(),
-                    ));
+            match guard.find(&token_id) {
+                Some(token) => {
+                    if token.steward != caller {
+                        return Err(IndraError::InvalidOperation(
+                            "Not authorized: only the token's steward can withdraw it".into(),
+                        ));
+                    }
+                    steward = token.steward;
+                    target_intention_id = token.pledged_to.unwrap_or([0u8; 16]);
                 }
-                steward = token.steward;
-                if let Some(intention_id) = token.pledged_to {
-                    target_intention_id = intention_id;
+                None => {
+                    return Err(IndraError::InvalidOperation("Token not found".into()));
                 }
             }
         }
@@ -185,7 +196,7 @@ impl RealmTokens for Realm {
         let token_doc = self.tokens().await?;
         let guard = token_doc.read().await;
         Ok(guard
-            .pledged_tokens_for_quest(intention_id)
+            .pledged_tokens_for_intention(intention_id)
             .into_iter()
             .cloned()
             .collect())

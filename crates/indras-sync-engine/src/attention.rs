@@ -352,8 +352,8 @@ impl AttentionDocument {
 /// Errors that can occur during attention operations.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AttentionError {
-    /// The quest was not found.
-    QuestNotFound,
+    /// The intention was not found.
+    IntentionNotFound,
     /// The member was not found.
     MemberNotFound,
 }
@@ -361,7 +361,7 @@ pub enum AttentionError {
 impl std::fmt::Display for AttentionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            AttentionError::QuestNotFound => write!(f, "Quest not found"),
+            AttentionError::IntentionNotFound => write!(f, "Intention not found"),
             AttentionError::MemberNotFound => write!(f, "Member not found"),
         }
     }

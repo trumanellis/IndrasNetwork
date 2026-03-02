@@ -346,8 +346,8 @@ impl TokenOfGratitudeDocument {
             .collect()
     }
 
-    /// Get all tokens pledged to a specific quest.
-    pub fn pledged_tokens_for_quest(&self, intention_id: &IntentionId) -> Vec<&TokenOfGratitude> {
+    /// Get all tokens pledged to a specific intention.
+    pub fn pledged_tokens_for_intention(&self, intention_id: &IntentionId) -> Vec<&TokenOfGratitude> {
         self.tokens
             .values()
             .filter(|t| t.pledged_to.as_ref() == Some(intention_id))
@@ -649,7 +649,7 @@ mod tests {
     }
 
     #[test]
-    fn test_pledged_tokens_for_quest() {
+    fn test_pledged_tokens_for_intention() {
         let mut doc = TokenOfGratitudeDocument::new();
         let steward = test_member_id(1);
         let target = test_intention_id(2);
@@ -664,8 +664,8 @@ mod tests {
         doc.pledge(t1, target).unwrap();
         doc.pledge(t2, target).unwrap();
 
-        assert_eq!(doc.pledged_tokens_for_quest(&target).len(), 2);
-        assert_eq!(doc.pledged_tokens_for_quest(&test_intention_id(3)).len(), 0);
+        assert_eq!(doc.pledged_tokens_for_intention(&target).len(), 2);
+        assert_eq!(doc.pledged_tokens_for_intention(&test_intention_id(3)).len(), 0);
     }
 
     #[test]

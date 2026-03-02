@@ -14,8 +14,7 @@ use crate::components::quest::{QuestView, PeerOption, IntentionCreateOverlay};
 use crate::components::settings::SettingsView;
 use crate::components::setup::SetupView;
 use crate::components::pass_story::PassStoryOverlay;
-use crate::components::event_log::EventLogView;
-use crate::components::artifact_browser::{ArtifactBrowserView, BrowsableArtifact, GrantDisplay, MimeCategory};
+use crate::components::artifact_browser::{BrowsableArtifact, GrantDisplay, MimeCategory};
 use crate::state::workspace::{EventDirection, log_event};
 use crate::state::workspace::{WorkspaceState, ViewType, AppPhase, PeerDisplayInfo, DashboardTab};
 use crate::components::intention_board::{IntentionBoard, IntentionCardData};
@@ -214,11 +213,11 @@ pub fn RootApp() -> Element {
 
     // Artifact browser state
     let mut browser_artifacts = use_signal(Vec::<BrowsableArtifact>::new);
-    let mut browser_search = use_signal(String::new);
-    let mut browser_filter = use_signal(|| MimeCategory::All);
-    let mut browser_radius = use_signal(|| 100.0_f64);
+    let mut _browser_search = use_signal(String::new);
+    let mut _browser_filter = use_signal(|| MimeCategory::All);
+    let mut _browser_radius = use_signal(|| 100.0_f64);
     let mut user_location = use_signal(|| None::<GeoLocation>);
-    let mut peer_filter = use_signal(String::new);
+    let mut _peer_filter = use_signal(String::new);
 
     // --- Lua scripting dispatcher (feature-gated) ---
     #[cfg(feature = "lua-scripting")]
