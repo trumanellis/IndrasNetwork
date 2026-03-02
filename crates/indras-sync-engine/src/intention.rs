@@ -46,6 +46,38 @@ impl std::fmt::Display for IntentionKind {
     }
 }
 
+impl IntentionKind {
+    /// Returns an emoji icon representing this kind.
+    pub fn icon(&self) -> &str {
+        match self {
+            IntentionKind::Quest => "\u{2694}",
+            IntentionKind::Need => "\u{1F331}",
+            IntentionKind::Offering => "\u{1F381}",
+            IntentionKind::Intention => "\u{2728}",
+        }
+    }
+
+    /// Returns a CSS class name for this kind.
+    pub fn css_class(&self) -> &str {
+        match self {
+            IntentionKind::Quest => "type-quest",
+            IntentionKind::Need => "type-need",
+            IntentionKind::Offering => "type-offering",
+            IntentionKind::Intention => "type-intention",
+        }
+    }
+
+    /// Returns a human-readable label for this kind.
+    pub fn label(&self) -> &str {
+        match self {
+            IntentionKind::Quest => "Quest",
+            IntentionKind::Need => "Need",
+            IntentionKind::Offering => "Offering",
+            IntentionKind::Intention => "Intention",
+        }
+    }
+}
+
 /// Priority level for intentions.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum IntentionPriority {

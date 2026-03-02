@@ -1,47 +1,12 @@
-//! Quest/Need/Offering/Intention view component — full Intention Game Loop.
+//! Intention view component — full Intention Game Loop.
 
 use dioxus::prelude::*;
 use indras_ui::{ArtifactDisplayInfo, ArtifactGallery};
+use indras_sync_engine::IntentionKind;
 
 // ================================================================
 // Data Types
 // ================================================================
-
-/// The kind of quest-like artifact.
-#[derive(Clone, Debug, PartialEq)]
-pub enum QuestKind {
-    Quest,
-    Need,
-    Offering,
-    Intention,
-}
-
-impl QuestKind {
-    pub fn css_class(&self) -> &str {
-        match self {
-            QuestKind::Quest => "type-quest",
-            QuestKind::Need => "type-need",
-            QuestKind::Offering => "type-offering",
-            QuestKind::Intention => "type-intention",
-        }
-    }
-    pub fn icon(&self) -> &str {
-        match self {
-            QuestKind::Quest => "\u{2694}",
-            QuestKind::Need => "\u{1F331}",
-            QuestKind::Offering => "\u{1F381}",
-            QuestKind::Intention => "\u{2728}",
-        }
-    }
-    pub fn label(&self) -> &str {
-        match self {
-            QuestKind::Quest => "Quest",
-            QuestKind::Need => "Need",
-            QuestKind::Offering => "Offering",
-            QuestKind::Intention => "Intention",
-        }
-    }
-}
 
 /// An artifact attachment on a proof card.
 #[derive(Clone, Debug, PartialEq)]
@@ -578,13 +543,13 @@ fn StewardshipChain(
 }
 
 // ================================================================
-// Main QuestView Component
+// Main IntentionView Component
 // ================================================================
 
-/// Quest view — hero card + attention summary + proofs + pledges + stewardship chain.
+/// Intention view — hero card + attention summary + proofs + pledges + stewardship chain.
 #[component]
-pub fn QuestView(
-    kind: QuestKind,
+pub fn IntentionView(
+    kind: IntentionKind,
     title: String,
     description: String,
     status: String,

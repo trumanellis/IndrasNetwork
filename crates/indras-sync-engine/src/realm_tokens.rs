@@ -87,10 +87,9 @@ impl RealmTokens for Realm {
         }
 
         token_doc
-            .update(|d| {
-                if let Err(e) = d.pledge(token_id, target_intention_id) {
-                    tracing::warn!("Token pledge failed: {}", e);
-                }
+            .try_update(|d| {
+                d.pledge(token_id, target_intention_id)
+                    .map_err(|e| IndraError::InvalidOperation(e.to_string()))
             })
             .await?;
 
@@ -133,10 +132,9 @@ impl RealmTokens for Realm {
         }
 
         token_doc
-            .update(|d| {
-                if let Err(e) = d.release(token_id, new_steward) {
-                    tracing::warn!("Token release failed: {}", e);
-                }
+            .try_update(|d| {
+                d.release(token_id, new_steward)
+                    .map_err(|e| IndraError::InvalidOperation(e.to_string()))
             })
             .await?;
 
@@ -175,10 +173,9 @@ impl RealmTokens for Realm {
         }
 
         token_doc
-            .update(|d| {
-                if let Err(e) = d.withdraw(token_id) {
-                    tracing::warn!("Token withdraw failed: {}", e);
-                }
+            .try_update(|d| {
+                d.withdraw(token_id)
+                    .map_err(|e| IndraError::InvalidOperation(e.to_string()))
             })
             .await?;
 

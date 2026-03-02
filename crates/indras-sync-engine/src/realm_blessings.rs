@@ -67,6 +67,10 @@ impl RealmBlessings for Realm {
         blesser: MemberId,
         event_indices: Vec<usize>,
     ) -> Result<BlessingId> {
+        if event_indices.is_empty() {
+            return Err(IndraError::InvalidOperation("Cannot bless with empty event indices".into()));
+        }
+
         // Validate that blesser owns the attention events
         let attention_doc = self.attention().await?;
         let attention = attention_doc.read().await;

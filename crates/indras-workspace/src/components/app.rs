@@ -10,7 +10,7 @@ use crate::bridge::vault_bridge::{VaultHandle, InMemoryVault};
 use crate::bridge::network_bridge::{NetworkHandle, create_identity};
 use crate::components::topbar::Topbar;
 use crate::components::document::DocumentView;
-use crate::components::quest::{QuestView, PeerOption, IntentionCreateOverlay};
+use crate::components::intention_view::{IntentionView, PeerOption, IntentionCreateOverlay};
 use crate::components::settings::SettingsView;
 use crate::components::setup::SetupView;
 use crate::components::pass_story::PassStoryOverlay;
@@ -1544,7 +1544,7 @@ pub fn RootApp() -> Element {
                         ViewType::IntentionDetail => {
                             if let Some(qd) = current_quest_data {
                                 rsx! {
-                                    QuestView {
+                                    IntentionView {
                                         kind: qd.kind,
                                         title: qd.title,
                                         description: qd.description,
