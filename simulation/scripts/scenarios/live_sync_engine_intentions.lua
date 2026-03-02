@@ -127,8 +127,132 @@ h.assert_eventually(function()
 end, { timeout = 10, interval = 0.5, msg = "B should see both intentions after merge" })
 print("    B sees both intentions")
 
+-- ============================================================
+-- 4a. Attention Focus + Sync
+-- ============================================================
+h.section("4a", "Attention Focus + Sync")
+
+-- Create a fresh intention for the full lifecycle
+local lifecycle_id = realm_a:create_intention("Lifecycle test", "Full lifecycle with blessing and tokens")
+print("    A created 'Lifecycle test': " .. lifecycle_id:sub(1, 16) .. "...")
+
+-- A focuses attention on it
+realm_a:focus_attention(lifecycle_id)
+print("    A focused attention on intention")
+
+h.assert_eventually(function()
+    local events = realm_a:read_attention()
+    for _, e in ipairs(events) do
+        if e.intention_id == lifecycle_id and e.member == a:id() then
+            return true
+        end
+    end
+    return false
+end, { timeout = 5, interval = 0.5, msg = "A's attention should include intention focus" })
+print("    A's attention includes intention focus")
+
+-- Test clear
+realm_a:clear_attention()
+print("    A cleared attention")
+
+h.assert_eventually(function()
+    local events = realm_a:read_attention()
+    local last_a = nil
+    for _, e in ipairs(events) do
+        if e.member == a:id() then last_a = e end
+    end
+    return last_a ~= nil and last_a.intention_id == nil
+end, { timeout = 5, interval = 0.5, msg = "A's attention should be cleared" })
+print("    A's attention cleared")
+
+-- ============================================================
+-- 4b. Full Blessing Flow
+-- ============================================================
+h.section("4b", "Full Blessing Flow")
+
+-- A re-focuses on the lifecycle intention (generates attention events)
+realm_a:focus_attention(lifecycle_id)
+print("    A focused attention on lifecycle intention")
+
+-- Small pause to let the attention event settle
+indras.sleep(1)
+
+-- B submits a claim on the lifecycle intention
+realm_b:submit_service_claim(lifecycle_id, b_id)
+print("    B submitted claim on lifecycle intention")
+
+-- A verifies B's claim
+h.assert_eventually(function()
+    local intentions = realm_a:read_intentions()
+    for _, q in ipairs(intentions) do
+        if q.id == lifecycle_id and q.claim_count > 0 then return true end
+    end
+    return false
+end, { timeout = 10, interval = 0.5, msg = "A should see claim on lifecycle intention" })
+
+realm_a:verify_service_claim(lifecycle_id, 0)
+print("    A verified B's claim")
+
+-- A gets unblessed event indices for the lifecycle intention
+local indices = realm_a:unblessed_event_indices(lifecycle_id)
+print("    A has " .. #indices .. " unblessed event indices")
+assert(#indices > 0, "Should have unblessed attention events")
+
+-- A blesses B's claim
+local blessing_id = realm_a:bless_claim(lifecycle_id, b_id, indices)
+print("    A blessed B's claim: " .. blessing_id:sub(1, 16) .. "...")
+
+-- B should now have a token
+h.assert_eventually(function()
+    local tokens = realm_b:read_tokens()
+    return #tokens > 0
+end, { timeout = 10, interval = 0.5, msg = "B should have a token after blessing" })
+print("    B has a token of gratitude")
+
+-- Verify blessing is recorded
+local blessings = realm_a:read_blessings(lifecycle_id, b_id)
+indras.assert.eq(#blessings, 1, "Should have 1 blessing")
+print("    Blessing recorded correctly")
+
+-- ============================================================
+-- 4c. Token Actions
+-- ============================================================
+h.section("4c", "Token Actions")
+
+-- B reads their tokens and picks the first one
+local b_tokens = realm_b:read_tokens()
+assert(#b_tokens > 0, "B should have tokens")
+local token_id = b_tokens[1].id
+print("    B's token: " .. token_id:sub(1, 16) .. "...")
+
+-- B pledges the token to the lifecycle intention
+realm_b:pledge_token(token_id, lifecycle_id)
+print("    B pledged token to intention")
+
+-- Verify intention has pledged tokens
+h.assert_eventually(function()
+    local pledged = realm_b:intention_pledged_tokens(lifecycle_id)
+    return #pledged > 0
+end, { timeout = 10, interval = 0.5, msg = "Intention should have pledged token" })
+print("    Intention has 1 pledged token")
+
+-- B releases token to A
+local a_id = a:id()
+realm_b:release_token(token_id, a_id)
+print("    B released token to A")
+
+-- A should now own the token
+h.assert_eventually(function()
+    local a_tokens = realm_a:read_tokens()
+    for _, t in ipairs(a_tokens) do
+        if t.id == token_id then return true end
+    end
+    return false
+end, { timeout = 10, interval = 0.5, msg = "A should own the released token" })
+print("    A now owns the token")
+
 -- Cleanup
-h.section(4, "Stopping networks")
+h.section(5, "Stopping networks")
 h.stop_all(nets)
 print("    All networks stopped")
 

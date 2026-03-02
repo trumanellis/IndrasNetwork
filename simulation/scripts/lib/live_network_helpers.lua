@@ -26,6 +26,39 @@ function M.connect_all(nets)
     end
 end
 
+-- Disconnect two networks bilaterally (sever QUIC connections both directions)
+-- Usage: M.disconnect(net_a, net_b)
+function M.disconnect(net_a, net_b)
+    net_a:disconnect_from(net_b)
+    net_b:disconnect_from(net_a)
+end
+
+-- Reconnect two networks bilaterally (re-establish QUIC connections)
+-- Usage: M.reconnect(net_a, net_b)
+function M.reconnect(net_a, net_b)
+    net_a:connect_to(net_b)
+end
+
+-- Disconnect a network from all others in the list
+-- Usage: M.isolate(net, all_nets)
+function M.isolate(net, all_nets)
+    for _, other in ipairs(all_nets) do
+        if other ~= net then
+            M.disconnect(net, other)
+        end
+    end
+end
+
+-- Reconnect a network to all others in the list
+-- Usage: M.rejoin(net, all_nets)
+function M.rejoin(net, all_nets)
+    for _, other in ipairs(all_nets) do
+        if other ~= net then
+            M.reconnect(net, other)
+        end
+    end
+end
+
 -- Stop all networks
 function M.stop_all(nets)
     for _, net in ipairs(nets) do

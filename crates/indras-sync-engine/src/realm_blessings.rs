@@ -102,33 +102,23 @@ impl RealmBlessings for Realm {
 
         // Record the blessing
         let claim_id = ClaimId::new(intention_id, claimant);
-        let mut blessing_id = [0u8; 16];
         let blessing_doc = self.blessings().await?;
 
         let event_indices_clone = event_indices.clone();
-        blessing_doc
-            .update(|d| {
-                match d.bless_claim(claim_id, blesser, event_indices_clone) {
-                    Ok(id) => blessing_id = id,
-                    Err(e) => {
-                        tracing::warn!("Blessing failed: {}", e);
-                    }
-                }
+        let blessing_id = blessing_doc
+            .try_update(|d| {
+                d.bless_claim(claim_id, blesser, event_indices_clone)
+                    .map_err(|e| IndraError::InvalidOperation(e.to_string()))
             })
             .await?;
 
         // Mint a Token of Gratitude for the claimant
         let token_doc = self.tokens().await?;
         let event_indices_for_token = event_indices.clone();
-        let mut _token_id = [0u8; 16];
-        token_doc
-            .update(|d| {
-                match d.mint(claimant, blessing_id, blesser, intention_id, event_indices_for_token) {
-                    Ok(id) => _token_id = id,
-                    Err(e) => {
-                        tracing::warn!("Token minting failed: {}", e);
-                    }
-                }
+        let _token_id = token_doc
+            .try_update(|d| {
+                d.mint(claimant, blessing_id, blesser, intention_id, event_indices_for_token)
+                    .map_err(|e| IndraError::InvalidOperation(e.to_string()))
             })
             .await?;
 
