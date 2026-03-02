@@ -1893,7 +1893,7 @@ This means consumers only need one dependency — `indras-network` — to access
 | `LeafArtifact` | Immutable content (files, notes) |
 | `TreeArtifact` | Container for other artifacts |
 | `ArtifactRef` | Lightweight reference to an artifact |
-| `LeafType` | Enum: Note, File, Image, Quest, Proof, etc. |
+| `LeafType` | Enum: Note, File, Image, Intention, Proof, etc. |
 | `TreeType` | Enum: Vault, Story, Exchange, Request, etc. |
 
 ### Vault Types

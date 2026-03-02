@@ -108,13 +108,13 @@ pub fn subjective_value(
 mod tests {
     use super::*;
     use crate::blessing::BlessingId;
-    use crate::quest::QuestId;
+    use crate::intention::IntentionId;
     use crate::token_of_gratitude::TokenOfGratitudeDocument;
 
     fn member(n: u8) -> MemberId {
         [n; 32]
     }
-    fn quest(n: u8) -> QuestId {
+    fn intention(n: u8) -> IntentionId {
         [n; 16]
     }
     fn blessing(n: u8) -> BlessingId {
@@ -126,11 +126,11 @@ mod tests {
         let mut doc = TokenOfGratitudeDocument::new();
         let first = stewards[0];
         let token_id = doc
-            .mint(first, blessing(1), blesser, quest(1), vec![0, 1, 2])
+            .mint(first, blessing(1), blesser, intention(1), vec![0, 1, 2])
             .unwrap();
 
         for i in 1..stewards.len() {
-            doc.pledge(token_id, quest(i as u8 + 1)).unwrap();
+            doc.pledge(token_id, intention(i as u8 + 1)).unwrap();
             doc.release(token_id, stewards[i]).unwrap();
         }
 

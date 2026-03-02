@@ -4,8 +4,8 @@ use crate::content::SyncContent;
 use crate::proof_folder::{
     ProofFolder, ProofFolderArtifact, ProofFolderDocument, ProofFolderError, ProofFolderId,
 };
-use crate::quest::QuestId;
-use crate::realm_quests::RealmQuests;
+use crate::intention::IntentionId;
+use crate::realm_intentions::RealmIntentions;
 use indras_network::artifact::ArtifactId;
 use indras_network::document::Document;
 use indras_network::error::{IndraError, Result};
@@ -20,7 +20,7 @@ pub trait RealmProofFolders {
     /// Create a new proof folder in draft status.
     async fn create_proof_folder(
         &self,
-        quest_id: QuestId,
+        intention_id: IntentionId,
         claimant: MemberId,
     ) -> Result<ProofFolderId>;
 
@@ -59,10 +59,10 @@ impl RealmProofFolders for Realm {
 
     async fn create_proof_folder(
         &self,
-        quest_id: QuestId,
+        intention_id: IntentionId,
         claimant: MemberId,
     ) -> Result<ProofFolderId> {
-        let folder = ProofFolder::new(quest_id, claimant);
+        let folder = ProofFolder::new(intention_id, claimant);
         let folder_id = folder.id;
 
         let doc = self.proof_folders().await?;
@@ -167,7 +167,7 @@ impl RealmProofFolders for Realm {
             ));
         }
 
-        let quest_id = folder.quest_id;
+        let intention_id = folder.intention_id;
         let claimant = folder.claimant;
         let narrative_preview = folder.narrative_preview();
         let artifact_count = folder.artifact_count();
@@ -192,11 +192,11 @@ impl RealmProofFolders for Realm {
 
         // Create or update quest claim with proof folder
         let mut claim_index = 0usize;
-        let quests = self.quests().await?;
+        let quests = self.intentions().await?;
         quests
             .update(|d| {
-                if let Some(quest) = d.find_mut(&quest_id) {
-                    if let Some((idx, claim)) = quest
+                if let Some(intention) = d.find_mut(&intention_id) {
+                    if let Some((idx, claim)) = intention
                         .claims
                         .iter_mut()
                         .enumerate()
@@ -205,9 +205,9 @@ impl RealmProofFolders for Realm {
                         claim.set_proof_folder(folder_id);
                         claim_index = idx;
                     } else {
-                        let claim = crate::quest::QuestClaim::with_proof_folder(claimant, folder_id);
-                        quest.claims.push(claim);
-                        claim_index = quest.claims.len() - 1;
+                        let claim = crate::intention::ServiceClaim::with_proof_folder(claimant, folder_id);
+                        intention.claims.push(claim);
+                        claim_index = intention.claims.len() - 1;
                     }
                 }
             })
@@ -215,7 +215,7 @@ impl RealmProofFolders for Realm {
 
         // Post chat notification
         self.send(SyncContent::ProofFolderSubmitted {
-            quest_id,
+            intention_id,
             claimant,
             folder_id,
             narrative_preview,

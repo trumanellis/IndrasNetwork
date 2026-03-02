@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::sentiment::{SentimentRelayDocument, SentimentView};
+use crate::sentiment::{RelayedSentiment, SentimentRelayDocument, SentimentView};
 use crate::story_auth::StoryAuth;
 use indras_network::error::{IndraError, Result};
 use indras_network::member::MemberId;
@@ -95,7 +95,12 @@ impl SyncEngine {
                     if rated_id == about {
                         continue;
                     }
-                    let _ = (rated_id, rated_sentiment);
+                    view.relayed.push(RelayedSentiment {
+                        about: *rated_id,
+                        sentiment: *rated_sentiment,
+                        relay_source: *contact_id,
+                        degree: 2,
+                    });
                 }
             }
         }

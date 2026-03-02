@@ -4,7 +4,7 @@
 //! generic Indra's Network messaging layer.
 
 use crate::proof_folder::ProofFolderId;
-use crate::quest::QuestId;
+use crate::intention::IntentionId;
 use crate::token_of_gratitude::TokenOfGratitudeId;
 use indras_network::member::MemberId;
 use indras_network::message::{ContentReference, Content};
@@ -22,14 +22,14 @@ pub const SYNC_CONTENT_TYPE_ID: &str = "indras-sync-engine/v1";
 pub enum SyncContent {
     /// Proof submitted for a quest claim.
     ProofSubmitted {
-        quest_id: QuestId,
+        intention_id: IntentionId,
         claimant: MemberId,
         artifact: ContentReference,
     },
 
     /// Blessing given to a quest proof.
     BlessingGiven {
-        quest_id: QuestId,
+        intention_id: IntentionId,
         claimant: MemberId,
         blesser: MemberId,
         event_indices: Vec<usize>,
@@ -37,7 +37,7 @@ pub enum SyncContent {
 
     /// Proof folder submitted for review.
     ProofFolderSubmitted {
-        quest_id: QuestId,
+        intention_id: IntentionId,
         claimant: MemberId,
         folder_id: ProofFolderId,
         narrative_preview: String,
@@ -48,7 +48,7 @@ pub enum SyncContent {
     GratitudePledged {
         token_id: TokenOfGratitudeId,
         pledger: MemberId,
-        target_quest_id: QuestId,
+        target_intention_id: IntentionId,
     },
 
     /// Gratitude released to a proof submitter.
@@ -56,14 +56,14 @@ pub enum SyncContent {
         token_id: TokenOfGratitudeId,
         from_steward: MemberId,
         to_steward: MemberId,
-        target_quest_id: QuestId,
+        target_intention_id: IntentionId,
     },
 
     /// Gratitude pledge withdrawn by the steward.
     GratitudeWithdrawn {
         token_id: TokenOfGratitudeId,
         steward: MemberId,
-        target_quest_id: QuestId,
+        target_intention_id: IntentionId,
     },
 }
 
@@ -91,14 +91,14 @@ impl SyncContent {
     }
 
     /// Get the quest ID if this is a quest-related message.
-    pub fn quest_id(&self) -> Option<&QuestId> {
+    pub fn intention_id(&self) -> Option<&IntentionId> {
         match self {
-            SyncContent::ProofSubmitted { quest_id, .. } => Some(quest_id),
-            SyncContent::BlessingGiven { quest_id, .. } => Some(quest_id),
-            SyncContent::ProofFolderSubmitted { quest_id, .. } => Some(quest_id),
-            SyncContent::GratitudePledged { target_quest_id, .. } => Some(target_quest_id),
-            SyncContent::GratitudeReleased { target_quest_id, .. } => Some(target_quest_id),
-            SyncContent::GratitudeWithdrawn { target_quest_id, .. } => Some(target_quest_id),
+            SyncContent::ProofSubmitted { intention_id, .. } => Some(intention_id),
+            SyncContent::BlessingGiven { intention_id, .. } => Some(intention_id),
+            SyncContent::ProofFolderSubmitted { intention_id, .. } => Some(intention_id),
+            SyncContent::GratitudePledged { target_intention_id, .. } => Some(target_intention_id),
+            SyncContent::GratitudeReleased { target_intention_id, .. } => Some(target_intention_id),
+            SyncContent::GratitudeWithdrawn { target_intention_id, .. } => Some(target_intention_id),
         }
     }
 
@@ -142,7 +142,7 @@ mod tests {
         let content = SyncContent::GratitudePledged {
             token_id: [1u8; 16],
             pledger: [2u8; 32],
-            target_quest_id: [3u8; 16],
+            target_intention_id: [3u8; 16],
         };
 
         let generic = content.to_content();
@@ -150,7 +150,7 @@ mod tests {
 
         let recovered = SyncContent::from_content(&generic).unwrap();
         assert!(recovered.is_gratitude_pledged());
-        assert_eq!(recovered.quest_id(), Some(&[3u8; 16]));
+        assert_eq!(recovered.intention_id(), Some(&[3u8; 16]));
     }
 
     #[test]

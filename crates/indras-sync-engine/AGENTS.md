@@ -2,28 +2,28 @@
 
 ## Purpose
 
-App layer built on top of `indras-network`. Adds domain-specific functionality (quests, blessings, tokens of gratitude, attention tracking, humanness attestation) via extension traits on `Realm` and `HomeRealm`.
+App layer built on top of `indras-network`. Adds domain-specific functionality (intentions, blessings, tokens of gratitude, attention tracking, humanness attestation) via extension traits on `Realm` and `HomeRealm`.
 
-Holds an `Arc<IndrasNetwork>` and uses `impl_document_schema!` to register its CRDT document types.
+Holds an `Arc<IndrasNetwork>` and registers its CRDT document types with custom merge semantics.
 
 ## Architecture: Extension Trait Pattern
 
 Domain methods are added to `Realm` via traits, not by modifying `indras-network`:
 
 ```rust
-// In realm_quests.rs
-pub trait RealmQuests {
-    async fn create_quest(&self, title: &str, desc: &str, ...) -> Result<QuestId>;
-    async fn complete_quest(&self, quest_id: &QuestId) -> Result<()>;
+// In realm_intentions.rs
+pub trait RealmIntentions {
+    async fn create_intention(&self, title: &str, desc: &str, ...) -> Result<IntentionId>;
+    async fn complete_intention(&self, id: IntentionId, caller: MemberId) -> Result<()>;
 }
 
-impl RealmQuests for Realm { ... }
+impl RealmIntentions for Realm { ... }
 ```
 
 Usage:
 ```rust
 use indras_sync_engine::prelude::*;
-realm.create_quest("Review doc", "Please review", None, my_id).await?;
+realm.create_intention("Review doc", "Please review", None).await?;
 ```
 
 ## Module Map
@@ -32,12 +32,11 @@ realm.create_quest("Review doc", "Please review", None, my_id).await?;
 
 | Module | Key Types | What It Does |
 |--------|-----------|-------------|
-| `quest.rs` | `Quest`, `QuestDocument`, `QuestId`, `QuestPriority`, `QuestClaim` | Task/quest lifecycle |
-| `note.rs` | `Note`, `NoteDocument`, `NoteId` | Collaborative notes |
-| `message.rs` | `StoredMessage`, `MessageDocument`, `MessageId`, `MessageContent` | Persistent message storage |
+| `intention.rs` | `Intention`, `IntentionDocument`, `IntentionId`, `IntentionKind`, `IntentionPriority`, `ServiceClaim` | Intention lifecycle with Quest/Need/Offering/Intention subtypes |
+| `note.rs` | `Note`, `NoteDocument`, `NoteId` | Collaborative notes with tombstone deletion |
 | `blessing.rs` | `Blessing`, `BlessingDocument`, `BlessingId`, `ClaimId` | Blessings for completed work |
-| `attention.rs` | `AttentionDocument`, `QuestAttention`, `AttentionSwitchEvent` | Attention tracking per realm |
-| `token_of_gratitude.rs` | `TokenOfGratitude`, `TokenOfGratitudeDocument` | Gratitude tokens |
+| `attention.rs` | `AttentionDocument`, `IntentionAttention`, `AttentionSwitchEvent` | Attention tracking per realm |
+| `token_of_gratitude.rs` | `TokenOfGratitude`, `TokenOfGratitudeDocument` | Gratitude tokens with stewardship chains |
 | `token_valuation.rs` | `SubjectiveTokenValue`, `subjective_value` | Token value with steward chain decay |
 | `humanness.rs` | `HumannessAttestation`, `HumannessDocument`, `Delegation` | Humanness attestation chains |
 | `sentiment.rs` | `SentimentRelayDocument`, `RelayedSentiment`, `SentimentView` | Relayed sentiment across contacts |
@@ -51,13 +50,12 @@ realm.create_quest("Review doc", "Please review", None, my_id).await?;
 
 | Module | Trait | Methods |
 |--------|-------|---------|
-| `realm_quests.rs` | `RealmQuests` | `create_quest`, `complete_quest`, `claim_quest`, ... |
+| `realm_intentions.rs` | `RealmIntentions` | `create_intention`, `complete_intention`, `submit_service_claim`, `verify_service_claim`, ... |
 | `realm_notes.rs` | `RealmNotes` | `create_note`, `edit_note`, `list_notes`, ... |
-| `realm_messages.rs` | `RealmMessages` | Domain-level message operations |
-| `realm_chat.rs` | `RealmChat` | Chat-specific operations |
-| `realm_blessings.rs` | `RealmBlessings` | `give_blessing`, `list_blessings`, ... |
-| `realm_attention.rs` | `RealmAttention` | `record_attention`, `get_attention`, ... |
-| `realm_tokens.rs` | `RealmTokens` | Token of gratitude operations |
+| `realm_chat.rs` | `RealmChat` | Chat operations (sole chat interface) |
+| `realm_blessings.rs` | `RealmBlessings` | `bless_claim`, `list_blessings`, ... |
+| `realm_attention.rs` | `RealmAttention` | `focus_on_intention`, `intention_attention`, ... |
+| `realm_tokens.rs` | `RealmTokens` | Token pledge/release/withdraw with authorization |
 | `realm_humanness.rs` | `RealmHumanness` | Humanness attestation operations |
 | `realm_proof_folders.rs` | `RealmProofFolders` | Proof folder management |
 
@@ -65,7 +63,7 @@ realm.create_quest("Review doc", "Please review", None, my_id).await?;
 
 | Module | Trait |
 |--------|-------|
-| `home_realm_quests.rs` | `HomeRealmQuests` |
+| `home_realm_intentions.rs` | `HomeRealmIntentions` |
 | `home_realm_notes.rs` | `HomeRealmNotes` |
 
 ### Core
@@ -75,21 +73,41 @@ realm.create_quest("Review doc", "Please review", None, my_id).await?;
 | `sync_engine.rs` | `SyncEngine` | Holds `Arc<IndrasNetwork>`, entry point for app layer |
 | `prelude.rs` | - | Convenience re-exports |
 
+## CRDT Merge Semantics
+
+Three merge strategies are used:
+
+| Strategy | Documents | How It Works |
+|----------|-----------|-------------|
+| **Set-union by ID** | `IntentionDocument`, `NoteDocument`, `ProofFolderDocument` | Manual `DocumentSchema` impl. Deduplicates by unique ID. `NoteDocument` also does last-writer-wins per-ID for updates/tombstones. |
+| **Event-log append** | `BlessingDocument`, `AttentionDocument`, `TokenOfGratitudeDocument` | Default `impl_document_schema!`. Events are append-only, deduped by event ID. |
+| **LWW replacement** | `HumannessDocument`, `SentimentRelayDocument` | Default `impl_document_schema!`. Last writer wins for the whole document. |
+
+## Authorization
+
+Critical operations verify the caller's role before proceeding:
+
+- `complete_intention()` / `verify_service_claim()` — caller must be intention creator
+- `pledge_token()` / `release_token()` / `withdraw_token()` — caller must be current token steward
+- `bless_claim()` — caller must have attention events for the intention
+
 ## Adding a New Domain Module
 
 1. Create `my_domain.rs` with data types + `MyDomainDocument` struct
 2. Create `realm_my_domain.rs` with `pub trait RealmMyDomain` + `impl RealmMyDomain for Realm`
 3. Add `pub mod my_domain;` and `pub mod realm_my_domain;` to `lib.rs`
-4. Add `MyDomainDocument` to the `impl_document_schema!` macro call in `lib.rs`
+4. Add `MyDomainDocument` to `impl_document_schema!` (for LWW) or implement `DocumentSchema` manually (for set-union)
 5. Re-export the trait: `pub use realm_my_domain::RealmMyDomain;`
 6. Add to `prelude.rs`
 
 ## Gotchas
 
-- All document types use `impl_document_schema!` with default merge (LWW replacement)
+- `IntentionDocument`, `NoteDocument`, `ProofFolderDocument` have **manual** `DocumentSchema` impls with set-union merge — they are NOT in the `impl_document_schema!` macro
+- `NoteDocument` uses tombstone deletion (`note.deleted = true`) to survive CRDT merge
 - Extension traits are on `Realm` from `indras-network`, not on `SyncEngine`
 - `SyncEngine::new()` takes `Arc<IndrasNetwork>`, not owned
-- The `STEWARD_CHAIN_DECAY` constant controls how token value decays through stewardship transfers
+- `IntentionKind` enum: `Quest`, `Need`, `Offering`, `Intention` (default)
+- The old `RealmMessages` system was removed — only `RealmChat` remains
 
 ## Dependencies
 

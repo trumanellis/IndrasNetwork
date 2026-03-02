@@ -7,19 +7,24 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::bridge::vault_bridge::{VaultHandle, InMemoryVault};
-use crate::bridge::network_bridge::{NetworkHandle, is_first_run, create_identity, load_identity};
+use crate::bridge::network_bridge::{NetworkHandle, create_identity};
 use crate::components::topbar::Topbar;
 use crate::components::document::DocumentView;
-use crate::components::quest::{QuestView, QuestKind, ProofEntry, AttentionItem, PledgedToken, AttentionPeerSummary, StewardshipChainEntry, format_duration_secs, PeerOption, IntentionCreateOverlay};
+use crate::components::quest::{QuestView, PeerOption, IntentionCreateOverlay};
 use crate::components::settings::SettingsView;
 use crate::components::setup::SetupView;
 use crate::components::pass_story::PassStoryOverlay;
 use crate::components::event_log::EventLogView;
 use crate::components::artifact_browser::{ArtifactBrowserView, BrowsableArtifact, GrantDisplay, MimeCategory};
 use crate::state::workspace::{EventDirection, log_event};
-use crate::state::workspace::{WorkspaceState, ViewType, AppPhase, PeerDisplayInfo};
+use crate::state::workspace::{WorkspaceState, ViewType, AppPhase, PeerDisplayInfo, DashboardTab};
+use crate::components::intention_board::{IntentionBoard, IntentionCardData};
 use crate::state::navigation::{NavigationState, VaultTreeNode};
 use crate::state::editor::{EditorState, DocumentMeta, BlockDocumentSchema};
+use crate::services::boot::{run_boot_sequence, BootError};
+use crate::services::intention_data::{IntentionViewData, build_intention_view_data, build_intention_cards};
+use crate::services::event_subscription::subscribe_network_events;
+use crate::services::polling::{poll_contacts, check_dm_invites, join_invite, store_in_artifact_index};
 
 use indras_artifacts::Intention;
 use indras_ui::{
@@ -183,7 +188,7 @@ async fn rebuild_sidebar_from_index(
 pub fn RootApp() -> Element {
     let mut workspace = use_signal(WorkspaceState::new);
     let mut vault_handle = use_signal(|| None::<VaultHandle>);
-    let mut quest_data = use_signal(|| None::<QuestViewData>);
+    let mut quest_data = use_signal(|| None::<IntentionViewData>);
     // token_picker_open removed — inline pickers per-proof now
     let preview_open = use_signal(|| false);
     let preview_file = use_signal(|| None::<PreviewFile>);
@@ -203,6 +208,9 @@ pub fn RootApp() -> Element {
     let mut contact_member_id_short_sig = use_signal(String::new);
     let mut home_realm_handle = use_signal(|| None::<HomeRealm>);
     let mut realm_map = use_signal(|| std::collections::HashMap::<String, Realm>::new());
+
+    // Intention board cards
+    let mut intention_cards = use_signal(Vec::<IntentionCardData>::new);
 
     // Artifact browser state
     let mut browser_artifacts = use_signal(Vec::<BrowsableArtifact>::new);
@@ -281,123 +289,66 @@ pub fn RootApp() -> Element {
     let ci_status = use_memo(move || contact_invite_status.read().clone());
     let ci_parsed = use_memo(move || contact_parsed_name.read().clone());
     let ci_copied = use_memo(move || *contact_copy_feedback.read());
-    // attention_items now loaded from vault into QuestViewData
+    // attention_items now loaded from vault into IntentionViewData
 
     // Phase-based boot: check first-run on mount
     use_effect(move || {
         spawn(async move {
-            if is_first_run() {
-                // Auto-create identity if INDRAS_NAME is set (e.g., --remock)
-                if let Ok(auto_name) = std::env::var("INDRAS_NAME") {
-                    match create_identity(&auto_name, None).await {
-                        Ok(_) => {
-                            tracing::info!("Auto-created identity: {}", auto_name);
-                            // Fall through to load_identity below
-                        }
-                        Err(e) => {
-                            tracing::error!("Auto-create identity failed: {}", e);
-                            workspace.write().phase = AppPhase::Setup;
-                            return;
+            match run_boot_sequence().await {
+                Ok(result) => {
+                    let net = Arc::clone(&result.network_handle.network);
+                    vault_handle.set(Some(result.vault_handle));
+                    network_handle.set(Some(result.network_handle));
+                    {
+                        let mut ws = workspace.write();
+                        ws.phase = AppPhase::Workspace;
+                        for msg in &result.log_messages {
+                            log_event(&mut ws, EventDirection::System, msg.clone());
                         }
                     }
-                } else {
-                    workspace.write().phase = AppPhase::Setup;
-                    return;
+
+                    // Set home realm and restore sidebar
+                    if let Some(hr) = result.home_realm {
+                        let hr_clone = hr.clone();
+                        home_realm_handle.set(Some(hr));
+
+                        rebuild_sidebar_from_index(&hr_clone, &net, workspace, realm_map).await;
+                        let restored_count = workspace.read().nav.vault_tree.len();
+                        if restored_count > 0 {
+                            log_event(&mut workspace.write(), EventDirection::System, format!("Restored {} artifacts from home realm", restored_count));
+                        }
+                    }
+
+                    // Emit AppReady AFTER network + home realm are initialized,
+                    // so Lua scripts can immediately query/store artifacts.
+                    #[cfg(feature = "lua-scripting")]
+                    if let Some(ref tx) = *lua_event_tx.read() {
+                        let _ = tx.send(AppEvent::AppReady);
+                    }
                 }
-            }
-            {
-                // Load identity (works for both returning user and auto-created)
-                match load_identity().await {
-                    Ok(nh) => {
-                        let player_name = nh.network.display_name()
-                            .unwrap_or("Unknown").to_string();
-                        let player_id = nh.network.id();
-
-                        let now = chrono::Utc::now().timestamp_millis();
-                        match InMemoryVault::in_memory(player_id, now) {
-                            Ok(vault) => {
-                                vault_handle.set(Some(VaultHandle {
-                                    vault: Arc::new(Mutex::new(vault)),
-                                    player_id,
-                                    player_name: player_name.clone(),
-                                }));
-                                let net = Arc::clone(&nh.network);
-                                network_handle.set(Some(nh));
-                                {
-                                    let mut ws = workspace.write();
-                                    ws.phase = AppPhase::Workspace;
-                                    log_event(&mut ws, EventDirection::System, format!("Identity loaded: {}", player_name));
-                                }
-
-                                // Start the network (enables inbox listener for incoming connections)
-                                log_event(&mut workspace.write(), EventDirection::System, "Starting network...".to_string());
-                                if let Err(e) = net.start().await {
-                                    tracing::warn!(error = %e, "Failed to start network (non-fatal)");
-                                    log_event(&mut workspace.write(), EventDirection::System, format!("Network start warning: {}", e));
-                                } else {
-                                    log_event(&mut workspace.write(), EventDirection::System, "Network started \u{2014} listening for connections".to_string());
-                                }
-
-                                // Join contacts realm so inbox listener can store contacts
-                                if let Err(e) = net.join_contacts_realm().await {
-                                    tracing::warn!(error = %e, "Failed to join contacts realm (non-fatal)");
-                                }
-
-                                // Initialize home realm for persistent artifact storage
-                                match net.home_realm().await {
-                                    Ok(hr) => {
-                                        let hr_clone = hr.clone();
-                                        home_realm_handle.set(Some(hr));
-                                        log_event(&mut workspace.write(), EventDirection::System, "Home realm initialized".to_string());
-
-                                        // Restore sidebar from HomeRealm artifact index
-                                        rebuild_sidebar_from_index(&hr_clone, &net, workspace, realm_map).await;
-                                        let restored_count = workspace.read().nav.vault_tree.len();
-                                        if restored_count > 0 {
-                                            log_event(&mut workspace.write(), EventDirection::System, format!("Restored {} artifacts from home realm", restored_count));
-                                        }
-                                    }
-                                    Err(e) => {
-                                        tracing::warn!(error = %e, "Failed to initialize home realm (non-fatal)");
-                                        log_event(&mut workspace.write(), EventDirection::System, format!("Home realm warning: {}", e));
-                                    }
-                                }
-
-                                // Emit AppReady AFTER network + home realm are initialized,
-                                // so Lua scripts can immediately query/store artifacts.
-                                #[cfg(feature = "lua-scripting")]
-                                if let Some(ref tx) = *lua_event_tx.read() {
-                                    let _ = tx.send(AppEvent::AppReady);
-                                }
-                            }
-                            Err(e) => {
-                                tracing::error!("Vault creation failed: {}", e);
-                                {
-                                    let mut ws = workspace.write();
-                                    ws.phase = AppPhase::Setup;
-                                    log_event(&mut ws, EventDirection::System, format!("ERROR: Vault creation failed: {}", e));
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        tracing::error!("Failed to load identity: {}", e);
-                        {
-                            let mut ws = workspace.write();
-                            ws.phase = AppPhase::Setup;
-                            log_event(&mut ws, EventDirection::System, format!("ERROR: Failed to load identity: {}", e));
-                        }
-                    }
+                Err(BootError::NeedsSetup) => {
+                    workspace.write().phase = AppPhase::Setup;
+                }
+                Err(BootError::AutoCreateFailed(e)) => {
+                    let mut ws = workspace.write();
+                    ws.phase = AppPhase::Setup;
+                    log_event(&mut ws, EventDirection::System, format!("ERROR: Auto-create failed: {}", e));
+                }
+                Err(BootError::LoadFailed(e)) => {
+                    let mut ws = workspace.write();
+                    ws.phase = AppPhase::Setup;
+                    log_event(&mut ws, EventDirection::System, format!("ERROR: {}", e));
+                }
+                Err(BootError::VaultFailed(e)) => {
+                    let mut ws = workspace.write();
+                    ws.phase = AppPhase::Setup;
+                    log_event(&mut ws, EventDirection::System, format!("ERROR: {}", e));
                 }
             }
         });
     });
 
     // Poll contacts realm every 2 seconds to detect new connections
-    let peer_colors = [
-        "peer-dot-sage", "peer-dot-zeph", "peer-dot-rose",
-        "peer-dot-sage", "peer-dot-zeph", "peer-dot-rose",
-    ];
     use_effect(move || {
         spawn(async move {
             let mut tick: u64 = 0;
@@ -417,207 +368,123 @@ pub fn RootApp() -> Element {
                 };
                 let Some(net) = net else { continue; };
 
-                if let Some(contacts_realm) = net.contacts_realm().await {
-                    if let Ok(doc) = contacts_realm.contacts().await {
-                        let data = doc.read().await;
-                        let current_count = workspace.read().peers.entries.len();
-                        let new_count = data.contacts.len();
+                // Poll contacts using service function
+                let current_count = workspace.read().peers.entries.len();
+                if let Some(entries) = poll_contacts(&net, current_count).await {
+                    // Log new contacts, create Contact trees, and emit events
+                    let mut sidebar_needs_rebuild = false;
+                    for entry in &entries {
+                        let already_known = workspace.read().peers.entries.iter().any(|p| p.player_id == entry.player_id);
+                        if !already_known {
+                            log_event(&mut workspace.write(), EventDirection::Received, format!("Contact confirmed: {}", entry.name));
 
-                        if new_count != current_count {
-                            let entries: Vec<PeerDisplayInfo> = data.contacts.iter().enumerate().map(|(i, (mid, entry))| {
-                                let name = entry.display_name.clone().unwrap_or_else(|| {
-                                    mid.iter().take(4).map(|b| format!("{:02x}", b)).collect()
-                                });
-                                let letter = name.chars().next().unwrap_or('?').to_string();
-                                let color = peer_colors[i % peer_colors.len()].to_string();
-                                PeerDisplayInfo {
-                                    name,
-                                    letter,
-                                    color_class: color,
-                                    online: true,
-                                    player_id: *mid,
-                                }
-                            }).collect();
+                            // Create/find Contact tree and add event leaf
+                            let vh = vault_handle.read().clone();
+                            if let Some(vh) = vh {
+                                let mut vault = vh.vault.lock().await;
+                                let now = chrono::Utc::now().timestamp_millis();
+                                let root_id = vault.root.id.clone();
 
-                            // Log new contacts, create Contact trees, and emit events
-                            let mut sidebar_needs_rebuild = false;
-                            for entry in &entries {
-                                let already_known = workspace.read().peers.entries.iter().any(|p| p.player_id == entry.player_id);
-                                if !already_known {
-                                    log_event(&mut workspace.write(), EventDirection::Received, format!("Contact confirmed: {}", entry.name));
-
-                                    // Create/find Contact tree and add event leaf
-                                    let vh = vault_handle.read().clone();
-                                    if let Some(vh) = vh {
-                                        let mut vault = vh.vault.lock().await;
-                                        let now = chrono::Utc::now().timestamp_millis();
-                                        let root_id = vault.root.id.clone();
-
-                                        // Check if Contact tree already exists for this peer
-                                        let existing_contact = if let Ok(Some(root_art)) = vault.get_artifact(&root_id) {
-                                            root_art.references.iter().find_map(|aref| {
-                                                if aref.label.as_deref() == Some(&entry.name) {
-                                                    if let Ok(Some(t)) = vault.get_artifact(&aref.artifact_id) {
-                                                        if t.artifact_type == "contact" {
-                                                            return Some((aref.artifact_id.clone(), t.references.len() as u64));
-                                                        }
-                                                    }
-                                                }
-                                                None
-                                            })
-                                        } else {
-                                            None
-                                        };
-
-                                        let contact_id_and_pos = if let Some(info) = existing_contact {
-                                            Some(info)
-                                        } else {
-                                            // Create Contact tree (receiving side)
-                                            let audience = vec![vh.player_id, entry.player_id];
-                                            if let Ok(contact_tree) = vault.place_tree("contact", audience, now) {
-                                                let ct_id = contact_tree.id.clone();
-                                                let position = if let Ok(Some(root_art)) = vault.get_artifact(&root_id) {
-                                                    root_art.references.len() as u64
-                                                } else {
-                                                    0
-                                                };
-                                                let _ = vault.compose(&root_id, ct_id.clone(), position, Some(entry.name.clone()));
-                                                sidebar_needs_rebuild = true;
-                                                Some((ct_id, 0))
-                                            } else {
-                                                None
-                                            }
-                                        };
-
-                                        // Add "Connection confirmed" event leaf
-                                        if let Some((contact_id, pos)) = contact_id_and_pos {
-                                            if let Ok(event_leaf) = vault.place_leaf(b"Connection confirmed", String::new(), None, "message", now) {
-                                                let _ = vault.compose(
-                                                    &contact_id,
-                                                    event_leaf.id,
-                                                    pos,
-                                                    Some("msg:System".to_string()),
-                                                );
-                                            }
-                                        }
-
-                                        // Store contact in ArtifactIndex and rebuild sidebar
-                                        if sidebar_needs_rebuild {
-                                            // Get the new contact's ArtifactId from vault root's last reference
-                                            let contact_art_id = vault.get_artifact(&vault.root.id)
-                                                .ok().flatten()
-                                                .and_then(|root| root.references.last().map(|r| r.artifact_id));
-                                            drop(vault);
-
-                                            if let Some(contact_art_id) = contact_art_id {
-                                                if let Some(home) = home_realm_handle.read().as_ref().cloned() {
-                                                    if let Ok(doc) = home.artifact_index().await {
-                                                        let index_entry = HomeArtifactEntry {
-                                                            id: contact_art_id,
-                                                            name: entry.name.clone(),
-                                                            mime_type: None,
-                                                            size: 0,
-                                                            created_at: now,
-                                                            encrypted_key: None,
-                                                            status: ArtifactStatus::Active,
-                                                            grants: vec![],
-                                                            provenance: None,
-                                                            location: None,
-                                                        };
-                                                        let _ = doc.update(|index| { index.store(index_entry); }).await;
-                                                    }
-                                                    let net = network_handle.read().as_ref().map(|nh| nh.network.clone());
-                                                    if let Some(net) = net {
-                                                        rebuild_sidebar_from_index(&home, &net, workspace, realm_map).await;
-                                                    }
+                                // Check if Contact tree already exists for this peer
+                                let existing_contact = if let Ok(Some(root_art)) = vault.get_artifact(&root_id) {
+                                    root_art.references.iter().find_map(|aref| {
+                                        if aref.label.as_deref() == Some(&entry.name) {
+                                            if let Ok(Some(t)) = vault.get_artifact(&aref.artifact_id) {
+                                                if t.artifact_type == "contact" {
+                                                    return Some((aref.artifact_id.clone(), t.references.len() as u64));
                                                 }
                                             }
                                         }
+                                        None
+                                    })
+                                } else {
+                                    None
+                                };
+
+                                let contact_id_and_pos = if let Some(info) = existing_contact {
+                                    Some(info)
+                                } else {
+                                    // Create Contact tree (receiving side)
+                                    let audience = vec![vh.player_id, entry.player_id];
+                                    if let Ok(contact_tree) = vault.place_tree("contact", audience, now) {
+                                        let ct_id = contact_tree.id.clone();
+                                        let position = if let Ok(Some(root_art)) = vault.get_artifact(&root_id) {
+                                            root_art.references.len() as u64
+                                        } else {
+                                            0
+                                        };
+                                        let _ = vault.compose(&root_id, ct_id.clone(), position, Some(entry.name.clone()));
+                                        sidebar_needs_rebuild = true;
+                                        Some((ct_id, 0))
+                                    } else {
+                                        None
                                     }
+                                };
 
-                                    #[cfg(feature = "lua-scripting")]
-                                    if let Some(ref tx) = *lua_event_tx.read() {
-                                        let _ = tx.send(AppEvent::PeerConnected(entry.name.clone()));
+                                // Add "Connection confirmed" event leaf
+                                if let Some((contact_id, pos)) = contact_id_and_pos {
+                                    if let Ok(event_leaf) = vault.place_leaf(b"Connection confirmed", String::new(), None, "message", now) {
+                                        let _ = vault.compose(
+                                            &contact_id,
+                                            event_leaf.id,
+                                            pos,
+                                            Some("msg:System".to_string()),
+                                        );
+                                    }
+                                }
+
+                                // Store contact in ArtifactIndex and rebuild sidebar
+                                if sidebar_needs_rebuild {
+                                    let contact_art_id = vault.get_artifact(&vault.root.id)
+                                        .ok().flatten()
+                                        .and_then(|root| root.references.last().map(|r| r.artifact_id));
+                                    drop(vault);
+
+                                    if let Some(contact_art_id) = contact_art_id {
+                                        if let Some(home) = home_realm_handle.read().as_ref().cloned() {
+                                            store_in_artifact_index(&home, contact_art_id, &entry.name).await;
+                                            let net = network_handle.read().as_ref().map(|nh| nh.network.clone());
+                                            if let Some(net) = net {
+                                                rebuild_sidebar_from_index(&home, &net, workspace, realm_map).await;
+                                            }
+                                        }
                                     }
                                 }
                             }
 
-                            workspace.write().peers.entries = entries;
+                            #[cfg(feature = "lua-scripting")]
+                            if let Some(ref tx) = *lua_event_tx.read() {
+                                let _ = tx.send(AppEvent::PeerConnected(entry.name.clone()));
+                            }
                         }
                     }
+
+                    workspace.write().peers.entries = entries;
                 }
 
                 // Check DM chats for incoming realm invites (every ~10s)
                 if tick % 5 == 2 {
                     let peers_snapshot = workspace.read().peers.entries.clone();
                     let my_name = vault_handle.read().as_ref().map(|vh| vh.player_name.clone()).unwrap_or_default();
+
+                    let invites = check_dm_invites(
+                        &net, &peers_snapshot, &my_name,
+                        &mut processed_invites, &mut dm_realms,
+                    ).await;
+
                     let mut any_joined = false;
-                    for peer_entry in &peers_snapshot {
-                        // Reuse persistent DM realm so Document listener stays alive across polls
-                        if !dm_realms.contains_key(&peer_entry.player_id) {
-                            if let Ok(r) = net.connect(peer_entry.player_id).await {
-                                dm_realms.insert(peer_entry.player_id, r);
-                            }
-                        }
-                        if let Some(dm_realm) = dm_realms.get(&peer_entry.player_id) {
-                            if let Ok(chat_doc) = dm_realm.chat_doc().await {
-                                let _ = chat_doc.refresh().await;
-                                let data = chat_doc.read().await;
-                                for msg in data.visible_messages() {
-                                    if msg.author == my_name { continue; }
-                                    if let EditableMessageType::RealmInvite {
-                                        ref invite_code, ref name, ref description, ..
-                                    } = msg.message_type {
-                                        // Skip already-processed invites
-                                        if processed_invites.contains(&msg.id) { continue; }
-                                        processed_invites.insert(msg.id.clone());
+                    for invite in &invites {
+                        if let Some(vh) = vault_handle.read().clone() {
+                            if let Some((shared_realm, intention_id)) = join_invite(&net, &vh, invite).await {
+                                let node_id = format!("{:?}", intention_id);
+                                realm_map.write().insert(node_id, shared_realm);
+                                any_joined = true;
 
-                                        // Join the realm
-                                        if let Ok(shared_realm) = net.join(invite_code).await {
-                                            if let Some(vh) = vault_handle.read().clone() {
-                                                let mut vault = vh.vault.lock().await;
-                                                let join_now = chrono::Utc::now().timestamp_millis();
-                                                let audience = vec![vh.player_id, peer_entry.player_id];
+                                log_event(&mut workspace.write(), EventDirection::Received,
+                                    format!("Joined shared Intention: {}", invite.name));
 
-                                                // Use Intention::create to get description leaf
-                                                if let Ok(intention) = Intention::create(&mut vault, description, audience, join_now) {
-                                                    let root_id = vault.root.id.clone();
-                                                    let pos = vault.get_artifact(&root_id)
-                                                        .ok().flatten()
-                                                        .map(|a| a.references.len() as u64)
-                                                        .unwrap_or(0);
-                                                    let _ = vault.compose(&root_id, intention.id, pos, Some(name.clone()));
-
-                                                    let node_id = format!("{:?}", intention.id);
-                                                    drop(vault);
-                                                    realm_map.write().insert(node_id, shared_realm);
-                                                    any_joined = true;
-
-                                                    log_event(&mut workspace.write(), EventDirection::Received,
-                                                        format!("Joined shared Intention: {}", name));
-
-                                                    // Store in ArtifactIndex
-                                                    if let Some(home) = home_realm_handle.read().as_ref().cloned() {
-                                                        if let Ok(doc) = home.artifact_index().await {
-                                                            let entry = HomeArtifactEntry {
-                                                                id: intention.id,
-                                                                name: name.clone(),
-                                                                mime_type: None,
-                                                                size: 0,
-                                                                created_at: join_now,
-                                                                encrypted_key: None,
-                                                                status: ArtifactStatus::Active,
-                                                                grants: vec![],
-                                                                provenance: None,
-                                                                location: None,
-                                                            };
-                                                            let _ = doc.update(|index| { index.store(entry); }).await;
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
+                                if let Some(home) = home_realm_handle.read().as_ref().cloned() {
+                                    store_in_artifact_index(&home, intention_id, &invite.name).await;
                                 }
                             }
                         }
@@ -645,8 +512,6 @@ pub fn RootApp() -> Element {
     // Subscribe to global network events and feed into event log
     use_effect(move || {
         spawn(async move {
-            use futures::StreamExt;
-
             // Wait for network to be available
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -661,19 +526,23 @@ pub fn RootApp() -> Element {
             };
             let Some(net) = net else { return; };
 
-            let mut events = std::pin::pin!(net.events());
-            while let Some(event) = events.next().await {
-                let description = format!("{:?}", event.event.event);
-                // Extract just the variant name (e.g. "Message", "MembershipChange", "Presence")
-                let event_type = description.split_once('{')
-                    .or_else(|| description.split_once('('))
-                    .map(|(prefix, _)| prefix.trim())
-                    .unwrap_or(&description);
-
-                let realm_short = format!("{}", event.realm_id);
-                let msg = format!("[{}] {}", &realm_short[..8.min(realm_short.len())], event_type);
-
+            subscribe_network_events(net, |msg| {
                 log_event(&mut workspace.write(), EventDirection::Received, msg);
+            }).await;
+        });
+    });
+
+    // Load intention cards from vault whenever vault_tree updates
+    let vault_tree_len = workspace.read().nav.vault_tree.len();
+    use_effect(move || {
+        // Re-run when vault_tree changes (vault_tree_len is a reactive dependency)
+        let _dep = vault_tree_len;
+        spawn(async move {
+            let vh = vault_handle.read().clone();
+            if let Some(vh) = vh {
+                let vault = vh.vault.lock().await;
+                let cards = build_intention_cards(&vault, vh.player_id, &vh.player_name);
+                intention_cards.set(cards);
             }
         });
     });
@@ -697,8 +566,8 @@ pub fn RootApp() -> Element {
 
                 // Set the active view type
                 let vt = match view_type_str.as_str() {
-                    "story" => ViewType::Story,
-                    "quest" => ViewType::Quest,
+                    "story" => ViewType::Chat,
+                    "quest" => ViewType::IntentionDetail,
                     _ => ViewType::Document,
                 };
                 workspace.write().ui.active_view = vt.clone();
@@ -731,7 +600,7 @@ pub fn RootApp() -> Element {
                                     };
 
                                     match vt {
-                                        ViewType::Settings | ViewType::Artifacts => {}
+                                        ViewType::Settings | ViewType::MyIntentions | ViewType::Community | ViewType::Tokens => {}
                                         ViewType::Document => {
                                             // Load blocks from artifact references
                                             let mut blocks = Vec::new();
@@ -766,259 +635,27 @@ pub fn RootApp() -> Element {
                                             };
                                             workspace.write().editor = editor;
                                         }
-                                        ViewType::Story => {
+                                        ViewType::Chat => {
                                             // Editor meta for topbar steward display
                                             workspace.write().editor.meta.steward_name = steward_name;
                                             workspace.write().editor.meta.audience_count = audience_count;
                                             workspace.write().editor.title = label.clone();
                                         }
-                                        ViewType::Quest => {
-                                            let kind = match artifact.artifact_type.as_str() {
-                                                "need" => QuestKind::Need,
-                                                "offering" => QuestKind::Offering,
-                                                "intention" => QuestKind::Intention,
-                                                _ => QuestKind::Quest,
-                                            };
-
-                                            // Build description from first ref with "description" label
-                                            let description = {
-                                                let desc_ref = artifact.references.iter()
-                                                    .find(|r| r.label.as_deref() == Some("description"));
-                                                if let Some(dr) = desc_ref {
-                                                    vault.get_payload(&dr.artifact_id)
-                                                        .ok()
-                                                        .flatten()
-                                                        .map(|p| String::from_utf8_lossy(&p).to_string())
-                                                        .unwrap_or_else(|| "No description yet.".to_string())
-                                                } else {
-                                                    "No description yet.".to_string()
-                                                }
-                                            };
-
-                                            let steward_for_meta = steward_name.clone();
-                                            let intention = Intention::from_id(artifact.id);
-                                            let player_name_for_peers = vh.player_name.clone();
-
-                                            // Load proofs
-                                            let proofs = {
-                                                let proof_refs = intention.proofs(&vault).unwrap_or_default();
-                                                let mut proof_entries = Vec::new();
-                                                for proof_ref in &proof_refs {
-                                                    let (author_name, author_letter, author_color) = if let Some(label) = &proof_ref.label {
-                                                        let parts: Vec<&str> = label.splitn(3, ':').collect();
-                                                        if parts.len() >= 2 {
-                                                            let hex = parts[1];
-                                                            if hex.starts_with("02") {
-                                                                ("Sage".into(), "S".into(), "peer-dot-sage".into())
-                                                            } else if hex.starts_with("03") {
-                                                                ("Zephyr".into(), "Z".into(), "peer-dot-zeph".into())
-                                                            } else {
-                                                                (player_name_for_peers.clone(), player_name_for_peers.chars().next().unwrap_or('N').to_string(), "peer-dot-self".into())
-                                                            }
-                                                        } else {
-                                                            ("Unknown".into(), "?".into(), String::new())
-                                                        }
-                                                    } else {
-                                                        ("Unknown".into(), "?".into(), String::new())
-                                                    };
-
-                                                    let body = vault.get_payload(&proof_ref.artifact_id)
-                                                        .ok()
-                                                        .flatten()
-                                                        .map(|p| String::from_utf8_lossy(&p).to_string())
-                                                        .unwrap_or_else(|| "Proof submitted".to_string());
-
-                                                    proof_entries.push(ProofEntry {
-                                                        author_name,
-                                                        author_letter,
-                                                        author_color_class: author_color,
-                                                        body,
-                                                        time_ago: "recently".into(),
-                                                        artifact_attachments: Vec::new(),
-                                                        tokens: Vec::new(),
-                                                        has_tokens: false,
-                                                        total_token_count: 0,
-                                                        total_token_duration: String::new(),
-                                                    });
-                                                }
-                                                proof_entries
-                                            };
-
-                                            // Status
-                                            let status_str = {
-                                                match intention.status(&vault) {
-                                                    Ok(Some(s)) if s == "fulfilled" => "Fulfilled",
-                                                    _ => if proofs.is_empty() { "Open" } else { "Proven" },
-                                                }
-                                            };
-
-                                            // Heat
-                                            let now_ms = chrono::Utc::now().timestamp_millis();
-                                            let heat = vault.heat(&artifact.id, now_ms).unwrap_or(0.0);
-
-                                            // Attention per peer
-                                            let attention_peers = {
-                                                let mut peers_summary = Vec::new();
-                                                let audience_ids: Vec<indras_artifacts::PlayerId> = artifact.grants.iter().map(|g| g.grantee).collect();
-                                                let mut max_secs = 0u64;
-
-                                                // First pass: compute totals
-                                                let mut peer_data: Vec<(indras_artifacts::PlayerId, Vec<indras_artifacts::DwellWindow>)> = Vec::new();
-                                                for &pid in &audience_ids {
-                                                    let windows = intention.unreleased_attention(&vault, pid).unwrap_or_default();
-                                                    if !windows.is_empty() {
-                                                        let total_ms: u64 = windows.iter().map(|w| w.duration_ms).sum();
-                                                        let total_secs = total_ms / 1000;
-                                                        if total_secs > max_secs { max_secs = total_secs; }
-                                                        peer_data.push((pid, windows));
-                                                    }
-                                                }
-
-                                                // Second pass: build summaries with bar fractions
-                                                for (pid, windows) in &peer_data {
-                                                    let total_ms: u64 = windows.iter().map(|w| w.duration_ms).sum();
-                                                    let total_secs = total_ms / 1000;
-                                                    let (name, letter, color) = peer_display_info(*pid, &player_name_for_peers);
-                                                    peers_summary.push(AttentionPeerSummary {
-                                                        peer_name: name,
-                                                        peer_letter: letter,
-                                                        peer_color_class: color,
-                                                        total_duration: format_duration_secs(total_secs),
-                                                        total_duration_secs: total_secs,
-                                                        window_count: windows.len(),
-                                                        bar_fraction: if max_secs > 0 { total_secs as f32 / max_secs as f32 } else { 0.0 },
-                                                    });
-                                                }
-                                                peers_summary
-                                            };
-
-                                            let total_attention_duration = {
-                                                let total: u64 = attention_peers.iter().map(|p| p.total_duration_secs).sum();
-                                                format_duration_secs(total)
-                                            };
-
-                                            // Attention items for local player (for inline picker)
-                                            let attention_items = {
-                                                let windows = intention.unreleased_attention(&vault, vh.player_id).unwrap_or_default();
-                                                windows.iter().map(|w| {
-                                                    AttentionItem {
-                                                        target: "This Intention".into(),
-                                                        when: format!("{}ms ago", w.start_timestamp),
-                                                        duration: format_duration_secs(w.duration_ms / 1000),
-                                                    }
-                                                }).collect::<Vec<_>>()
-                                            };
-
-                                            // Pledged tokens
-                                            let pledged_tokens = {
-                                                let pledge_refs = intention.pledged_tokens(&vault).unwrap_or_default();
-                                                let mut pts = Vec::new();
-                                                for pref in &pledge_refs {
-                                                    let duration = vault.get_payload(&pref.artifact_id)
-                                                        .ok()
-                                                        .flatten()
-                                                        .and_then(|p| {
-                                                            if p.len() >= 8 {
-                                                                Some(u64::from_le_bytes(p[..8].try_into().unwrap_or([0u8; 8])))
-                                                            } else {
-                                                                None
-                                                            }
-                                                        })
-                                                        .unwrap_or(0);
-                                                    let from_name = if let Some(label) = &pref.label {
-                                                        let parts: Vec<&str> = label.splitn(3, ':').collect();
-                                                        if parts.len() >= 2 {
-                                                            let hex = parts[1];
-                                                            if hex.starts_with("02") { "Sage".into() }
-                                                            else if hex.starts_with("03") { "Zephyr".into() }
-                                                            else { player_name_for_peers.clone() }
-                                                        } else {
-                                                            "Unknown".into()
-                                                        }
-                                                    } else {
-                                                        "Unknown".into()
-                                                    };
-                                                    pts.push(PledgedToken {
-                                                        token_label: format!("Token"),
-                                                        duration: format_duration_secs(duration / 1000),
-                                                        from_name,
-                                                    });
-                                                }
-                                                pts
-                                            };
-
-                                            // Stewardship chain
-                                            let stewardship_chain = {
-                                                let mut chain = Vec::new();
-                                                // From proof refs — each proof represents a "created" link
-                                                let proof_refs = intention.proofs(&vault).unwrap_or_default();
-                                                for pref in &proof_refs {
-                                                    // Get tokens assigned to this proof via stewardship transfers
-                                                    if let Ok(Some(artifact)) = vault.get_artifact(&pref.artifact_id) {
-                                                        let (from_name, from_letter, from_color) = peer_display_info(artifact.steward, &player_name_for_peers);
-                                                        // Check blessing history on any tokens
-                                                        for blessing in &artifact.blessing_history {
-                                                            let (bn, bl, bc) = peer_display_info(blessing.from, &player_name_for_peers);
-                                                            chain.push(StewardshipChainEntry {
-                                                                from_name: bn,
-                                                                from_letter: bl,
-                                                                from_color_class: bc,
-                                                                action: "blessed".into(),
-                                                                token_label: "Token".into(),
-                                                                token_duration: String::new(),
-                                                                to_name: from_name.clone(),
-                                                                to_letter: from_letter.clone(),
-                                                                to_color_class: from_color.clone(),
-                                                            });
-                                                        }
-                                                    }
-                                                }
-                                                // From steward_history on any known tokens
-                                                let pledge_refs = intention.pledged_tokens(&vault).unwrap_or_default();
-                                                for pref in &pledge_refs {
-                                                    if let Ok(history) = vault.steward_history(&pref.artifact_id) {
-                                                        for record in &history {
-                                                            let (fn_, fl, fc) = peer_display_info(record.from, &player_name_for_peers);
-                                                            let (tn, tl, tc) = peer_display_info(record.to, &player_name_for_peers);
-                                                            chain.push(StewardshipChainEntry {
-                                                                from_name: fn_,
-                                                                from_letter: fl,
-                                                                from_color_class: fc,
-                                                                action: "released".into(),
-                                                                token_label: "Token".into(),
-                                                                token_duration: String::new(),
-                                                                to_name: tn,
-                                                                to_letter: tl,
-                                                                to_color_class: tc,
-                                                            });
-                                                        }
-                                                    }
-                                                }
-                                                chain
-                                            };
-
-                                            quest_data.set(Some(QuestViewData {
-                                                kind,
-                                                title: label.clone(),
-                                                description,
-                                                status: status_str.to_string(),
-                                                steward_name,
-                                                audience_count,
-                                                proofs,
-                                                posted_ago: String::new(),
-                                                heat,
-                                                attention_peers,
-                                                total_attention_duration,
-                                                pledged_tokens,
-                                                stewardship_chain,
-                                                attention_items,
-                                                intention_id: artifact.id,
-                                            }));
-
-                                            // Set editor meta for topbar
-                                            workspace.write().editor.meta.steward_name = steward_for_meta;
-                                            workspace.write().editor.meta.audience_count = audience_count;
-                                            workspace.write().editor.title = label.clone();
+                                        ViewType::IntentionDetail => {
+                                            if let Some(view_data) = build_intention_view_data(
+                                                &vault,
+                                                artifact_id,
+                                                &artifact.artifact_type,
+                                                &label,
+                                                vh.player_id,
+                                                &vh.player_name,
+                                            ) {
+                                                // Set editor meta for topbar
+                                                workspace.write().editor.meta.steward_name = view_data.steward_name.clone();
+                                                workspace.write().editor.meta.audience_count = view_data.audience_count;
+                                                workspace.write().editor.title = label.clone();
+                                                quest_data.set(Some(view_data));
+                                            }
                                         }
                                     }
                                 }
@@ -1388,9 +1025,11 @@ pub fn RootApp() -> Element {
         match dest {
             NavDestination::Home => {
                 workspace.write().ui.active_view = ViewType::Document;
+                // Clear editor so the dashboard (IntentionBoard) shows
+                workspace.write().editor = EditorState::new();
             }
             NavDestination::Artifacts => {
-                workspace.write().ui.active_view = ViewType::Artifacts;
+                workspace.write().ui.active_view = ViewType::MyIntentions;
                 let hr = home_realm_handle;
                 let ul = user_location;
                 spawn(async move {
@@ -1460,10 +1099,10 @@ pub fn RootApp() -> Element {
                 });
             }
             NavDestination::Contacts => {
-                workspace.write().ui.active_view = ViewType::Story;
+                workspace.write().ui.active_view = ViewType::Chat;
             }
             NavDestination::Quests => {
-                workspace.write().ui.active_view = ViewType::Quest;
+                workspace.write().ui.active_view = ViewType::IntentionDetail;
             }
             NavDestination::Settings => {
                 workspace.write().ui.active_view = ViewType::Settings;
@@ -1502,9 +1141,9 @@ pub fn RootApp() -> Element {
     // Derive active navigation destination from current view
     let active_destination = match &active_view {
         ViewType::Document => NavDestination::Home,
-        ViewType::Story => NavDestination::Contacts,
-        ViewType::Artifacts => NavDestination::Artifacts,
-        ViewType::Quest => NavDestination::Quests,
+        ViewType::MyIntentions | ViewType::Community | ViewType::Tokens => NavDestination::Home,
+        ViewType::Chat => NavDestination::Contacts,
+        ViewType::IntentionDetail => NavDestination::Quests,
         ViewType::Settings => NavDestination::Settings,
     };
 
@@ -1842,11 +1481,36 @@ pub fn RootApp() -> Element {
                                 }
                             }
                         }
-                        ViewType::Document => {
+                        ViewType::Document | ViewType::MyIntentions | ViewType::Community | ViewType::Tokens => {
                             if editor.blocks.is_empty() && editor.title.is_empty() {
-                                let event_log = workspace.read().event_log.clone();
+                                let active_tab = workspace.read().ui.active_tab;
+                                let net = network_handle.read().as_ref()
+                                    .map(|nh| Arc::clone(&nh.network));
+                                let chat_el = if let Some(network) = net {
+                                    rsx! {
+                                        indras_chat::components::app::ChatLayout {
+                                            network: indras_chat::components::app::NetworkArc(network),
+                                        }
+                                    }
+                                } else {
+                                    rsx! { div { class: "intentions-empty", "Network not connected" } }
+                                };
                                 rsx! {
-                                    EventLogView { event_log: event_log }
+                                    IntentionBoard {
+                                        active_tab: active_tab,
+                                        on_tab_change: move |tab: DashboardTab| {
+                                            workspace.write().ui.active_tab = tab;
+                                        },
+                                        my_intentions: intention_cards.read().clone(),
+                                        community_intentions: Vec::new(),
+                                        on_intention_click: move |id: String| {
+                                            on_tree_click(id);
+                                        },
+                                        on_create_intention: move |_| {
+                                            intention_create_open.set(true);
+                                        },
+                                        chat_element: chat_el,
+                                    }
                                 }
                             } else {
                                 rsx! {
@@ -1859,7 +1523,7 @@ pub fn RootApp() -> Element {
                                 }
                             }
                         }
-                        ViewType::Story => {
+                        ViewType::Chat => {
                             let net = network_handle.read().as_ref()
                                 .map(|nh| Arc::clone(&nh.network));
                             if let Some(network) = net {
@@ -1878,35 +1542,7 @@ pub fn RootApp() -> Element {
                                 }
                             }
                         }
-                        ViewType::Artifacts => {
-                            let current_artifacts = browser_artifacts.read().clone();
-                            let current_search = browser_search.read().clone();
-                            let current_filter = browser_filter.read().clone();
-                            let current_radius = *browser_radius.read();
-                            let current_peer_filter = peer_filter.read().clone();
-                            // Compute distinct origin labels for peer filter chips
-                            let mut peers: Vec<String> = current_artifacts.iter()
-                                .map(|a| a.origin_label.clone())
-                                .collect::<std::collections::BTreeSet<_>>()
-                                .into_iter()
-                                .collect();
-                            peers.sort();
-                            rsx! {
-                                ArtifactBrowserView {
-                                    artifacts: current_artifacts,
-                                    search_query: current_search,
-                                    on_search: move |q: String| browser_search.set(q),
-                                    active_filter: current_filter,
-                                    on_filter: move |f: MimeCategory| browser_filter.set(f),
-                                    radius_km: current_radius,
-                                    on_radius_change: move |r: f64| browser_radius.set(r),
-                                    peer_filter: current_peer_filter,
-                                    on_peer_filter: move |p: String| peer_filter.set(p),
-                                    available_peers: peers,
-                                }
-                            }
-                        }
-                        ViewType::Quest => {
+                        ViewType::IntentionDetail => {
                             if let Some(qd) = current_quest_data {
                                 rsx! {
                                     QuestView {
@@ -2494,36 +2130,3 @@ pub fn RootApp() -> Element {
     }
 }
 
-/// Internal data struct for quest view rendering.
-#[derive(Clone, Debug)]
-struct QuestViewData {
-    kind: QuestKind,
-    title: String,
-    description: String,
-    status: String,
-    steward_name: String,
-    audience_count: usize,
-    proofs: Vec<ProofEntry>,
-    posted_ago: String,
-    heat: f32,
-    attention_peers: Vec<AttentionPeerSummary>,
-    total_attention_duration: String,
-    pledged_tokens: Vec<PledgedToken>,
-    stewardship_chain: Vec<StewardshipChainEntry>,
-    attention_items: Vec<AttentionItem>,
-    intention_id: indras_artifacts::ArtifactId,
-}
-
-/// Resolve a player ID to display info (name, letter, CSS class).
-fn peer_display_info(player_id: indras_artifacts::PlayerId, player_name: &str) -> (String, String, String) {
-    if player_id == [1u8; 32] {
-        (player_name.to_string(), player_name.chars().next().unwrap_or('N').to_string(), "peer-dot-self".into())
-    } else if player_id == [2u8; 32] {
-        ("Sage".into(), "S".into(), "peer-dot-sage".into())
-    } else if player_id == [3u8; 32] {
-        ("Zephyr".into(), "Z".into(), "peer-dot-zeph".into())
-    } else {
-        let hex: String = player_id.iter().take(4).map(|b| format!("{b:02x}")).collect();
-        (hex.clone(), hex.chars().next().unwrap_or('?').to_string(), String::new())
-    }
-}

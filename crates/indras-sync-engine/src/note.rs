@@ -69,6 +69,9 @@ pub struct Note {
     pub created_at_millis: i64,
     /// When the note was last updated (Unix timestamp in milliseconds).
     pub updated_at_millis: i64,
+    /// Tombstone: if true, this note has been deleted.
+    #[serde(default)]
+    pub deleted: bool,
 }
 
 impl Note {
@@ -87,6 +90,7 @@ impl Note {
             tags: Vec::new(),
             created_at_millis: now,
             updated_at_millis: now,
+            deleted: false,
         }
     }
 
@@ -106,6 +110,7 @@ impl Note {
             tags,
             created_at_millis: now,
             updated_at_millis: now,
+            deleted: false,
         }
     }
 
@@ -156,10 +161,33 @@ impl Note {
 ///
 /// This is used with `realm.document::<NoteDocument>("notes")` to get
 /// a CRDT-synchronized note list.
+///
+/// # CRDT Semantics
+///
+/// - Notes are identified by their unique `NoteId`
+/// - Merge strategy: set-union by note ID (no data loss on concurrent edits)
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct NoteDocument {
     /// All notes in this document.
     pub notes: Vec<Note>,
+}
+
+impl indras_network::document::DocumentSchema for NoteDocument {
+    fn merge(&mut self, remote: Self) {
+        let mut by_id: std::collections::HashMap<NoteId, usize> =
+            self.notes.iter().enumerate().map(|(i, n)| (n.id, i)).collect();
+        for note in remote.notes {
+            if let Some(&idx) = by_id.get(&note.id) {
+                // Keep the version with the later updated_at (preserves deletes)
+                if note.updated_at_millis > self.notes[idx].updated_at_millis {
+                    self.notes[idx] = note;
+                }
+            } else {
+                by_id.insert(note.id, self.notes.len());
+                self.notes.push(note);
+            }
+        }
+    }
 }
 
 impl NoteDocument {
@@ -187,33 +215,35 @@ impl NoteDocument {
         id
     }
 
-    /// Find a note by ID.
+    /// Find a note by ID (excludes deleted).
     pub fn find(&self, id: &NoteId) -> Option<&Note> {
-        self.notes.iter().find(|n| &n.id == id)
+        self.notes.iter().find(|n| &n.id == id && !n.deleted)
     }
 
-    /// Find a note by ID (mutable).
+    /// Find a note by ID (mutable, excludes deleted).
     pub fn find_mut(&mut self, id: &NoteId) -> Option<&mut Note> {
-        self.notes.iter_mut().find(|n| &n.id == id)
+        self.notes.iter_mut().find(|n| &n.id == id && !n.deleted)
     }
 
-    /// Remove a note by ID.
+    /// Remove a note by ID (tombstone — marks as deleted, does not physically remove).
     pub fn remove(&mut self, id: &NoteId) -> Option<Note> {
-        if let Some(pos) = self.notes.iter().position(|n| &n.id == id) {
-            Some(self.notes.remove(pos))
+        if let Some(note) = self.notes.iter_mut().find(|n| &n.id == id && !n.deleted) {
+            note.deleted = true;
+            note.updated_at_millis = chrono::Utc::now().timestamp_millis();
+            Some(note.clone())
         } else {
             None
         }
     }
 
-    /// Get all notes by a specific author.
+    /// Get all notes by a specific author (excludes deleted).
     pub fn notes_by_author(&self, author: &MemberId) -> Vec<&Note> {
-        self.notes.iter().filter(|n| &n.author == author).collect()
+        self.notes.iter().filter(|n| !n.deleted && &n.author == author).collect()
     }
 
-    /// Get all notes with a specific tag.
+    /// Get all notes with a specific tag (excludes deleted).
     pub fn notes_with_tag(&self, tag: &str) -> Vec<&Note> {
-        self.notes.iter().filter(|n| n.has_tag(tag)).collect()
+        self.notes.iter().filter(|n| !n.deleted && n.has_tag(tag)).collect()
     }
 
     /// Get all unique tags across all notes.
@@ -235,14 +265,14 @@ impl NoteDocument {
         notes
     }
 
-    /// Get the number of notes.
+    /// Get the number of live (non-deleted) notes.
     pub fn len(&self) -> usize {
-        self.notes.len()
+        self.notes.iter().filter(|n| !n.deleted).count()
     }
 
-    /// Check if the document is empty.
+    /// Check if the document has no live notes.
     pub fn is_empty(&self) -> bool {
-        self.notes.is_empty()
+        !self.notes.iter().any(|n| !n.deleted)
     }
 }
 
