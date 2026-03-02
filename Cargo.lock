@@ -3900,6 +3900,7 @@ dependencies = [
  "indras-routing",
  "indras-storage",
  "indras-sync",
+ "indras-sync-engine",
  "iroh",
  "iroh-gossip",
  "mlua",
