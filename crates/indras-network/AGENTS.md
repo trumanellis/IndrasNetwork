@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Single import surface for building P2P apps on Indra's Network. Wraps all lower-level crates (`indras-node`, `indras-sync`, `indras-transport`, `indras-storage`, `indras-crypto`, `indras-messaging`, `indras-artifacts`) into a high-level SDK.
+Single import surface for building P2P apps on Indra's Network. Wraps all lower-level crates (`indras-node`, `indras-sync`, `indras-transport`, `indras-storage`, `indras-crypto`, `indras-artifacts`) into a high-level SDK.
 
 Re-exports the entire `indras-artifacts` crate so consumers never need to depend on lower-level crates directly.
 
@@ -15,22 +15,26 @@ Re-exports the entire `indras-artifacts` crate so consumers never need to depend
 | `config.rs` | `NetworkConfig`, `NetworkBuilder`, `Preset` | Builder pattern configuration |
 | `document.rs` | `Document<T>`, `DocumentSchema`, `DocumentChange` | Typed CRDT documents with auto-sync |
 | `home_realm.rs` | `HomeRealm`, `HomeArtifactMetadata` | Personal artifact storage per identity |
-| `contacts.rs` | `ContactsRealm`, `ContactEntry`, `ContactsDocument` | Contact management with sentiment |
+| `contacts.rs` | `ContactsRealm`, `ContactEntry`, `ContactsDocument`, `ContactStatus` | Contact management with sentiment |
 | `message.rs` | `Message`, `Content`, `MessageId` | Messaging with 13 content variants |
 | `member.rs` | `Member`, `MemberId`, `MemberEvent`, `MemberInfo` | Peer identity and presence |
 | `artifact.rs` | `ArtifactDownload`, `DownloadProgress` | Artifact download with progress |
-| `artifact_index.rs` | `ArtifactIndex`, `HomeArtifactEntry` | CRDT artifact tree with access control |
+| `artifact_index.rs` | `ArtifactIndex`, `HomeArtifactEntry`, `GeoLocation` | CRDT artifact tree with access control |
 | `artifact_sync.rs` | `ArtifactSyncRegistry` | Per-artifact gossip sync management |
-| `chat_message.rs` | `RealmChatDocument`, `EditableChatMessage` | Editable versioned chat messages |
+| `chat_message.rs` | `RealmChatDocument`, `EditableChatMessage`, `ChatAck`, `DeliveryStatus`, `ChatMessageId` | Editable versioned chat messages |
 | `access.rs` | `GrantError`, `RevokeError`, `TransferError`, `TreeError` | Network-layer access control errors |
-| `direct_connect.rs` | `ConnectionNotify`, `KeyExchangeRegistry` | Identity-is-connection pattern |
+| `direct_connect.rs` | `KeyExchangeStatus`, `PendingKeyExchange` | Identity-is-connection pattern |
 | `encounter.rs` | `EncounterHandle`, `EncounterExchangePayload` | 6-digit spoken codes for in-person discovery |
 | `identity_code.rs` | `IdentityCode` | bech32m identity encoding (`indra1...`) |
 | `invite.rs` | `InviteCode` | Realm invite URIs (`indra:realm:...`) |
-| `encryption.rs` | `ArtifactKey`, `EncryptedArtifactKey` | Per-artifact encryption |
+| `encryption.rs` | `ArtifactKey`, `EncryptedArtifactKey`, `ARTIFACT_KEY_SIZE` | Per-artifact encryption |
 | `read_tracker.rs` | `ReadTrackerDocument` | Per-member LWW read positions |
-| `realm_alias.rs` | `RealmAliasDocument` | Custom realm nicknames |
+| `realm_alias.rs` | `RealmAlias`, `RealmAliasDocument`, `MAX_ALIAS_LENGTH` | Custom realm nicknames |
 | `world_view.rs` | `WorldView` | Debug snapshot of network state |
+| `artifact_recovery.rs` | `ArtifactRecoveryRequest`, `ArtifactRecoveryResponse`, `RecoverableArtifact`, `RecoveryManifest` | Peer recovery protocol after device loss |
+| `document_registry.rs` | `DocumentRegistryDocument` | Tracks named documents in a realm |
+| `system_event.rs` | `SystemEvent` | Ephemeral inline chat timeline events (PeerDiscovered, PeerJoined, etc.) |
+| `stream.rs` | `broadcast_to_stream` | Utility for broadcasting events to subscribers |
 | `escape.rs` | Re-exports | Escape hatch to lower-level types |
 | `error.rs` | `IndraError`, `Result` | Error types |
 
@@ -70,7 +74,7 @@ IndrasNetwork::new(path)  →  network.start()  →  use realms/docs/artifacts  
 
 ## Dependencies
 
-Internal: `indras-node`, `indras-core`, `indras-messaging`, `indras-sync`, `indras-storage`, `indras-transport`, `indras-crypto`, `indras-artifacts`
+Internal: `indras-node`, `indras-core`, `indras-sync`, `indras-storage`, `indras-transport`, `indras-crypto`, `indras-artifacts`
 
 ## Testing
 

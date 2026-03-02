@@ -32,16 +32,16 @@ realm.create_quest("Review doc", "Please review", None, my_id).await?;
 
 | Module | Key Types | What It Does |
 |--------|-----------|-------------|
-| `quest.rs` | `Quest`, `QuestDocument`, `QuestId`, `QuestPriority`, `QuestClaim` | Task/quest lifecycle |
+| `quest.rs` | `Quest`, `QuestDocument`, `QuestId`, `QuestPriority`, `QuestClaim`, `QuestError` | Task/quest lifecycle |
 | `note.rs` | `Note`, `NoteDocument`, `NoteId` | Collaborative notes |
 | `message.rs` | `StoredMessage`, `MessageDocument`, `MessageId`, `MessageContent` | Persistent message storage |
-| `blessing.rs` | `Blessing`, `BlessingDocument`, `BlessingId`, `ClaimId` | Blessings for completed work |
-| `attention.rs` | `AttentionDocument`, `QuestAttention`, `AttentionSwitchEvent` | Attention tracking per realm |
-| `token_of_gratitude.rs` | `TokenOfGratitude`, `TokenOfGratitudeDocument` | Gratitude tokens |
+| `blessing.rs` | `Blessing`, `BlessingDocument`, `BlessingId`, `ClaimId`, `BlessingError` | Blessings for completed work |
+| `attention.rs` | `AttentionDocument`, `QuestAttention`, `AttentionSwitchEvent`, `AttentionError`, `AttentionEventId` | Attention tracking per realm |
+| `token_of_gratitude.rs` | `TokenOfGratitude`, `TokenOfGratitudeDocument`, `TokenError`, `TokenOfGratitudeId` | Gratitude tokens |
 | `token_valuation.rs` | `SubjectiveTokenValue`, `subjective_value` | Token value with steward chain decay |
-| `humanness.rs` | `HumannessAttestation`, `HumannessDocument`, `Delegation` | Humanness attestation chains |
-| `sentiment.rs` | `SentimentRelayDocument`, `RelayedSentiment`, `SentimentView` | Relayed sentiment across contacts |
-| `proof_folder.rs` | `ProofFolder`, `ProofFolderDocument`, `ProofFolderArtifact` | Proof-of-service folders |
+| `humanness.rs` | `HumannessAttestation`, `HumannessDocument`, `Delegation`, `BioregionalLevel`, `DelegationError` | Humanness attestation chains |
+| `sentiment.rs` | `SentimentRelayDocument`, `RelayedSentiment`, `SentimentView`, `DEFAULT_RELAY_ATTENUATION` | Relayed sentiment across contacts |
+| `proof_folder.rs` | `ProofFolder`, `ProofFolderDocument`, `ProofFolderArtifact`, `ProofFolderError`, `ProofFolderId` | Proof-of-service folders |
 | `story_auth.rs` | `StoryAuth`, `AuthResult` | Story-based authentication |
 | `rehearsal.rs` | `RehearsalState` | Story rehearsal state |
 | `bioregion_catalog.rs` | - | Bioregional delegation catalog |

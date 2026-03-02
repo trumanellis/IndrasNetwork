@@ -35,7 +35,7 @@ ROOT/
 | `head_tracker.rs` | `HeadTracker` | Tracks last-known Automerge heads per (artifact, peer) |
 | `raw_sync.rs` | `RawSync`, `ArtifactSyncPayload` | Stateless prepare/apply pattern for delta sync |
 | `event_store.rs` | `EventStore` | Store-and-forward event storage with delivery tracking |
-| `sync_protocol.rs` | `SyncProtocol`, `SyncState`, `PeerSyncState` | Automerge sync protocol handlers |
+| `sync_protocol.rs` | `SyncProtocol`, `SyncState`, `PeerSyncState`, `PendingDelivery` | Automerge sync protocol handlers |
 | `n_interface.rs` | `NInterface` | N-peer shared interface implementation |
 | `error.rs` | `SyncError`, `SyncResult` | Error types |
 
