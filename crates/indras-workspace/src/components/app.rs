@@ -697,7 +697,7 @@ pub fn RootApp() -> Element {
 
                 // Set the active view type
                 let vt = match view_type_str.as_str() {
-                    "story" => ViewType::Story,
+                    "story" => ViewType::Chat,
                     "quest" => ViewType::Quest,
                     _ => ViewType::Document,
                 };
@@ -766,7 +766,7 @@ pub fn RootApp() -> Element {
                                             };
                                             workspace.write().editor = editor;
                                         }
-                                        ViewType::Story => {
+                                        ViewType::Chat => {
                                             // Editor meta for topbar steward display
                                             workspace.write().editor.meta.steward_name = steward_name;
                                             workspace.write().editor.meta.audience_count = audience_count;
@@ -1459,8 +1459,8 @@ pub fn RootApp() -> Element {
                     }
                 });
             }
-            NavDestination::Contacts => {
-                workspace.write().ui.active_view = ViewType::Story;
+            NavDestination::Chat => {
+                workspace.write().ui.active_view = ViewType::Chat;
             }
             NavDestination::Quests => {
                 workspace.write().ui.active_view = ViewType::Quest;
@@ -1502,7 +1502,7 @@ pub fn RootApp() -> Element {
     // Derive active navigation destination from current view
     let active_destination = match &active_view {
         ViewType::Document => NavDestination::Home,
-        ViewType::Story => NavDestination::Contacts,
+        ViewType::Chat => NavDestination::Chat,
         ViewType::Artifacts => NavDestination::Artifacts,
         ViewType::Quest => NavDestination::Quests,
         ViewType::Settings => NavDestination::Settings,
@@ -1745,66 +1745,68 @@ pub fn RootApp() -> Element {
                 tabindex: "0",
                 onkeydown: on_keydown,
 
-                // Sidebar backdrop (mobile overlay)
-                div {
-                    class: if sidebar_open { "sidebar-backdrop visible" } else { "sidebar-backdrop" },
-                    onclick: move |_| {
-                        workspace.write().ui.sidebar_open = false;
-                    },
-                }
-
-                // Sidebar
-                div {
-                    class: if sidebar_open { "sidebar open" } else { "sidebar" },
-
+                if active_view != ViewType::Chat {
+                    // Sidebar backdrop (mobile overlay)
                     div {
-                        class: "sidebar-header",
-                        IdentityRow {
-                            avatar_letter: player_letter.clone(),
-                            name: player_name.clone(),
-                            short_id: player_short_id.clone(),
-                        }
-                        button {
-                            class: "sidebar-close-btn",
-                            onclick: move |_| {
-                                workspace.write().ui.sidebar_open = false;
-                            },
-                            "\u{00d7}"
-                        }
-                    }
-
-                    PeerStrip {
-                        peers: ui_peers,
-                        on_peer_click: on_peer_click_handler,
-                        on_add_contact: move |_| {
-                            // Populate signals from current network handle
-                            if let Some(nh) = network_handle.read().as_ref() {
-                                contact_invite_uri.set(nh.network.identity_uri());
-                                contact_display_name_sig.set(
-                                    nh.network.display_name().unwrap_or("Unknown").to_string()
-                                );
-                                let code = nh.network.identity_code();
-                                let short = if code.len() > 14 {
-                                    format!("{}...{}", &code[..10], &code[code.len()-4..])
-                                } else {
-                                    code
-                                };
-                                contact_member_id_short_sig.set(short);
-                            }
-                            contact_invite_input.set(String::new());
-                            contact_invite_status.set(None);
-                            contact_parsed_name.set(None);
-                            contact_copy_feedback.set(false);
-                            contact_invite_open.set(true);
+                        class: if sidebar_open { "sidebar-backdrop visible" } else { "sidebar-backdrop" },
+                        onclick: move |_| {
+                            workspace.write().ui.sidebar_open = false;
                         },
                     }
 
-                    NavigationSidebar {
-                        active: active_destination,
-                        recent_items: recent_items,
-                        on_navigate: on_navigate,
-                        on_create: on_create,
-                        on_recent_click: on_tree_click,
+                    // Sidebar
+                    div {
+                        class: if sidebar_open { "sidebar open" } else { "sidebar" },
+
+                        div {
+                            class: "sidebar-header",
+                            IdentityRow {
+                                avatar_letter: player_letter.clone(),
+                                name: player_name.clone(),
+                                short_id: player_short_id.clone(),
+                            }
+                            button {
+                                class: "sidebar-close-btn",
+                                onclick: move |_| {
+                                    workspace.write().ui.sidebar_open = false;
+                                },
+                                "\u{00d7}"
+                            }
+                        }
+
+                        PeerStrip {
+                            peers: ui_peers,
+                            on_peer_click: on_peer_click_handler,
+                            on_add_contact: move |_| {
+                                // Populate signals from current network handle
+                                if let Some(nh) = network_handle.read().as_ref() {
+                                    contact_invite_uri.set(nh.network.identity_uri());
+                                    contact_display_name_sig.set(
+                                        nh.network.display_name().unwrap_or("Unknown").to_string()
+                                    );
+                                    let code = nh.network.identity_code();
+                                    let short = if code.len() > 14 {
+                                        format!("{}...{}", &code[..10], &code[code.len()-4..])
+                                    } else {
+                                        code
+                                    };
+                                    contact_member_id_short_sig.set(short);
+                                }
+                                contact_invite_input.set(String::new());
+                                contact_invite_status.set(None);
+                                contact_parsed_name.set(None);
+                                contact_copy_feedback.set(false);
+                                contact_invite_open.set(true);
+                            },
+                        }
+
+                        NavigationSidebar {
+                            active: active_destination,
+                            recent_items: recent_items,
+                            on_navigate: on_navigate,
+                            on_create: on_create,
+                            on_recent_click: on_tree_click,
+                        }
                     }
                 }
 
@@ -1812,14 +1814,16 @@ pub fn RootApp() -> Element {
                 div {
                     class: "main",
 
-                    Topbar {
-                        breadcrumbs: breadcrumbs,
-                        steward_name: steward_name,
-                        on_crumb_click: on_crumb_click,
-                        on_toggle_detail: on_toggle_detail,
-                        on_toggle_sidebar: on_toggle_sidebar,
-                        on_share: on_share,
-                        on_settings: on_settings,
+                    if active_view != ViewType::Chat {
+                        Topbar {
+                            breadcrumbs: breadcrumbs,
+                            steward_name: steward_name,
+                            on_crumb_click: on_crumb_click,
+                            on_toggle_detail: on_toggle_detail,
+                            on_toggle_sidebar: on_toggle_sidebar,
+                            on_share: on_share,
+                            on_settings: on_settings,
+                        }
                     }
 
                     // Render active view
@@ -1859,7 +1863,7 @@ pub fn RootApp() -> Element {
                                 }
                             }
                         }
-                        ViewType::Story => {
+                        ViewType::Chat => {
                             let net = network_handle.read().as_ref()
                                 .map(|nh| Arc::clone(&nh.network));
                             if let Some(network) = net {
@@ -2032,6 +2036,11 @@ pub fn RootApp() -> Element {
                                     }
                                 }
                             } else {
+                                // Build a list of quest/intention items from the vault tree
+                                let quest_items: Vec<_> = workspace.read().nav.vault_tree.iter()
+                                    .filter(|n| n.view_type == "quest")
+                                    .cloned()
+                                    .collect();
                                 rsx! {
                                     div {
                                         class: "view active",
@@ -2039,7 +2048,26 @@ pub fn RootApp() -> Element {
                                             class: "content-scroll",
                                             div {
                                                 class: "content-body",
-                                                div { class: "doc-title", "Select a quest" }
+                                                div { class: "doc-title", "Intentions & Quests" }
+                                                if quest_items.is_empty() {
+                                                    p { class: "empty-hint", "No intentions or quests yet. Create one from the sidebar." }
+                                                } else {
+                                                    for item in quest_items.iter() {
+                                                        {
+                                                            let item_id = item.id.clone();
+                                                            let icon = item.icon.clone();
+                                                            let label = item.label.clone();
+                                                            rsx! {
+                                                                div {
+                                                                    class: "quest-list-item",
+                                                                    onclick: move |_| on_tree_click(item_id.clone()),
+                                                                    span { class: "quest-list-icon", "{icon}" }
+                                                                    span { class: "quest-list-label", "{label}" }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
                                     }

@@ -110,8 +110,31 @@ end
 -- Wait for action dispatcher to process
 indras.wait(2)
 
+-- Phase 5: Intentions (private and shared)
+-- Names contain "intention" so infer_artifact_type classifies them correctly.
+
+-- Private intentions (only this peer, no grants)
+indras.store_artifact({ name="intention: Learn Rust", mime="text/plain", size=500 })
+indras.store_artifact({ name="intention: Morning meditation practice", mime="text/plain", size=350 })
+
+-- Shared intentions (will be granted to other peer)
+if other_peer then
+    indras.store_artifact({ name="intention: Build community garden", mime="text/plain", size=800 })
+    indras.store_artifact({ name="intention: Open-source mentorship program", mime="text/plain", size=600 })
+end
+
+indras.wait(1)
+
+-- Grant shared intentions to peer
+if other_peer then
+    indras.grant_artifact("intention: Build community garden", other_peer)
+    indras.grant_artifact("intention: Open-source mentorship program", other_peer)
+end
+
+indras.wait(1)
+
 -- Verify
 local count = indras.query("artifact_count")
 indras.log.info(my_name .. ": seeded " .. count .. " artifacts")
-indras.assert.ge(count, 10, "Should have at least 10 artifacts")
+indras.assert.ge(count, 12, "Should have at least 12 artifacts (incl. intentions)")
 indras.log.info(my_name .. ": fresh mock setup complete!")
