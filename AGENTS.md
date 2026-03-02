@@ -7,10 +7,10 @@ A Rust workspace implementing a peer-to-peer network with CRDT-based sync, artif
 ## Crate Dependency Layers
 
 ```
-Layer 5 (apps):     indras-sync-engine, indras-dashboard, indras-workspace, viewers, examples
+Layer 5 (apps):     indras-sync-engine, indras-dashboard, indras-workspace, indras-chat, indras-genesis, viewers
 Layer 4 (SDK):      indras-network (single import surface)
 Layer 3 (node):     indras-node
-Layer 2 (services): indras-sync, indras-messaging, indras-gossip, indras-routing, indras-dtn
+Layer 2 (services): indras-sync, indras-gossip, indras-routing, indras-dtn
 Layer 1 (infra):    indras-transport, indras-storage, indras-crypto, indras-logging, indras-iot
 Layer 0 (core):     indras-core, indras-artifacts
 ```
@@ -26,18 +26,18 @@ Layer 0 (core):     indras-core, indras-artifacts
 | `indras-routing` | Prophet-based delay-tolerant routing |
 | `indras-gossip` | Gossip protocol over iroh-gossip |
 | `indras-sync` | CRDT sync: `InterfaceDocument`, `ArtifactDocument`, `HeadTracker`, `RawSync` |
-| `indras-messaging` | Message routing and delivery (`MessagingClient`, `MessageHistory`) |
 | `indras-dtn` | Delay-tolerant networking with custody transfer |
-| `indras-iot` | IoT device support |
-| `indras-logging` | Structured logging |
+| `indras-iot` | IoT power/memory optimizations (duty cycling, compact wire format) |
+| `indras-logging` | Structured JSONL logging with OpenTelemetry integration |
 | `indras-node` | `IndrasNode` — P2P node managing interfaces, peers, transport |
 | `indras-network` | **SDK** — single import surface for apps: realms, documents, contacts, artifacts |
 | `indras-sync-engine` | App layer: quests, blessings, tokens, attention, humanness attestation |
 | `indras-artifacts` | Domain types: `Artifact`, `Vault`, `Story`, `AccessMode`, attention economy |
-| `indras-dashboard` | Terminal dashboard UI |
-| `indras-workspace` | Workspace management |
+| `indras-dashboard` | Dioxus stress-test monitoring dashboard |
+| `indras-workspace` | Collaborative block-based document editor with embedded chat |
 | `indras-ui` | Shared UI components |
-| `indras-genesis` | Network genesis / bootstrapping |
+| `indras-chat` | Standalone P2P chat desktop app with contacts, conversations, and embeddable bridge |
+| `indras-genesis` | First-run onboarding app with pass-story key setup |
 | viewers | `indras-home-viewer`, `indras-realm-viewer`, `indras-collaboration-viewer` |
 
 ## Where to Find Things
