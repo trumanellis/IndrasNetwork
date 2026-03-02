@@ -2,180 +2,176 @@
 
 [![CI](https://github.com/truman/IndrasNetwork/actions/workflows/ci.yml/badge.svg)](https://github.com/truman/IndrasNetwork/actions/workflows/ci.yml)
 
-A mesh network simulation with store-and-forward routing for offline peers, inspired by [iroh-examples](https://github.com/n0-computer/iroh-examples).
+A fully-featured peer-to-peer networking SDK for building decentralized applications with end-to-end encryption, CRDT document sync, artifact sharing, and intelligent routing.
 
 ## Overview
 
-Indra's Network models peer-to-peer signal propagation where peers may go online and offline at any time. When a message cannot be delivered directly (destination offline), intermediate peers hold and forward the packet.
+Indra's Network is a production-ready Rust SDK for building peer-to-peer applications. Built on top of [iroh](https://iroh.computer), it provides a high-level abstraction for distributed networking with support for:
 
-### Key Features
+- **Realms**: Isolated peer groups for collaborative spaces, chat rooms, or shared workspaces
+- **Messaging**: Direct peer messaging with read tracking and delivery confirmation
+- **CRDT Documents**: Synchronized shared state across all peers in a realm using Automerge
+- **Artifact Sharing**: Efficient blob storage and sync with access control
+- **Identity System**: Cryptographic identity with post-quantum crypto support
+- **Peering & Sentiment**: Strategic peer selection and reputation tracking
+- **Encounters**: Temporary direct connections for offline/mobile scenarios
+- **Home Realm**: Persistent identity container that travels with you
 
-- **Named Peers (A-Z)**: Each node has a unique character identifier
-- **Bidirectional Connections**: All peer pairings maintain synced interfaces
-- **Event-Driven Architecture**: Append-only event logs (CRDT-style, like Automerge)
-- **Store-and-Forward Routing**: Messages to offline peers are sealed and relayed
-- **Back-Propagation**: Delivery confirmations travel back to the source
+See the [Developer's Guide](/articles/indras-network-developers-guide.md) for complete documentation.
+
+## Key Features
+
+- **Realms & Presence**: Create isolated collaboration spaces with automatic member discovery and presence tracking
+- **Real-time Messaging**: Send and receive messages with automatic offline queuing and delivery confirmation
+- **Document Sync**: Build collaborative apps with CRDT-based document synchronization (powered by Automerge)
+- **Artifact Storage**: Share files, blobs, and large data structures with peer-to-peer sync and deduplication
+- **Post-Quantum Crypto**: Prepare for quantum-resistant encryption with hybrid post-quantum support
+- **Access Control**: Fine-grained permissions for realms, documents, and artifacts
+- **Offline-First**: Works reliably even when peers go offline; automatic reconnection and message queuing
+- **Smart Routing**: Encounters for temporary direct connections, intelligent peer selection via sentiment scoring
+- **Configuration Presets**: Pre-tuned profiles for Chat, Collaboration, IoT, and OfflineFirst use cases
+
+## Quick Start
+
+### Installation
+
+Add to your `Cargo.toml`:
+
+```toml
+[dependencies]
+indras-network = "1.0"
+tokio = { version = "1", features = ["full"] }
+```
+
+### The Simplest Thing That Works
+
+```rust
+use indras_network::prelude::*;
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    // Create a network instance with default configuration
+    let network = IndrasNetwork::new("~/.myapp").await?;
+
+    // Create a realm for collaboration
+    let realm = network.create_realm("My Project").await?;
+
+    // Get an invite code to share with peers
+    println!("Invite: {}", realm.invite_code().unwrap());
+
+    // Send a message
+    realm.send("Hello, world!").await?;
+
+    Ok(())
+}
+```
+
+`IndrasNetwork::new()` handles everything: generates your cryptographic identity, sets up local storage, starts the networking stack, connects to relay servers, and begins peer discovery.
+
+## Configuration & Presets
+
+Choose a preset tailored to your use case:
+
+| Preset | Max Peers | Max Realms | Best For |
+|--------|-----------|-----------|----------|
+| `Default` | 64 | 32 | General-purpose applications |
+| `Chat` | 128 | 64 | Messaging and social apps |
+| `Collaboration` | 32 | 16 | Document editing and real-time sync |
+| `IoT` | 8 | 4 | IoT device networks |
+| `OfflineFirst` | 64 | 32 | Offline-heavy mobile applications |
+
+```rust
+let network = IndrasNetwork::preset(Preset::Chat)
+    .data_dir("~/.myapp")
+    .build()
+    .await?;
+```
 
 ## Architecture
 
-The design follows patterns from iroh-examples:
+Indra's Network is organized as a Rust workspace with specialized crates:
 
-| Module | Inspired By | Purpose |
-|--------|-------------|---------|
-| `types.rs` | `browser-chat/shared` | Core data structures (PeerId, SealedPacket, Events) |
-| `topology.rs` | - | Mesh network construction (ring, full, random) |
-| `simulation.rs` | `iroh-automerge` sync protocol | Discrete-time simulation engine |
-| `scenarios.rs` | - | Pre-built test scenarios |
+| Crate | Purpose |
+|-------|---------|
+| `indras-network` | Main SDK entry point — the single import for applications |
+| `indras-core` | Core types and traits (`MemberId`, `RealmId`, events) |
+| `indras-node` | P2P node lifecycle and interface management |
+| `indras-crypto` | Cryptographic primitives (Ed25519, ML-DSA-65, ML-KEM-768, Argon2id) |
+| `indras-transport` | Network transport layer (built on iroh) |
+| `indras-routing` | Peer routing and relay logic |
+| `indras-storage` | Persistent storage layer |
+| `indras-gossip` | Gossip protocols for peer discovery |
+| `indras-sync` | CRDT sync primitives (ArtifactDocument, HeadTracker, RawSync) |
+| `indras-sync-engine` | Higher-level sync engine |
+| `indras-messaging` | Message routing and chat infrastructure |
+| `indras-artifacts` | Domain model (Vault, Story, Intention, attention economy) |
+| `indras-dtn` | Delay-tolerant networking for offline scenarios |
+| `indras-iot` | IoT device networking |
+| `indras-logging` | Structured logging |
 
-### Data Flow
+**Applications:** `indras-dashboard`, `indras-chat`, `indras-home-viewer`, `indras-realm-viewer`, `indras-collaboration-viewer`, `indras-ui`, `indras-genesis`, `indras-workspace`
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Indra's Network                          │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│   Peer A ──────────── Interface(A,B) ──────────── Peer B   │
-│     │                  ├─ Event Log                 │      │
-│     │                  └─ Pending Packets           │      │
-│     │                                               │      │
-│     └──────────────── Interface(A,C) ──────────────┘      │
-│                        ├─ Event Log                        │
-│                        └─ Pending Packets                  │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
+**Examples:** `chat-app`, `sync-demo`, `indras-notes`
 
-## The A-B-C Scenario
+## Common Use Cases
 
-The canonical example from the spec:
-
-```
-1. A wakes up
-2. B wakes up, messages A awake
-3. A needs to send to C but C is asleep
-   → A passes sealed message to B (mutual peer)
-4. A goes to sleep
-5. C wakes, messages B awake
-6. B sees packet addressed to C, delivers it
-7. B back-propagates "delivered" to A (when A next connects)
-8. B deletes the relayed packet
-```
-
-## Installation
-
-```bash
-# Clone the repository
-git clone <your-repo>
-cd indras-network
-
-# Build
-cargo build --release
-
-# Run the A-B-C scenario
-cargo run -- abc
-
-# Run interactive mode
-cargo run -- interactive
-```
-
-## Usage
-
-### CLI Commands
-
-```bash
-# Run pre-defined scenarios
-cargo run -- abc        # The canonical A-B-C scenario
-cargo run -- line       # Multi-hop line relay
-cargo run -- broadcast  # Hub-and-spoke broadcast
-cargo run -- chaos -t 200  # Random chaos for 200 ticks
-cargo run -- partition  # Network partition and reconnect
-
-# Visualize topologies
-cargo run -- topology -t ring -p 8
-cargo run -- topology -t full -p 5
-cargo run -- topology -t random -p 10 -c 0.3
-
-# Interactive mode
-cargo run -- interactive -p 6
-```
-
-### Interactive Commands
-
-```
-online <peer>   - Bring peer online (e.g., 'online A')
-offline <peer>  - Take peer offline
-send <from> <to> <msg> - Send message
-step [n]        - Advance n ticks (default 1)
-status          - Show current state
-stats           - Show statistics
-events          - Show event log
-quit            - Exit
-```
-
-### Library Usage
+### Building a Chat App
 
 ```rust
-use indras_network::*;
+use indras_network::prelude::*;
 
-// Create a mesh topology
-let mesh = MeshBuilder::new(6).ring();
+let network = IndrasNetwork::preset(Preset::Chat)
+    .data_dir("~/.chat_app")
+    .display_name("A")
+    .build()
+    .await?;
 
-// Or from explicit edges
-let mesh = from_edges(&[
-    ('A', 'B'), ('B', 'C'), ('C', 'D'),
-    ('A', 'D'), // shortcut
-]);
+network.start().await?;
 
-// Create simulation
-let mut sim = Simulation::new(mesh, SimConfig {
-    wake_probability: 0.3,
-    sleep_probability: 0.2,
-    max_ticks: 100,
-    ..Default::default()
-});
+let realm = network.create_realm("General").await?;
+realm.send("Hey everyone!").await?;
 
-// Initialize and run
-sim.initialize();
-sim.send_message(PeerId('A'), PeerId('F'), b"Hello!".to_vec());
-sim.run();
-
-// Check results
-println!("Delivered: {}", sim.stats.messages_delivered);
+// Listen for incoming messages
+let mut messages = realm.messages();
+while let Some(msg) = messages.next().await {
+    println!("{}: {}", msg.sender_name, msg.content.as_text().unwrap_or(""));
+}
 ```
 
-## Design Decisions
+### Collaborative Documents
 
-### Why Sealed Packets?
+```rust
+use indras_network::prelude::*;
 
-In a real P2P network with iroh, packets would be encrypted for the destination. The "sealed" concept represents this - intermediate relays cannot read the content, only forward it.
+let realm = network.create_realm("Team Project").await?;
+let doc: Document<TodoList> = realm.document("todos").await?;
 
-### Why Back-Propagation?
+// Updates sync automatically across all peers
+doc.update(|todos| {
+    todos.items.push(TodoItem { text: "Ship v2".into(), done: false });
+}).await?;
 
-After delivery, confirmation needs to flow back so:
-1. The sender knows the message was delivered
-2. Intermediate relays can delete their copies
-3. The event log can be updated with delivery status
+// React to remote changes
+let mut changes = doc.changes();
+while let Some(change) = changes.next().await {
+    println!("Updated (remote={}): {:?}", change.is_remote, change.new_state);
+}
+```
 
-### Relation to Iroh Examples
+### Direct Connect
 
-| Iroh Example | Indra's Network Equivalent |
-|--------------|---------------------------|
-| `iroh-automerge-repo` | `PeerInterface.event_log` (CRDT sync) |
-| `browser-chat/gossip` | Awake signals, presence detection |
-| `framed-messages` | `SealedPacket` structure |
+```rust
+// Knowing someone's identity code is enough to connect
+let (realm, peer_info) = network.connect_by_code("indra1qyz...k3m").await?;
+realm.send("Hello!").await?;
+```
 
-## Next Steps: Real P2P Implementation
+## Documentation
 
-To extend this to real iroh P2P:
-
-1. Replace `PeerId(char)` with `iroh::EndpointId`
-2. Use `iroh-gossip` for awake/presence signals
-3. Use `automerge` + `samod` for synced event logs
-4. Add encryption (box sealing) for sealed packets
-5. Persist state with `TokioFilesystemStorage`
-
-See the `iroh-automerge-repo` example for the foundation.
+- **[Developer's Guide](/articles/indras-network-developers-guide.md)** — Complete API reference, configuration, realms, messaging, documents, artifacts, peering, and more
+- **[AGENTS.md](./AGENTS.md)** — Architecture documentation for each crate
+- **Examples** — See `examples/` directory for chat apps, sync demos, and note-taking applications
 
 ## License
 
-MIT
+MIT OR Apache-2.0
