@@ -1,7 +1,7 @@
 //! Extension trait adding attention tracking methods to Realm.
 
-use crate::attention::{AttentionDocument, AttentionEventId, QuestAttention};
-use crate::quest::QuestId;
+use crate::attention::{AttentionDocument, AttentionEventId, IntentionAttention};
+use crate::intention::IntentionId;
 use indras_network::document::Document;
 use indras_network::error::Result;
 use indras_network::member::MemberId;
@@ -13,9 +13,9 @@ pub trait RealmAttention {
     async fn attention(&self) -> Result<Document<AttentionDocument>>;
 
     /// Focus on a specific quest.
-    async fn focus_on_quest(
+    async fn focus_on_intention(
         &self,
-        quest_id: QuestId,
+        intention_id: IntentionId,
         member: MemberId,
     ) -> Result<AttentionEventId>;
 
@@ -29,24 +29,24 @@ pub trait RealmAttention {
     async fn get_member_focus(
         &self,
         member: &MemberId,
-    ) -> Result<Option<QuestId>>;
+    ) -> Result<Option<IntentionId>>;
 
     /// Get all members currently focusing on a quest.
     async fn get_quest_focusers(
         &self,
-        quest_id: &QuestId,
+        intention_id: &IntentionId,
     ) -> Result<Vec<MemberId>>;
 
     /// Get quests ranked by total attention time.
-    async fn quests_by_attention(
+    async fn intentions_by_attention(
         &self,
-    ) -> Result<Vec<QuestAttention>>;
+    ) -> Result<Vec<IntentionAttention>>;
 
     /// Get attention details for a specific quest.
-    async fn quest_attention(
+    async fn intention_attention(
         &self,
-        quest_id: &QuestId,
-    ) -> Result<QuestAttention>;
+        intention_id: &IntentionId,
+    ) -> Result<IntentionAttention>;
 }
 
 impl RealmAttention for Realm {
@@ -54,11 +54,11 @@ impl RealmAttention for Realm {
         self.document("attention").await
     }
 
-    async fn focus_on_quest(&self, quest_id: QuestId, member: MemberId) -> Result<AttentionEventId> {
+    async fn focus_on_intention(&self, intention_id: IntentionId, member: MemberId) -> Result<AttentionEventId> {
         let mut event_id = [0u8; 16];
         let doc = self.attention().await?;
         doc.update(|d| {
-            event_id = d.focus_on_quest(member, quest_id);
+            event_id = d.focus_on_intention(member, intention_id);
         })
         .await?;
 
@@ -76,23 +76,23 @@ impl RealmAttention for Realm {
         Ok(event_id)
     }
 
-    async fn get_member_focus(&self, member: &MemberId) -> Result<Option<QuestId>> {
+    async fn get_member_focus(&self, member: &MemberId) -> Result<Option<IntentionId>> {
         let doc = self.attention().await?;
         Ok(doc.read().await.current_focus(member))
     }
 
-    async fn get_quest_focusers(&self, quest_id: &QuestId) -> Result<Vec<MemberId>> {
+    async fn get_quest_focusers(&self, intention_id: &IntentionId) -> Result<Vec<MemberId>> {
         let doc = self.attention().await?;
-        Ok(doc.read().await.members_focusing_on(quest_id))
+        Ok(doc.read().await.members_focusing_on(intention_id))
     }
 
-    async fn quests_by_attention(&self) -> Result<Vec<QuestAttention>> {
+    async fn intentions_by_attention(&self) -> Result<Vec<IntentionAttention>> {
         let doc = self.attention().await?;
-        Ok(doc.read().await.quests_by_attention(None))
+        Ok(doc.read().await.intentions_by_attention(None))
     }
 
-    async fn quest_attention(&self, quest_id: &QuestId) -> Result<QuestAttention> {
+    async fn intention_attention(&self, intention_id: &IntentionId) -> Result<IntentionAttention> {
         let doc = self.attention().await?;
-        Ok(doc.read().await.quest_attention(quest_id, None))
+        Ok(doc.read().await.intention_attention(intention_id, None))
     }
 }

@@ -1,15 +1,17 @@
-//! Quest - lightweight collaboration intentions within realms.
+//! Intention — the core unit of collaborative action within realms.
 //!
-//! Quests support a Proof of Service model where multiple members can submit
-//! claims (proofs of work) for a quest, and the quest creator verifies them.
-//! This enables collaborative work with accountability:
+//! An Intention represents something a member wants to bring into the world.
+//! It can be a Quest (task for others), Need (request for help), Offering
+//! (service provided), or a general Intention.
 //!
-//! 1. Creator posts a quest
-//! 2. Multiple members submit claims with proof artifacts
+//! Intentions support a Proof of Service model:
+//!
+//! 1. Creator posts an intention
+//! 2. Members submit service claims with proof artifacts
 //! 3. Creator verifies valid claims
-//! 4. Creator marks quest complete
+//! 4. Creator marks intention complete
 //!
-//! Quests are CRDT-synchronized across all realm members.
+//! Intentions are CRDT-synchronized across all realm members.
 
 use indras_network::artifact::ArtifactId;
 use indras_network::member::MemberId;
@@ -17,9 +19,36 @@ use crate::proof_folder::ProofFolderId;
 
 use serde::{Deserialize, Serialize};
 
-/// Priority level for quests.
+/// The kind/subtype of an intention.
+///
+/// This determines the UI presentation and workflow expectations.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
+pub enum IntentionKind {
+    /// A task or mission for others to fulfill.
+    Quest,
+    /// A request for help or resources.
+    Need,
+    /// A service or resource being offered.
+    Offering,
+    /// A general intention (default).
+    #[default]
+    Intention,
+}
+
+impl std::fmt::Display for IntentionKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            IntentionKind::Quest => write!(f, "Quest"),
+            IntentionKind::Need => write!(f, "Need"),
+            IntentionKind::Offering => write!(f, "Offering"),
+            IntentionKind::Intention => write!(f, "Intention"),
+        }
+    }
+}
+
+/// Priority level for intentions.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum QuestPriority {
+pub enum IntentionPriority {
     /// Low priority - nice to have.
     Low,
     /// Normal priority (default).
@@ -30,17 +59,17 @@ pub enum QuestPriority {
     Urgent,
 }
 
-impl Default for QuestPriority {
+impl Default for IntentionPriority {
     fn default() -> Self {
         Self::Normal
     }
 }
 
-/// Unique identifier for a quest (16 bytes).
-pub type QuestId = [u8; 16];
+/// Unique identifier for an intention (16 bytes).
+pub type IntentionId = [u8; 16];
 
-/// Generate a new random quest ID.
-pub fn generate_quest_id() -> QuestId {
+/// Generate a new random intention ID.
+pub fn generate_intention_id() -> IntentionId {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     let mut id = [0u8; 16];
@@ -74,7 +103,7 @@ pub fn generate_quest_id() -> QuestId {
 ///
 /// A claim can have either, both (unusual), or neither (no proof yet).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct QuestClaim {
+pub struct ServiceClaim {
     /// Who is claiming completion
     pub claimant: MemberId,
     /// Documentation/proof artifact (optional, legacy single-artifact proof)
@@ -90,7 +119,7 @@ pub struct QuestClaim {
     pub verified_at_millis: Option<i64>,
 }
 
-impl QuestClaim {
+impl ServiceClaim {
     /// Create a new unverified claim.
     pub fn new(claimant: MemberId, proof: Option<ArtifactId>) -> Self {
         Self {
@@ -153,7 +182,7 @@ impl QuestClaim {
 ///
 /// ```ignore
 /// // Create a quest
-/// let quest_id = realm.create_quest(
+/// let intention_id = realm.create_intention(
 ///     "Review design doc",
 ///     "Please review the attached PDF and leave comments",
 ///     None,
@@ -161,43 +190,46 @@ impl QuestClaim {
 /// ).await?;
 ///
 /// // Members submit claims with proof
-/// realm.submit_quest_claim(quest_id, member1_id, Some(proof_artifact)).await?;
-/// realm.submit_quest_claim(quest_id, member2_id, Some(proof_artifact)).await?;
+/// realm.submit_service_claim(intention_id, member1_id, Some(proof_artifact)).await?;
+/// realm.submit_service_claim(intention_id, member2_id, Some(proof_artifact)).await?;
 ///
 /// // Creator verifies valid claims
-/// realm.verify_quest_claim(quest_id, 0).await?;  // Verify first claim
+/// realm.verify_service_claim(intention_id, 0).await?;  // Verify first claim
 ///
 /// // Creator marks quest complete
-/// realm.complete_quest(quest_id).await?;
+/// realm.complete_intention(intention_id).await?;
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Quest {
-    /// Unique identifier for this quest.
-    pub id: QuestId,
-    /// Short title describing the quest.
+pub struct Intention {
+    /// Unique identifier for this intention.
+    pub id: IntentionId,
+    /// The kind of intention (Quest, Need, Offering, or Intention).
+    #[serde(default)]
+    pub kind: IntentionKind,
+    /// Short title describing the intention.
     pub title: String,
     /// Detailed description of what needs to be done.
     pub description: String,
-    /// Optional image artifact associated with the quest.
+    /// Optional image artifact associated with the intention.
     pub image: Option<ArtifactId>,
-    /// The member who created this quest.
+    /// The member who created this intention.
     pub creator: MemberId,
-    /// Claims/proofs of service from members (multiple claimants supported).
-    pub claims: Vec<QuestClaim>,
-    /// When the quest was created (Unix timestamp in milliseconds).
+    /// Service claims/proofs from members (multiple claimants supported).
+    pub claims: Vec<ServiceClaim>,
+    /// When the intention was created (Unix timestamp in milliseconds).
     pub created_at_millis: i64,
-    /// When the quest was completed (None if not yet complete).
+    /// When the intention was completed (None if not yet complete).
     pub completed_at_millis: Option<i64>,
     /// Optional deadline (Unix timestamp in milliseconds).
     #[serde(default)]
     pub deadline_millis: Option<i64>,
     /// Priority level.
     #[serde(default)]
-    pub priority: QuestPriority,
+    pub priority: IntentionPriority,
 }
 
-impl Quest {
-    /// Create a new quest.
+impl Intention {
+    /// Create a new intention with default kind (`IntentionKind::Intention`).
     pub fn new(
         title: impl Into<String>,
         description: impl Into<String>,
@@ -205,7 +237,8 @@ impl Quest {
         creator: MemberId,
     ) -> Self {
         Self {
-            id: generate_quest_id(),
+            id: generate_intention_id(),
+            kind: IntentionKind::default(),
             title: title.into(),
             description: description.into(),
             image,
@@ -214,7 +247,7 @@ impl Quest {
             created_at_millis: chrono::Utc::now().timestamp_millis(),
             completed_at_millis: None,
             deadline_millis: None,
-            priority: QuestPriority::default(),
+            priority: IntentionPriority::default(),
         }
     }
 
@@ -246,11 +279,11 @@ impl Quest {
         &mut self,
         claimant: MemberId,
         proof: Option<ArtifactId>,
-    ) -> Result<usize, QuestError> {
+    ) -> Result<usize, IntentionError> {
         if self.completed_at_millis.is_some() {
-            return Err(QuestError::AlreadyComplete);
+            return Err(IntentionError::AlreadyComplete);
         }
-        let claim = QuestClaim::new(claimant, proof);
+        let claim = ServiceClaim::new(claimant, proof);
         self.claims.push(claim);
         Ok(self.claims.len() - 1) // Return the index of the new claim
     }
@@ -259,26 +292,26 @@ impl Quest {
     ///
     /// Only the quest creator should call this (enforced at higher level).
     /// Returns an error if the claim index is invalid.
-    pub fn verify_claim(&mut self, claim_index: usize) -> Result<(), QuestError> {
+    pub fn verify_claim(&mut self, claim_index: usize) -> Result<(), IntentionError> {
         if claim_index >= self.claims.len() {
-            return Err(QuestError::ClaimNotFound);
+            return Err(IntentionError::ClaimNotFound);
         }
         self.claims[claim_index].verify();
         Ok(())
     }
 
     /// Get all pending (unverified) claims.
-    pub fn pending_claims(&self) -> Vec<&QuestClaim> {
+    pub fn pending_claims(&self) -> Vec<&ServiceClaim> {
         self.claims.iter().filter(|c| !c.verified).collect()
     }
 
     /// Get all verified claims.
-    pub fn verified_claims(&self) -> Vec<&QuestClaim> {
+    pub fn verified_claims(&self) -> Vec<&ServiceClaim> {
         self.claims.iter().filter(|c| c.verified).collect()
     }
 
     /// Get a claim by index.
-    pub fn get_claim(&self, index: usize) -> Option<&QuestClaim> {
+    pub fn get_claim(&self, index: usize) -> Option<&ServiceClaim> {
         self.claims.get(index)
     }
 
@@ -290,9 +323,9 @@ impl Quest {
     /// Mark this quest as complete.
     ///
     /// Returns an error if already complete.
-    pub fn complete(&mut self) -> Result<(), QuestError> {
+    pub fn complete(&mut self) -> Result<(), IntentionError> {
         if self.completed_at_millis.is_some() {
-            return Err(QuestError::AlreadyComplete);
+            return Err(IntentionError::AlreadyComplete);
         }
         self.completed_at_millis = Some(chrono::Utc::now().timestamp_millis());
         Ok(())
@@ -329,7 +362,7 @@ impl Quest {
     }
 
     /// Set the priority for this quest.
-    pub fn set_priority(&mut self, priority: QuestPriority) {
+    pub fn set_priority(&mut self, priority: IntentionPriority) {
         self.priority = priority;
     }
 
@@ -357,7 +390,7 @@ impl Quest {
     ///
     /// Submits a claim without proof.
     #[deprecated(since = "0.2.0", note = "Use submit_claim() instead")]
-    pub fn claim(&mut self, doer: MemberId) -> Result<(), QuestError> {
+    pub fn claim(&mut self, doer: MemberId) -> Result<(), IntentionError> {
         self.submit_claim(doer, None)?;
         Ok(())
     }
@@ -366,9 +399,9 @@ impl Quest {
     ///
     /// Removes all unverified claims from the member.
     #[deprecated(since = "0.2.0", note = "Claims cannot be removed in proof-of-service model")]
-    pub fn unclaim(&mut self) -> Result<(), QuestError> {
+    pub fn unclaim(&mut self) -> Result<(), IntentionError> {
         if self.completed_at_millis.is_some() {
-            return Err(QuestError::AlreadyComplete);
+            return Err(IntentionError::AlreadyComplete);
         }
         // Remove all unverified claims
         self.claims.retain(|c| c.verified);
@@ -384,140 +417,160 @@ impl Quest {
     }
 }
 
-/// Errors that can occur during quest operations.
+/// Errors that can occur during intention operations.
 #[derive(Debug, Clone, PartialEq)]
-pub enum QuestError {
-    /// The quest has already been claimed by someone (legacy).
+pub enum IntentionError {
+    /// The intention has already been claimed by someone (legacy).
     AlreadyClaimed,
-    /// The quest has already been completed.
+    /// The intention has already been completed.
     AlreadyComplete,
-    /// The quest was not found.
+    /// The intention was not found.
     NotFound,
     /// The claim was not found at the specified index.
     ClaimNotFound,
+    /// The caller is not authorized for this operation.
+    NotAuthorized,
 }
 
-impl std::fmt::Display for QuestError {
+impl std::fmt::Display for IntentionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            QuestError::AlreadyClaimed => write!(f, "Quest is already claimed"),
-            QuestError::AlreadyComplete => write!(f, "Quest is already complete"),
-            QuestError::NotFound => write!(f, "Quest not found"),
-            QuestError::ClaimNotFound => write!(f, "Claim not found"),
+            IntentionError::AlreadyClaimed => write!(f, "Intention is already claimed"),
+            IntentionError::AlreadyComplete => write!(f, "Intention is already complete"),
+            IntentionError::NotFound => write!(f, "Intention not found"),
+            IntentionError::ClaimNotFound => write!(f, "Claim not found"),
+            IntentionError::NotAuthorized => write!(f, "Not authorized for this operation"),
         }
     }
 }
 
-impl std::error::Error for QuestError {}
+impl std::error::Error for IntentionError {}
 
-/// Document schema for storing quests in a realm.
+/// Document schema for storing intentions in a realm.
 ///
-/// This is used with `realm.document::<QuestDocument>("quests")` to get
-/// a CRDT-synchronized quest list.
+/// This is used with `realm.document::<IntentionDocument>("intentions")` to get
+/// a CRDT-synchronized intention list.
+///
+/// # CRDT Semantics
+///
+/// - Intentions are identified by their unique `IntentionId`
+/// - Merge strategy: set-union by intention ID (no data loss on concurrent edits)
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct QuestDocument {
-    /// All quests in this realm.
-    pub quests: Vec<Quest>,
+pub struct IntentionDocument {
+    /// All intentions in this realm.
+    pub intentions: Vec<Intention>,
 }
 
-impl QuestDocument {
-    /// Create a new empty quest document.
+impl indras_network::document::DocumentSchema for IntentionDocument {
+    fn merge(&mut self, remote: Self) {
+        let existing: std::collections::HashSet<IntentionId> =
+            self.intentions.iter().map(|i| i.id).collect();
+        for intention in remote.intentions {
+            if !existing.contains(&intention.id) {
+                self.intentions.push(intention);
+            }
+        }
+    }
+}
+
+impl IntentionDocument {
+    /// Create a new empty intention document.
     pub fn new() -> Self {
-        Self { quests: Vec::new() }
+        Self { intentions: Vec::new() }
     }
 
-    /// Add a quest to the document.
-    pub fn add(&mut self, quest: Quest) {
-        self.quests.push(quest);
+    /// Add an intention to the document.
+    pub fn add(&mut self, intention: Intention) {
+        self.intentions.push(intention);
     }
 
-    /// Find a quest by ID.
-    pub fn find(&self, id: &QuestId) -> Option<&Quest> {
-        self.quests.iter().find(|q| &q.id == id)
+    /// Find an intention by ID.
+    pub fn find(&self, id: &IntentionId) -> Option<&Intention> {
+        self.intentions.iter().find(|q| &q.id == id)
     }
 
-    /// Find a quest by ID (mutable).
-    pub fn find_mut(&mut self, id: &QuestId) -> Option<&mut Quest> {
-        self.quests.iter_mut().find(|q| &q.id == id)
+    /// Find an intention by ID (mutable).
+    pub fn find_mut(&mut self, id: &IntentionId) -> Option<&mut Intention> {
+        self.intentions.iter_mut().find(|q| &q.id == id)
     }
 
-    /// Get all open quests (unclaimed and incomplete).
-    pub fn open_quests(&self) -> Vec<&Quest> {
-        self.quests.iter().filter(|q| q.is_open()).collect()
+    /// Get all open intentions (unclaimed and incomplete).
+    pub fn open_intentions(&self) -> Vec<&Intention> {
+        self.intentions.iter().filter(|q| q.is_open()).collect()
     }
 
-    /// Get all quests with claims but not yet complete.
-    pub fn in_progress_quests(&self) -> Vec<&Quest> {
-        self.quests
+    /// Get all intentions with claims but not yet complete.
+    pub fn in_progress_intentions(&self) -> Vec<&Intention> {
+        self.intentions
             .iter()
             .filter(|q| q.has_claims() && !q.is_complete())
             .collect()
     }
 
     /// Get all completed quests.
-    pub fn completed_quests(&self) -> Vec<&Quest> {
-        self.quests.iter().filter(|q| q.is_complete()).collect()
+    pub fn completed_intentions(&self) -> Vec<&Intention> {
+        self.intentions.iter().filter(|q| q.is_complete()).collect()
     }
 
-    /// Get quests created by a specific member.
-    pub fn quests_by_creator(&self, creator: &MemberId) -> Vec<&Quest> {
-        self.quests.iter().filter(|q| &q.creator == creator).collect()
+    /// Get intentions created by a specific member.
+    pub fn intentions_by_creator(&self, creator: &MemberId) -> Vec<&Intention> {
+        self.intentions.iter().filter(|q| &q.creator == creator).collect()
     }
 
-    /// Get quests with claims by a specific member.
-    pub fn quests_by_claimant(&self, claimant: &MemberId) -> Vec<&Quest> {
-        self.quests
+    /// Get intentions with claims by a specific member.
+    pub fn intentions_by_claimant(&self, claimant: &MemberId) -> Vec<&Intention> {
+        self.intentions
             .iter()
             .filter(|q| q.claims.iter().any(|c| &c.claimant == claimant))
             .collect()
     }
 
-    /// Get quests with verified claims.
-    pub fn quests_with_verified_claims(&self) -> Vec<&Quest> {
-        self.quests
+    /// Get intentions with verified claims.
+    pub fn intentions_with_verified_claims(&self) -> Vec<&Intention> {
+        self.intentions
             .iter()
             .filter(|q| q.has_verified_claims())
             .collect()
     }
 
-    /// Get quests with pending (unverified) claims.
-    pub fn quests_with_pending_claims(&self) -> Vec<&Quest> {
-        self.quests
+    /// Get intentions with pending (unverified) claims.
+    pub fn intentions_with_pending_claims(&self) -> Vec<&Intention> {
+        self.intentions
             .iter()
             .filter(|q| !q.pending_claims().is_empty())
             .collect()
     }
 
-    /// Get quests sorted by priority (highest first), excluding completed.
-    pub fn quests_by_priority(&self) -> Vec<&Quest> {
-        let mut quests: Vec<_> = self.quests.iter().filter(|q| !q.is_complete()).collect();
-        quests.sort_by(|a, b| b.priority.cmp(&a.priority));
-        quests
+    /// Get intentions sorted by priority (highest first), excluding completed.
+    pub fn intentions_by_priority(&self) -> Vec<&Intention> {
+        let mut items: Vec<_> = self.intentions.iter().filter(|q| !q.is_complete()).collect();
+        items.sort_by(|a, b| b.priority.cmp(&a.priority));
+        items
     }
 
-    /// Get overdue quests (past deadline and not complete).
-    pub fn overdue_quests(&self) -> Vec<&Quest> {
-        self.quests.iter().filter(|q| q.is_overdue()).collect()
+    /// Get overdue intentions (past deadline and not complete).
+    pub fn overdue_intentions(&self) -> Vec<&Intention> {
+        self.intentions.iter().filter(|q| q.is_overdue()).collect()
     }
 
-    /// Remove a quest by ID. Returns the removed quest if found.
-    pub fn remove(&mut self, id: &QuestId) -> Option<Quest> {
-        if let Some(pos) = self.quests.iter().position(|q| &q.id == id) {
-            Some(self.quests.remove(pos))
+    /// Remove an intention by ID. Returns the removed quest if found.
+    pub fn remove(&mut self, id: &IntentionId) -> Option<Intention> {
+        if let Some(pos) = self.intentions.iter().position(|q| &q.id == id) {
+            Some(self.intentions.remove(pos))
         } else {
             None
         }
     }
 
     /// Get the number of quests.
-    pub fn quest_count(&self) -> usize {
-        self.quests.len()
+    pub fn intention_count(&self) -> usize {
+        self.intentions.len()
     }
 
-    /// Search quests by title or description.
-    pub fn search(&self, query: &str) -> Vec<&Quest> {
+    /// Search intentions by title or description.
+    pub fn search(&self, query: &str) -> Vec<&Intention> {
         let query_lower = query.to_lowercase();
-        self.quests
+        self.intentions
             .iter()
             .filter(|q| {
                 q.title.to_lowercase().contains(&query_lower)
@@ -527,9 +580,9 @@ impl QuestDocument {
     }
 
     /// Legacy compatibility: Get quests claimed by a specific member.
-    #[deprecated(since = "0.2.0", note = "Use quests_by_claimant() instead")]
-    pub fn quests_by_doer(&self, doer: &MemberId) -> Vec<&Quest> {
-        self.quests_by_claimant(doer)
+    #[deprecated(since = "0.2.0", note = "Use intentions_by_claimant() instead")]
+    pub fn intentions_by_doer(&self, doer: &MemberId) -> Vec<&Intention> {
+        self.intentions_by_claimant(doer)
     }
 }
 
@@ -551,84 +604,84 @@ mod tests {
 
     #[test]
     fn test_quest_creation() {
-        let quest = Quest::new("Test quest", "Do something", None, test_member_id());
-        assert!(!quest.has_claims());
-        assert!(!quest.is_complete());
-        assert!(quest.is_open());
-        assert_eq!(quest.claim_count(), 0);
+        let intention = Intention::new("Test quest", "Do something", None, test_member_id());
+        assert!(!intention.has_claims());
+        assert!(!intention.is_complete());
+        assert!(intention.is_open());
+        assert_eq!(intention.claim_count(), 0);
     }
 
     #[test]
     fn test_quest_claim_new_model() {
-        let mut quest = Quest::new("Test quest", "Do something", None, test_member_id());
+        let mut intention = Intention::new("Test quest", "Do something", None, test_member_id());
 
         // Submit first claim
-        let claim_idx = quest.submit_claim(another_member_id(), None).unwrap();
+        let claim_idx = intention.submit_claim(another_member_id(), None).unwrap();
         assert_eq!(claim_idx, 0);
-        assert!(quest.has_claims());
-        assert!(!quest.is_open());
-        assert_eq!(quest.claim_count(), 1);
+        assert!(intention.has_claims());
+        assert!(!intention.is_open());
+        assert_eq!(intention.claim_count(), 1);
 
         // Submit second claim (multiple claims allowed)
-        let claim_idx2 = quest.submit_claim(third_member_id(), Some(ArtifactId::Blob([42u8; 32]))).unwrap();
+        let claim_idx2 = intention.submit_claim(third_member_id(), Some(ArtifactId::Blob([42u8; 32]))).unwrap();
         assert_eq!(claim_idx2, 1);
-        assert_eq!(quest.claim_count(), 2);
+        assert_eq!(intention.claim_count(), 2);
 
         // Both claims should be unverified
-        assert!(!quest.has_verified_claims());
-        assert_eq!(quest.pending_claims().len(), 2);
-        assert_eq!(quest.verified_claims().len(), 0);
+        assert!(!intention.has_verified_claims());
+        assert_eq!(intention.pending_claims().len(), 2);
+        assert_eq!(intention.verified_claims().len(), 0);
     }
 
     #[test]
     fn test_quest_verify_claim() {
-        let mut quest = Quest::new("Test quest", "Do something", None, test_member_id());
+        let mut intention = Intention::new("Test quest", "Do something", None, test_member_id());
 
-        quest.submit_claim(another_member_id(), None).unwrap();
-        quest.submit_claim(third_member_id(), Some(ArtifactId::Blob([42u8; 32]))).unwrap();
+        intention.submit_claim(another_member_id(), None).unwrap();
+        intention.submit_claim(third_member_id(), Some(ArtifactId::Blob([42u8; 32]))).unwrap();
 
         // Verify first claim
-        assert!(quest.verify_claim(0).is_ok());
-        assert!(quest.has_verified_claims());
-        assert_eq!(quest.pending_claims().len(), 1);
-        assert_eq!(quest.verified_claims().len(), 1);
+        assert!(intention.verify_claim(0).is_ok());
+        assert!(intention.has_verified_claims());
+        assert_eq!(intention.pending_claims().len(), 1);
+        assert_eq!(intention.verified_claims().len(), 1);
 
         // Verify second claim
-        assert!(quest.verify_claim(1).is_ok());
-        assert_eq!(quest.pending_claims().len(), 0);
-        assert_eq!(quest.verified_claims().len(), 2);
+        assert!(intention.verify_claim(1).is_ok());
+        assert_eq!(intention.pending_claims().len(), 0);
+        assert_eq!(intention.verified_claims().len(), 2);
 
         // Invalid claim index
-        assert_eq!(quest.verify_claim(5), Err(QuestError::ClaimNotFound));
+        assert_eq!(intention.verify_claim(5), Err(IntentionError::ClaimNotFound));
     }
 
     #[test]
     fn test_quest_complete() {
-        let mut quest = Quest::new("Test quest", "Do something", None, test_member_id());
-        quest.submit_claim(another_member_id(), None).unwrap();
-        quest.verify_claim(0).unwrap();
+        let mut intention = Intention::new("Test quest", "Do something", None, test_member_id());
+        intention.submit_claim(another_member_id(), None).unwrap();
+        intention.verify_claim(0).unwrap();
 
-        assert!(quest.complete().is_ok());
-        assert!(quest.is_complete());
+        assert!(intention.complete().is_ok());
+        assert!(intention.is_complete());
 
         // Can't complete twice
-        assert_eq!(quest.complete(), Err(QuestError::AlreadyComplete));
+        assert_eq!(intention.complete(), Err(IntentionError::AlreadyComplete));
 
         // Can't add claims after completion
         assert_eq!(
-            quest.submit_claim(third_member_id(), None),
-            Err(QuestError::AlreadyComplete)
+            intention.submit_claim(third_member_id(), None),
+            Err(IntentionError::AlreadyComplete)
         );
     }
 
     #[test]
     fn test_quest_claim_struct() {
-        let claim = QuestClaim::new(another_member_id(), Some(ArtifactId::Blob([42u8; 32])));
+        let claim = ServiceClaim::new(another_member_id(), Some(ArtifactId::Blob([42u8; 32])));
         assert!(!claim.is_verified());
         assert!(claim.verified_at_millis.is_none());
         assert!(claim.proof.is_some());
 
-        let mut claim2 = QuestClaim::new(third_member_id(), None);
+        let mut claim2 = ServiceClaim::new(third_member_id(), None);
         claim2.verify();
         assert!(claim2.is_verified());
         assert!(claim2.verified_at_millis.is_some());
@@ -636,47 +689,47 @@ mod tests {
 
     #[test]
     fn test_quest_document() {
-        let mut doc = QuestDocument::new();
-        let quest = Quest::new("Test quest", "Do something", None, test_member_id());
-        let id = quest.id;
-        doc.add(quest);
+        let mut doc = IntentionDocument::new();
+        let intention = Intention::new("Test quest", "Do something", None, test_member_id());
+        let id = intention.id;
+        doc.add(intention);
 
         assert!(doc.find(&id).is_some());
-        assert_eq!(doc.open_quests().len(), 1);
-        assert_eq!(doc.completed_quests().len(), 0);
+        assert_eq!(doc.open_intentions().len(), 1);
+        assert_eq!(doc.completed_intentions().len(), 0);
 
         // Submit claims
         doc.find_mut(&id)
             .unwrap()
             .submit_claim(another_member_id(), None)
             .unwrap();
-        assert_eq!(doc.open_quests().len(), 0);
-        assert_eq!(doc.in_progress_quests().len(), 1);
-        assert_eq!(doc.quests_with_pending_claims().len(), 1);
+        assert_eq!(doc.open_intentions().len(), 0);
+        assert_eq!(doc.in_progress_intentions().len(), 1);
+        assert_eq!(doc.intentions_with_pending_claims().len(), 1);
 
         // Verify and complete
         doc.find_mut(&id).unwrap().verify_claim(0).unwrap();
-        assert_eq!(doc.quests_with_verified_claims().len(), 1);
+        assert_eq!(doc.intentions_with_verified_claims().len(), 1);
 
         doc.find_mut(&id).unwrap().complete().unwrap();
-        assert_eq!(doc.completed_quests().len(), 1);
+        assert_eq!(doc.completed_intentions().len(), 1);
     }
 
     #[test]
     fn test_quest_document_by_claimant() {
-        let mut doc = QuestDocument::new();
+        let mut doc = IntentionDocument::new();
 
-        let mut quest1 = Quest::new("Quest 1", "Do something", None, test_member_id());
+        let mut quest1 = Intention::new("Quest 1", "Do something", None, test_member_id());
         quest1.submit_claim(another_member_id(), None).unwrap();
         let id1 = quest1.id;
 
-        let mut quest2 = Quest::new("Quest 2", "Do something else", None, test_member_id());
+        let mut quest2 = Intention::new("Quest 2", "Do something else", None, test_member_id());
         quest2.submit_claim(third_member_id(), None).unwrap();
 
         doc.add(quest1);
         doc.add(quest2);
 
-        let by_claimant = doc.quests_by_claimant(&another_member_id());
+        let by_claimant = doc.intentions_by_claimant(&another_member_id());
         assert_eq!(by_claimant.len(), 1);
         assert_eq!(by_claimant[0].id, id1);
     }
@@ -685,17 +738,17 @@ mod tests {
     #[test]
     #[allow(deprecated)]
     fn test_legacy_claim_method() {
-        let mut quest = Quest::new("Test quest", "Do something", None, test_member_id());
-        assert!(quest.claim(another_member_id()).is_ok());
-        assert!(quest.is_claimed());
+        let mut intention = Intention::new("Test quest", "Do something", None, test_member_id());
+        assert!(intention.claim(another_member_id()).is_ok());
+        assert!(intention.is_claimed());
     }
 
     #[test]
     #[allow(deprecated)]
     fn test_legacy_doer_method() {
-        let mut quest = Quest::new("Test quest", "Do something", None, test_member_id());
-        assert!(quest.doer().is_none());
-        quest.submit_claim(another_member_id(), None).unwrap();
-        assert_eq!(quest.doer(), Some(another_member_id()));
+        let mut intention = Intention::new("Test quest", "Do something", None, test_member_id());
+        assert!(intention.doer().is_none());
+        intention.submit_claim(another_member_id(), None).unwrap();
+        assert_eq!(intention.doer(), Some(another_member_id()));
     }
 }

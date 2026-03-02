@@ -8,7 +8,7 @@
 //! - Persistence across restarts
 
 use indras_network::{HomeArtifactMetadata, IndrasNetwork};
-use indras_sync_engine::{HomeRealmNotes, HomeRealmQuests, NoteDocument};
+use indras_sync_engine::{HomeRealmNotes, HomeRealmIntentions, NoteDocument};
 use tempfile::TempDir;
 
 /// Helper to generate test PNG data (minimal valid PNG).
@@ -67,7 +67,7 @@ async fn test_home_realm_id_deterministic() {
 }
 
 #[tokio::test]
-async fn test_create_quest_in_home_realm() {
+async fn test_create_intention_in_home_realm() {
     let tmp = TempDir::new().unwrap();
     let network = IndrasNetwork::new(tmp.path()).await.unwrap();
 
@@ -75,41 +75,41 @@ async fn test_create_quest_in_home_realm() {
     let home = network.home_realm().await.unwrap();
 
     // Create a personal quest
-    let quest_id = home
-        .create_quest("Personal Task", "Do something productive", None)
+    let intention_id = home
+        .create_intention("Personal Task", "Do something productive", None)
         .await
         .unwrap();
 
     // Verify quest exists
-    let quests = home.quests().await.unwrap();
+    let quests = home.intentions().await.unwrap();
     let doc = quests.read().await;
     // Just our quest (welcome quest is seeded by SyncEngine, not by the SDK)
-    assert_eq!(doc.quests.len(), 1);
-    let quest = doc.find(&quest_id).unwrap();
-    assert_eq!(quest.title, "Personal Task");
-    assert_eq!(quest.description, "Do something productive");
-    assert_eq!(quest.creator, network.id());
+    assert_eq!(doc.intentions.len(), 1);
+    let intention = doc.find(&intention_id).unwrap();
+    assert_eq!(intention.title, "Personal Task");
+    assert_eq!(intention.description, "Do something productive");
+    assert_eq!(intention.creator, network.id());
 }
 
 #[tokio::test]
-async fn test_complete_quest_in_home_realm() {
+async fn test_complete_intention_in_home_realm() {
     let tmp = TempDir::new().unwrap();
     let network = IndrasNetwork::new(tmp.path()).await.unwrap();
     let home = network.home_realm().await.unwrap();
 
     // Create and complete a quest
-    let quest_id = home
-        .create_quest("Task to complete", "Finish this", None)
+    let intention_id = home
+        .create_intention("Task to complete", "Finish this", None)
         .await
         .unwrap();
 
-    home.complete_quest(quest_id).await.unwrap();
+    home.complete_intention(intention_id).await.unwrap();
 
     // Verify quest is complete
-    let quests = home.quests().await.unwrap();
+    let quests = home.intentions().await.unwrap();
     let doc = quests.read().await;
-    let quest = doc.find(&quest_id).unwrap();
-    assert!(quest.is_complete());
+    let intention = doc.find(&intention_id).unwrap();
+    assert!(intention.is_complete());
 }
 
 // ============================================================
@@ -148,7 +148,7 @@ async fn test_upload_image_to_home_realm() {
 }
 
 #[tokio::test]
-async fn test_create_quest_with_image() {
+async fn test_create_intention_with_image() {
     let tmp = TempDir::new().unwrap();
     let network = IndrasNetwork::new(tmp.path()).await.unwrap();
     let home = network.home_realm().await.unwrap();
@@ -168,16 +168,16 @@ async fn test_create_quest_with_image() {
         .unwrap();
 
     // Create quest with image reference
-    let quest_id = home
-        .create_quest("Task with Image", "See attached", Some(artifact_id))
+    let intention_id = home
+        .create_intention("Task with Image", "See attached", Some(artifact_id))
         .await
         .unwrap();
 
     // Verify image reference
-    let quests = home.quests().await.unwrap();
+    let quests = home.intentions().await.unwrap();
     let doc = quests.read().await;
-    let quest = doc.find(&quest_id).unwrap();
-    assert_eq!(quest.image, Some(artifact_id));
+    let intention = doc.find(&intention_id).unwrap();
+    assert_eq!(intention.image, Some(artifact_id));
 }
 
 // ============================================================
@@ -315,14 +315,14 @@ async fn test_home_realm_persistence() {
     let data_dir = tmp.path().to_path_buf();
 
     // ===== Session 1: Create content =====
-    let (member_id, quest_id, note_id, artifact_id) = {
+    let (member_id, intention_id, note_id, artifact_id) = {
         let network = IndrasNetwork::new(&data_dir).await.unwrap();
         let member_id = network.id();
         let home = network.home_realm().await.unwrap();
 
         // Create quest
-        let quest_id = home
-            .create_quest("Persistent Quest", "Should survive restart", None)
+        let intention_id = home
+            .create_intention("Persistent Intention", "Should survive restart", None)
             .await
             .unwrap();
 
@@ -351,7 +351,7 @@ async fn test_home_realm_persistence() {
             .unwrap();
 
         // Return IDs for verification in session 2
-        (member_id, quest_id, note_id, artifact_id)
+        (member_id, intention_id, note_id, artifact_id)
     };
 
     // ===== Session 2: Verify persistence =====
@@ -365,12 +365,12 @@ async fn test_home_realm_persistence() {
         let home = network.home_realm().await.unwrap();
 
         // Verify quest persisted
-        let quests = home.quests().await.unwrap();
+        let quests = home.intentions().await.unwrap();
         let doc = quests.read().await;
         // Just our quest (welcome quest is seeded by SyncEngine, not by the SDK)
-        assert_eq!(doc.quests.len(), 1);
-        let quest = doc.find(&quest_id).unwrap();
-        assert_eq!(quest.title, "Persistent Quest");
+        assert_eq!(doc.intentions.len(), 1);
+        let intention = doc.find(&intention_id).unwrap();
+        assert_eq!(intention.title, "Persistent Intention");
 
         // Verify artifact persisted (blob store)
         let artifact_data = home.get_artifact(&artifact_id).await.unwrap();

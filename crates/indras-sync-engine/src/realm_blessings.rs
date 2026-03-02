@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use crate::blessing::{Blessing, BlessingDocument, BlessingId, ClaimId};
 use crate::content::SyncContent;
-use crate::quest::QuestId;
+use crate::intention::IntentionId;
 use crate::realm_attention::RealmAttention;
 use crate::realm_tokens::RealmTokens;
 use indras_network::document::Document;
@@ -20,7 +20,7 @@ pub trait RealmBlessings {
     /// Bless a quest claim by releasing accumulated attention.
     async fn bless_claim(
         &self,
-        quest_id: QuestId,
+        intention_id: IntentionId,
         claimant: MemberId,
         blesser: MemberId,
         event_indices: Vec<usize>,
@@ -29,14 +29,14 @@ pub trait RealmBlessings {
     /// Get all blessings for a specific quest claim.
     async fn blessings_for_claim(
         &self,
-        quest_id: QuestId,
+        intention_id: IntentionId,
         claimant: MemberId,
     ) -> Result<Vec<Blessing>>;
 
     /// Get the total blessed attention duration for a quest claim.
     async fn blessed_attention_duration(
         &self,
-        quest_id: QuestId,
+        intention_id: IntentionId,
         claimant: MemberId,
     ) -> Result<Duration>;
 
@@ -44,14 +44,14 @@ pub trait RealmBlessings {
     async fn unblessed_event_indices(
         &self,
         member: MemberId,
-        quest_id: QuestId,
+        intention_id: IntentionId,
     ) -> Result<Vec<usize>>;
 
     /// Get the total unblessed attention duration available for blessing.
     async fn unblessed_attention_duration(
         &self,
         member: MemberId,
-        quest_id: QuestId,
+        intention_id: IntentionId,
     ) -> Result<Duration>;
 }
 
@@ -62,7 +62,7 @@ impl RealmBlessings for Realm {
 
     async fn bless_claim(
         &self,
-        quest_id: QuestId,
+        intention_id: IntentionId,
         claimant: MemberId,
         blesser: MemberId,
         event_indices: Vec<usize>,
@@ -87,7 +87,7 @@ impl RealmBlessings for Realm {
                     idx
                 )));
             }
-            if event.quest_id != Some(quest_id) {
+            if event.intention_id != Some(intention_id) {
                 return Err(IndraError::InvalidOperation(format!(
                     "Event {} is for different quest",
                     idx
@@ -97,7 +97,7 @@ impl RealmBlessings for Realm {
         drop(attention);
 
         // Record the blessing
-        let claim_id = ClaimId::new(quest_id, claimant);
+        let claim_id = ClaimId::new(intention_id, claimant);
         let mut blessing_id = [0u8; 16];
         let blessing_doc = self.blessings().await?;
 
@@ -119,7 +119,7 @@ impl RealmBlessings for Realm {
         let mut _token_id = [0u8; 16];
         token_doc
             .update(|d| {
-                match d.mint(claimant, blessing_id, blesser, quest_id, event_indices_for_token) {
+                match d.mint(claimant, blessing_id, blesser, intention_id, event_indices_for_token) {
                     Ok(id) => _token_id = id,
                     Err(e) => {
                         tracing::warn!("Token minting failed: {}", e);
@@ -130,7 +130,7 @@ impl RealmBlessings for Realm {
 
         // Post BlessingGiven message to chat
         self.send(SyncContent::BlessingGiven {
-            quest_id,
+            intention_id,
             claimant,
             blesser,
             event_indices,
@@ -142,10 +142,10 @@ impl RealmBlessings for Realm {
 
     async fn blessings_for_claim(
         &self,
-        quest_id: QuestId,
+        intention_id: IntentionId,
         claimant: MemberId,
     ) -> Result<Vec<Blessing>> {
-        let claim_id = ClaimId::new(quest_id, claimant);
+        let claim_id = ClaimId::new(intention_id, claimant);
         let doc = self.blessings().await?;
         Ok(doc
             .read()
@@ -158,10 +158,10 @@ impl RealmBlessings for Realm {
 
     async fn blessed_attention_duration(
         &self,
-        quest_id: QuestId,
+        intention_id: IntentionId,
         claimant: MemberId,
     ) -> Result<Duration> {
-        let claim_id = ClaimId::new(quest_id, claimant);
+        let claim_id = ClaimId::new(intention_id, claimant);
         let blessing_doc = self.blessings().await?;
         let attention_doc = self.attention().await?;
 
@@ -194,7 +194,7 @@ impl RealmBlessings for Realm {
     async fn unblessed_event_indices(
         &self,
         member: MemberId,
-        quest_id: QuestId,
+        intention_id: IntentionId,
     ) -> Result<Vec<usize>> {
         let attention_doc = self.attention().await?;
         let blessing_doc = self.blessings().await?;
@@ -206,19 +206,19 @@ impl RealmBlessings for Realm {
         let candidate_indices: Vec<usize> = events
             .iter()
             .enumerate()
-            .filter(|(_, e)| e.member == member && e.quest_id == Some(quest_id))
+            .filter(|(_, e)| e.member == member && e.intention_id == Some(intention_id))
             .map(|(idx, _)| idx)
             .collect();
 
-        Ok(blessing_data.unblessed_event_indices(&member, &quest_id, &candidate_indices))
+        Ok(blessing_data.unblessed_event_indices(&member, &intention_id, &candidate_indices))
     }
 
     async fn unblessed_attention_duration(
         &self,
         member: MemberId,
-        quest_id: QuestId,
+        intention_id: IntentionId,
     ) -> Result<Duration> {
-        let unblessed = self.unblessed_event_indices(member, quest_id).await?;
+        let unblessed = self.unblessed_event_indices(member, intention_id).await?;
         let attention_doc = self.attention().await?;
         let attention_data = attention_doc.read().await;
         let events = attention_data.events();
