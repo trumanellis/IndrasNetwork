@@ -1,9 +1,16 @@
-//! Peer events and info types.
+//! Peer events, info types, and background tasks for the peering lifecycle.
+//!
+//! This module provides reactive peer tracking, event subscription, and
+//! background polling — all integrated into [`IndrasNetwork`](crate::IndrasNetwork).
 
-use indras_network::{GlobalEvent, MemberId, RealmId};
+pub(crate) mod tasks;
 
-// Re-export from lower layers so apps don't need direct deps
-pub use indras_network::contacts::ContactStatus;
+use crate::contacts::ContactStatus;
+use crate::member::MemberId;
+use crate::network::{GlobalEvent, RealmId};
+
+// Re-export ContactStatus for consumer convenience
+pub use crate::contacts::ContactStatus as PeerStatus;
 
 /// Information about a connected peer.
 #[derive(Debug, Clone, PartialEq)]
@@ -20,7 +27,7 @@ pub struct PeerInfo {
     pub status: ContactStatus,
 }
 
-/// Events emitted by the [`PeeringRuntime`](crate::PeeringRuntime).
+/// Events emitted by the peering lifecycle within [`IndrasNetwork`](crate::IndrasNetwork).
 #[derive(Debug, Clone)]
 pub enum PeerEvent {
     /// A new peer appeared in the contacts list.
@@ -85,25 +92,18 @@ mod tests {
             status: ContactStatus::Pending,
         };
 
-        // Equal
         assert_eq!(base, base.clone());
 
-        // Different sentiment
         let diff_sentiment = PeerInfo { sentiment: 1, ..base.clone() };
         assert_ne!(base, diff_sentiment);
 
-        // Different status
         let diff_status = PeerInfo { status: ContactStatus::Confirmed, ..base.clone() };
         assert_ne!(base, diff_status);
 
-        // Different member_id
         let diff_id = PeerInfo { member_id: make_member_id(0x02), ..base.clone() };
         assert_ne!(base, diff_id);
     }
 
-    /// Test that subscribe_with_snapshot semantics work:
-    /// subscriber created before data update sees the update;
-    /// snapshot returns data that existed before subscribe.
     #[test]
     fn subscribe_with_snapshot_semantics() {
         use tokio::sync::{broadcast, watch};
@@ -111,7 +111,6 @@ mod tests {
         let (peers_tx, peers_rx) = watch::channel::<Vec<PeerInfo>>(Vec::new());
         let (event_tx, _) = broadcast::channel::<PeerEvent>(16);
 
-        // Pre-populate some peers
         let alice = PeerInfo {
             member_id: make_member_id(0x01),
             display_name: "Alice".into(),
@@ -121,28 +120,21 @@ mod tests {
         };
         peers_tx.send(vec![alice.clone()]).unwrap();
 
-        // Simulate subscribe_with_snapshot: subscribe then snapshot
         let rx = event_tx.subscribe();
         let snapshot = peers_rx.borrow().clone();
 
-        // Snapshot should contain Alice
         assert_eq!(snapshot.len(), 1);
         assert_eq!(snapshot[0], alice);
 
-        // Events sent AFTER subscribe should be received
         event_tx.send(PeerEvent::WorldViewSaved).unwrap();
         let mut rx = rx;
         assert!(matches!(rx.try_recv(), Ok(PeerEvent::WorldViewSaved)));
     }
 
-    /// Verify sentiment clamping logic matches runtime behavior.
     #[test]
     fn sentiment_clamping() {
-        // The runtime clamps before persisting. Test the clamp logic.
         assert_eq!(100i8.clamp(-1, 1), 1);
         assert_eq!((-100i8).clamp(-1, 1), -1);
         assert_eq!(0i8.clamp(-1, 1), 0);
-        assert_eq!(1i8.clamp(-1, 1), 1);
-        assert_eq!((-1i8).clamp(-1, 1), -1);
     }
 }

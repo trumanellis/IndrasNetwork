@@ -108,6 +108,18 @@ pub enum IndraError {
     /// Story authentication error.
     #[error("Story authentication error: {reason}")]
     StoryAuth { reason: String },
+
+    /// No remote peer found in a DM realm.
+    #[error("no remote peer found in realm")]
+    NoPeerInRealm,
+
+    /// The contacts realm has not been joined yet.
+    #[error("contacts realm not joined — call start() first")]
+    ContactsRealmNotJoined,
+
+    /// The network has already been shut down.
+    #[error("network already shut down")]
+    AlreadyShutDown,
 }
 
 impl From<NodeError> for IndraError {

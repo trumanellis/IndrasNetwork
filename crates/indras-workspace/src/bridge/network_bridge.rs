@@ -79,7 +79,7 @@ pub async fn create_identity(
         .map_err(|e| format!("{}", e))?;
 
     Ok(NetworkHandle {
-        network: Arc::new(net),
+        network: net,
     })
 }
 
@@ -92,6 +92,6 @@ pub async fn load_identity() -> Result<NetworkHandle, String> {
         .map_err(|e| format!("{}", e))?;
 
     Ok(NetworkHandle {
-        network: Arc::new(net),
+        network: net,
     })
 }

@@ -102,7 +102,6 @@ indras_network::impl_document_schema!(
     TokenOfGratitudeDocument,
     HumannessDocument,
     ProofFolderDocument,
-    SentimentRelayDocument,
 );
 
 // Re-export extension traits
