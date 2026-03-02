@@ -247,6 +247,15 @@ realm.send("Hello!").await?;
 - **[AGENTS.md](./AGENTS.md)** — Architecture documentation for each crate
 - **Examples** — See `examples/` directory for chat apps, sync demos, and note-taking applications
 
+### Articles
+
+- **[Every Node a Mirror](/articles/indras-network-every-node-a-mirror.md)** — Building the internet that an ancient philosophy imagined
+- **[Your Story Is Your Key](/articles/your-story-is-your-key.md)** — How a hero's journey becomes unbreakable authentication
+- **[Your Files Live With You](/articles/your-files-live-with-you.md)** — How a peer-to-peer filesystem turns sharing into a spectrum of trust
+- **[Nobody Owns the Conversation](/articles/nobody-owns-the-conversation.md)** — How single stewardship and fractal composition solve the problem that group ownership never could
+- **[The Heartbeat of Community](/articles/the-heartbeat-of-community.md)** — How subjective value, trust chains, and proof of life turn tokens into letters of introduction
+- **[Your Network Has an Immune System](/articles/your-network-has-an-immune-system.md)** — How decentralized sentiment turns a communication mesh into a living, self-protecting organism
+
 ## License
 
 MIT OR Apache-2.0
