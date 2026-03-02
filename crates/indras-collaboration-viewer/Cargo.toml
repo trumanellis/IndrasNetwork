@@ -3,7 +3,6 @@ name = "indras-collaboration-viewer"
 version = "1.0.0"
 edition = "2021"
 description = "Standalone viewer for the Collaboration Trio simulation scenario"
-license = "MIT OR Apache-2.0"
 
 [[bin]]
 name = "collaboration-viewer"

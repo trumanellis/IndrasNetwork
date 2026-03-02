@@ -287,6 +287,3 @@ assert_eq!(sim.stats.messages_delivered, 1);
 
 ---
 
-## License
-
-MIT OR Apache-2.0 (dual license)
