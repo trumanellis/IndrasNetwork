@@ -28,10 +28,12 @@ A complete reference for building peer-to-peer applications with `indras-network
 20. [Identity Export & Import](#identity-export--import)
 21. [Blocking](#blocking)
 22. [World View](#world-view)
-23. [Error Handling](#error-handling)
-24. [Escape Hatches](#escape-hatches)
-25. [Re-exported Types](#re-exported-types)
-26. [The Prelude](#the-prelude)
+23. [Peering](#peering)
+24. [Sentiment](#sentiment)
+25. [Error Handling](#error-handling)
+26. [Escape Hatches](#escape-hatches)
+27. [Re-exported Types](#re-exported-types)
+28. [The Prelude](#the-prelude)
 
 ---
 
@@ -126,7 +128,7 @@ let network = IndrasNetwork::builder()
     .data_dir("~/.myapp")
     .display_name("Alice")
     .relay_servers(vec!["relay.example.com".into()])
-    .enforce_pq_signatures(true)
+    .enforce_pq_signatures()
     .passphrase("hunter2")
     .build()
     .await?;
@@ -136,12 +138,15 @@ Builder methods:
 
 | Method | Type | Description |
 |--------|------|-------------|
-| `.data_dir(path)` | `&str` | **Required.** Where to store keys, docs, artifacts |
-| `.display_name(name)` | `&str` | Human-readable name broadcast to peers |
+| `.data_dir(path)` | `impl Into<PathBuf>` | **Required.** Where to store keys, docs, artifacts |
+| `.display_name(name)` | `impl Into<String>` | Human-readable name broadcast to peers |
 | `.relay_servers(urls)` | `Vec<String>` | Custom relay server URLs |
-| `.enforce_pq_signatures(bool)` | `bool` | Require ML-DSA-65 post-quantum signatures |
-| `.passphrase(pass)` | `&str` | Encrypt the keystore with Argon2id + ChaCha20-Poly1305 |
-| `.pass_story(story)` | `String` | Authenticate via a memorable story instead of a passphrase |
+| `.enforce_pq_signatures()` | *(none)* | Require ML-DSA-65 post-quantum signatures |
+| `.passphrase(pass)` | `impl Into<String>` | Encrypt the keystore with Argon2id + ChaCha20-Poly1305 |
+| `.pass_story(story)` | `PassStory` | Authenticate via a memorable story instead of a passphrase |
+| `.local_only()` | *(none)* | Disable DNS/pkarr discovery and relay servers |
+| `.poll_interval(dur)` | `Duration` | How often to poll contacts for peer changes (default 2s) |
+| `.save_interval(dur)` | `Duration` | How often to save the world view snapshot (default 30s) |
 
 ### NetworkConfig
 
@@ -155,9 +160,16 @@ pub struct NetworkConfig {
     pub relay_servers: Vec<String>,
     pub enforce_pq_signatures: bool,
     pub passphrase: Option<String>,
-    pub pass_story: Option<String>,
+    pub pass_story: Option<indras_crypto::story_template::PassStory>,
+    pub local_only: bool,
+    pub poll_interval: Duration,
+    pub save_interval: Duration,
 }
 ```
+
+- `local_only` (default: `true`) — When true, disables DNS/pkarr discovery and relay servers. Peers can only connect via local network gossip.
+- `poll_interval` (default: 2s) — How often the peering system polls contacts for changes.
+- `save_interval` (default: 30s) — How often the world view snapshot is saved to disk.
 
 ### Authentication
 
@@ -356,8 +368,8 @@ When you want to connect to someone, you send a `ConnectionNotify` message to th
 // Connect by MemberId
 let realm = network.connect(their_member_id).await?;
 
-// Connect by IdentityCode
-let realm = network.connect_by_code("indra1qyz...k3m").await?;
+// Connect by IdentityCode — returns both the DM realm and peer info
+let (realm, peer_info) = network.connect_by_code("indra1qyz...k3m").await?;
 ```
 
 Both methods:
@@ -365,7 +377,8 @@ Both methods:
 2. Send a connection notification
 3. Wait for the peer to acknowledge
 4. Create a shared DM realm
-5. Return the `Realm` handle
+5. Add the peer as a contact
+6. Return the `Realm` handle (and `PeerInfo` for `connect_by_code`)
 
 ### Key Exchange
 
@@ -592,25 +605,35 @@ Documents are CRDT-backed typed data structures that automatically synchronize a
 
 ### DocumentSchema Trait
 
-Any type that implements `Serialize + DeserializeOwned + Default + Clone + Send + Sync` automatically gets a `DocumentSchema` implementation via a blanket impl:
+`DocumentSchema` is an explicit trait that controls how documents merge and sync:
 
 ```rust
-impl<T> DocumentSchema for T
-where
-    T: Serialize + DeserializeOwned + Default + Clone + Send + Sync + 'static,
-{
-    fn name() -> &'static str {
-        std::any::type_name::<T>()
+pub trait DocumentSchema: Default + Clone + Serialize + DeserializeOwned + Send + Sync + 'static {
+    /// Merge remote state into this document.
+    /// Default: full replacement (last-writer-wins).
+    fn merge(&mut self, remote: Self) {
+        *self = remote;
     }
-    fn default_value() -> Self {
-        Self::default()
+
+    /// Extract a compact delta between old and new state.
+    /// Returns Some(bytes) for incremental sync, None to send full state.
+    fn extract_delta(_old: &Self, _new: &Self) -> Option<Vec<u8>> {
+        None
+    }
+
+    /// Apply a compact delta to this document.
+    /// Returns true if applied successfully.
+    fn apply_delta(&mut self, _delta: &[u8]) -> bool {
+        false
     }
 }
 ```
 
-This means you don't need to implement anything special — just derive the right traits:
+For types that use the default last-writer-wins behavior, use the convenience macro:
 
 ```rust
+use indras_network::impl_document_schema;
+
 #[derive(Default, Clone, Serialize, Deserialize)]
 struct TodoList {
     items: Vec<TodoItem>,
@@ -622,7 +645,11 @@ struct TodoItem {
     text: String,
     done: bool,
 }
+
+impl_document_schema!(TodoList);
 ```
+
+For types that need custom merge logic (e.g., set-union for chat messages), implement the trait directly and override `merge`. For bandwidth-efficient sync, also implement `extract_delta` and `apply_delta` to send only changed data instead of the full document.
 
 ### Getting a Document
 
@@ -669,14 +696,20 @@ use futures::StreamExt;
 
 let mut changes = doc.changes();
 while let Some(change) = changes.next().await {
-    match change {
-        DocumentChange::Updated(new_value) => {
-            println!("Document updated: {:?}", new_value);
-        }
-        DocumentChange::Conflict(local, remote) => {
-            // Handle merge conflict (rare with CRDTs)
-        }
+    println!("Document updated (remote={}): {:?}", change.is_remote, change.new_state);
+    if let Some(author) = &change.author {
+        println!("  by: {}", author.name());
     }
+}
+```
+
+`DocumentChange<T>` is a struct:
+
+```rust
+pub struct DocumentChange<T> {
+    pub new_state: T,
+    pub author: Option<Member>,
+    pub is_remote: bool,
 }
 ```
 
@@ -780,13 +813,10 @@ The contacts realm is a special realm where your contact list is stored as a CRD
 
 ```rust
 pub struct ContactEntry {
-    pub member_id: MemberId,
-    pub display_name: String,
-    pub added_at: u64,
-    pub status: ContactStatus,
-    pub sentiment: i8,       // -1, 0, or 1
-    pub relayable: bool,     // Whether this contact can relay messages
-    pub notes: Option<String>,
+    pub sentiment: i8,              // -1, 0, or 1
+    pub relayable: bool,            // Whether sentiment is relayable to second-degree contacts
+    pub display_name: Option<String>,
+    pub status: ContactStatus,      // Pending or Confirmed
 }
 ```
 
@@ -1310,10 +1340,9 @@ A per-tree Automerge document wrapping `AutoCommit`. Stores artifact metadata, r
 
 ```rust
 use indras_sync::ArtifactDocument;
-use indras_artifacts::{ArtifactId, TreeType};
 
 // Create a new document
-let mut doc = ArtifactDocument::new(&artifact_id, &steward_id, &TreeType::Story, now);
+let mut doc = ArtifactDocument::new(&artifact_id, &steward_id, "story", now);
 
 // Add references to child artifacts
 doc.append_ref(&child_id, 0, Some("chapter-1"));
@@ -1740,6 +1769,161 @@ The output is JSON, designed to be read by diagnostic tools or the dashboard UI.
 
 ---
 
+## Peering
+
+The peering module provides reactive peer tracking, event subscription, and background lifecycle management. It builds on the contacts system to provide a higher-level view of connected peers.
+
+### PeerInfo
+
+```rust
+pub struct PeerInfo {
+    pub member_id: MemberId,
+    pub display_name: String,
+    pub connected_at: i64,
+    pub sentiment: i8,
+    pub status: ContactStatus,
+}
+```
+
+`PeerInfo` is a snapshot of a connected peer's state, including their current sentiment rating and contact status.
+
+### PeerStatus
+
+`PeerStatus` is a re-export of `ContactStatus` for convenience:
+
+```rust
+pub use ContactStatus as PeerStatus;
+// Pending — invite sent, waiting for acceptance
+// Confirmed — bidirectional connection established
+```
+
+### PeerEvent
+
+```rust
+pub enum PeerEvent {
+    PeerConnected { peer: PeerInfo },
+    PeerDisconnected { member_id: MemberId },
+    PeersChanged { peers: Vec<PeerInfo> },
+    ConversationOpened { realm_id: RealmId, peer: PeerInfo },
+    PeerBlocked { member_id: MemberId, left_realms: Vec<RealmId> },
+    SentimentChanged { member_id: MemberId, sentiment: i8 },
+    WorldViewSaved,
+    NetworkEvent(GlobalEvent),
+    Warning(String),
+}
+```
+
+| Variant | When it fires |
+|---------|---------------|
+| `PeerConnected` | A new peer appeared in the contacts list |
+| `PeerDisconnected` | A peer was removed from the contacts list |
+| `PeersChanged` | The full peer list changed (emitted on every poll diff) |
+| `ConversationOpened` | A new DM conversation was opened via `connect` / `connect_by_code` |
+| `PeerBlocked` | A contact was blocked and all shared realms were left |
+| `SentimentChanged` | Sentiment toward a peer was updated |
+| `WorldViewSaved` | The world view was saved to disk |
+| `NetworkEvent` | A raw `GlobalEvent` forwarded from the network event stream |
+| `Warning` | A non-fatal warning (e.g., failed world view save) |
+
+### Subscribing to Peer Events
+
+```rust
+// Subscribe to peer events (broadcast channel)
+let mut rx = network.peer_events();
+
+// Subscribe and get the current peer list as a snapshot
+let (mut rx, current_peers) = network.peer_events_with_snapshot();
+
+// Watch the current peer list (always has the latest value)
+let peers_rx = network.peers();
+let current: Vec<PeerInfo> = peers_rx.borrow().clone();
+```
+
+`peer_events()` returns a broadcast receiver. `peer_events_with_snapshot()` also returns the current peer list at subscription time, avoiding a race between subscribing and the first `PeersChanged` event. `peers()` returns a watch channel that always holds the latest peer list.
+
+### Background Tasks
+
+The peering system spawns three background tasks when the network starts:
+
+- **Contact poller** — Polls the contacts realm every `poll_interval` (default 2s), diffs against the previous peer set, and emits `PeerConnected` / `PeerDisconnected` / `PeersChanged` events.
+- **Event forwarder** — Forwards raw `GlobalEvent`s from the network event stream into the `PeerEvent` broadcast channel.
+- **Periodic saver** — Saves the world view to disk every `save_interval` (default 30s) and emits `WorldViewSaved` events.
+
+All background tasks are cancelled when `stop()` is called.
+
+---
+
+## Sentiment
+
+The sentiment module implements second-degree trust signal propagation. Each peer publishes their relayable sentiment ratings, and contacts can read these to get signals about people they don't directly know.
+
+### RelayedSentiment
+
+```rust
+pub struct RelayedSentiment {
+    pub about: MemberId,
+    pub sentiment: i8,
+    pub relay_source: MemberId,
+    pub degree: u8,
+}
+```
+
+A sentiment signal relayed through a contact. `degree` indicates separation: 1 = direct contact's opinion, 2 = relayed through a contact's contact.
+
+### SentimentView
+
+```rust
+pub struct SentimentView {
+    pub direct: Vec<(MemberId, i8)>,
+    pub relayed: Vec<RelayedSentiment>,
+}
+```
+
+Aggregated sentiment about a specific member, combining direct signals (from your own contacts) with relayed signals (from contacts' contacts).
+
+Key methods:
+
+```rust
+// Compute a weighted score (direct signals full weight, relayed attenuated)
+let score: Option<f64> = view.weighted_score(DEFAULT_RELAY_ATTENUATION);
+
+// Count of unique signal sources
+let count: usize = view.signal_count();
+
+// Threshold checks
+let bad: bool = view.is_negative(0.0, DEFAULT_RELAY_ATTENUATION);
+let good: bool = view.is_positive(0.0, DEFAULT_RELAY_ATTENUATION);
+```
+
+### SentimentRelayDocument
+
+```rust
+pub struct SentimentRelayDocument {
+    pub sentiments: BTreeMap<MemberId, i8>,
+}
+```
+
+A CRDT document published by each peer containing their relayable sentiment ratings. Only sentiments where the contact has `relayable = true` are included. Synced within the contacts realm so contacts can read each other's ratings.
+
+### Relay Attenuation
+
+```rust
+pub const DEFAULT_RELAY_ATTENUATION: f64 = 0.3;
+```
+
+Relayed signals are weighted at 30% of direct signals by default. This prevents distant opinions from dominating the aggregate score while still providing useful second-degree information.
+
+### How Sentiment Relay Works
+
+1. You rate contacts with sentiment (-1, 0, or +1) via `contacts_realm.update_sentiment()`
+2. Contacts with `relayable = true` have their sentiment included in your `SentimentRelayDocument`
+3. Your contacts can read your relay document to learn your opinions about mutual connections
+4. When computing a `SentimentView` about someone, direct ratings have full weight and relayed ratings are attenuated by `DEFAULT_RELAY_ATTENUATION`
+
+The system is scoped: you only see sentiment from your own contacts and their contacts. There are no global reputation scores.
+
+---
+
 ## Error Handling
 
 All fallible operations return `Result<T, IndraError>`.
@@ -1749,22 +1933,22 @@ All fallible operations return `Result<T, IndraError>`.
 ```rust
 pub enum IndraError {
     // Invite errors
-    InvalidInvite(String),
+    InvalidInvite { reason: String },
     InviteExpired,
 
     // Realm errors
     RealmFull,
     RemovedFromRealm,
-    RealmNotFound(String),
+    RealmNotFound { id: String },
 
     // Document errors
-    DocumentNotFound(String),
+    DocumentNotFound { name: String },
 
     // Connection errors
     NotConnected,
     NotStarted,
     AlreadyStarted,
-    Timeout(String),
+    Timeout,
 
     // Permission errors
     NotMember,
@@ -1772,7 +1956,7 @@ pub enum IndraError {
 
     // Infrastructure errors
     Network(String),
-    Storage(String),
+    Storage(StorageError),
     Sync(String),
     Crypto(String),
     Serialization(String),
@@ -1784,11 +1968,16 @@ pub enum IndraError {
     Artifact(String),
 
     // Authentication errors
-    StoryAuth(String),
+    StoryAuth { reason: String },
+
+    // Peer/contact errors
+    NoPeerInRealm,
+    ContactsRealmNotJoined,
+    AlreadyShutDown,
 }
 ```
 
-Most variants carry a `String` with diagnostic details. `Io` wraps a standard `std::io::Error`.
+Note: Several variants use struct syntax (e.g., `InvalidInvite { reason }`, `RealmNotFound { id }`, `StoryAuth { reason }`) rather than tuple syntax. `Timeout` has no payload. `Storage` wraps a `StorageError` from the storage layer.
 
 ### The Result Type
 
@@ -1864,10 +2053,10 @@ pub use indras_artifacts;
 
 // Specific type re-exports for convenience
 pub use indras_artifacts::{
-    Artifact, LeafArtifact, TreeArtifact, ArtifactRef,
-    LeafType, TreeType,
+    Artifact, ArtifactRef, PayloadRef,
     BlessingRecord, StewardshipRecord,
-    AttentionLog, AttentionSwitchEvent, AttentionValue, compute_heat,
+    AttentionLog, AttentionSwitchEvent, AttentionValue, DwellWindow,
+    compute_heat, extract_dwell_windows,
     PeerEntry, PeerRegistry, MutualPeering,
     ArtifactStore, PayloadStore, AttentionStore,
     InMemoryArtifactStore, InMemoryAttentionStore, InMemoryPayloadStore,
@@ -1885,11 +2074,8 @@ This means consumers only need one dependency — `indras-network` — to access
 | Type | Description |
 |------|-------------|
 | `Artifact` | Union type for all artifacts |
-| `LeafArtifact` | Immutable content (files, notes) |
-| `TreeArtifact` | Container for other artifacts |
 | `ArtifactRef` | Lightweight reference to an artifact |
-| `LeafType` | Enum: Note, File, Image, Quest, Proof, etc. |
-| `TreeType` | Enum: Vault, Story, Exchange, Request, etc. |
+| `PayloadRef` | Reference to artifact payload data |
 
 ### Vault Types
 
@@ -1909,7 +2095,9 @@ This means consumers only need one dependency — `indras-network` — to access
 | `AttentionLog` | Record of attention given to artifacts |
 | `AttentionSwitchEvent` | Individual focus change event |
 | `AttentionValue` | Computed value of attention |
+| `DwellWindow` | Time window of focused attention |
 | `compute_heat` | Calculate artifact "heat" from attention |
+| `extract_dwell_windows` | Extract dwell windows from attention events |
 | `compute_token_value` | Derive token value from attention data |
 
 ### Peer Registry
@@ -1939,6 +2127,20 @@ This means consumers only need one dependency — `indras-network` — to access
 | `BlessingRecord` | Record of a blessing given to an artifact |
 | `StewardshipRecord` | Record of stewardship responsibility |
 
+### Additional Exports
+
+These types are re-exported from `indras-network` for convenience:
+
+| Type | Description |
+|------|-------------|
+| `ChatAck` | Acknowledgement for a chat message |
+| `ChatAckDocument` | CRDT document tracking chat acknowledgements |
+| `ChatDelta` | Compact delta for incremental chat sync |
+| `DeliveryStatus` | Delivery tracking status for chat messages |
+| `SystemEvent` | System event type for realm notifications |
+| `GeoLocation` | Geographic coordinates for artifact metadata |
+| `DocumentRegistryDocument` | CRDT document for document discovery within a realm |
+
 ---
 
 ## The Prelude
@@ -1953,40 +2155,44 @@ The prelude includes:
 
 ```rust
 pub use crate::{
-    ArtifactDownload, ArtifactIndex, HomeArtifactEntry,
-    ContactsRealm, Content, Document, DocumentSchema,
-    EditableChatMessage, GlobalEvent, HomeRealm, IdentityBackup,
-    IdentityCode, IndraError, IndrasNetwork, InviteCode, Member,
-    MemberEvent, MemberInfo, Message, Preset, Realm, RealmAlias,
-    RealmAliasDocument, RealmChatDocument, RealmId, Result,
+    ArtifactDownload, ArtifactIndex, GeoLocation, HomeArtifactEntry,
+    Content, Document, DocumentSchema, EditableChatMessage, GlobalEvent,
+    HomeRealm, IdentityBackup, IdentityCode, IndraError, IndrasNetwork,
+    InviteCode, Member, MemberEvent, MemberInfo, Message, PeerEvent,
+    PeerInfo, Preset, Realm, RealmAlias, RealmAliasDocument,
+    RealmChatDocument, RealmId, Result,
 };
 
 pub use futures::StreamExt;
 ```
 
-Note that `futures::StreamExt` is included so you can iterate async streams without a separate import.
+Note that `futures::StreamExt` is included so you can iterate async streams without a separate import. `PeerEvent`, `PeerInfo`, and `GeoLocation` were added to support the peering and artifact location systems.
 
 ---
 
 ## Global Events
 
-Subscribe to network-wide events:
+`GlobalEvent` is a struct that tags a raw `ReceivedEvent` with the realm it came from:
 
 ```rust
-let mut events = network.events();
-while let Some(event) = events.next().await {
-    match event {
-        GlobalEvent::RealmJoined(realm) => { /* ... */ },
-        GlobalEvent::RealmLeft(realm_id) => { /* ... */ },
-        GlobalEvent::PeerConnected(member_id) => { /* ... */ },
-        GlobalEvent::PeerDisconnected(member_id) => { /* ... */ },
-        GlobalEvent::ArtifactReceived(artifact_id) => { /* ... */ },
-        GlobalEvent::IdentityUpdated => { /* ... */ },
-    }
+pub struct GlobalEvent {
+    /// The realm this event originated from.
+    pub realm_id: RealmId,
+    /// The underlying event.
+    pub event: ReceivedEvent,
 }
 ```
 
-Global events fire for things that happen across realms — new connections, realm joins/leaves, incoming artifacts, and identity changes.
+Subscribe to the network-wide event stream:
+
+```rust
+let mut events = network.events();
+while let Some(ge) = events.next().await {
+    println!("Event from realm {:?}: {:?}", ge.realm_id, ge.event);
+}
+```
+
+For higher-level peer lifecycle events (peer connected/disconnected, sentiment changes, etc.), use the [Peering](#peering) event system instead.
 
 ---
 
