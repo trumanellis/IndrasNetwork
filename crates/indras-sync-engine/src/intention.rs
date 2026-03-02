@@ -655,6 +655,7 @@ impl IntentionDocument {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use indras_network::document::DocumentSchema;
 
     fn test_member_id() -> MemberId {
         [1u8; 32]
@@ -816,5 +817,184 @@ mod tests {
         assert!(intention.doer().is_none());
         intention.submit_claim(another_member_id(), None).unwrap();
         assert_eq!(intention.doer(), Some(another_member_id()));
+    }
+
+    /// Helper: build a minimal intention with a specific ID.
+    fn make_intention(id: IntentionId, creator: MemberId) -> Intention {
+        Intention {
+            id,
+            kind: IntentionKind::default(),
+            title: "test".into(),
+            description: "desc".into(),
+            image: None,
+            creator,
+            claims: Vec::new(),
+            created_at_millis: 1000,
+            completed_at_millis: None,
+            deadline_millis: None,
+            priority: IntentionPriority::default(),
+        }
+    }
+
+    // ---- CRDT merge tests ----
+
+    #[test]
+    fn merge_disjoint_intentions() {
+        let mut doc_a = IntentionDocument::new();
+        let mut doc_b = IntentionDocument::new();
+        doc_a.add(make_intention([1u8; 16], test_member_id()));
+        doc_b.add(make_intention([2u8; 16], another_member_id()));
+
+        doc_a.merge(doc_b);
+        assert_eq!(doc_a.intentions.len(), 2);
+    }
+
+    #[test]
+    fn merge_duplicate_intentions() {
+        let id = [3u8; 16];
+        let mut doc_a = IntentionDocument::new();
+        let mut doc_b = IntentionDocument::new();
+        doc_a.add(make_intention(id, test_member_id()));
+        doc_b.add(make_intention(id, test_member_id()));
+
+        doc_a.merge(doc_b);
+        assert_eq!(doc_a.intentions.len(), 1);
+    }
+
+    #[test]
+    fn merge_claims_union_by_claimant() {
+        let id = [4u8; 16];
+        let mut int_a = make_intention(id, test_member_id());
+        int_a.claims.push(ServiceClaim {
+            claimant: another_member_id(),
+            proof: None,
+            proof_folder: None,
+            submitted_at_millis: 100,
+            verified: false,
+            verified_at_millis: None,
+        });
+
+        let mut int_b = make_intention(id, test_member_id());
+        int_b.claims.push(ServiceClaim {
+            claimant: third_member_id(),
+            proof: None,
+            proof_folder: None,
+            submitted_at_millis: 200,
+            verified: false,
+            verified_at_millis: None,
+        });
+
+        let mut doc_a = IntentionDocument::new();
+        let mut doc_b = IntentionDocument::new();
+        doc_a.add(int_a);
+        doc_b.add(int_b);
+
+        doc_a.merge(doc_b);
+        let merged = doc_a.find(&id).unwrap();
+        assert_eq!(merged.claims.len(), 2);
+    }
+
+    #[test]
+    fn merge_claim_verified_wins() {
+        let id = [5u8; 16];
+        let claimant = another_member_id();
+
+        let mut int_a = make_intention(id, test_member_id());
+        int_a.claims.push(ServiceClaim {
+            claimant,
+            proof: None,
+            proof_folder: None,
+            submitted_at_millis: 100,
+            verified: false,
+            verified_at_millis: None,
+        });
+
+        let mut int_b = make_intention(id, test_member_id());
+        int_b.claims.push(ServiceClaim {
+            claimant,
+            proof: None,
+            proof_folder: None,
+            submitted_at_millis: 100,
+            verified: true,
+            verified_at_millis: Some(200),
+        });
+
+        let mut doc_a = IntentionDocument::new();
+        let mut doc_b = IntentionDocument::new();
+        doc_a.add(int_a);
+        doc_b.add(int_b);
+
+        doc_a.merge(doc_b);
+        let merged = doc_a.find(&id).unwrap();
+        assert_eq!(merged.claims.len(), 1);
+        assert!(merged.claims[0].verified);
+        assert_eq!(merged.claims[0].verified_at_millis, Some(200));
+    }
+
+    #[test]
+    fn merge_completion_propagates() {
+        let id = [6u8; 16];
+
+        let int_a = make_intention(id, test_member_id());
+        // local: not completed
+        assert!(int_a.completed_at_millis.is_none());
+
+        let mut int_b = make_intention(id, test_member_id());
+        int_b.completed_at_millis = Some(500);
+
+        let mut doc_a = IntentionDocument::new();
+        let mut doc_b = IntentionDocument::new();
+        doc_a.add(int_a);
+        doc_b.add(int_b);
+
+        doc_a.merge(doc_b);
+        assert_eq!(doc_a.find(&id).unwrap().completed_at_millis, Some(500));
+
+        // Both completed: earlier wins
+        let mut int_c = make_intention(id, test_member_id());
+        int_c.completed_at_millis = Some(300);
+        let mut doc_c = IntentionDocument::new();
+        doc_c.add(int_c);
+
+        doc_a.merge(doc_c);
+        assert_eq!(doc_a.find(&id).unwrap().completed_at_millis, Some(300));
+    }
+
+    #[test]
+    fn merge_deadline_later_wins() {
+        let id = [7u8; 16];
+
+        let mut int_a = make_intention(id, test_member_id());
+        int_a.deadline_millis = Some(100);
+
+        let mut int_b = make_intention(id, test_member_id());
+        int_b.deadline_millis = Some(200);
+
+        let mut doc_a = IntentionDocument::new();
+        let mut doc_b = IntentionDocument::new();
+        doc_a.add(int_a);
+        doc_b.add(int_b);
+
+        doc_a.merge(doc_b);
+        assert_eq!(doc_a.find(&id).unwrap().deadline_millis, Some(200));
+    }
+
+    #[test]
+    fn merge_priority_max_wins() {
+        let id = [8u8; 16];
+
+        let mut int_a = make_intention(id, test_member_id());
+        int_a.priority = IntentionPriority::Low;
+
+        let mut int_b = make_intention(id, test_member_id());
+        int_b.priority = IntentionPriority::High;
+
+        let mut doc_a = IntentionDocument::new();
+        let mut doc_b = IntentionDocument::new();
+        doc_a.add(int_a);
+        doc_b.add(int_b);
+
+        doc_a.merge(doc_b);
+        assert_eq!(doc_a.find(&id).unwrap().priority, IntentionPriority::High);
     }
 }

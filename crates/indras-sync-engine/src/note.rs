@@ -279,6 +279,7 @@ impl NoteDocument {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use indras_network::document::DocumentSchema;
 
     fn test_member_id() -> MemberId {
         [1u8; 32]
@@ -475,5 +476,81 @@ mod tests {
         let doc = NoteDocument::default();
         assert!(doc.is_empty());
         assert_eq!(doc.len(), 0);
+    }
+
+    // ---- CRDT merge tests ----
+
+    #[test]
+    fn merge_lww_per_note_id() {
+        let mut doc_a = NoteDocument::new();
+        let mut doc_b = NoteDocument::new();
+
+        let id: NoteId = [42u8; 16];
+        let note_a = Note {
+            id,
+            title: "Old".into(),
+            content: "old content".into(),
+            author: test_member_id(),
+            tags: vec![],
+            created_at_millis: 100,
+            updated_at_millis: 100,
+            deleted: false,
+        };
+        let note_b = Note {
+            id,
+            title: "New".into(),
+            content: "new content".into(),
+            author: test_member_id(),
+            tags: vec![],
+            created_at_millis: 100,
+            updated_at_millis: 200,
+            deleted: false,
+        };
+
+        doc_a.add(note_a);
+        doc_b.add(note_b);
+
+        doc_a.merge(doc_b);
+        assert_eq!(doc_a.notes.len(), 1);
+        assert_eq!(doc_a.notes[0].title, "New");
+        assert_eq!(doc_a.notes[0].content, "new content");
+    }
+
+    #[test]
+    fn merge_deleted_tombstone() {
+        let mut doc_a = NoteDocument::new();
+        let mut doc_b = NoteDocument::new();
+
+        let id: NoteId = [43u8; 16];
+        let note_a = Note {
+            id,
+            title: "Alive".into(),
+            content: "still here".into(),
+            author: test_member_id(),
+            tags: vec![],
+            created_at_millis: 100,
+            updated_at_millis: 100,
+            deleted: false,
+        };
+        let note_b = Note {
+            id,
+            title: "Alive".into(),
+            content: "still here".into(),
+            author: test_member_id(),
+            tags: vec![],
+            created_at_millis: 100,
+            updated_at_millis: 200,
+            deleted: true,
+        };
+
+        doc_a.add(note_a);
+        doc_b.add(note_b);
+
+        doc_a.merge(doc_b);
+        // The note should still be in the vec but marked deleted
+        assert_eq!(doc_a.notes.len(), 1);
+        assert!(doc_a.notes[0].deleted);
+        // find() excludes deleted notes
+        assert!(doc_a.find(&id).is_none());
     }
 }
