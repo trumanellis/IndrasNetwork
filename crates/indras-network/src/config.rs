@@ -5,6 +5,7 @@
 
 use indras_node::NodeConfig;
 use std::path::PathBuf;
+use std::time::Duration;
 
 /// Preset configurations for common use cases.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -82,6 +83,10 @@ pub struct NetworkConfig {
     /// When true, peers can only connect via local network gossip.
     /// Eliminates warnings about failed DNS resolution when offline.
     pub local_only: bool,
+    /// How often to poll contacts for peer changes (default 2s).
+    pub poll_interval: Duration,
+    /// How often to save the world view snapshot (default 30s).
+    pub save_interval: Duration,
     /// Underlying node configuration.
     pub(crate) node_config: Option<NodeConfig>,
 }
@@ -99,6 +104,8 @@ impl Default for NetworkConfig {
             passphrase: None,
             pass_story: None,
             local_only: true,
+            poll_interval: Duration::from_secs(2),
+            save_interval: Duration::from_secs(30),
             node_config: None,
         }
     }
@@ -213,6 +220,18 @@ impl NetworkBuilder {
     /// connectivity is unavailable or unneeded.
     pub fn local_only(mut self) -> Self {
         self.config.local_only = true;
+        self
+    }
+
+    /// Set how often to poll contacts for peer changes (default 2s).
+    pub fn poll_interval(mut self, interval: Duration) -> Self {
+        self.config.poll_interval = interval;
+        self
+    }
+
+    /// Set how often to save the world view snapshot (default 30s).
+    pub fn save_interval(mut self, interval: Duration) -> Self {
+        self.config.save_interval = interval;
         self
     }
 

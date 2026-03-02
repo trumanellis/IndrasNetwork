@@ -73,7 +73,7 @@ impl SyncEngine {
         let mut view = SentimentView::default();
 
         // Collect direct sentiment from our contacts
-        let doc = contacts.contacts_with_sentiment();
+        let doc = contacts.contacts_with_sentiment().await;
         for (contact_id, _sentiment) in &doc {
             if contact_id == about {
                 continue;

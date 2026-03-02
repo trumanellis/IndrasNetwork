@@ -121,10 +121,8 @@ pub fn App() -> Element {
                             .take(8)
                             .map(|b| format!("{:02x}", b))
                             .collect::<String>();
-                        let name = net.display_name().unwrap_or("").to_string();
+                        let name = net.display_name().unwrap_or_default();
                         log_event(&mut state, EventDirection::System, format!("Identity loaded: {} ({})", name, id_short));
-
-                        let net = Arc::new(net);
 
                         // Start the network (enables inbox listener for incoming connections)
                         log_event(&mut state, EventDirection::System, "Starting network...");
@@ -531,10 +529,8 @@ pub async fn create_identity_and_load(
                 .take(8)
                 .map(|b| format!("{:02x}", b))
                 .collect::<String>();
-            let display = net.display_name().unwrap_or("").to_string();
+            let display = net.display_name().unwrap_or_default();
             log_event(state, EventDirection::System, format!("Identity created: {} ({})", display, id_short));
-
-            let net = Arc::new(net);
 
             // Start the network (enables inbox listener for incoming connections)
             log_event(state, EventDirection::System, "Starting network...");

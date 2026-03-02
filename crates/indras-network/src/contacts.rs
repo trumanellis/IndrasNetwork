@@ -187,7 +187,8 @@ impl ContactsDocument {
 ///
 /// contacts.add_contact(friend_id).await?;
 ///
-/// for contact in contacts.contacts_list() {
+/// // List all contacts
+/// for contact in contacts.contacts_list().await {
 ///     println!("Contact: {:?}", contact);
 /// }
 /// ```
@@ -272,22 +273,12 @@ impl ContactsRealm {
     }
 
     /// Get the list of contacts.
-    pub fn contacts_list(&self) -> Vec<MemberId> {
-        self.document.read_blocking().list()
-    }
-
-    /// Get the list of contacts (async-safe).
-    pub async fn contacts_list_async(&self) -> Vec<MemberId> {
+    pub async fn contacts_list(&self) -> Vec<MemberId> {
         self.document.read().await.list()
     }
 
     /// Get the number of contacts.
-    pub fn contact_count(&self) -> usize {
-        self.document.read_blocking().len()
-    }
-
-    /// Get the number of contacts (async-safe).
-    pub async fn contact_count_async(&self) -> usize {
+    pub async fn contact_count(&self) -> usize {
         self.document.read().await.len()
     }
 
@@ -309,18 +300,13 @@ impl ContactsRealm {
     }
 
     /// Get sentiment for a contact.
-    pub fn get_sentiment(&self, member_id: &MemberId) -> Option<i8> {
-        self.document.read_blocking().get_sentiment(member_id)
-    }
-
-    /// Get sentiment for a contact (async-safe).
-    pub async fn get_sentiment_async(&self, member_id: &MemberId) -> Option<i8> {
+    pub async fn get_sentiment(&self, member_id: &MemberId) -> Option<i8> {
         self.document.read().await.get_sentiment(member_id)
     }
 
     /// Get the full contact entry for a member.
-    pub fn get_contact_entry(&self, member_id: &MemberId) -> Option<ContactEntry> {
-        self.document.read_blocking().get_entry(member_id).cloned()
+    pub async fn get_contact_entry(&self, member_id: &MemberId) -> Option<ContactEntry> {
+        self.document.read().await.get_entry(member_id).cloned()
     }
 
     /// Set whether sentiment for a contact is relayable to second-degree contacts.
@@ -341,13 +327,13 @@ impl ContactsRealm {
     }
 
     /// Get all contacts with their sentiment values.
-    pub fn contacts_with_sentiment(&self) -> Vec<(MemberId, i8)> {
-        self.document.read_blocking().contacts_with_sentiment()
+    pub async fn contacts_with_sentiment(&self) -> Vec<(MemberId, i8)> {
+        self.document.read().await.contacts_with_sentiment()
     }
 
     /// Get relayable sentiments only (for publishing to second-degree contacts).
-    pub fn relayable_sentiments(&self) -> Vec<(MemberId, i8)> {
-        self.document.read_blocking().relayable_sentiments()
+    pub async fn relayable_sentiments(&self) -> Vec<(MemberId, i8)> {
+        self.document.read().await.relayable_sentiments()
     }
 
     /// Confirm a contact (transition from Pending to Confirmed).
@@ -371,12 +357,7 @@ impl ContactsRealm {
     }
 
     /// Get the connection status for a contact.
-    pub fn get_status(&self, member_id: &MemberId) -> Option<ContactStatus> {
-        self.document.read_blocking().get_status(member_id)
-    }
-
-    /// Get the connection status for a contact (async-safe).
-    pub async fn get_status_async(&self, member_id: &MemberId) -> Option<ContactStatus> {
+    pub async fn get_status(&self, member_id: &MemberId) -> Option<ContactStatus> {
         self.document.read().await.get_status(member_id)
     }
 
@@ -393,8 +374,9 @@ impl Clone for ContactsRealm {
 
 impl std::fmt::Debug for ContactsRealm {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let id_hex: String = self.self_id[..8].iter().map(|b| format!("{:02x}", b)).collect();
         f.debug_struct("ContactsRealm")
-            .field("contact_count", &self.contact_count())
+            .field("self_id", &id_hex)
             .finish()
     }
 }

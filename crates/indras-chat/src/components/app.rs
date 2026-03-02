@@ -3,8 +3,8 @@
 use std::sync::Arc;
 use dioxus::prelude::*;
 use crate::state::{AppPhase, ChatContext, ConversationSummary};
-use crate::bridge::{self, NetworkHandle};
-use indras_network::IndrasNetwork;
+use crate::bridge;
+use indras_network::{IndrasNetwork, PeerEvent};
 
 /// Root application component.
 #[component]
@@ -22,8 +22,8 @@ pub fn App() -> Element {
             } else {
                 spawn(async move {
                     match bridge::load_identity().await {
-                        Ok(handle) => {
-                            phase.set(AppPhase::Running(Arc::new(handle)));
+                        Ok(network) => {
+                            phase.set(AppPhase::Running(network));
                         }
                         Err(e) => {
                             error.set(Some(e));
@@ -51,8 +51,8 @@ pub fn App() -> Element {
                     error.set(None);
                     spawn(async move {
                         match bridge::create_identity(&name, slots).await {
-                            Ok(handle) => {
-                                phase.set(AppPhase::Running(Arc::new(handle)));
+                            Ok(network) => {
+                                phase.set(AppPhase::Running(network));
                             }
                             Err(e) => {
                                 error.set(Some(e));
@@ -65,52 +65,9 @@ pub fn App() -> Element {
                 loading: *loading.read(),
             }
         },
-        AppPhase::Running(handle) => rsx! {
-            MainLayout { handle }
+        AppPhase::Running(network) => rsx! {
+            MainLayout { network: NetworkArc(network) }
         },
-    }
-}
-
-/// Main chat layout with shared context.
-#[component]
-fn MainLayout(handle: Arc<NetworkHandle>) -> Element {
-    // Provide shared chat context
-    let mut ctx = use_context_provider(|| ChatContext {
-        handle: Signal::new(handle.clone()),
-        active_chat: Signal::new(None),
-        conversations: Signal::new(Vec::new()),
-        show_add_contact: Signal::new(false),
-        typing_peers: Signal::new(Vec::new()),
-        system_events: Signal::new(std::collections::HashMap::new()),
-    });
-
-    // Spawn background task to populate conversations
-    let net = handle.clone();
-    use_effect(move || {
-        let net = net.clone();
-        spawn(async move {
-            refresh_conversations(&net, ctx.conversations).await;
-        });
-    });
-
-    rsx! {
-        div { class: "main-layout",
-            super::sidebar::Sidebar {}
-            super::chat_view::ChatView {}
-
-            if *ctx.show_add_contact.read() {
-                super::contact_add::ContactAdd {
-                    on_close: move |_| {
-                        ctx.show_add_contact.set(false);
-                        // Refresh conversations after adding contact
-                        let net = ctx.handle.read().clone();
-                        spawn(async move {
-                            refresh_conversations(&net, ctx.conversations).await;
-                        });
-                    },
-                }
-            }
-        }
     }
 }
 
@@ -125,29 +82,61 @@ impl PartialEq for NetworkArc {
     }
 }
 
-/// Embeddable chat layout for use in other apps (e.g., indras-workspace).
-/// Accepts a raw IndrasNetwork instance — no identity/setup flow.
+// Keep backward-compatible alias for indras-workspace embedding
+pub type PeeringArc = NetworkArc;
+
+/// Main chat layout with shared context (standalone mode — owns shutdown).
 #[component]
-pub fn ChatLayout(network: NetworkArc) -> Element {
+fn MainLayout(network: NetworkArc) -> Element {
     let network = network.0;
-    let handle = Arc::new(NetworkHandle { network });
 
     // Provide shared chat context
-    let ctx = use_context_provider(|| ChatContext {
-        handle: Signal::new(handle.clone()),
+    let mut ctx = use_context_provider(|| ChatContext {
+        runtime: Signal::new(network.clone()),
         active_chat: Signal::new(None),
         conversations: Signal::new(Vec::new()),
+        peers: Signal::new(Vec::new()),
         show_add_contact: Signal::new(false),
         typing_peers: Signal::new(Vec::new()),
         system_events: Signal::new(std::collections::HashMap::new()),
     });
 
-    // Spawn background task to populate conversations
-    let net = handle.clone();
+    // Spawn event consumer loop driven by IndrasNetwork peer events
+    let net = network.clone();
     use_effect(move || {
         let net = net.clone();
         spawn(async move {
+            // Initial conversation refresh
             refresh_conversations(&net, ctx.conversations).await;
+
+            // Atomically subscribe + snapshot to avoid race
+            let (mut rx, initial_peers) = net.peer_events_with_snapshot();
+            if !initial_peers.is_empty() {
+                ctx.peers.set(initial_peers);
+            }
+            loop {
+                match rx.recv().await {
+                    Ok(event) => match event {
+                        PeerEvent::PeersChanged { peers } => {
+                            ctx.peers.set(peers);
+                        }
+                        PeerEvent::ConversationOpened { .. } => {
+                            refresh_conversations(&net, ctx.conversations).await;
+                        }
+                        PeerEvent::PeerConnected { .. } | PeerEvent::PeerDisconnected { .. } => {
+                            // Peer list changes are handled by PeersChanged
+                        }
+                        PeerEvent::NetworkEvent(_) => {
+                            // Could trigger conversation refresh for new messages
+                        }
+                        _ => {}
+                    },
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::warn!(skipped = n, "event consumer lagged");
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
         });
     });
 
@@ -155,19 +144,101 @@ pub fn ChatLayout(network: NetworkArc) -> Element {
         div { class: "main-layout",
             super::sidebar::Sidebar {}
             super::chat_view::ChatView {}
+
+            if *ctx.show_add_contact.read() {
+                super::contact_add::ContactAdd {
+                    on_close: move |_| {
+                        ctx.show_add_contact.set(false);
+                        // Refresh conversations after adding contact
+                        let net = ctx.runtime.read().clone();
+                        spawn(async move {
+                            refresh_conversations(&net, ctx.conversations).await;
+                        });
+                    },
+                }
+            }
+        }
+    }
+}
+
+/// Embeddable chat layout for use in other apps (e.g., indras-workspace).
+/// Accepts an `IndrasNetwork` instance — no identity/setup flow.
+#[component]
+pub fn ChatLayout(runtime: NetworkArc) -> Element {
+    let network = runtime.0;
+
+    // Provide shared chat context
+    let mut ctx = use_context_provider(|| ChatContext {
+        runtime: Signal::new(network.clone()),
+        active_chat: Signal::new(None),
+        conversations: Signal::new(Vec::new()),
+        peers: Signal::new(Vec::new()),
+        show_add_contact: Signal::new(false),
+        typing_peers: Signal::new(Vec::new()),
+        system_events: Signal::new(std::collections::HashMap::new()),
+    });
+
+    // Spawn event consumer loop
+    let net = network.clone();
+    use_effect(move || {
+        let net = net.clone();
+        spawn(async move {
+            refresh_conversations(&net, ctx.conversations).await;
+
+            // Atomically subscribe + snapshot to avoid race
+            let (mut rx, initial_peers) = net.peer_events_with_snapshot();
+            if !initial_peers.is_empty() {
+                ctx.peers.set(initial_peers);
+            }
+            loop {
+                match rx.recv().await {
+                    Ok(event) => match event {
+                        PeerEvent::PeersChanged { peers } => {
+                            ctx.peers.set(peers);
+                        }
+                        PeerEvent::ConversationOpened { .. } => {
+                            refresh_conversations(&net, ctx.conversations).await;
+                        }
+                        _ => {}
+                    },
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::warn!(skipped = n, "event consumer lagged");
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        });
+    });
+
+    rsx! {
+        div { class: "main-layout",
+            super::sidebar::Sidebar {}
+            super::chat_view::ChatView {}
+
+            if *ctx.show_add_contact.read() {
+                super::contact_add::ContactAdd {
+                    on_close: move |_| {
+                        ctx.show_add_contact.set(false);
+                        let net = ctx.runtime.read().clone();
+                        spawn(async move {
+                            refresh_conversations(&net, ctx.conversations).await;
+                        });
+                    },
+                }
+            }
         }
     }
 }
 
 /// Refresh the conversation list from network realms.
 async fn refresh_conversations(
-    handle: &NetworkHandle,
+    network: &IndrasNetwork,
     mut conversations: Signal<Vec<ConversationSummary>>,
 ) {
-    let realm_ids = handle.network.conversation_realms();
+    let realm_ids = network.conversation_realms();
 
     // Pre-load contacts data (async) for DM name resolution
-    let contacts_data = if let Some(contacts) = handle.network.contacts_realm().await {
+    let contacts_data = if let Some(contacts) = network.contacts_realm().await {
         if let Ok(doc) = contacts.contacts().await {
             Some(doc.read().await.clone())
         } else {
@@ -180,12 +251,12 @@ async fn refresh_conversations(
     let mut convos = Vec::new();
 
     for realm_id in realm_ids {
-        if let Some(realm) = handle.network.get_realm_by_id(&realm_id) {
+        if let Some(realm) = network.get_realm_by_id(&realm_id) {
             let raw_name = realm.name().map(|s| s.to_string());
 
             // Resolve DM display names from contacts
             let display_name = if raw_name.as_deref() == Some("DM") {
-                handle.network.dm_peer_for_realm(&realm_id)
+                network.dm_peer_for_realm(&realm_id)
                     .and_then(|peer_id| {
                         contacts_data.as_ref()
                             .and_then(|data| data.get_display_name(&peer_id).map(|s| s.to_string()))

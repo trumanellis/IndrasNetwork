@@ -2,7 +2,8 @@
 
 use dioxus::prelude::*;
 use futures::StreamExt;
-use indras_network::RealmId;
+use indras_network::{Content, RealmId};
+use indras_network::chat_message::{TYPING_EXTENSION_TYPE, TypingIndicator};
 use crate::state::{ChatContext, SystemEventSnapshot};
 use super::message_bubble::DeliveryStatus;
 
@@ -60,23 +61,23 @@ pub fn ChatView() -> Element {
 #[component]
 fn ActiveChat(realm_id: RealmId) -> Element {
     let ctx = use_context::<ChatContext>();
-    let handle = ctx.handle.read().clone();
+    let runtime = ctx.runtime.read().clone();
     let mut timeline = use_signal(Vec::<TimelineEntry>::new);
     let mut chat_name = use_signal(|| "Chat".to_string());
     let mut send_error = use_signal(|| None::<String>);
 
     // Hex-encode our own identity for "is_mine" detection.
     // MemberId is [u8; 32] via indras_artifacts::PlayerId (Deref to [u8; 32]).
-    let my_id = hex::encode(handle.network.id().as_ref());
+    let my_id = hex::encode(runtime.id().as_ref());
     let my_id_for_effect = my_id.clone();
 
     // Load messages and subscribe to changes whenever realm_id changes.
     use_effect(move || {
-        let handle = handle.clone();
+        let runtime = runtime.clone();
         let _my_id_inner = my_id_for_effect.clone();
 
         spawn(async move {
-            let realm = match handle.network.get_realm_by_id(&realm_id) {
+            let realm = match runtime.get_realm_by_id(&realm_id) {
                 Some(r) => r,
                 None => return,
             };
@@ -124,10 +125,10 @@ fn ActiveChat(realm_id: RealmId) -> Element {
 
     // Listen for system events (transport, gossip, sync)
     use_effect(move || {
-        let handle = ctx.handle.read().clone();
+        let runtime = ctx.runtime.read().clone();
         let mut sys_events = ctx.system_events;
         spawn(async move {
-            let realm = match handle.network.get_realm_by_id(&realm_id) {
+            let realm = match runtime.get_realm_by_id(&realm_id) {
                 Some(r) => r,
                 None => return,
             };
@@ -201,7 +202,7 @@ fn ActiveChat(realm_id: RealmId) -> Element {
                             }
                             TimelineEntry::Message(msg) => {
                                 let is_mine = msg.author == my_id_display
-                                    || ctx.handle.read().network.display_name()
+                                    || ctx.runtime.read().display_name()
                                         .is_some_and(|n| n == msg.author);
                                 let status = if is_mine {
                                     DeliveryStatus::Sent
@@ -250,25 +251,41 @@ fn ActiveChat(realm_id: RealmId) -> Element {
             // Message input
             super::message_input::MessageInput {
                 on_send: move |text: String| {
-                    let handle = ctx.handle.read().clone();
+                    let runtime = ctx.runtime.read().clone();
                     send_error.set(None);
                     spawn(async move {
-                        let realm = match handle.network.get_realm_by_id(&realm_id) {
+                        let realm = match runtime.get_realm_by_id(&realm_id) {
                             Some(r) => r,
                             None => {
                                 send_error.set(Some("Realm not found".to_string()));
                                 return;
                             }
                         };
-                        let author = handle.network.display_name()
-                            .unwrap_or("Anonymous")
-                            .to_string();
+                        let author = runtime.display_name()
+                            .unwrap_or_else(|| "Anonymous".to_string());
                         if let Err(e) = realm.chat_send(&author, text).await {
                             send_error.set(Some(format!("Send failed: {}", e)));
                         }
                     });
                 },
-                on_typing: move |_: ()| {},
+                on_typing: move |_: ()| {
+                    let runtime = ctx.runtime.read().clone();
+                    spawn(async move {
+                        let realm = match runtime.get_realm_by_id(&realm_id) {
+                            Some(r) => r,
+                            None => return,
+                        };
+                        let indicator = TypingIndicator {
+                            is_typing: true,
+                            realm_id: format!("{:?}", realm_id),
+                        };
+                        let payload = serde_json::to_vec(&indicator).unwrap_or_default();
+                        let _ = realm.send(Content::Extension {
+                            type_id: TYPING_EXTENSION_TYPE.to_string(),
+                            payload,
+                        }).await;
+                    });
+                },
             }
         }
     }

@@ -32,6 +32,7 @@ use indras_ui::{
 };
 use indras_ui::PeerDisplayInfo as UiPeerDisplayInfo;
 use indras_network::{ArtifactStatus, GeoLocation, HomeArtifactEntry, IdentityCode, IndrasNetwork, HomeRealm, Realm, EditableChatMessage, EditableMessageType, AccessMode};
+use indras_network::{PeerEvent, PeerInfo};
 use indras_ui::artifact_display::{ArtifactDisplayInfo, ArtifactDisplayStatus};
 
 #[cfg(feature = "lua-scripting")]
@@ -178,6 +179,25 @@ async fn rebuild_sidebar_from_index(
     }
 }
 
+/// Color classes for peer display dots, cycling through the available palette.
+const PEER_COLORS: &[&str] = &[
+    "peer-dot-sage", "peer-dot-zeph", "peer-dot-rose",
+];
+
+/// Convert peering runtime [`PeerInfo`] into workspace [`PeerDisplayInfo`].
+fn build_peer_display_entries(peers: &[PeerInfo]) -> Vec<PeerDisplayInfo> {
+    peers.iter().enumerate().map(|(i, p)| {
+        let letter = p.display_name.chars().next().unwrap_or('?').to_string();
+        PeerDisplayInfo {
+            name: p.display_name.clone(),
+            letter,
+            color_class: PEER_COLORS[i % PEER_COLORS.len()].to_string(),
+            online: true,
+            player_id: p.member_id,
+        }
+    }).collect()
+}
+
 /// Root application component.
 #[component]
 pub fn RootApp() -> Element {
@@ -189,6 +209,7 @@ pub fn RootApp() -> Element {
     let preview_file = use_signal(|| None::<PreviewFile>);
     let preview_view_mode = use_signal(|| PreviewViewMode::Rendered);
     let mut network_handle = use_signal(|| None::<NetworkHandle>);
+    let mut peering_started = use_signal(|| false);
     let mut setup_error = use_signal(|| None::<String>);
     let mut setup_loading = use_signal(|| false);
     let mut pass_story_open = use_signal(|| false);
@@ -253,25 +274,23 @@ pub fn RootApp() -> Element {
         });
     }
 
-    // Save world view and stop network on shutdown
+    // Gracefully stop the network (cancels peering tasks, saves world view,
+    // stops transport).
     let network_for_cleanup = network_handle;
     use_drop(move || {
-        if let Some(nh) = network_for_cleanup.read().as_ref() {
-            let net = nh.network.clone();
-            std::thread::spawn(move || {
-                let rt = tokio::runtime::Runtime::new().unwrap();
-                rt.block_on(async {
-                    if let Err(e) = net.save_world_view().await {
-                        tracing::error!(error = %e, "Failed to save world view on shutdown");
-                    }
-                    if let Err(e) = net.stop().await {
+        let nh = network_for_cleanup.read().clone();
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                if let Some(nh) = nh {
+                    if let Err(e) = nh.network.stop().await {
                         tracing::error!(error = %e, "Failed to stop network on shutdown");
                     }
-                });
-            })
-            .join()
-            .ok();
-        }
+                }
+            });
+        })
+        .join()
+        .ok();
     });
 
     // Memo wrappers for ReadSignal props
@@ -310,7 +329,7 @@ pub fn RootApp() -> Element {
                 match load_identity().await {
                     Ok(nh) => {
                         let player_name = nh.network.display_name()
-                            .unwrap_or("Unknown").to_string();
+                            .unwrap_or_else(|| "Unknown".to_string());
                         let player_id = nh.network.id();
 
                         let now = chrono::Utc::now().timestamp_millis();
@@ -338,10 +357,10 @@ pub fn RootApp() -> Element {
                                     log_event(&mut workspace.write(), EventDirection::System, "Network started \u{2014} listening for connections".to_string());
                                 }
 
-                                // Join contacts realm so inbox listener can store contacts
-                                if let Err(e) = net.join_contacts_realm().await {
-                                    tracing::warn!(error = %e, "Failed to join contacts realm (non-fatal)");
-                                }
+                                // Peering is now integrated into network.start() —
+                                // no separate PeeringRuntime needed.
+                                peering_started.set(true);
+                                log_event(&mut workspace.write(), EventDirection::System, "Peering started".to_string());
 
                                 // Initialize home realm for persistent artifact storage
                                 match net.home_realm().await {
@@ -393,23 +412,164 @@ pub fn RootApp() -> Element {
         });
     });
 
-    // Poll contacts realm every 2 seconds to detect new connections
-    let peer_colors = [
-        "peer-dot-sage", "peer-dot-zeph", "peer-dot-rose",
-        "peer-dot-sage", "peer-dot-zeph", "peer-dot-rose",
-    ];
+    // Subscribe to PeerEvent stream from IndrasNetwork (single source of truth
+    // for contact polling, network events, and world-view saves).
     use_effect(move || {
         spawn(async move {
-            let mut tick: u64 = 0;
+            // Wait for network + peering to be available
+            loop {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                if *peering_started.read() && network_handle.read().is_some() { break; }
+            }
+            let nh = network_handle.read().clone().unwrap();
+            let net = &nh.network;
+
+            // Atomically subscribe + snapshot to avoid the race where peers
+            // connect between subscribe() and peers().
+            let (mut rx, initial_peers) = net.peer_events_with_snapshot();
+            if !initial_peers.is_empty() {
+                let entries = build_peer_display_entries(&initial_peers);
+                workspace.write().peers.entries = entries;
+            }
+
+            loop {
+                match rx.recv().await {
+                    Ok(PeerEvent::PeersChanged { ref peers }) => {
+                        let entries = build_peer_display_entries(peers);
+                        workspace.write().peers.entries = entries;
+                    }
+                    Ok(PeerEvent::PeerConnected { peer }) => {
+                        log_event(&mut workspace.write(), EventDirection::Received,
+                            format!("Contact confirmed: {}", peer.display_name));
+
+                        // Workspace-specific: create vault Contact tree + rebuild sidebar
+                        let vh = vault_handle.read().clone();
+                        if let Some(vh) = vh {
+                            let mut vault = vh.vault.lock().await;
+                            let now = chrono::Utc::now().timestamp_millis();
+                            let root_id = vault.root.id.clone();
+
+                            // Check if Contact tree already exists for this peer
+                            let existing_contact = if let Ok(Some(root_art)) = vault.get_artifact(&root_id) {
+                                root_art.references.iter().find_map(|aref| {
+                                    if aref.label.as_deref() == Some(&peer.display_name) {
+                                        if let Ok(Some(t)) = vault.get_artifact(&aref.artifact_id) {
+                                            if t.artifact_type == "contact" {
+                                                return Some((aref.artifact_id.clone(), t.references.len() as u64));
+                                            }
+                                        }
+                                    }
+                                    None
+                                })
+                            } else {
+                                None
+                            };
+
+                            let mut sidebar_needs_rebuild = false;
+                            let contact_id_and_pos = if let Some(info) = existing_contact {
+                                Some(info)
+                            } else {
+                                // Create Contact tree (receiving side)
+                                let audience = vec![vh.player_id, peer.member_id];
+                                if let Ok(contact_tree) = vault.place_tree("contact", audience, now) {
+                                    let ct_id = contact_tree.id.clone();
+                                    let position = if let Ok(Some(root_art)) = vault.get_artifact(&root_id) {
+                                        root_art.references.len() as u64
+                                    } else {
+                                        0
+                                    };
+                                    let _ = vault.compose(&root_id, ct_id.clone(), position, Some(peer.display_name.clone()));
+                                    sidebar_needs_rebuild = true;
+                                    Some((ct_id, 0))
+                                } else {
+                                    None
+                                }
+                            };
+
+                            // Add "Connection confirmed" event leaf
+                            if let Some((contact_id, pos)) = contact_id_and_pos {
+                                if let Ok(event_leaf) = vault.place_leaf(b"Connection confirmed", String::new(), None, "message", now) {
+                                    let _ = vault.compose(
+                                        &contact_id,
+                                        event_leaf.id,
+                                        pos,
+                                        Some("msg:System".to_string()),
+                                    );
+                                }
+                            }
+
+                            // Store contact in ArtifactIndex and rebuild sidebar
+                            if sidebar_needs_rebuild {
+                                let contact_art_id = vault.get_artifact(&vault.root.id)
+                                    .ok().flatten()
+                                    .and_then(|root| root.references.last().map(|r| r.artifact_id));
+                                drop(vault);
+
+                                if let Some(contact_art_id) = contact_art_id {
+                                    if let Some(home) = home_realm_handle.read().as_ref().cloned() {
+                                        if let Ok(doc) = home.artifact_index().await {
+                                            let index_entry = HomeArtifactEntry {
+                                                id: contact_art_id,
+                                                name: peer.display_name.clone(),
+                                                mime_type: None,
+                                                size: 0,
+                                                created_at: now,
+                                                encrypted_key: None,
+                                                status: ArtifactStatus::Active,
+                                                grants: vec![],
+                                                provenance: None,
+                                                location: None,
+                                            };
+                                            let _ = doc.update(|index| { index.store(index_entry); }).await;
+                                        }
+                                        let net = network_handle.read().as_ref().map(|nh| nh.network.clone());
+                                        if let Some(net) = net {
+                                            rebuild_sidebar_from_index(&home, &net, workspace, realm_map).await;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        #[cfg(feature = "lua-scripting")]
+                        if let Some(ref tx) = *lua_event_tx.read() {
+                            let _ = tx.send(AppEvent::PeerConnected(peer.display_name.clone()));
+                        }
+                    }
+                    Ok(PeerEvent::NetworkEvent(ge)) => {
+                        // Format and log to event log (replaces manual net.events() subscription)
+                        let description = format!("{:?}", ge.event.event);
+                        let event_type = description.split_once('{')
+                            .or_else(|| description.split_once('('))
+                            .map(|(prefix, _)| prefix.trim())
+                            .unwrap_or(&description);
+                        let realm_short = format!("{}", ge.realm_id);
+                        let msg = format!("[{}] {}", &realm_short[..8.min(realm_short.len())], event_type);
+                        log_event(&mut workspace.write(), EventDirection::Received, msg);
+                    }
+                    Ok(PeerEvent::PeerBlocked { ref member_id, .. }) => {
+                        let short: String = member_id.iter().take(4).map(|b| format!("{b:02x}")).collect();
+                        log_event(&mut workspace.write(), EventDirection::System,
+                            format!("Contact blocked: {}", short));
+                    }
+                    Ok(_) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::warn!("Peering event lag: skipped {n} events");
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        });
+    });
+
+    // Check DM chats for incoming realm invites (workspace-specific, every ~10s)
+    use_effect(move || {
+        spawn(async move {
             let mut processed_invites = std::collections::HashSet::<String>::new();
             let mut dm_realms: std::collections::HashMap<[u8; 32], indras_network::Realm> = std::collections::HashMap::new();
             loop {
-                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-
-                // Only poll when in Workspace phase
-                if workspace.read().phase != AppPhase::Workspace {
-                    continue;
-                }
+                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                if workspace.read().phase != AppPhase::Workspace { continue; }
 
                 let net = {
                     let guard = network_handle.read();
@@ -417,202 +577,65 @@ pub fn RootApp() -> Element {
                 };
                 let Some(net) = net else { continue; };
 
-                if let Some(contacts_realm) = net.contacts_realm().await {
-                    if let Ok(doc) = contacts_realm.contacts().await {
-                        let data = doc.read().await;
-                        let current_count = workspace.read().peers.entries.len();
-                        let new_count = data.contacts.len();
+                let peers_snapshot = workspace.read().peers.entries.clone();
+                let my_name = vault_handle.read().as_ref().map(|vh| vh.player_name.clone()).unwrap_or_default();
+                let mut any_joined = false;
+                for peer_entry in &peers_snapshot {
+                    // Reuse persistent DM realm so Document listener stays alive across polls
+                    if !dm_realms.contains_key(&peer_entry.player_id) {
+                        if let Ok((r, _)) = net.connect(peer_entry.player_id).await {
+                            dm_realms.insert(peer_entry.player_id, r);
+                        }
+                    }
+                    if let Some(dm_realm) = dm_realms.get(&peer_entry.player_id) {
+                        if let Ok(chat_doc) = dm_realm.chat_doc().await {
+                            let _ = chat_doc.refresh().await;
+                            let data = chat_doc.read().await;
+                            for msg in data.visible_messages() {
+                                if msg.author == my_name { continue; }
+                                if let EditableMessageType::RealmInvite {
+                                    ref invite_code, ref name, ref description, ..
+                                } = msg.message_type {
+                                    if processed_invites.contains(&msg.id) { continue; }
+                                    processed_invites.insert(msg.id.clone());
 
-                        if new_count != current_count {
-                            let entries: Vec<PeerDisplayInfo> = data.contacts.iter().enumerate().map(|(i, (mid, entry))| {
-                                let name = entry.display_name.clone().unwrap_or_else(|| {
-                                    mid.iter().take(4).map(|b| format!("{:02x}", b)).collect()
-                                });
-                                let letter = name.chars().next().unwrap_or('?').to_string();
-                                let color = peer_colors[i % peer_colors.len()].to_string();
-                                PeerDisplayInfo {
-                                    name,
-                                    letter,
-                                    color_class: color,
-                                    online: true,
-                                    player_id: *mid,
-                                }
-                            }).collect();
+                                    if let Ok(shared_realm) = net.join(invite_code).await {
+                                        if let Some(vh) = vault_handle.read().clone() {
+                                            let mut vault = vh.vault.lock().await;
+                                            let join_now = chrono::Utc::now().timestamp_millis();
+                                            let audience = vec![vh.player_id, peer_entry.player_id];
 
-                            // Log new contacts, create Contact trees, and emit events
-                            let mut sidebar_needs_rebuild = false;
-                            for entry in &entries {
-                                let already_known = workspace.read().peers.entries.iter().any(|p| p.player_id == entry.player_id);
-                                if !already_known {
-                                    log_event(&mut workspace.write(), EventDirection::Received, format!("Contact confirmed: {}", entry.name));
+                                            if let Ok(intention) = Intention::create(&mut vault, description, audience, join_now) {
+                                                let root_id = vault.root.id.clone();
+                                                let pos = vault.get_artifact(&root_id)
+                                                    .ok().flatten()
+                                                    .map(|a| a.references.len() as u64)
+                                                    .unwrap_or(0);
+                                                let _ = vault.compose(&root_id, intention.id, pos, Some(name.clone()));
 
-                                    // Create/find Contact tree and add event leaf
-                                    let vh = vault_handle.read().clone();
-                                    if let Some(vh) = vh {
-                                        let mut vault = vh.vault.lock().await;
-                                        let now = chrono::Utc::now().timestamp_millis();
-                                        let root_id = vault.root.id.clone();
+                                                let node_id = format!("{:?}", intention.id);
+                                                drop(vault);
+                                                realm_map.write().insert(node_id, shared_realm);
+                                                any_joined = true;
 
-                                        // Check if Contact tree already exists for this peer
-                                        let existing_contact = if let Ok(Some(root_art)) = vault.get_artifact(&root_id) {
-                                            root_art.references.iter().find_map(|aref| {
-                                                if aref.label.as_deref() == Some(&entry.name) {
-                                                    if let Ok(Some(t)) = vault.get_artifact(&aref.artifact_id) {
-                                                        if t.artifact_type == "contact" {
-                                                            return Some((aref.artifact_id.clone(), t.references.len() as u64));
-                                                        }
-                                                    }
-                                                }
-                                                None
-                                            })
-                                        } else {
-                                            None
-                                        };
+                                                log_event(&mut workspace.write(), EventDirection::Received,
+                                                    format!("Joined shared Intention: {}", name));
 
-                                        let contact_id_and_pos = if let Some(info) = existing_contact {
-                                            Some(info)
-                                        } else {
-                                            // Create Contact tree (receiving side)
-                                            let audience = vec![vh.player_id, entry.player_id];
-                                            if let Ok(contact_tree) = vault.place_tree("contact", audience, now) {
-                                                let ct_id = contact_tree.id.clone();
-                                                let position = if let Ok(Some(root_art)) = vault.get_artifact(&root_id) {
-                                                    root_art.references.len() as u64
-                                                } else {
-                                                    0
-                                                };
-                                                let _ = vault.compose(&root_id, ct_id.clone(), position, Some(entry.name.clone()));
-                                                sidebar_needs_rebuild = true;
-                                                Some((ct_id, 0))
-                                            } else {
-                                                None
-                                            }
-                                        };
-
-                                        // Add "Connection confirmed" event leaf
-                                        if let Some((contact_id, pos)) = contact_id_and_pos {
-                                            if let Ok(event_leaf) = vault.place_leaf(b"Connection confirmed", String::new(), None, "message", now) {
-                                                let _ = vault.compose(
-                                                    &contact_id,
-                                                    event_leaf.id,
-                                                    pos,
-                                                    Some("msg:System".to_string()),
-                                                );
-                                            }
-                                        }
-
-                                        // Store contact in ArtifactIndex and rebuild sidebar
-                                        if sidebar_needs_rebuild {
-                                            // Get the new contact's ArtifactId from vault root's last reference
-                                            let contact_art_id = vault.get_artifact(&vault.root.id)
-                                                .ok().flatten()
-                                                .and_then(|root| root.references.last().map(|r| r.artifact_id));
-                                            drop(vault);
-
-                                            if let Some(contact_art_id) = contact_art_id {
                                                 if let Some(home) = home_realm_handle.read().as_ref().cloned() {
                                                     if let Ok(doc) = home.artifact_index().await {
-                                                        let index_entry = HomeArtifactEntry {
-                                                            id: contact_art_id,
-                                                            name: entry.name.clone(),
+                                                        let entry = HomeArtifactEntry {
+                                                            id: intention.id,
+                                                            name: name.clone(),
                                                             mime_type: None,
                                                             size: 0,
-                                                            created_at: now,
+                                                            created_at: join_now,
                                                             encrypted_key: None,
                                                             status: ArtifactStatus::Active,
                                                             grants: vec![],
                                                             provenance: None,
                                                             location: None,
                                                         };
-                                                        let _ = doc.update(|index| { index.store(index_entry); }).await;
-                                                    }
-                                                    let net = network_handle.read().as_ref().map(|nh| nh.network.clone());
-                                                    if let Some(net) = net {
-                                                        rebuild_sidebar_from_index(&home, &net, workspace, realm_map).await;
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    #[cfg(feature = "lua-scripting")]
-                                    if let Some(ref tx) = *lua_event_tx.read() {
-                                        let _ = tx.send(AppEvent::PeerConnected(entry.name.clone()));
-                                    }
-                                }
-                            }
-
-                            workspace.write().peers.entries = entries;
-                        }
-                    }
-                }
-
-                // Check DM chats for incoming realm invites (every ~10s)
-                if tick % 5 == 2 {
-                    let peers_snapshot = workspace.read().peers.entries.clone();
-                    let my_name = vault_handle.read().as_ref().map(|vh| vh.player_name.clone()).unwrap_or_default();
-                    let mut any_joined = false;
-                    for peer_entry in &peers_snapshot {
-                        // Reuse persistent DM realm so Document listener stays alive across polls
-                        if !dm_realms.contains_key(&peer_entry.player_id) {
-                            if let Ok(r) = net.connect(peer_entry.player_id).await {
-                                dm_realms.insert(peer_entry.player_id, r);
-                            }
-                        }
-                        if let Some(dm_realm) = dm_realms.get(&peer_entry.player_id) {
-                            if let Ok(chat_doc) = dm_realm.chat_doc().await {
-                                let _ = chat_doc.refresh().await;
-                                let data = chat_doc.read().await;
-                                for msg in data.visible_messages() {
-                                    if msg.author == my_name { continue; }
-                                    if let EditableMessageType::RealmInvite {
-                                        ref invite_code, ref name, ref description, ..
-                                    } = msg.message_type {
-                                        // Skip already-processed invites
-                                        if processed_invites.contains(&msg.id) { continue; }
-                                        processed_invites.insert(msg.id.clone());
-
-                                        // Join the realm
-                                        if let Ok(shared_realm) = net.join(invite_code).await {
-                                            if let Some(vh) = vault_handle.read().clone() {
-                                                let mut vault = vh.vault.lock().await;
-                                                let join_now = chrono::Utc::now().timestamp_millis();
-                                                let audience = vec![vh.player_id, peer_entry.player_id];
-
-                                                // Use Intention::create to get description leaf
-                                                if let Ok(intention) = Intention::create(&mut vault, description, audience, join_now) {
-                                                    let root_id = vault.root.id.clone();
-                                                    let pos = vault.get_artifact(&root_id)
-                                                        .ok().flatten()
-                                                        .map(|a| a.references.len() as u64)
-                                                        .unwrap_or(0);
-                                                    let _ = vault.compose(&root_id, intention.id, pos, Some(name.clone()));
-
-                                                    let node_id = format!("{:?}", intention.id);
-                                                    drop(vault);
-                                                    realm_map.write().insert(node_id, shared_realm);
-                                                    any_joined = true;
-
-                                                    log_event(&mut workspace.write(), EventDirection::Received,
-                                                        format!("Joined shared Intention: {}", name));
-
-                                                    // Store in ArtifactIndex
-                                                    if let Some(home) = home_realm_handle.read().as_ref().cloned() {
-                                                        if let Ok(doc) = home.artifact_index().await {
-                                                            let entry = HomeArtifactEntry {
-                                                                id: intention.id,
-                                                                name: name.clone(),
-                                                                mime_type: None,
-                                                                size: 0,
-                                                                created_at: join_now,
-                                                                encrypted_key: None,
-                                                                status: ArtifactStatus::Active,
-                                                                grants: vec![],
-                                                                provenance: None,
-                                                                location: None,
-                                                            };
-                                                            let _ = doc.update(|index| { index.store(entry); }).await;
-                                                        }
+                                                        let _ = doc.update(|index| { index.store(entry); }).await;
                                                     }
                                                 }
                                             }
@@ -622,58 +645,13 @@ pub fn RootApp() -> Element {
                             }
                         }
                     }
+                }
 
-                    // Rebuild sidebar once if any new intentions were joined
-                    if any_joined {
-                        if let Some(home) = home_realm_handle.read().as_ref().cloned() {
-                            rebuild_sidebar_from_index(&home, &net, workspace, realm_map).await;
-                        }
+                if any_joined {
+                    if let Some(home) = home_realm_handle.read().as_ref().cloned() {
+                        rebuild_sidebar_from_index(&home, &net, workspace, realm_map).await;
                     }
                 }
-
-                // Periodic world view save every ~30 seconds
-                if tick % 15 == 0 {
-                    if let Some(nh) = network_handle.read().as_ref() {
-                        let _ = nh.network.save_world_view().await;
-                    }
-                }
-                tick += 1;
-            }
-        });
-    });
-
-    // Subscribe to global network events and feed into event log
-    use_effect(move || {
-        spawn(async move {
-            use futures::StreamExt;
-
-            // Wait for network to be available
-            loop {
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                if workspace.read().phase == AppPhase::Workspace {
-                    break;
-                }
-            }
-
-            let net = {
-                let guard = network_handle.read();
-                guard.as_ref().map(|nh| nh.network.clone())
-            };
-            let Some(net) = net else { return; };
-
-            let mut events = std::pin::pin!(net.events());
-            while let Some(event) = events.next().await {
-                let description = format!("{:?}", event.event.event);
-                // Extract just the variant name (e.g. "Message", "MembershipChange", "Presence")
-                let event_type = description.split_once('{')
-                    .or_else(|| description.split_once('('))
-                    .map(|(prefix, _)| prefix.trim())
-                    .unwrap_or(&description);
-
-                let realm_short = format!("{}", event.realm_id);
-                let msg = format!("[{}] {}", &realm_short[..8.min(realm_short.len())], event_type);
-
-                log_event(&mut workspace.write(), EventDirection::Received, msg);
             }
         });
     });
@@ -1459,6 +1437,10 @@ pub fn RootApp() -> Element {
                     }
                 });
             }
+            NavDestination::Contacts => {
+                // Contacts are managed via the Chat view
+                workspace.write().ui.active_view = ViewType::Chat;
+            }
             NavDestination::Chat => {
                 workspace.write().ui.active_view = ViewType::Chat;
             }
@@ -1703,10 +1685,10 @@ pub fn RootApp() -> Element {
                                             log_event(&mut workspace.write(), EventDirection::System, "Network started \u{2014} listening for connections".to_string());
                                         }
 
-                                        // Join contacts realm so inbox listener can store contacts
-                                        if let Err(e) = net.join_contacts_realm().await {
-                                            tracing::warn!(error = %e, "Failed to join contacts realm (non-fatal)");
-                                        }
+                                        // Peering is now integrated into IndrasNetwork —
+                                        // no separate PeeringRuntime needed.
+                                        peering_started.set(true);
+                                        log_event(&mut workspace.write(), EventDirection::System, "Peering active".to_string());
 
                                         // Initialize home realm for persistent artifact storage
                                         match net.home_realm().await {
@@ -1782,7 +1764,7 @@ pub fn RootApp() -> Element {
                                 if let Some(nh) = network_handle.read().as_ref() {
                                     contact_invite_uri.set(nh.network.identity_uri());
                                     contact_display_name_sig.set(
-                                        nh.network.display_name().unwrap_or("Unknown").to_string()
+                                        nh.network.display_name().unwrap_or_else(|| "Unknown".to_string())
                                     );
                                     let code = nh.network.identity_code();
                                     let short = if code.len() > 14 {
@@ -1864,12 +1846,11 @@ pub fn RootApp() -> Element {
                             }
                         }
                         ViewType::Chat => {
-                            let net = network_handle.read().as_ref()
-                                .map(|nh| Arc::clone(&nh.network));
-                            if let Some(network) = net {
+                            let nh = network_handle.read().clone();
+                            if let Some(ref nh) = nh {
                                 rsx! {
                                     indras_chat::components::app::ChatLayout {
-                                        network: indras_chat::components::app::NetworkArc(network),
+                                        runtime: indras_chat::components::app::NetworkArc(Arc::clone(&nh.network)),
                                     }
                                 }
                             } else {
@@ -2316,7 +2297,7 @@ pub fn RootApp() -> Element {
 
                             tracing::info!("on_connect: connecting to {}...", peer_display);
                             match net.connect_by_code(&uri).await {
-                                Ok(realm) => {
+                                Ok((realm, _peer)) => {
                                     tracing::info!("on_connect: connection established with {}", peer_display);
                                     if let Some(key) = contact_node_key.as_ref() {
                                         realm_map.write().insert(key.clone(), realm);
@@ -2462,7 +2443,7 @@ pub fn RootApp() -> Element {
                                                         }
 
                                                         // Send realm invite via DM chat
-                                                        if let Ok(dm_realm) = net.connect(peer_id).await {
+                                                        if let Ok((dm_realm, _)) = net.connect(peer_id).await {
                                                             if let Ok(chat_doc) = dm_realm.chat_doc().await {
                                                                 let msg = EditableChatMessage::new(
                                                                     format!("realm-invite-{}", now),

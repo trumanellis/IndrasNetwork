@@ -8,6 +8,7 @@ pub enum NavDestination {
     Home,
     Artifacts,
     Contacts,
+    Chat,
     Quests,
     Settings,
 }
@@ -44,6 +45,7 @@ pub fn NavigationSidebar(
         (NavDestination::Home, "📄", "Home"),
         (NavDestination::Artifacts, "📦", "Artifacts"),
         (NavDestination::Contacts, "👤", "Contacts"),
+        (NavDestination::Chat, "💬", "Chat"),
         (NavDestination::Quests, "⚔", "Quests"),
         (NavDestination::Settings, "⚙", "Settings"),
     ];

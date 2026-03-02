@@ -8,7 +8,7 @@ use std::collections::HashMap;
 #[derive(Clone, Debug, PartialEq)]
 pub enum ViewType {
     Document,
-    Story,
+    Chat,
     Artifacts,
     Quest,
     Settings,
