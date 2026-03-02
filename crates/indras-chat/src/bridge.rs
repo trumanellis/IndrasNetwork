@@ -1,8 +1,8 @@
-//! Network bridge — connects PeeringRuntime to Dioxus signals.
+//! Network bridge — connects IndrasNetwork to Dioxus signals.
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use indras_peering::{PeeringConfig, PeeringRuntime};
+use indras_network::IndrasNetwork;
 
 /// Platform-specific data directory for identity persistence.
 pub fn default_data_dir() -> PathBuf {
@@ -36,17 +36,16 @@ pub fn default_data_dir() -> PathBuf {
 
 /// Check if this is the user's first run (no identity keys on disk).
 pub fn is_first_run() -> bool {
-    PeeringRuntime::is_first_run(default_data_dir())
+    IndrasNetwork::is_first_run(default_data_dir())
 }
 
 /// Create a new identity with display name and optional PassStory protection.
 pub async fn create_identity(
     display_name: &str,
     pass_story_slots: Option<[String; 23]>,
-) -> Result<Arc<PeeringRuntime>, String> {
+) -> Result<Arc<IndrasNetwork>, String> {
     let data_dir = default_data_dir();
     let _ = std::fs::create_dir_all(&data_dir);
-    let config = PeeringConfig::new(&data_dir);
 
     let pass_story = match pass_story_slots {
         Some(slots) => {
@@ -57,21 +56,28 @@ pub async fn create_identity(
         None => None,
     };
 
-    let runtime = PeeringRuntime::create(display_name, pass_story, config)
-        .await
-        .map_err(|e| format!("{e}"))?;
+    let mut builder = IndrasNetwork::builder()
+        .data_dir(&data_dir)
+        .display_name(display_name);
 
-    Ok(Arc::new(runtime))
+    if let Some(story) = pass_story {
+        builder = builder.pass_story(story);
+    }
+
+    let network = builder.build().await.map_err(|e| format!("{e}"))?;
+    network.start().await.map_err(|e| format!("{e}"))?;
+
+    Ok(network)
 }
 
 /// Load an existing identity (returning user).
-pub async fn load_identity() -> Result<Arc<PeeringRuntime>, String> {
+pub async fn load_identity() -> Result<Arc<IndrasNetwork>, String> {
     let data_dir = default_data_dir();
-    let config = PeeringConfig::new(&data_dir);
 
-    let runtime = PeeringRuntime::boot(config)
+    let network = IndrasNetwork::new(&data_dir)
         .await
         .map_err(|e| format!("{e}"))?;
+    network.start().await.map_err(|e| format!("{e}"))?;
 
-    Ok(Arc::new(runtime))
+    Ok(network)
 }

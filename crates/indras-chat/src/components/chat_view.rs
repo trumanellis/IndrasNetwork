@@ -52,7 +52,7 @@ fn ActiveChat(realm_id: RealmId) -> Element {
 
     // Hex-encode our own identity for "is_mine" detection.
     // MemberId is [u8; 32] via indras_artifacts::PlayerId (Deref to [u8; 32]).
-    let my_id = hex::encode(runtime.network().id().as_ref());
+    let my_id = hex::encode(runtime.id().as_ref());
     let my_id_for_effect = my_id.clone();
 
     // Load messages and subscribe to changes whenever realm_id changes.
@@ -61,7 +61,7 @@ fn ActiveChat(realm_id: RealmId) -> Element {
         let _my_id_inner = my_id_for_effect.clone();
 
         spawn(async move {
-            let realm = match runtime.network().get_realm_by_id(&realm_id) {
+            let realm = match runtime.get_realm_by_id(&realm_id) {
                 Some(r) => r,
                 None => return,
             };
@@ -101,7 +101,7 @@ fn ActiveChat(realm_id: RealmId) -> Element {
         let runtime = ctx.runtime.read().clone();
         let mut typing_peers = ctx.typing_peers;
         spawn(async move {
-            let realm = match runtime.network().get_realm_by_id(&realm_id) {
+            let realm = match runtime.get_realm_by_id(&realm_id) {
                 Some(r) => r,
                 None => return,
             };
@@ -170,7 +170,7 @@ fn ActiveChat(realm_id: RealmId) -> Element {
                 for msg in current_messages.iter() {
                     {
                         let is_mine = msg.author == my_id_display
-                            || ctx.runtime.read().network().display_name()
+                            || ctx.runtime.read().display_name()
                                 .is_some_and(|n| n == msg.author);
                         let status = if is_mine {
                             DeliveryStatus::Sent
@@ -216,16 +216,15 @@ fn ActiveChat(realm_id: RealmId) -> Element {
                     let runtime = ctx.runtime.read().clone();
                     send_error.set(None);
                     spawn(async move {
-                        let realm = match runtime.network().get_realm_by_id(&realm_id) {
+                        let realm = match runtime.get_realm_by_id(&realm_id) {
                             Some(r) => r,
                             None => {
                                 send_error.set(Some("Realm not found".to_string()));
                                 return;
                             }
                         };
-                        let author = runtime.network().display_name()
-                            .unwrap_or("Anonymous")
-                            .to_string();
+                        let author = runtime.display_name()
+                            .unwrap_or_else(|| "Anonymous".to_string());
                         if let Err(e) = realm.chat_send(&author, text).await {
                             send_error.set(Some(format!("Send failed: {}", e)));
                         }
@@ -234,7 +233,7 @@ fn ActiveChat(realm_id: RealmId) -> Element {
                 on_typing: move |_: ()| {
                     let runtime = ctx.runtime.read().clone();
                     spawn(async move {
-                        let realm = match runtime.network().get_realm_by_id(&realm_id) {
+                        let realm = match runtime.get_realm_by_id(&realm_id) {
                             Some(r) => r,
                             None => return,
                         };

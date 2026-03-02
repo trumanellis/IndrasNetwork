@@ -120,9 +120,11 @@ pub mod invite;
 pub mod member;
 pub mod message;
 pub mod network;
+pub mod peering;
 pub mod read_tracker;
 pub mod realm;
 pub mod realm_alias;
+pub mod sentiment;
 pub mod stream;
 pub(crate) mod util;
 pub mod world_view;
@@ -156,8 +158,12 @@ pub use network::{IndrasNetwork, RealmId};
 pub use read_tracker::ReadTrackerDocument;
 pub use document_registry::DocumentRegistryDocument;
 pub use network::{GlobalEvent, IdentityBackup};
+pub use peering::{PeerEvent, PeerInfo};
 pub use realm::Realm;
 pub use realm_alias::{RealmAlias, RealmAliasDocument, MAX_ALIAS_LENGTH};
+pub use sentiment::{
+    RelayedSentiment, SentimentRelayDocument, SentimentView, DEFAULT_RELAY_ATTENUATION,
+};
 pub use world_view::WorldView;
 
 // Explicit DocumentSchema impls for indras-network types.
@@ -167,6 +173,7 @@ impl_document_schema!(
     DocumentRegistryDocument,
     RealmAliasDocument,
     ArtifactIndex,
+    sentiment::SentimentRelayDocument,
 );
 
 /// Full artifact domain model re-exported from indras-artifacts.
@@ -196,10 +203,10 @@ pub use indras_artifacts::{
 pub mod prelude {
     pub use crate::{
         ArtifactDownload, ArtifactIndex, GeoLocation, HomeArtifactEntry,
-        ContactsRealm, Content, Document, DocumentSchema, EditableChatMessage, GlobalEvent,
+        Content, Document, DocumentSchema, EditableChatMessage, GlobalEvent,
         HomeRealm, IdentityBackup, IdentityCode, IndraError, IndrasNetwork, InviteCode, Member,
-        MemberEvent, MemberInfo, Message, Preset, Realm, RealmAlias, RealmAliasDocument,
-        RealmChatDocument, RealmId, Result,
+        MemberEvent, MemberInfo, Message, PeerEvent, PeerInfo, Preset, Realm, RealmAlias,
+        RealmAliasDocument, RealmChatDocument, RealmId, Result,
     };
 
     // Re-export futures StreamExt for convenient stream iteration

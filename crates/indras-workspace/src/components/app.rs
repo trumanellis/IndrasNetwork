@@ -32,7 +32,7 @@ use indras_ui::{
 };
 use indras_ui::PeerDisplayInfo as UiPeerDisplayInfo;
 use indras_network::{ArtifactStatus, GeoLocation, HomeArtifactEntry, IdentityCode, IndrasNetwork, HomeRealm, Realm, EditableChatMessage, EditableMessageType, AccessMode};
-use indras_peering::{PeerEvent, PeerInfo};
+use indras_network::{PeerEvent, PeerInfo};
 use indras_ui::artifact_display::{ArtifactDisplayInfo, ArtifactDisplayStatus};
 
 #[cfg(feature = "lua-scripting")]
@@ -209,7 +209,7 @@ pub fn RootApp() -> Element {
     let preview_file = use_signal(|| None::<PreviewFile>);
     let preview_view_mode = use_signal(|| PreviewViewMode::Rendered);
     let mut network_handle = use_signal(|| None::<NetworkHandle>);
-    let mut peering_runtime = use_signal(|| None::<std::sync::Arc<indras_peering::PeeringRuntime>>);
+    let mut peering_started = use_signal(|| false);
     let mut setup_error = use_signal(|| None::<String>);
     let mut setup_loading = use_signal(|| false);
     let mut pass_story_open = use_signal(|| false);
@@ -274,23 +274,14 @@ pub fn RootApp() -> Element {
         });
     }
 
-    // Gracefully shut down peering runtime (cancels tasks, saves world view)
-    // then stop the network.
+    // Gracefully stop the network (cancels peering tasks, saves world view,
+    // stops transport).
     let network_for_cleanup = network_handle;
-    let peering_for_cleanup = peering_runtime;
     use_drop(move || {
-        let pr = peering_for_cleanup.read().clone();
         let nh = network_for_cleanup.read().clone();
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
-                // Shutdown peering runtime first (joins tasks, saves world view)
-                if let Some(pr) = pr {
-                    if let Err(e) = pr.shutdown().await {
-                        tracing::error!(error = %e, "Failed to shutdown peering runtime");
-                    }
-                }
-                // Then stop the network
                 if let Some(nh) = nh {
                     if let Err(e) = nh.network.stop().await {
                         tracing::error!(error = %e, "Failed to stop network on shutdown");
@@ -338,7 +329,7 @@ pub fn RootApp() -> Element {
                 match load_identity().await {
                     Ok(nh) => {
                         let player_name = nh.network.display_name()
-                            .unwrap_or("Unknown").to_string();
+                            .unwrap_or_else(|| "Unknown".to_string());
                         let player_id = nh.network.id();
 
                         let now = chrono::Utc::now().timestamp_millis();
@@ -366,20 +357,10 @@ pub fn RootApp() -> Element {
                                     log_event(&mut workspace.write(), EventDirection::System, "Network started \u{2014} listening for connections".to_string());
                                 }
 
-                                // Create PeeringRuntime for the embedded chat view
-                                // (PeeringRuntime::attach joins contacts realm internally)
-                                let peering_config = indras_peering::PeeringConfig::new(
-                                    &crate::bridge::network_bridge::default_data_dir(),
-                                );
-                                match indras_peering::PeeringRuntime::attach(Arc::clone(&net), peering_config).await {
-                                    Ok(pr) => {
-                                        peering_runtime.set(Some(std::sync::Arc::new(pr)));
-                                        log_event(&mut workspace.write(), EventDirection::System, "Peering runtime attached".to_string());
-                                    }
-                                    Err(e) => {
-                                        tracing::warn!(error = %e, "Failed to attach peering runtime (non-fatal)");
-                                    }
-                                }
+                                // Peering is now integrated into network.start() —
+                                // no separate PeeringRuntime needed.
+                                peering_started.set(true);
+                                log_event(&mut workspace.write(), EventDirection::System, "Peering started".to_string());
 
                                 // Initialize home realm for persistent artifact storage
                                 match net.home_realm().await {
@@ -431,20 +412,21 @@ pub fn RootApp() -> Element {
         });
     });
 
-    // Subscribe to PeerEvent stream from PeeringRuntime (single source of truth
+    // Subscribe to PeerEvent stream from IndrasNetwork (single source of truth
     // for contact polling, network events, and world-view saves).
     use_effect(move || {
         spawn(async move {
-            // Wait for peering runtime to be available
+            // Wait for network + peering to be available
             loop {
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                if peering_runtime.read().is_some() { break; }
+                if *peering_started.read() && network_handle.read().is_some() { break; }
             }
-            let pr = peering_runtime.read().clone().unwrap();
+            let nh = network_handle.read().clone().unwrap();
+            let net = &nh.network;
 
             // Atomically subscribe + snapshot to avoid the race where peers
             // connect between subscribe() and peers().
-            let (mut rx, initial_peers) = pr.subscribe_with_snapshot();
+            let (mut rx, initial_peers) = net.peer_events_with_snapshot();
             if !initial_peers.is_empty() {
                 let entries = build_peer_display_entries(&initial_peers);
                 workspace.write().peers.entries = entries;
@@ -601,7 +583,7 @@ pub fn RootApp() -> Element {
                 for peer_entry in &peers_snapshot {
                     // Reuse persistent DM realm so Document listener stays alive across polls
                     if !dm_realms.contains_key(&peer_entry.player_id) {
-                        if let Ok(r) = net.connect(peer_entry.player_id).await {
+                        if let Ok((r, _)) = net.connect(peer_entry.player_id).await {
                             dm_realms.insert(peer_entry.player_id, r);
                         }
                     }
@@ -1699,20 +1681,10 @@ pub fn RootApp() -> Element {
                                             log_event(&mut workspace.write(), EventDirection::System, "Network started \u{2014} listening for connections".to_string());
                                         }
 
-                                        // Create PeeringRuntime for the embedded chat view
-                                        // (PeeringRuntime::attach joins contacts realm internally)
-                                        let peering_config = indras_peering::PeeringConfig::new(
-                                            &crate::bridge::network_bridge::default_data_dir(),
-                                        );
-                                        match indras_peering::PeeringRuntime::attach(Arc::clone(&net), peering_config).await {
-                                            Ok(pr) => {
-                                                peering_runtime.set(Some(std::sync::Arc::new(pr)));
-                                                log_event(&mut workspace.write(), EventDirection::System, "Peering runtime attached".to_string());
-                                            }
-                                            Err(e) => {
-                                                tracing::warn!(error = %e, "Failed to attach peering runtime (non-fatal)");
-                                            }
-                                        }
+                                        // Peering is now integrated into IndrasNetwork —
+                                        // no separate PeeringRuntime needed.
+                                        peering_started.set(true);
+                                        log_event(&mut workspace.write(), EventDirection::System, "Peering active".to_string());
 
                                         // Initialize home realm for persistent artifact storage
                                         match net.home_realm().await {
@@ -1787,7 +1759,7 @@ pub fn RootApp() -> Element {
                             if let Some(nh) = network_handle.read().as_ref() {
                                 contact_invite_uri.set(nh.network.identity_uri());
                                 contact_display_name_sig.set(
-                                    nh.network.display_name().unwrap_or("Unknown").to_string()
+                                    nh.network.display_name().unwrap_or_else(|| "Unknown".to_string())
                                 );
                                 let code = nh.network.identity_code();
                                 let short = if code.len() > 14 {
@@ -1866,11 +1838,11 @@ pub fn RootApp() -> Element {
                             }
                         }
                         ViewType::Story => {
-                            let peering = peering_runtime.read().clone();
-                            if let Some(pr) = peering {
+                            let nh = network_handle.read().clone();
+                            if let Some(ref nh) = nh {
                                 rsx! {
                                     indras_chat::components::app::ChatLayout {
-                                        runtime: indras_chat::components::app::PeeringArc(pr),
+                                        runtime: indras_chat::components::app::NetworkArc(Arc::clone(&nh.network)),
                                     }
                                 }
                             } else {
@@ -2293,7 +2265,7 @@ pub fn RootApp() -> Element {
 
                             tracing::info!("on_connect: connecting to {}...", peer_display);
                             match net.connect_by_code(&uri).await {
-                                Ok(realm) => {
+                                Ok((realm, _peer)) => {
                                     tracing::info!("on_connect: connection established with {}", peer_display);
                                     if let Some(key) = contact_node_key.as_ref() {
                                         realm_map.write().insert(key.clone(), realm);
@@ -2439,7 +2411,7 @@ pub fn RootApp() -> Element {
                                                         }
 
                                                         // Send realm invite via DM chat
-                                                        if let Ok(dm_realm) = net.connect(peer_id).await {
+                                                        if let Ok((dm_realm, _)) = net.connect(peer_id).await {
                                                             if let Ok(chat_doc) = dm_realm.chat_doc().await {
                                                                 let msg = EditableChatMessage::new(
                                                                     format!("realm-invite-{}", now),

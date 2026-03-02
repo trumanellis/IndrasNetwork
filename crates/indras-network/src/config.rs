@@ -5,6 +5,7 @@
 
 use indras_node::NodeConfig;
 use std::path::PathBuf;
+use std::time::Duration;
 
 /// Preset configurations for common use cases.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -77,6 +78,10 @@ pub struct NetworkConfig {
     /// When set, uses StoryKeystore with pass story authentication
     /// instead of passphrase-based EncryptedKeystore.
     pub pass_story: Option<indras_crypto::story_template::PassStory>,
+    /// How often to poll contacts for peer changes (default 2s).
+    pub poll_interval: Duration,
+    /// How often to save the world view snapshot (default 30s).
+    pub save_interval: Duration,
     /// Underlying node configuration.
     pub(crate) node_config: Option<NodeConfig>,
 }
@@ -93,6 +98,8 @@ impl Default for NetworkConfig {
             enforce_pq_signatures: false,
             passphrase: None,
             pass_story: None,
+            poll_interval: Duration::from_secs(2),
+            save_interval: Duration::from_secs(30),
             node_config: None,
         }
     }
@@ -194,6 +201,18 @@ impl NetworkBuilder {
     /// narrative as a cryptographic key source.
     pub fn pass_story(mut self, story: indras_crypto::story_template::PassStory) -> Self {
         self.config.pass_story = Some(story);
+        self
+    }
+
+    /// Set how often to poll contacts for peer changes (default 2s).
+    pub fn poll_interval(mut self, interval: Duration) -> Self {
+        self.config.poll_interval = interval;
+        self
+    }
+
+    /// Set how often to save the world view snapshot (default 30s).
+    pub fn save_interval(mut self, interval: Duration) -> Self {
+        self.config.save_interval = interval;
         self
     }
 

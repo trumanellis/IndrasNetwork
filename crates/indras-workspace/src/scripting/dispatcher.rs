@@ -179,7 +179,7 @@ pub fn spawn_dispatcher(
                     };
                     if let Some(net) = net {
                         match net.connect_by_code(&uri).await {
-                            Ok(_realm) => {
+                            Ok((_realm, _peer)) => {
                                 let peer_name = indras_network::IdentityCode::parse_uri(&uri)
                                     .ok()
                                     .and_then(|(_, name)| name)

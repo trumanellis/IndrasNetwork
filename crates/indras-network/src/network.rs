@@ -23,8 +23,13 @@ use indras_transport::IrohIdentity;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{broadcast, watch, Mutex, Notify, RwLock};
+use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
+
+use crate::peering::{PeerEvent, PeerInfo};
 
 /// Unique identifier for a realm.
 pub type RealmId = InterfaceId;
@@ -104,8 +109,26 @@ pub struct IndrasNetwork {
     home_realm: RwLock<Option<HomeRealm>>,
     /// Configuration.
     config: NetworkConfig,
+    /// Runtime display name override (set via `set_display_name`).
+    display_name_override: std::sync::RwLock<Option<String>>,
     /// Our identity.
     identity: Member,
+
+    // ── Peering state ────────────────────────────────────────────
+    /// Watch channel sender for the current peer list.
+    peers_tx: watch::Sender<Vec<PeerInfo>>,
+    /// Watch channel receiver for the current peer list.
+    peers_rx: watch::Receiver<Vec<PeerInfo>>,
+    /// Broadcast channel for peer events.
+    peer_event_tx: broadcast::Sender<PeerEvent>,
+    /// Cancellation token for peering background tasks.
+    peering_cancel: CancellationToken,
+    /// Handles for peering background tasks (joined on stop).
+    peering_tasks: Mutex<Vec<JoinHandle<()>>>,
+    /// Notify to trigger an immediate contact poll cycle.
+    poll_notify: Arc<Notify>,
+    /// Guard against double-shutdown of peering tasks.
+    shutdown_called: AtomicBool,
 }
 
 /// Internal realm state.
@@ -126,7 +149,7 @@ impl IndrasNetwork {
     /// ```ignore
     /// let network = IndrasNetwork::new("~/.myapp").await?;
     /// ```
-    pub async fn new(data_dir: impl AsRef<Path>) -> Result<Self> {
+    pub async fn new(data_dir: impl AsRef<Path>) -> Result<Arc<Self>> {
         let config = NetworkConfig::new(data_dir.as_ref());
         Self::with_config(config).await
     }
@@ -162,7 +185,7 @@ impl IndrasNetwork {
     }
 
     /// Create a network instance with the given configuration.
-    pub async fn with_config(mut config: NetworkConfig) -> Result<Self> {
+    pub async fn with_config(mut config: NetworkConfig) -> Result<Arc<Self>> {
         // Load persisted profile (display name, etc.) if it exists
         if config.display_name.is_none() {
             if let Some(profile) = Self::load_profile(&config.data_dir) {
@@ -186,15 +209,26 @@ impl IndrasNetwork {
 
         let identity = Member::new(*node.identity());
 
-        Ok(Self {
+        let (peers_tx, peers_rx) = watch::channel(Vec::new());
+        let (peer_event_tx, _) = broadcast::channel(256);
+
+        Ok(Arc::new(Self {
             inner: Arc::new(node),
             realms: Arc::new(DashMap::new()),
             peer_realms: Arc::new(DashMap::new()),
             contacts_realm: Arc::new(RwLock::new(None)),
             home_realm: RwLock::new(None),
             config,
+            display_name_override: std::sync::RwLock::new(None),
             identity,
-        })
+            peers_tx,
+            peers_rx,
+            peer_event_tx,
+            peering_cancel: CancellationToken::new(),
+            peering_tasks: Mutex::new(Vec::new()),
+            poll_notify: Arc::new(Notify::new()),
+            shutdown_called: AtomicBool::new(false),
+        }))
     }
 
     // ============================================================
@@ -212,14 +246,21 @@ impl IndrasNetwork {
     }
 
     /// Get the display name for this network instance.
-    pub fn display_name(&self) -> Option<&str> {
-        self.config.display_name.as_deref()
+    pub fn display_name(&self) -> Option<String> {
+        if let Ok(guard) = self.display_name_override.read() {
+            if let Some(ref name) = *guard {
+                return Some(name.clone());
+            }
+        }
+        self.config.display_name.clone()
     }
 
     /// Set the display name for this network instance.
-    pub async fn set_display_name(&mut self, name: impl Into<String>) -> Result<()> {
+    pub async fn set_display_name(&self, name: impl Into<String>) -> Result<()> {
         let name = name.into();
-        self.config.display_name = Some(name.clone());
+        if let Ok(mut guard) = self.display_name_override.write() {
+            *guard = Some(name.clone());
+        }
 
         // Persist to disk
         let profile = UserProfile {
@@ -290,16 +331,50 @@ impl IndrasNetwork {
     // Lifecycle
     // ============================================================
 
-    /// Start the network.
+    /// Start the network and peering lifecycle.
     ///
-    /// This begins accepting connections and synchronizing with peers.
+    /// This begins accepting connections, synchronizing with peers,
+    /// and spawns background tasks for contact polling, event forwarding,
+    /// and periodic world-view saves.
+    ///
     /// Must be called before creating or joining realms.
-    pub async fn start(&self) -> Result<()> {
+    pub async fn start(self: &Arc<Self>) -> Result<()> {
         // IndrasNode::start is idempotent, so this is safe to call multiple times
         self.inner.start().await?;
 
         // Join our inbox realm to receive connection notifications
         self.join_inbox().await?;
+
+        // Join contacts realm (idempotent)
+        self.join_contacts_realm().await?;
+
+        // Spawn peering background tasks
+        let h1 = crate::peering::tasks::spawn_contact_poller(
+            Arc::clone(self),
+            self.peers_tx.clone(),
+            self.peer_event_tx.clone(),
+            self.peering_cancel.clone(),
+            self.config.poll_interval,
+            Arc::clone(&self.poll_notify),
+        );
+        let h2 = crate::peering::tasks::spawn_event_forwarder(
+            Arc::clone(self),
+            self.peer_event_tx.clone(),
+            self.peering_cancel.clone(),
+        );
+        let h3 = crate::peering::tasks::spawn_periodic_saver(
+            Arc::clone(self),
+            self.peer_event_tx.clone(),
+            self.peering_cancel.clone(),
+            self.config.save_interval,
+        );
+        let h4 = crate::peering::tasks::spawn_task_supervisor(
+            self.peer_event_tx.clone(),
+            self.peering_cancel.clone(),
+        );
+
+        let mut handles = self.peering_tasks.lock().await;
+        handles.extend([h1, h2, h3, h4]);
 
         Ok(())
     }
@@ -521,6 +596,24 @@ impl IndrasNetwork {
     ///
     /// Gracefully disconnects from peers and stops background tasks.
     pub async fn stop(&self) -> Result<()> {
+        // Guard against double-shutdown of peering tasks
+        if !self.shutdown_called.swap(true, Ordering::SeqCst) {
+            // Cancel all peering background tasks
+            self.peering_cancel.cancel();
+
+            // Wait for all background tasks to finish
+            let mut handles = self.peering_tasks.lock().await;
+            for handle in handles.drain(..) {
+                let _ = handle.await;
+            }
+            drop(handles);
+
+            // Best-effort save world view
+            if let Err(e) = self.save_world_view().await {
+                tracing::warn!(error = %e, "failed to save world view on shutdown");
+            }
+        }
+
         self.inner.stop().await?;
         Ok(())
     }
@@ -551,7 +644,7 @@ impl IndrasNetwork {
     pub async fn create_realm(&self, name: &str) -> Result<Realm> {
         // Ensure network is started
         if !self.is_running() {
-            self.start().await?;
+            self.inner.start().await?;
         }
 
         // Generate random Tree artifact ID
@@ -613,7 +706,7 @@ impl IndrasNetwork {
     pub async fn join(&self, invite: impl AsRef<str>) -> Result<Realm> {
         // Ensure network is started
         if !self.is_running() {
-            self.start().await?;
+            self.inner.start().await?;
         }
 
         let invite_code = InviteCode::parse(invite.as_ref())?;
@@ -729,7 +822,7 @@ impl IndrasNetwork {
     /// let realm = network.connect(nova_member_id).await?;
     /// realm.send("Hey Nova!").await?;
     /// ```
-    pub async fn connect(&self, peer_id: MemberId) -> Result<Realm> {
+    pub async fn connect(&self, peer_id: MemberId) -> Result<(Realm, PeerInfo)> {
         let my_id = self.id();
 
         if peer_id == my_id {
@@ -738,9 +831,10 @@ impl IndrasNetwork {
             ));
         }
 
-        // Ensure network is started
+        // Ensure network transport is started
         if !self.is_running() {
-            self.start().await?;
+            self.inner.start().await?;
+            self.join_inbox().await?;
         }
 
         // 1. Use dm_story_id for canonical DM identity, derive interface ID from it
@@ -749,7 +843,9 @@ impl IndrasNetwork {
 
         // 2. Check if already loaded
         if let Some(state) = self.realms.get(&realm_id) {
-            return Ok(Realm::from_id(realm_id, state.name.clone(), state.artifact_id.clone(), Arc::clone(&self.inner)));
+            let realm = Realm::from_id(realm_id, state.name.clone(), state.artifact_id.clone(), Arc::clone(&self.inner));
+            let peer_info = self.extract_peer(&realm).await?;
+            return Ok((realm, peer_info));
         }
 
         // 3. Establish transport connectivity to peer via relay
@@ -813,13 +909,25 @@ impl IndrasNetwork {
         // 7. Send connection notification to peer's inbox
         self.notify_peer_inbox(peer_id, realm_id).await;
 
-        Ok(Realm::new(
+        let realm = Realm::new(
             interface_id,
             Some("DM".to_string()),
             Some(artifact_id),
             InviteCode::new(invite_key),
             Arc::clone(&self.inner),
-        ))
+        );
+
+        // 8. Extract peer info and emit ConversationOpened event
+        let peer = self.extract_peer(&realm).await?;
+        let _ = self.peer_event_tx.send(PeerEvent::ConversationOpened {
+            realm_id: realm.id(),
+            peer: peer.clone(),
+        });
+
+        // Trigger immediate contact poll to pick up the new peer
+        self.poll_notify.notify_one();
+
+        Ok((realm, peer))
     }
 
     /// Send a ConnectionNotify to the peer's inbox realm.
@@ -910,7 +1018,7 @@ impl IndrasNetwork {
     /// ```ignore
     /// let realm = network.connect_by_code("indra1qw508d6q...").await?;
     /// ```
-    pub async fn connect_by_code(&self, code: &str) -> Result<Realm> {
+    pub async fn connect_by_code(&self, code: &str) -> Result<(Realm, PeerInfo)> {
         // Try parsing as identity code first, then as URI with name
         let (identity_code, display_name) = IdentityCode::parse_uri(code)?;
         let peer_id = identity_code.member_id();
@@ -951,7 +1059,7 @@ impl IndrasNetwork {
     /// println!("Share this: {}", uri);  // indra1qw508d6q...?name=Zephyr
     /// ```
     pub fn identity_uri(&self) -> String {
-        IdentityCode::from_member_id(self.id()).to_uri(self.display_name())
+        IdentityCode::from_member_id(self.id()).to_uri(self.display_name().as_deref())
     }
 
     /// Create an encounter for in-person peer discovery.
@@ -969,7 +1077,7 @@ impl IndrasNetwork {
     pub async fn create_encounter(&self) -> Result<(String, encounter::EncounterHandle)> {
         // Ensure network is started
         if !self.is_running() {
-            self.start().await?;
+            self.inner.start().await?;
         }
 
         // 1. Generate random 6-digit code
@@ -1026,7 +1134,7 @@ impl IndrasNetwork {
 
         // Ensure network is started
         if !self.is_running() {
-            self.start().await?;
+            self.inner.start().await?;
         }
 
         // Join encounter topics
@@ -1084,11 +1192,11 @@ impl IndrasNetwork {
         }
 
         // Send peer_b's ID to peer_a via our DM realm with peer_a
-        let realm_a = self.connect(peer_a).await?;
+        let (realm_a, _) = self.connect(peer_a).await?;
         realm_a.send(format!("__intro__:{}", hex::encode(&peer_b))).await?;
 
         // Send peer_a's ID to peer_b via our DM realm with peer_b
-        let realm_b = self.connect(peer_b).await?;
+        let (realm_b, _) = self.connect(peer_b).await?;
         realm_b.send(format!("__intro__:{}", hex::encode(&peer_a))).await?;
 
         tracing::info!(
@@ -1212,7 +1320,7 @@ impl IndrasNetwork {
 
         // Ensure network is started
         if !self.is_running() {
-            self.start().await?;
+            self.inner.start().await?;
         }
 
         // Create the realm with deterministic ID
@@ -1303,6 +1411,12 @@ impl IndrasNetwork {
             }
         }
 
+        // Emit PeerBlocked event
+        let _ = self.peer_event_tx.send(PeerEvent::PeerBlocked {
+            member_id: *member_id,
+            left_realms: left_realms.clone(),
+        });
+
         Ok(left_realms)
     }
 
@@ -1334,7 +1448,7 @@ impl IndrasNetwork {
 
         // Ensure network is started
         if !self.is_running() {
-            self.start().await?;
+            self.inner.start().await?;
         }
 
         // Get the per-user contacts realm ID
@@ -1417,7 +1531,7 @@ impl IndrasNetwork {
 
         // Ensure network is started
         if !self.is_running() {
-            self.start().await?;
+            self.inner.start().await?;
         }
 
         // Get the deterministic home realm ID
@@ -1668,6 +1782,153 @@ impl IndrasNetwork {
     /// The snapshot captures identity, interfaces, members, peers, and
     /// transport state. Comparing snapshots across instances reveals
     /// sync discrepancies.
+    // ============================================================
+    // Peering — peer state, events, and contact management
+    // ============================================================
+
+    /// Snapshot of currently known peers.
+    pub fn peers(&self) -> Vec<PeerInfo> {
+        self.peers_rx.borrow().clone()
+    }
+
+    /// Reactive watcher for peer list changes.
+    pub fn watch_peers(&self) -> watch::Receiver<Vec<PeerInfo>> {
+        self.peers_rx.clone()
+    }
+
+    /// Subscribe to all peering events (peers, conversations, saves, etc.).
+    pub fn peer_events(&self) -> broadcast::Receiver<PeerEvent> {
+        self.peer_event_tx.subscribe()
+    }
+
+    /// Atomically subscribe to events AND get the current peer snapshot.
+    ///
+    /// This avoids the race where peers connect between `subscribe()` and `peers()`:
+    /// the receiver is created first, so any changes after the snapshot will arrive
+    /// as events.
+    pub fn peer_events_with_snapshot(&self) -> (broadcast::Receiver<PeerEvent>, Vec<PeerInfo>) {
+        let rx = self.peer_event_tx.subscribe();
+        let peers = self.peers_rx.borrow().clone();
+        (rx, peers)
+    }
+
+    /// Trigger an immediate contact poll cycle (instead of waiting for the next tick).
+    pub fn refresh_peers(&self) {
+        self.poll_notify.notify_one();
+    }
+
+    /// Remove a contact without the realm cascade.
+    ///
+    /// Returns `true` if the contact was found and removed.
+    pub async fn remove_contact(&self, peer_id: &MemberId) -> Result<bool> {
+        let contacts = self.contacts_realm_or_err().await?;
+        let removed = contacts.remove_contact(peer_id).await?;
+
+        if removed {
+            let _ = self.peer_event_tx.send(PeerEvent::PeerDisconnected {
+                member_id: *peer_id,
+            });
+        }
+
+        Ok(removed)
+    }
+
+    /// Update sentiment toward a contact (-1, 0, or +1). Clamped to [-1, 1].
+    ///
+    /// Emits [`PeerEvent::SentimentChanged`] on success.
+    pub async fn update_sentiment(&self, member_id: &MemberId, sentiment: i8) -> Result<()> {
+        let clamped = sentiment.clamp(-1, 1);
+        let contacts = self.contacts_realm_or_err().await?;
+        contacts.update_sentiment(member_id, clamped).await?;
+
+        let _ = self.peer_event_tx.send(PeerEvent::SentimentChanged {
+            member_id: *member_id,
+            sentiment: clamped,
+        });
+
+        Ok(())
+    }
+
+    /// Get sentiment toward a specific contact.
+    pub async fn get_sentiment(&self, member_id: &MemberId) -> Result<Option<i8>> {
+        let contacts = self.contacts_realm_or_err().await?;
+        Ok(contacts.get_sentiment(member_id).await)
+    }
+
+    /// Set whether sentiment toward a contact is relayable to second-degree peers.
+    pub async fn set_relayable(&self, member_id: &MemberId, relayable: bool) -> Result<()> {
+        let contacts = self.contacts_realm_or_err().await?;
+        contacts.set_relayable(member_id, relayable).await?;
+        Ok(())
+    }
+
+    /// Get the full contact entry (sentiment, status, relayable, display_name).
+    pub async fn get_contact_entry(
+        &self,
+        member_id: &MemberId,
+    ) -> Result<Option<crate::contacts::ContactEntry>> {
+        let contacts = self.contacts_realm_or_err().await?;
+        Ok(contacts.get_contact_entry(member_id).await)
+    }
+
+    /// Build an aggregated sentiment view about a member from direct + relayed signals.
+    pub async fn sentiment_view(
+        &self,
+        about: MemberId,
+    ) -> Result<crate::sentiment::SentimentView> {
+        let contacts = self.contacts_realm_or_err().await?;
+        let direct = contacts.contacts_with_sentiment().await;
+
+        let direct_about: Vec<(MemberId, i8)> = direct
+            .into_iter()
+            .filter(|(id, _)| *id == about)
+            .collect();
+
+        Ok(crate::sentiment::SentimentView {
+            direct: direct_about,
+            relayed: vec![],
+        })
+    }
+
+    /// Helper: get the contacts realm or return an error.
+    async fn contacts_realm_or_err(&self) -> Result<ContactsRealm> {
+        self.contacts_realm()
+            .await
+            .ok_or(IndraError::ContactsRealmNotJoined)
+    }
+
+    /// Extract the remote peer from a DM realm's member list.
+    async fn extract_peer(&self, realm: &Realm) -> Result<PeerInfo> {
+        let members = realm.member_list().await?;
+        let my_id = self.id();
+
+        let member = members
+            .iter()
+            .find(|m| m.id() != my_id)
+            .ok_or(IndraError::NoPeerInRealm)?;
+
+        let (sentiment, status) = if let Some(cr) = self.contacts_realm().await {
+            match cr.get_contact_entry(&member.id()).await {
+                Some(entry) => (entry.sentiment, entry.status),
+                None => (0, crate::contacts::ContactStatus::default()),
+            }
+        } else {
+            (0, crate::contacts::ContactStatus::default())
+        };
+
+        Ok(PeerInfo {
+            member_id: member.id(),
+            display_name: member.name(),
+            connected_at: chrono::Utc::now().timestamp(),
+            sentiment,
+            status,
+        })
+    }
+
+    // ============================================================
+    // World view
+    // ============================================================
+
     pub async fn save_world_view(&self) -> Result<std::path::PathBuf> {
         let view = crate::world_view::WorldView::build(self).await;
         let path = self.config.data_dir.join("world-view.json");
@@ -1679,7 +1940,7 @@ impl IndrasNetwork {
 
 impl NetworkBuilder {
     /// Build the IndrasNetwork instance.
-    pub async fn build(self) -> Result<IndrasNetwork> {
+    pub async fn build(self) -> Result<Arc<IndrasNetwork>> {
         IndrasNetwork::with_config(self.build_config()).await
     }
 }
@@ -1713,6 +1974,6 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(network.display_name(), Some("Test Node"));
+        assert_eq!(network.display_name(), Some("Test Node".to_string()));
     }
 }

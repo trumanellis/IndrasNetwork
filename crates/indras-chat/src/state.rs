@@ -2,8 +2,7 @@
 
 use std::sync::Arc;
 use dioxus::prelude::*;
-use indras_network::RealmId;
-use indras_peering::{PeerInfo, PeeringRuntime};
+use indras_network::{IndrasNetwork, PeerInfo, RealmId};
 
 /// Top-level app phase.
 #[derive(Clone)]
@@ -13,7 +12,7 @@ pub enum AppPhase {
     /// Onboarding flow
     Setup,
     /// Main chat view
-    Running(Arc<PeeringRuntime>),
+    Running(Arc<IndrasNetwork>),
 }
 
 impl std::fmt::Debug for AppPhase {
@@ -40,7 +39,7 @@ impl PartialEq for AppPhase {
 /// Shared chat state provided via Dioxus context.
 #[derive(Clone, Copy)]
 pub struct ChatContext {
-    pub runtime: Signal<Arc<PeeringRuntime>>,
+    pub runtime: Signal<Arc<IndrasNetwork>>,
     pub active_chat: Signal<Option<RealmId>>,
     pub conversations: Signal<Vec<ConversationSummary>>,
     pub peers: Signal<Vec<PeerInfo>>,
