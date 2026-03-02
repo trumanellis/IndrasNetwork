@@ -79,6 +79,12 @@ pub trait RealmIntentions {
         title: impl Into<String> + Send,
         description: impl Into<String> + Send,
     ) -> Result<()>;
+
+    /// Delete an intention (tombstone — marks as deleted for CRDT propagation).
+    async fn delete_intention(
+        &self,
+        intention_id: IntentionId,
+    ) -> Result<()>;
 }
 
 impl RealmIntentions for Realm {
@@ -248,6 +254,16 @@ impl RealmIntentions for Realm {
                 intention.set_title(title);
                 intention.set_description(description);
             }
+        })
+        .await?;
+
+        Ok(())
+    }
+
+    async fn delete_intention(&self, intention_id: IntentionId) -> Result<()> {
+        let doc = self.intentions().await?;
+        doc.update(|d| {
+            d.delete(&intention_id);
         })
         .await?;
 

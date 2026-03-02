@@ -9,7 +9,7 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 use indras_crypto::{CryptoError, PassStory, StoryTemplate, entropy};
 use indras_network::IndrasNetwork;
-use indras_sync_engine::{StoryAuth, HomeRealmQuests};
+use indras_sync_engine::{StoryAuth, HomeRealmIntentions};
 
 use crate::state::{AsyncStatus, GenesisState, PassStoryState};
 
@@ -122,9 +122,9 @@ pub fn PassStoryFlow(
                                             // Refresh home realm data to update quest checklist
                                             let my_id = net.id();
                                             if let Ok(home) = net.home_realm().await {
-                                                if let Ok(doc) = home.quests().await {
+                                                if let Ok(doc) = home.intentions().await {
                                                     let data = doc.read().await;
-                                                    let quests: Vec<crate::state::QuestView> = data.quests.iter().map(|q| {
+                                                    let quests: Vec<crate::state::QuestView> = data.intentions.iter().map(|q| {
                                                         let creator_id_short: String = q.creator.iter().take(8).map(|b| format!("{:02x}", b)).collect();
                                                         let is_creator = q.creator == my_id;
                                                         let is_complete = q.completed_at_millis.is_some();

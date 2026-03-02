@@ -7,7 +7,7 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 use indras_network::{IndrasNetwork, artifact_sync::artifact_interface_id};
 use indras_network::dm_story_id;
-use indras_sync_engine::{RealmQuests, RealmNotes};
+use indras_sync_engine::{RealmIntentions, RealmNotes};
 use indras_ui::{ArtifactDisplayInfo, ArtifactDisplayStatus, ArtifactGallery};
 use indras_ui::chat::ChatPanel;
 
@@ -61,12 +61,12 @@ async fn load_shared_realm_data(
 
     match get_peer_realm(net, my_id, peer_id) {
         Ok(realm) => {
-            // Load quests (refresh to get CRDT-synced state from peers)
-            if let Ok(doc) = realm.quests().await {
+            // Load intentions (refresh to get CRDT-synced state from peers)
+            if let Ok(doc) = realm.intentions().await {
                 // Refresh to pull latest synced state from peers
                 let _ = doc.refresh().await;
                 let data = doc.read().await;
-                let quests: Vec<QuestView> = data.quests.iter().map(|q| {
+                let quests: Vec<QuestView> = data.intentions.iter().map(|q| {
                     let creator_id_short: String = q.creator.iter().take(8).map(|b| format!("{:02x}", b)).collect();
                     let is_creator = q.creator == my_id;
                     let is_complete = q.completed_at_millis.is_some();
@@ -438,7 +438,7 @@ fn render_shared_quest_item(
                                 let my_id = net.id();
                                 if let Ok(realm) = get_peer_realm(net, my_id, peer_id) {
                                     if let Some(id_bytes) = hex_to_quest_id(&qid) {
-                                        if let Ok(()) = realm.complete_quest(id_bytes).await {
+                                        if let Ok(()) = realm.complete_intention(id_bytes, my_id).await {
                                             load_shared_realm_data(net, peer_id, &mut state).await;
                                         }
                                     }
@@ -531,7 +531,7 @@ fn render_shared_quest_item(
                                             let my_id = net.id();
                                             if let Ok(realm) = get_peer_realm(net, my_id, peer_id) {
                                                 if let Some(id_bytes) = hex_to_quest_id(&qid) {
-                                                    if let Ok(_idx) = realm.submit_quest_claim(id_bytes, my_id, None).await {
+                                                    if let Ok(_idx) = realm.submit_service_claim(id_bytes, my_id, None).await {
                                                         state.write().peer_realm_claiming_quest_id = None;
                                                         state.write().peer_realm_claim_proof_text.clear();
                                                         load_shared_realm_data(net, peer_id, &mut state).await;
@@ -602,7 +602,7 @@ fn render_shared_quest_claim(
                                 let my_id = net.id();
                                 if let Ok(realm) = get_peer_realm(net, my_id, peer_id) {
                                     if let Some(id_bytes) = hex_to_quest_id(&qid) {
-                                        if let Ok(()) = realm.verify_quest_claim(id_bytes, idx).await {
+                                        if let Ok(()) = realm.verify_service_claim(id_bytes, idx, my_id).await {
                                             load_shared_realm_data(net, peer_id, &mut state).await;
                                         }
                                     }

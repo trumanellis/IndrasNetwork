@@ -265,7 +265,7 @@ pub fn NoteEditorOverlay(
                                                     let dm_id = indras_network::artifact_sync::artifact_interface_id(&indras_network::dm_story_id(my_id, pid));
                                                     if let Some(realm) = net.get_realm_by_id(&dm_id) {
                                                         use indras_sync_engine::RealmNotes;
-                                                        match realm.update_note(id_bytes, content).await {
+                                                        match realm.update_note(id_bytes, title.clone(), content).await {
                                                             Ok(_) => {
                                                                 let mut s = state.write();
                                                                 s.note_editor_mode = NoteEditorMode::View;
@@ -277,7 +277,7 @@ pub fn NoteEditorOverlay(
                                                     // Home realm
                                                     if let Ok(home) = net.home_realm().await {
                                                         use indras_sync_engine::HomeRealmNotes;
-                                                        match home.update_note(id_bytes, content).await {
+                                                        match home.update_note(id_bytes, title, content).await {
                                                             Ok(_) => {
                                                                 let mut s = state.write();
                                                                 s.note_editor_mode = NoteEditorMode::View;

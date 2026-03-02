@@ -20,10 +20,11 @@ pub trait RealmNotes {
         tags: Vec<String>,
     ) -> Result<NoteId>;
 
-    /// Update a note's content.
+    /// Update a note's title and content.
     async fn update_note(
         &self,
         note_id: NoteId,
+        title: impl Into<String> + Send,
         content: impl Into<String> + Send,
     ) -> Result<()>;
 
@@ -58,11 +59,18 @@ impl RealmNotes for Realm {
         Ok(note_id)
     }
 
-    async fn update_note(&self, note_id: NoteId, content: impl Into<String> + Send) -> Result<()> {
+    async fn update_note(
+        &self,
+        note_id: NoteId,
+        title: impl Into<String> + Send,
+        content: impl Into<String> + Send,
+    ) -> Result<()> {
+        let title = title.into();
         let content = content.into();
         let doc = self.notes().await?;
         doc.update(|d| {
             if let Some(note) = d.find_mut(&note_id) {
+                note.update_title(title);
                 note.update_content(content);
             }
         })
