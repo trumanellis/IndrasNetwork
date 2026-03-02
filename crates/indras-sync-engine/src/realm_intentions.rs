@@ -150,11 +150,16 @@ impl RealmIntentions for Realm {
 
         {
             let guard = doc.read().await;
-            if let Some(intention) = guard.find(&intention_id) {
-                if intention.creator != caller {
-                    return Err(IndraError::InvalidOperation(
-                        "Not authorized: only the intention creator can verify claims".into(),
-                    ));
+            match guard.find(&intention_id) {
+                Some(intention) => {
+                    if intention.creator != caller {
+                        return Err(IndraError::InvalidOperation(
+                            "Not authorized: only the intention creator can verify claims".into(),
+                        ));
+                    }
+                }
+                None => {
+                    return Err(IndraError::InvalidOperation("Intention not found".into()));
                 }
             }
         }
@@ -174,11 +179,16 @@ impl RealmIntentions for Realm {
 
         {
             let guard = doc.read().await;
-            if let Some(intention) = guard.find(&intention_id) {
-                if intention.creator != caller {
-                    return Err(IndraError::InvalidOperation(
-                        "Not authorized: only the intention creator can complete it".into(),
-                    ));
+            match guard.find(&intention_id) {
+                Some(intention) => {
+                    if intention.creator != caller {
+                        return Err(IndraError::InvalidOperation(
+                            "Not authorized: only the intention creator can complete it".into(),
+                        ));
+                    }
+                }
+                None => {
+                    return Err(IndraError::InvalidOperation("Intention not found".into()));
                 }
             }
         }

@@ -31,8 +31,8 @@ pub trait RealmAttention {
         member: &MemberId,
     ) -> Result<Option<IntentionId>>;
 
-    /// Get all members currently focusing on a quest.
-    async fn get_quest_focusers(
+    /// Get all members currently focusing on an intention.
+    async fn get_intention_focusers(
         &self,
         intention_id: &IntentionId,
     ) -> Result<Vec<MemberId>>;
@@ -81,7 +81,7 @@ impl RealmAttention for Realm {
         Ok(doc.read().await.current_focus(member))
     }
 
-    async fn get_quest_focusers(&self, intention_id: &IntentionId) -> Result<Vec<MemberId>> {
+    async fn get_intention_focusers(&self, intention_id: &IntentionId) -> Result<Vec<MemberId>> {
         let doc = self.attention().await?;
         Ok(doc.read().await.members_focusing_on(intention_id))
     }

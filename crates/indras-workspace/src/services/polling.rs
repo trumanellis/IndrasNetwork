@@ -5,7 +5,6 @@
 //! - DM realm invite checking (every ~10s)
 //! - Periodic world view saves (every ~30s)
 
-use std::sync::Arc;
 use indras_network::{IndrasNetwork, ArtifactStatus, HomeArtifactEntry, HomeRealm, Realm, EditableMessageType};
 use indras_artifacts::Intention;
 use crate::bridge::vault_bridge::VaultHandle;

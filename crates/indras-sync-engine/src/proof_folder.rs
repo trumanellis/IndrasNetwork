@@ -339,8 +339,8 @@ impl ProofFolderDocument {
         self.folders.iter_mut().find(|f| &f.id == id)
     }
 
-    /// Get all proof folders for a specific quest.
-    pub fn folders_for_quest(&self, intention_id: &IntentionId) -> Vec<&ProofFolder> {
+    /// Get all proof folders for a specific intention.
+    pub fn folders_for_intention(&self, intention_id: &IntentionId) -> Vec<&ProofFolder> {
         self.folders.iter().filter(|f| &f.intention_id == intention_id).collect()
     }
 
@@ -359,16 +359,16 @@ impl ProofFolderDocument {
         self.folders.iter().filter(|f| f.is_submitted()).collect()
     }
 
-    /// Get draft folders for a specific quest.
-    pub fn draft_folders_for_quest(&self, intention_id: &IntentionId) -> Vec<&ProofFolder> {
+    /// Get draft folders for a specific intention.
+    pub fn draft_folders_for_intention(&self, intention_id: &IntentionId) -> Vec<&ProofFolder> {
         self.folders
             .iter()
             .filter(|f| &f.intention_id == intention_id && f.is_draft())
             .collect()
     }
 
-    /// Get submitted folders for a specific quest.
-    pub fn submitted_folders_for_quest(&self, intention_id: &IntentionId) -> Vec<&ProofFolder> {
+    /// Get submitted folders for a specific intention.
+    pub fn submitted_folders_for_intention(&self, intention_id: &IntentionId) -> Vec<&ProofFolder> {
         self.folders
             .iter()
             .filter(|f| &f.intention_id == intention_id && f.is_submitted())
@@ -541,9 +541,9 @@ mod tests {
         assert!(doc.find(&id1).is_some());
         assert!(doc.find(&id2).is_some());
 
-        // Folders for quest
-        assert_eq!(doc.folders_for_quest(&test_intention_id()).len(), 2);
-        assert_eq!(doc.folders_for_quest(&another_intention_id()).len(), 1);
+        // Folders for intention
+        assert_eq!(doc.folders_for_intention(&test_intention_id()).len(), 2);
+        assert_eq!(doc.folders_for_intention(&another_intention_id()).len(), 1);
 
         // Folders by claimant
         assert_eq!(doc.folders_by_claimant(&test_member_id()).len(), 2);
@@ -554,8 +554,8 @@ mod tests {
         assert_eq!(doc.submitted_folders().len(), 1);
 
         // Draft folders for quest
-        assert_eq!(doc.draft_folders_for_quest(&test_intention_id()).len(), 1);
-        assert_eq!(doc.submitted_folders_for_quest(&test_intention_id()).len(), 1);
+        assert_eq!(doc.draft_folders_for_intention(&test_intention_id()).len(), 1);
+        assert_eq!(doc.submitted_folders_for_intention(&test_intention_id()).len(), 1);
     }
 
     #[test]
