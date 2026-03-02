@@ -2,13 +2,13 @@
 
 use dioxus::prelude::*;
 use crate::state::workspace::DashboardTab;
-use crate::components::quest::QuestKind;
+use indras_sync_engine::IntentionKind;
 
 /// Summary card for an intention in the board list.
 #[derive(Clone, Debug, PartialEq)]
 pub struct IntentionCardData {
     pub id: String,
-    pub kind: QuestKind,
+    pub kind: IntentionKind,
     pub title: String,
     pub description: String,
     pub proof_count: usize,

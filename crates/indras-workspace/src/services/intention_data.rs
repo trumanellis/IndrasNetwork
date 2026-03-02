@@ -7,8 +7,9 @@
 use indras_artifacts::{Intention, PlayerId, ArtifactId};
 use crate::bridge::vault_bridge::InMemoryVault;
 use crate::components::intention_board::IntentionCardData;
-use crate::components::quest::{
-    QuestKind, ProofEntry, AttentionItem, PledgedToken,
+use indras_sync_engine::IntentionKind;
+use crate::components::intention_view::{
+    ProofEntry, AttentionItem, PledgedToken,
     AttentionPeerSummary, StewardshipChainEntry, format_duration_secs,
 };
 
@@ -19,7 +20,7 @@ use crate::components::quest::{
 #[derive(Clone, Debug)]
 pub struct IntentionViewData {
     /// The kind of intention (Quest, Need, Offering, Intention).
-    pub kind: QuestKind,
+    pub kind: IntentionKind,
     /// Display title.
     pub title: String,
     /// Description text.
@@ -79,10 +80,10 @@ pub fn build_intention_view_data(
     let artifact = vault.get_artifact(&artifact_id).ok().flatten()?;
 
     let kind = match artifact_type {
-        "need" => QuestKind::Need,
-        "offering" => QuestKind::Offering,
-        "intention" => QuestKind::Intention,
-        _ => QuestKind::Quest,
+        "need" => IntentionKind::Need,
+        "offering" => IntentionKind::Offering,
+        "intention" => IntentionKind::Intention,
+        _ => IntentionKind::Quest,
     };
 
     let steward_name = if artifact.steward == player_id {
@@ -185,10 +186,10 @@ pub fn build_intention_cards(
             }
 
             let kind = match art_type.as_str() {
-                "need" => QuestKind::Need,
-                "offering" => QuestKind::Offering,
-                "intention" => QuestKind::Intention,
-                _ => QuestKind::Quest,
+                "need" => IntentionKind::Need,
+                "offering" => IntentionKind::Offering,
+                "intention" => IntentionKind::Intention,
+                _ => IntentionKind::Quest,
             };
 
             let title = child_ref.label.as_deref().unwrap_or("Untitled").to_string();

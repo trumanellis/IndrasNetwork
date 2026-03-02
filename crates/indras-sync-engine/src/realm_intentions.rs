@@ -111,16 +111,17 @@ impl RealmIntentions for Realm {
         claimant: MemberId,
         proof: Option<ArtifactId>,
     ) -> Result<usize> {
-        let mut claim_index = 0;
         let doc = self.intentions().await?;
-        doc.update(|d| {
-            if let Some(intention) = d.find_mut(&intention_id) {
-                if let Ok(idx) = intention.submit_claim(claimant, proof) {
-                    claim_index = idx;
-                }
-            }
-        })
-        .await?;
+        let claim_index = doc
+            .try_update(|d| {
+                let intention = d
+                    .find_mut(&intention_id)
+                    .ok_or_else(|| IndraError::InvalidOperation("Intention not found".into()))?;
+                intention
+                    .submit_claim(claimant, proof)
+                    .map_err(|e| IndraError::InvalidOperation(e.to_string()))
+            })
+            .await?;
 
         Ok(claim_index)
     }
@@ -164,10 +165,13 @@ impl RealmIntentions for Realm {
             }
         }
 
-        doc.update(|d| {
-            if let Some(intention) = d.find_mut(&intention_id) {
-                let _ = intention.verify_claim(claim_index);
-            }
+        doc.try_update(|d| {
+            let intention = d
+                .find_mut(&intention_id)
+                .ok_or_else(|| IndraError::InvalidOperation("Intention not found".into()))?;
+            intention
+                .verify_claim(claim_index)
+                .map_err(|e| IndraError::InvalidOperation(e.to_string()))
         })
         .await?;
 
@@ -193,10 +197,13 @@ impl RealmIntentions for Realm {
             }
         }
 
-        doc.update(|d| {
-            if let Some(intention) = d.find_mut(&intention_id) {
-                let _ = intention.complete();
-            }
+        doc.try_update(|d| {
+            let intention = d
+                .find_mut(&intention_id)
+                .ok_or_else(|| IndraError::InvalidOperation("Intention not found".into()))?;
+            intention
+                .complete()
+                .map_err(|e| IndraError::InvalidOperation(e.to_string()))
         })
         .await?;
 

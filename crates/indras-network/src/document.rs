@@ -3,7 +3,7 @@
 //! Documents provide type-safe access to Automerge-backed data structures
 //! that automatically synchronize across all realm members.
 
-use crate::error::Result;
+use crate::error::{IndraError, Result};
 use crate::member::Member;
 use crate::network::RealmId;
 
@@ -764,6 +764,85 @@ impl<T: DocumentSchema> Document<T> {
         }
 
         Ok(())
+    }
+
+    /// Update the document with a fallible closure.
+    ///
+    /// If the closure returns `Err`, the document state is rolled back
+    /// and the error is propagated. If `Ok(R)`, the new state is persisted
+    /// and broadcast like `update()`.
+    pub async fn try_update<F, R>(&self, f: F) -> Result<R>
+    where
+        F: FnOnce(&mut T) -> std::result::Result<R, IndraError>,
+    {
+        let realm_short: String = self
+            .realm_id
+            .as_bytes()
+            .iter()
+            .take(8)
+            .map(|b| format!("{:02x}", b))
+            .collect();
+
+        let (result, new_state, message) = {
+            let mut state = self.state.write().await;
+            let old = state.clone();
+            let result = match f(&mut state) {
+                Ok(r) => r,
+                Err(e) => {
+                    *state = old;
+                    return Err(e);
+                }
+            };
+            let new_state = state.clone();
+
+            // Try delta extraction; fall back to full state
+            let message = if let Some(delta_bytes) = T::extract_delta(&old, &new_state) {
+                let delta = DocumentDelta {
+                    magic: DELTA_MAGIC,
+                    doc_name: self.name.clone(),
+                    delta: delta_bytes,
+                };
+                postcard::to_allocvec(&delta)?
+            } else {
+                let inner_payload = postcard::to_allocvec(&new_state)?;
+                let envelope = DocumentEnvelope {
+                    doc_name: self.name.clone(),
+                    payload: inner_payload,
+                };
+                postcard::to_allocvec(&envelope)?
+            };
+
+            (result, new_state, message)
+        };
+
+        // Persist to local storage
+        self.persist(&new_state).await?;
+
+        debug!(
+            doc_name = %self.name,
+            realm = %realm_short,
+            message_len = message.len(),
+            "Document try_update: sending to network"
+        );
+
+        // Notify local subscribers FIRST (optimistic update)
+        let _ = self.change_tx.send(DocumentChange {
+            new_state,
+            author: None, // Local change
+            is_remote: false,
+        });
+
+        // Then send to network (best-effort for remote delivery)
+        if let Err(e) = self.node.send_message(&self.realm_id, message).await {
+            tracing::warn!(
+                doc_name = %self.name,
+                realm = %realm_short,
+                error = %e,
+                "Failed to send document update to network"
+            );
+        }
+
+        Ok(result)
     }
 
     /// Perform a transaction on the document.
