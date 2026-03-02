@@ -80,6 +80,12 @@ pub trait HomeRealmIntentions {
         title: impl Into<String> + Send,
         description: impl Into<String> + Send,
     ) -> Result<()>;
+
+    /// Delete a personal intention (tombstone).
+    async fn delete_intention(
+        &self,
+        intention_id: IntentionId,
+    ) -> Result<()>;
 }
 
 impl HomeRealmIntentions for HomeRealm {
@@ -206,6 +212,16 @@ impl HomeRealmIntentions for HomeRealm {
                 intention.set_title(title);
                 intention.set_description(description);
             }
+        })
+        .await?;
+
+        Ok(())
+    }
+
+    async fn delete_intention(&self, intention_id: IntentionId) -> Result<()> {
+        let doc = self.intentions().await?;
+        doc.update(|d| {
+            d.delete(&intention_id);
         })
         .await?;
 

@@ -258,6 +258,9 @@ pub struct Intention {
     /// Priority level.
     #[serde(default)]
     pub priority: IntentionPriority,
+    /// Whether this intention has been deleted (tombstone for CRDT).
+    #[serde(default)]
+    pub deleted: bool,
 }
 
 impl Intention {
@@ -280,6 +283,7 @@ impl Intention {
             completed_at_millis: None,
             deadline_millis: None,
             priority: IntentionPriority::default(),
+            deleted: false,
         }
     }
 
@@ -408,6 +412,16 @@ impl Intention {
         self.description = description.into();
     }
 
+    /// Check if this intention has been deleted.
+    pub fn is_deleted(&self) -> bool {
+        self.deleted
+    }
+
+    /// Mark this intention as deleted (tombstone).
+    pub fn delete(&mut self) {
+        self.deleted = true;
+    }
+
     // === Legacy compatibility methods ===
 
     /// Check if this intention has been claimed (legacy compatibility).
@@ -531,6 +545,11 @@ impl indras_network::document::DocumentSchema for IntentionDocument {
                 if remote_intention.priority > local.priority {
                     local.priority = remote_intention.priority;
                 }
+
+                // Tombstone: if either side is deleted, the result is deleted.
+                if remote_intention.deleted {
+                    local.deleted = true;
+                }
             } else {
                 by_id.insert(remote_intention.id, self.intentions.len());
                 self.intentions.push(remote_intention);
@@ -552,42 +571,42 @@ impl IntentionDocument {
 
     /// Find an intention by ID.
     pub fn find(&self, id: &IntentionId) -> Option<&Intention> {
-        self.intentions.iter().find(|q| &q.id == id)
+        self.intentions.iter().find(|q| &q.id == id && !q.deleted)
     }
 
     /// Find an intention by ID (mutable).
     pub fn find_mut(&mut self, id: &IntentionId) -> Option<&mut Intention> {
-        self.intentions.iter_mut().find(|q| &q.id == id)
+        self.intentions.iter_mut().find(|q| &q.id == id && !q.deleted)
     }
 
     /// Get all open intentions (unclaimed and incomplete).
     pub fn open_intentions(&self) -> Vec<&Intention> {
-        self.intentions.iter().filter(|q| q.is_open()).collect()
+        self.intentions.iter().filter(|q| q.is_open() && !q.deleted).collect()
     }
 
     /// Get all intentions with claims but not yet complete.
     pub fn in_progress_intentions(&self) -> Vec<&Intention> {
         self.intentions
             .iter()
-            .filter(|q| q.has_claims() && !q.is_complete())
+            .filter(|q| q.has_claims() && !q.is_complete() && !q.deleted)
             .collect()
     }
 
     /// Get all completed intentions.
     pub fn completed_intentions(&self) -> Vec<&Intention> {
-        self.intentions.iter().filter(|q| q.is_complete()).collect()
+        self.intentions.iter().filter(|q| q.is_complete() && !q.deleted).collect()
     }
 
     /// Get intentions created by a specific member.
     pub fn intentions_by_creator(&self, creator: &MemberId) -> Vec<&Intention> {
-        self.intentions.iter().filter(|q| &q.creator == creator).collect()
+        self.intentions.iter().filter(|q| &q.creator == creator && !q.deleted).collect()
     }
 
     /// Get intentions with claims by a specific member.
     pub fn intentions_by_claimant(&self, claimant: &MemberId) -> Vec<&Intention> {
         self.intentions
             .iter()
-            .filter(|q| q.claims.iter().any(|c| &c.claimant == claimant))
+            .filter(|q| !q.deleted && q.claims.iter().any(|c| &c.claimant == claimant))
             .collect()
     }
 
@@ -595,7 +614,7 @@ impl IntentionDocument {
     pub fn intentions_with_verified_claims(&self) -> Vec<&Intention> {
         self.intentions
             .iter()
-            .filter(|q| q.has_verified_claims())
+            .filter(|q| !q.deleted && q.has_verified_claims())
             .collect()
     }
 
@@ -603,20 +622,20 @@ impl IntentionDocument {
     pub fn intentions_with_pending_claims(&self) -> Vec<&Intention> {
         self.intentions
             .iter()
-            .filter(|q| !q.pending_claims().is_empty())
+            .filter(|q| !q.deleted && !q.pending_claims().is_empty())
             .collect()
     }
 
     /// Get intentions sorted by priority (highest first), excluding completed.
     pub fn intentions_by_priority(&self) -> Vec<&Intention> {
-        let mut items: Vec<_> = self.intentions.iter().filter(|q| !q.is_complete()).collect();
+        let mut items: Vec<_> = self.intentions.iter().filter(|q| !q.is_complete() && !q.deleted).collect();
         items.sort_by(|a, b| b.priority.cmp(&a.priority));
         items
     }
 
     /// Get overdue intentions (past deadline and not complete).
     pub fn overdue_intentions(&self) -> Vec<&Intention> {
-        self.intentions.iter().filter(|q| q.is_overdue()).collect()
+        self.intentions.iter().filter(|q| !q.deleted && q.is_overdue()).collect()
     }
 
     /// Remove an intention by ID. Returns the removed intention if found.
@@ -628,9 +647,21 @@ impl IntentionDocument {
         }
     }
 
-    /// Get the number of intentions.
+    /// Delete an intention by ID (tombstone — marks as deleted, does not physically remove).
+    ///
+    /// Returns the deleted intention if found, or None if not found/already deleted.
+    pub fn delete(&mut self, id: &IntentionId) -> Option<&Intention> {
+        if let Some(intention) = self.intentions.iter_mut().find(|q| &q.id == id && !q.deleted) {
+            intention.deleted = true;
+            Some(intention)
+        } else {
+            None
+        }
+    }
+
+    /// Get the number of intentions (excluding deleted).
     pub fn intention_count(&self) -> usize {
-        self.intentions.len()
+        self.intentions.iter().filter(|q| !q.deleted).count()
     }
 
     /// Search intentions by title or description.
@@ -639,8 +670,9 @@ impl IntentionDocument {
         self.intentions
             .iter()
             .filter(|q| {
-                q.title.to_lowercase().contains(&query_lower)
-                    || q.description.to_lowercase().contains(&query_lower)
+                !q.deleted
+                    && (q.title.to_lowercase().contains(&query_lower)
+                        || q.description.to_lowercase().contains(&query_lower))
             })
             .collect()
     }
@@ -833,6 +865,7 @@ mod tests {
             completed_at_millis: None,
             deadline_millis: None,
             priority: IntentionPriority::default(),
+            deleted: false,
         }
     }
 
@@ -996,5 +1029,43 @@ mod tests {
 
         doc_a.merge(doc_b);
         assert_eq!(doc_a.find(&id).unwrap().priority, IntentionPriority::High);
+    }
+
+    #[test]
+    fn test_intention_delete_tombstone() {
+        let mut doc = IntentionDocument::new();
+        let intention = Intention::new("Delete me", "Will be deleted", None, test_member_id());
+        let id = intention.id;
+        doc.add(intention);
+
+        assert_eq!(doc.intention_count(), 1);
+        assert!(doc.find(&id).is_some());
+
+        doc.delete(&id);
+        assert_eq!(doc.intention_count(), 0);
+        assert!(doc.find(&id).is_none());
+        // Still physically present
+        assert_eq!(doc.intentions.len(), 1);
+        assert!(doc.intentions[0].deleted);
+    }
+
+    #[test]
+    fn merge_deleted_tombstone_propagates() {
+        use indras_network::document::DocumentSchema;
+
+        let id = [9u8; 16];
+        let mut doc_a = IntentionDocument::new();
+        doc_a.add(make_intention(id, test_member_id()));
+
+        let mut int_b = make_intention(id, test_member_id());
+        int_b.deleted = true;
+        let mut doc_b = IntentionDocument::new();
+        doc_b.add(int_b);
+
+        doc_a.merge(doc_b);
+        // Should be tombstoned after merge
+        assert!(doc_a.intentions.iter().find(|q| q.id == id).unwrap().deleted);
+        // find() should exclude deleted
+        assert!(doc_a.find(&id).is_none());
     }
 }

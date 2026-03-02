@@ -232,7 +232,7 @@ async fn test_update_markdown_note() {
     tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
     // Update note content
-    home.update_note(note_id, "# Updated Content\n\nNew text")
+    home.update_note(note_id, "Updated Title", "# Updated Content\n\nNew text")
         .await
         .unwrap();
 

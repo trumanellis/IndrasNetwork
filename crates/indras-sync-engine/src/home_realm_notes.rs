@@ -26,7 +26,7 @@ use indras_network::home_realm::HomeRealm;
 ///     "# Project Update\n\n- Item 1\n- Item 2",
 ///     vec!["work".into(), "meeting".into()],
 /// ).await?;
-/// home.update_note(note_id, "# Updated\n\nNew content").await?;
+/// home.update_note(note_id, "Updated Title", "# Updated\n\nNew content").await?;
 /// ```
 pub trait HomeRealmNotes {
     /// Get the notes document for this home realm.
@@ -42,10 +42,11 @@ pub trait HomeRealmNotes {
         tags: Vec<String>,
     ) -> Result<NoteId>;
 
-    /// Update an existing note's content.
+    /// Update an existing note's title and content.
     async fn update_note(
         &self,
         note_id: NoteId,
+        title: impl Into<String> + Send,
         content: impl Into<String> + Send,
     ) -> Result<()>;
 
@@ -82,12 +83,15 @@ impl HomeRealmNotes for HomeRealm {
     async fn update_note(
         &self,
         note_id: NoteId,
+        title: impl Into<String> + Send,
         content: impl Into<String> + Send,
     ) -> Result<()> {
+        let title = title.into();
         let content = content.into();
         let doc = self.notes().await?;
         doc.update(|d| {
             if let Some(note) = d.find_mut(&note_id) {
+                note.update_title(title);
                 note.update_content(content);
             }
         })
