@@ -2076,6 +2076,8 @@ This means consumers only need one dependency — `indras-network` — to access
 | `Artifact` | Union type for all artifacts |
 | `ArtifactRef` | Lightweight reference to an artifact |
 | `PayloadRef` | Reference to artifact payload data |
+| `LeafType` | Enum: Note, File, Image, Intention, Proof, etc. |
+| `TreeType` | Enum: Vault, Story, Exchange, Request, etc. |
 
 ### Vault Types
 

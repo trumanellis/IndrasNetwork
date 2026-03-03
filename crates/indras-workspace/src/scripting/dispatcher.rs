@@ -62,7 +62,7 @@ pub fn spawn_dispatcher(
 
                         let vt = match view_type_str.as_str() {
                             "story" => ViewType::Chat,
-                            "quest" => ViewType::Quest,
+                            "quest" => ViewType::IntentionDetail,
                             _ => ViewType::Document,
                         };
                         workspace.write().ui.active_view = vt;
@@ -86,7 +86,7 @@ pub fn spawn_dispatcher(
                 Action::ClickTab(tab) => {
                     let vt = match tab.as_str() {
                         "settings" => ViewType::Settings,
-                        "quest" => ViewType::Quest,
+                        "quest" => ViewType::IntentionDetail,
                         "story" => ViewType::Chat,
                         _ => ViewType::Document,
                     };
@@ -389,10 +389,13 @@ pub fn spawn_dispatcher(
                     let view = workspace.read().ui.active_view.clone();
                     let view_str = match view {
                         ViewType::Document => "document",
-                        ViewType::Chat => "story",
-                        ViewType::Quest => "quest",
-                        ViewType::Settings => "settings",
+                        ViewType::MyIntentions => "my_intentions",
+                        ViewType::Community => "community",
+                        ViewType::Tokens => "tokens",
                         ViewType::Artifacts => "artifacts",
+                        ViewType::Chat => "chat",
+                        ViewType::IntentionDetail => "intention_detail",
+                        ViewType::Settings => "settings",
                     };
                     QueryResult::String(view_str.to_string())
                 }

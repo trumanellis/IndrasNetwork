@@ -1,10 +1,11 @@
 pub mod app;
 pub mod topbar;
 pub mod document;
-pub mod quest;
+pub mod intention_view;
 pub mod settings;
 pub mod blocks;
 pub mod setup;
 pub mod pass_story;
 pub mod event_log;
 pub mod artifact_browser;
+pub mod intention_board;

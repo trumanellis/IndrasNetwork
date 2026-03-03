@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use dioxus::prelude::*;
 use indras_network::IndrasNetwork;
-use indras_sync_engine::{HomeRealmQuests, HomeRealmNotes};
+use indras_sync_engine::{HomeRealmIntentions, HomeRealmNotes};
 
 use indras_ui::{ArtifactDisplayInfo, ArtifactDisplayStatus, ArtifactGallery};
 
@@ -24,10 +24,10 @@ async fn refresh_home_realm_data(
     let _my_id_short: String = my_id.iter().take(8).map(|b| format!("{:02x}", b)).collect();
 
     if let Ok(home) = network.home_realm().await {
-        // Load quests with full claim information
-        if let Ok(doc) = home.quests().await {
+        // Load intentions with full claim information
+        if let Ok(doc) = home.intentions().await {
             let data = doc.read().await;
-            let quests: Vec<QuestView> = data.quests.iter().map(|q| {
+            let quests: Vec<QuestView> = data.intentions.iter().map(|q| {
                 let creator_id_short: String = q.creator.iter().take(8).map(|b| format!("{:02x}", b)).collect();
                 let is_creator = q.creator == my_id;
                 let is_complete = q.completed_at_millis.is_some();
@@ -660,10 +660,10 @@ fn render_quest_item(
                             if let Some(ref net) = *net {
                                 if let Ok(home) = net.home_realm().await {
                                     if let Some(id_bytes) = hex_to_quest_id(&qid) {
-                                        if let Ok(()) = home.complete_quest(id_bytes).await {
+                                        if let Ok(()) = home.complete_intention(id_bytes).await {
                                             refresh_home_realm_data(net, &mut state).await;
                                         } else {
-                                            tracing::error!("Failed to complete quest");
+                                            tracing::error!("Failed to complete intention");
                                         }
                                     }
                                 }
@@ -749,7 +749,7 @@ fn render_quest_item(
                                             if let Ok(home) = net.home_realm().await {
                                                 if let Some(id_bytes) = hex_to_quest_id(&qid) {
                                                     // Submit claim without artifact for now
-                                                    if let Ok(_idx) = home.submit_quest_claim(id_bytes, None).await {
+                                                    if let Ok(_idx) = home.submit_service_claim(id_bytes, None).await {
                                                         state.write().claiming_quest_id = None;
                                                         state.write().claim_proof_text.clear();
                                                         refresh_home_realm_data(net, &mut state).await;
@@ -820,7 +820,7 @@ fn render_quest_claim(
                             if let Some(ref net) = *net {
                                 if let Ok(home) = net.home_realm().await {
                                     if let Some(id_bytes) = hex_to_quest_id(&qid) {
-                                        if let Ok(()) = home.verify_quest_claim(id_bytes, idx).await {
+                                        if let Ok(()) = home.verify_service_claim(id_bytes, idx).await {
                                             refresh_home_realm_data(net, &mut state).await;
                                         } else {
                                             tracing::error!("Failed to verify claim");

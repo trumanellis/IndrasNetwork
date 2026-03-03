@@ -7,7 +7,9 @@
 #   ./se Love Joy --clean   Launch two instances with fresh data
 #   ./se --clean            Launch single instance with fresh data
 #   ./se --chat             Launch indras-chat instead of indras-workspace
+#   ./se --gift             Launch indras-gift-cycle instead of indras-workspace
 #   ./se Love Joy --chat    Launch two chat instances
+#   ./se Love Joy --gift    Launch two gift cycle instances
 #
 # Each named instance gets its own data directory under /tmp/indras-<name>.
 # Windows are named per identity and tiled across the screen.
@@ -27,6 +29,8 @@ for arg in "$@"; do
     CLEAN="--clean"
   elif [ "$arg" = "--chat" ]; then
     APP="indras-chat"
+  elif [ "$arg" = "--gift" ]; then
+    APP="indras-gift-cycle"
   elif [ "$arg" = "--mock" ]; then
     SEED_SCRIPT="--seed-script=crates/indras-workspace/scripts/scenarios/mock_artifacts.lua"
   elif [ "$arg" = "--remock" ]; then
@@ -100,7 +104,7 @@ echo "Press Ctrl+C to stop all instances."
 bring_windows_to_front() {
     osascript -e '
         tell application "System Events"
-            set appProcs to every process whose name is "indras-workspace" or name is "indras-chat"
+            set appProcs to every process whose name is "indras-workspace" or name is "indras-chat" or name is "indras-gift-cycle"
             if (count of appProcs) > 0 then
                 repeat with proc in appProcs
                     set frontmost of proc to true
@@ -109,7 +113,7 @@ bring_windows_to_front() {
                 set allProcs to every process whose visible is true
                 repeat with proc in allProcs
                     try
-                        set wins to every window of proc whose name contains "Indras"
+                        set wins to every window of proc whose name contains "Indras" or name contains "Gift Cycle"
                         if (count of wins) > 0 then
                             set frontmost of proc to true
                         end if

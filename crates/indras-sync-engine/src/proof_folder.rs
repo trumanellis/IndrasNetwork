@@ -14,7 +14,7 @@
 
 use indras_network::artifact::ArtifactId;
 use indras_network::member::MemberId;
-use crate::quest::QuestId;
+use crate::intention::IntentionId;
 use serde::{Deserialize, Serialize};
 
 /// Unique identifier for a proof folder (16 bytes).
@@ -137,7 +137,7 @@ impl ProofFolderArtifact {
 ///
 /// ```ignore
 /// // Create a proof folder for a quest
-/// let folder_id = realm.create_proof_folder(quest_id, my_id).await?;
+/// let folder_id = realm.create_proof_folder(intention_id, my_id).await?;
 ///
 /// // Add narrative
 /// realm.update_proof_folder_narrative(folder_id, "## Work completed\n\nI did the thing...").await?;
@@ -154,7 +154,7 @@ pub struct ProofFolder {
     /// Unique identifier for this proof folder.
     pub id: ProofFolderId,
     /// The quest this proof is for.
-    pub quest_id: QuestId,
+    pub intention_id: IntentionId,
     /// The member who created this proof folder.
     pub claimant: MemberId,
     /// Markdown narrative explaining what was done.
@@ -171,10 +171,10 @@ pub struct ProofFolder {
 
 impl ProofFolder {
     /// Create a new proof folder in draft status.
-    pub fn new(quest_id: QuestId, claimant: MemberId) -> Self {
+    pub fn new(intention_id: IntentionId, claimant: MemberId) -> Self {
         Self {
             id: generate_proof_folder_id(),
-            quest_id,
+            intention_id,
             claimant,
             narrative: String::new(),
             artifacts: Vec::new(),
@@ -295,10 +295,27 @@ impl std::error::Error for ProofFolderError {}
 ///
 /// This is used with `realm.document::<ProofFolderDocument>("proof_folders")` to get
 /// a CRDT-synchronized proof folder collection.
+///
+/// # CRDT Semantics
+///
+/// - Proof folders are identified by their unique `ProofFolderId`
+/// - Merge strategy: set-union by folder ID (no data loss on concurrent edits)
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ProofFolderDocument {
     /// All proof folders in this realm.
     pub folders: Vec<ProofFolder>,
+}
+
+impl indras_network::document::DocumentSchema for ProofFolderDocument {
+    fn merge(&mut self, remote: Self) {
+        let existing: std::collections::HashSet<ProofFolderId> =
+            self.folders.iter().map(|f| f.id).collect();
+        for folder in remote.folders {
+            if !existing.contains(&folder.id) {
+                self.folders.push(folder);
+            }
+        }
+    }
 }
 
 impl ProofFolderDocument {
@@ -322,9 +339,9 @@ impl ProofFolderDocument {
         self.folders.iter_mut().find(|f| &f.id == id)
     }
 
-    /// Get all proof folders for a specific quest.
-    pub fn folders_for_quest(&self, quest_id: &QuestId) -> Vec<&ProofFolder> {
-        self.folders.iter().filter(|f| &f.quest_id == quest_id).collect()
+    /// Get all proof folders for a specific intention.
+    pub fn folders_for_intention(&self, intention_id: &IntentionId) -> Vec<&ProofFolder> {
+        self.folders.iter().filter(|f| &f.intention_id == intention_id).collect()
     }
 
     /// Get all proof folders by a specific claimant.
@@ -342,19 +359,19 @@ impl ProofFolderDocument {
         self.folders.iter().filter(|f| f.is_submitted()).collect()
     }
 
-    /// Get draft folders for a specific quest.
-    pub fn draft_folders_for_quest(&self, quest_id: &QuestId) -> Vec<&ProofFolder> {
+    /// Get draft folders for a specific intention.
+    pub fn draft_folders_for_intention(&self, intention_id: &IntentionId) -> Vec<&ProofFolder> {
         self.folders
             .iter()
-            .filter(|f| &f.quest_id == quest_id && f.is_draft())
+            .filter(|f| &f.intention_id == intention_id && f.is_draft())
             .collect()
     }
 
-    /// Get submitted folders for a specific quest.
-    pub fn submitted_folders_for_quest(&self, quest_id: &QuestId) -> Vec<&ProofFolder> {
+    /// Get submitted folders for a specific intention.
+    pub fn submitted_folders_for_intention(&self, intention_id: &IntentionId) -> Vec<&ProofFolder> {
         self.folders
             .iter()
-            .filter(|f| &f.quest_id == quest_id && f.is_submitted())
+            .filter(|f| &f.intention_id == intention_id && f.is_submitted())
             .collect()
     }
 }
@@ -371,11 +388,11 @@ mod tests {
         [2u8; 32]
     }
 
-    fn test_quest_id() -> QuestId {
+    fn test_intention_id() -> IntentionId {
         [1u8; 16]
     }
 
-    fn another_quest_id() -> QuestId {
+    fn another_intention_id() -> IntentionId {
         [2u8; 16]
     }
 
@@ -389,7 +406,7 @@ mod tests {
 
     #[test]
     fn test_proof_folder_creation() {
-        let folder = ProofFolder::new(test_quest_id(), test_member_id());
+        let folder = ProofFolder::new(test_intention_id(), test_member_id());
         assert!(folder.is_draft());
         assert!(!folder.is_submitted());
         assert!(folder.narrative.is_empty());
@@ -398,14 +415,14 @@ mod tests {
 
     #[test]
     fn test_proof_folder_set_narrative() {
-        let mut folder = ProofFolder::new(test_quest_id(), test_member_id());
+        let mut folder = ProofFolder::new(test_intention_id(), test_member_id());
         assert!(folder.set_narrative("# My Work\n\nI did the thing.").is_ok());
         assert_eq!(folder.narrative, "# My Work\n\nI did the thing.");
     }
 
     #[test]
     fn test_proof_folder_add_artifact() {
-        let mut folder = ProofFolder::new(test_quest_id(), test_member_id());
+        let mut folder = ProofFolder::new(test_intention_id(), test_member_id());
         let artifact = ProofFolderArtifact::new(
             test_artifact_id(),
             "photo.jpg",
@@ -418,7 +435,7 @@ mod tests {
 
     #[test]
     fn test_proof_folder_remove_artifact() {
-        let mut folder = ProofFolder::new(test_quest_id(), test_member_id());
+        let mut folder = ProofFolder::new(test_intention_id(), test_member_id());
         let artifact = ProofFolderArtifact::new(
             test_artifact_id(),
             "photo.jpg",
@@ -439,7 +456,7 @@ mod tests {
 
     #[test]
     fn test_proof_folder_submit() {
-        let mut folder = ProofFolder::new(test_quest_id(), test_member_id());
+        let mut folder = ProofFolder::new(test_intention_id(), test_member_id());
         folder.set_narrative("Did the work").unwrap();
 
         assert!(folder.submit().is_ok());
@@ -452,7 +469,7 @@ mod tests {
 
     #[test]
     fn test_proof_folder_draft_only_operations() {
-        let mut folder = ProofFolder::new(test_quest_id(), test_member_id());
+        let mut folder = ProofFolder::new(test_intention_id(), test_member_id());
         folder.submit().unwrap();
 
         // Can't modify after submission
@@ -477,7 +494,7 @@ mod tests {
 
     #[test]
     fn test_proof_folder_narrative_preview() {
-        let mut folder = ProofFolder::new(test_quest_id(), test_member_id());
+        let mut folder = ProofFolder::new(test_intention_id(), test_member_id());
 
         // Short narrative
         folder.set_narrative("Short text").unwrap();
@@ -507,14 +524,14 @@ mod tests {
     fn test_proof_folder_document() {
         let mut doc = ProofFolderDocument::new();
 
-        let mut folder1 = ProofFolder::new(test_quest_id(), test_member_id());
+        let mut folder1 = ProofFolder::new(test_intention_id(), test_member_id());
         let id1 = folder1.id;
         folder1.submit().unwrap();
 
-        let folder2 = ProofFolder::new(test_quest_id(), another_member_id());
+        let folder2 = ProofFolder::new(test_intention_id(), another_member_id());
         let id2 = folder2.id;
 
-        let folder3 = ProofFolder::new(another_quest_id(), test_member_id());
+        let folder3 = ProofFolder::new(another_intention_id(), test_member_id());
 
         doc.add(folder1);
         doc.add(folder2);
@@ -524,9 +541,9 @@ mod tests {
         assert!(doc.find(&id1).is_some());
         assert!(doc.find(&id2).is_some());
 
-        // Folders for quest
-        assert_eq!(doc.folders_for_quest(&test_quest_id()).len(), 2);
-        assert_eq!(doc.folders_for_quest(&another_quest_id()).len(), 1);
+        // Folders for intention
+        assert_eq!(doc.folders_for_intention(&test_intention_id()).len(), 2);
+        assert_eq!(doc.folders_for_intention(&another_intention_id()).len(), 1);
 
         // Folders by claimant
         assert_eq!(doc.folders_by_claimant(&test_member_id()).len(), 2);
@@ -537,8 +554,8 @@ mod tests {
         assert_eq!(doc.submitted_folders().len(), 1);
 
         // Draft folders for quest
-        assert_eq!(doc.draft_folders_for_quest(&test_quest_id()).len(), 1);
-        assert_eq!(doc.submitted_folders_for_quest(&test_quest_id()).len(), 1);
+        assert_eq!(doc.draft_folders_for_intention(&test_intention_id()).len(), 1);
+        assert_eq!(doc.submitted_folders_for_intention(&test_intention_id()).len(), 1);
     }
 
     #[test]
@@ -550,7 +567,7 @@ mod tests {
 
     #[test]
     fn test_proof_folder_serialization() {
-        let mut folder = ProofFolder::new(test_quest_id(), test_member_id());
+        let mut folder = ProofFolder::new(test_intention_id(), test_member_id());
         folder.set_narrative("Test narrative").unwrap();
         let artifact = ProofFolderArtifact::new(
             test_artifact_id(),
@@ -572,7 +589,7 @@ mod tests {
     #[test]
     fn test_proof_folder_document_serialization() {
         let mut doc = ProofFolderDocument::new();
-        doc.add(ProofFolder::new(test_quest_id(), test_member_id()));
+        doc.add(ProofFolder::new(test_intention_id(), test_member_id()));
 
         let bytes = postcard::to_allocvec(&doc).unwrap();
         let deserialized: ProofFolderDocument = postcard::from_bytes(&bytes).unwrap();

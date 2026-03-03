@@ -1,6 +1,6 @@
 //! # Indra's SyncEngine
 //!
-//! App layer for Indra's Network — quests, blessings, tokens of gratitude,
+//! App layer for Indra's Network — intentions, blessings, tokens of gratitude,
 //! attention tracking, proof-of-service, and humanness attestation.
 //!
 //! SyncEngine is the first app built on the Indra's Network P2P platform.
@@ -21,13 +21,12 @@
 //!
 //! // Use extension traits on Realm
 //! let realm = network.create_realm("Project").await?;
-//! let quest_id = realm.create_quest("Review doc", "Please review", None, my_id).await?;
+//! let intention_id = realm.create_intention("Review doc", "Please review", None, my_id).await?;
 //! ```
 
 // Domain modules (moved from indras-network)
-pub mod quest;
+pub mod intention;
 pub mod note;
-pub mod message;
 pub mod blessing;
 pub mod attention;
 pub mod token_of_gratitude;
@@ -43,9 +42,8 @@ pub mod bioregion_catalog;
 pub mod content;
 
 // Extension traits on Realm
-pub mod realm_quests;
+pub mod realm_intentions;
 pub mod realm_notes;
-pub mod realm_messages;
 pub mod realm_chat;
 pub mod realm_blessings;
 pub mod realm_attention;
@@ -54,7 +52,7 @@ pub mod realm_humanness;
 pub mod realm_proof_folders;
 
 // Extension traits on HomeRealm
-pub mod home_realm_quests;
+pub mod home_realm_intentions;
 pub mod home_realm_notes;
 
 // SyncEngine struct
@@ -64,12 +62,11 @@ pub mod sync_engine;
 pub mod prelude;
 
 // Re-export main types at crate root
-pub use quest::{Quest, QuestClaim, QuestDocument, QuestError, QuestId, QuestPriority};
+pub use intention::{Intention, IntentionKind, ServiceClaim, IntentionDocument, IntentionError, IntentionId, IntentionPriority};
 pub use note::{Note, NoteDocument, NoteId};
-pub use message::{MessageContent, MessageDocument, MessageId, StoredMessage};
 pub use blessing::{Blessing, BlessingDocument, BlessingError, BlessingId, ClaimId};
 pub use attention::{
-    AttentionDocument, AttentionError, AttentionEventId, AttentionSwitchEvent, QuestAttention,
+    AttentionDocument, AttentionError, AttentionEventId, AttentionSwitchEvent, IntentionAttention,
 };
 pub use token_of_gratitude::{
     TokenError, TokenEvent, TokenOfGratitude, TokenOfGratitudeDocument, TokenOfGratitudeId,
@@ -93,26 +90,25 @@ pub use content::SyncContent;
 pub use sync_engine::SyncEngine;
 
 // Explicit DocumentSchema impls for indras-sync-engine types (default merge = replacement).
+// IntentionDocument, NoteDocument, and ProofFolderDocument have manual impls with
+// set-union merge semantics (see their respective modules).
 indras_network::impl_document_schema!(
-    QuestDocument,
-    NoteDocument,
-    MessageDocument,
     BlessingDocument,
     AttentionDocument,
     TokenOfGratitudeDocument,
     HumannessDocument,
     ProofFolderDocument,
+    SentimentRelayDocument,
 );
 
 // Re-export extension traits
-pub use realm_quests::RealmQuests;
+pub use realm_intentions::RealmIntentions;
 pub use realm_notes::RealmNotes;
-pub use realm_messages::RealmMessages;
 pub use realm_chat::RealmChat;
 pub use realm_blessings::RealmBlessings;
 pub use realm_attention::RealmAttention;
 pub use realm_tokens::RealmTokens;
 pub use realm_humanness::RealmHumanness;
 pub use realm_proof_folders::RealmProofFolders;
-pub use home_realm_quests::HomeRealmQuests;
+pub use home_realm_intentions::HomeRealmIntentions;
 pub use home_realm_notes::HomeRealmNotes;

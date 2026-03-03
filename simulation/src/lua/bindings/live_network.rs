@@ -12,6 +12,11 @@ use indras_network::{
     AccessMode, ArtifactId, ContactsRealm, Content, Document, DocumentSchema, HomeRealm,
     IndrasNetwork, MemberId, Message, MessageId, Realm, RealmChatDocument, RealmId,
 };
+use indras_sync_engine::{
+    IntentionDocument, IntentionId, RealmIntentions,
+    RealmAttention, RealmBlessings, RealmTokens,
+    TokenOfGratitudeId,
+};
 
 // ============================================================
 // LuaJsonDoc — newtype for Document<T> usage from Lua
@@ -108,6 +113,28 @@ fn parse_access_mode(s: &str) -> std::result::Result<AccessMode, mlua::Error> {
             s
         ))),
     }
+}
+
+fn parse_intention_id(hex_str: &str) -> std::result::Result<IntentionId, mlua::Error> {
+    let bytes = hex::decode(hex_str)
+        .map_err(|e| mlua::Error::external(format!("Invalid intention ID hex: {}", e)))?;
+    if bytes.len() != 16 {
+        return Err(mlua::Error::external("Intention ID must be 16 bytes"));
+    }
+    let mut arr = [0u8; 16];
+    arr.copy_from_slice(&bytes);
+    Ok(arr)
+}
+
+fn parse_token_id(hex_str: &str) -> std::result::Result<TokenOfGratitudeId, mlua::Error> {
+    let bytes = hex::decode(hex_str)
+        .map_err(|e| mlua::Error::external(format!("Invalid token ID hex: {}", e)))?;
+    if bytes.len() != 16 {
+        return Err(mlua::Error::external("Token ID must be 16 bytes"));
+    }
+    let mut arr = [0u8; 16];
+    arr.copy_from_slice(&bytes);
+    Ok(arr)
 }
 
 /// Reconstruct a MessageId from a realm and sequence number.
@@ -209,14 +236,16 @@ impl UserData for LuaNetwork {
 
         methods.add_async_method("create_realm", |_, this, name: String| async move {
             let net = &this.network;
+            let owner_id = net.id();
             let realm = net.create_realm(&name).await.map_err(mlua::Error::external)?;
-            Ok(LuaRealm { realm })
+            Ok(LuaRealm { realm, owner_id })
         });
 
         methods.add_async_method("join", |_, this, invite: String| async move {
             let net = &this.network;
+            let owner_id = net.id();
             let realm = net.join(&invite).await.map_err(mlua::Error::external)?;
-            Ok(LuaRealm { realm })
+            Ok(LuaRealm { realm, owner_id })
         });
 
         methods.add_async_method("realms", |_, this, ()| async move {
@@ -232,7 +261,8 @@ impl UserData for LuaNetwork {
         methods.add_async_method("get_realm", |_, this, realm_id_hex: String| async move {
             let rid = parse_realm_id(&realm_id_hex)?;
             let net = &this.network;
-            Ok(net.get_realm_by_id(&rid).map(|realm| LuaRealm { realm }))
+            let owner_id = net.id();
+            Ok(net.get_realm_by_id(&rid).map(|realm| LuaRealm { realm, owner_id }))
         });
 
         methods.add_async_method("leave_realm", |_, this, realm_id_hex: String| async move {
@@ -246,17 +276,19 @@ impl UserData for LuaNetwork {
         methods.add_async_method("connect", |_, this, peer_id_hex: String| async move {
             let peer_id = parse_member_id(&peer_id_hex)?;
             let net = &this.network;
+            let owner_id = net.id();
             let (realm, _) = net.connect(peer_id).await.map_err(mlua::Error::external)?;
-            Ok(LuaRealm { realm })
+            Ok(LuaRealm { realm, owner_id })
         });
 
         methods.add_async_method("connect_by_code", |_, this, code: String| async move {
             let net = &this.network;
+            let owner_id = net.id();
             let (realm, _) = net
                 .connect_by_code(&code)
                 .await
                 .map_err(mlua::Error::external)?;
-            Ok(LuaRealm { realm })
+            Ok(LuaRealm { realm, owner_id })
         });
 
         // -- Special realms --
@@ -308,6 +340,26 @@ impl UserData for LuaNetwork {
             },
         );
 
+        // -- Disconnect from another LuaNetwork (close QUIC connection) --
+
+        methods.add_async_method(
+            "disconnect_from",
+            |_, this, other: mlua::AnyUserData| async move {
+                let other_ref = other.borrow::<LuaNetwork>()?;
+                let other_net = other_ref.network.read().await;
+                let peer_id = other_net.id();
+                drop(other_net);
+                drop(other_ref);
+
+                let net = this.network.read().await;
+                net.node()
+                    .disconnect_from(&peer_id)
+                    .await
+                    .map_err(mlua::Error::external)?;
+                Ok(())
+            },
+        );
+
         // -- ToString --
 
         methods.add_async_method("__tostring_async", |_, this, ()| async move {
@@ -332,8 +384,10 @@ impl UserData for LuaNetwork {
 /// Lua wrapper for Realm.
 ///
 /// Realm is Clone, so we store it directly.
+/// `owner_id` is the local network's member ID, needed for intention operations.
 struct LuaRealm {
     realm: Realm,
+    owner_id: MemberId,
 }
 
 impl UserData for LuaRealm {
@@ -573,6 +627,274 @@ impl UserData for LuaRealm {
                 .await
                 .map_err(mlua::Error::external)
         });
+
+        // -- Intentions (sync-engine) --
+
+        methods.add_async_method(
+            "create_intention",
+            |_, this, (title, description): (String, String)| async move {
+                let creator = this.owner_id;
+                let intention_id = this
+                    .realm
+                    .create_intention(title, description, None, creator)
+                    .await
+                    .map_err(mlua::Error::external)?;
+                Ok(hex::encode(intention_id))
+            },
+        );
+
+        methods.add_async_method(
+            "submit_service_claim",
+            |_, this, (intention_id_hex, claimant_hex): (String, String)| async move {
+                let intention_id = parse_intention_id(&intention_id_hex)?;
+                let claimant = parse_member_id(&claimant_hex)?;
+                let claim_index = this
+                    .realm
+                    .submit_service_claim(intention_id, claimant, None)
+                    .await
+                    .map_err(mlua::Error::external)?;
+                Ok(claim_index)
+            },
+        );
+
+        methods.add_async_method(
+            "verify_service_claim",
+            |_, this, (intention_id_hex, claim_index): (String, u64)| async move {
+                let intention_id = parse_intention_id(&intention_id_hex)?;
+                let caller = this.owner_id;
+                this.realm
+                    .verify_service_claim(intention_id, claim_index as usize, caller)
+                    .await
+                    .map_err(mlua::Error::external)
+            },
+        );
+
+        methods.add_async_method(
+            "complete_intention",
+            |_, this, intention_id_hex: String| async move {
+                let intention_id = parse_intention_id(&intention_id_hex)?;
+                let caller = this.owner_id;
+                this.realm
+                    .complete_intention(intention_id, caller)
+                    .await
+                    .map_err(mlua::Error::external)
+            },
+        );
+
+        methods.add_async_method("read_intentions", |lua, this, ()| async move {
+            let doc = this
+                .realm
+                .document::<IntentionDocument>("intentions")
+                .await
+                .map_err(mlua::Error::external)?;
+            let _ = doc.refresh().await;
+            let guard = doc.read().await;
+            let result = lua.create_table()?;
+            for (i, intention) in guard.intentions.iter().enumerate() {
+                let t = lua.create_table()?;
+                t.set("id", hex::encode(intention.id))?;
+                t.set("title", intention.title.as_str())?;
+                t.set("description", intention.description.as_str())?;
+                t.set("creator", hex::encode(intention.creator))?;
+                t.set("claim_count", intention.claims.len())?;
+                t.set("is_complete", intention.is_complete())?;
+                t.set("has_verified_claims", intention.has_verified_claims())?;
+                t.set("priority", format!("{:?}", intention.priority))?;
+                result.set(i + 1, t)?;
+            }
+            Ok(result)
+        });
+
+        // -- Attention (sync-engine) --
+
+        methods.add_async_method(
+            "focus_attention",
+            |_, this, intention_id_hex: String| async move {
+                let intention_id = parse_intention_id(&intention_id_hex)?;
+                let event_id = this
+                    .realm
+                    .focus_on_intention(intention_id, this.owner_id)
+                    .await
+                    .map_err(mlua::Error::external)?;
+                Ok(hex::encode(event_id))
+            },
+        );
+
+        methods.add_async_method("clear_attention", |_, this, ()| async move {
+            let event_id = this
+                .realm
+                .clear_attention(this.owner_id)
+                .await
+                .map_err(mlua::Error::external)?;
+            Ok(hex::encode(event_id))
+        });
+
+        methods.add_async_method("read_attention", |lua, this, ()| async move {
+            let doc = this
+                .realm
+                .attention()
+                .await
+                .map_err(mlua::Error::external)?;
+            let _ = doc.refresh().await;
+            let guard = doc.read().await;
+            let events = guard.events();
+            let result = lua.create_table()?;
+            for (i, event) in events.iter().enumerate() {
+                let t = lua.create_table()?;
+                t.set("member", hex::encode(event.member))?;
+                if let Some(iid) = event.intention_id {
+                    t.set("intention_id", hex::encode(iid))?;
+                }
+                t.set("timestamp_millis", event.timestamp_millis)?;
+                result.set(i + 1, t)?;
+            }
+            Ok(result)
+        });
+
+        // -- Blessings (sync-engine) --
+
+        methods.add_async_method(
+            "bless_claim",
+            |_, this, (intention_id_hex, claimant_hex, event_indices): (String, String, Vec<usize>)| async move {
+                let intention_id = parse_intention_id(&intention_id_hex)?;
+                let claimant = parse_member_id(&claimant_hex)?;
+                let blesser = this.owner_id;
+                let blessing_id = this
+                    .realm
+                    .bless_claim(intention_id, claimant, blesser, event_indices)
+                    .await
+                    .map_err(mlua::Error::external)?;
+                Ok(hex::encode(blessing_id))
+            },
+        );
+
+        methods.add_async_method(
+            "unblessed_event_indices",
+            |lua, this, intention_id_hex: String| async move {
+                let intention_id = parse_intention_id(&intention_id_hex)?;
+                let indices = this
+                    .realm
+                    .unblessed_event_indices(this.owner_id, intention_id)
+                    .await
+                    .map_err(mlua::Error::external)?;
+                let result = lua.create_table()?;
+                for (i, idx) in indices.iter().enumerate() {
+                    result.set(i + 1, *idx)?;
+                }
+                Ok(result)
+            },
+        );
+
+        methods.add_async_method(
+            "read_blessings",
+            |lua, this, (intention_id_hex, claimant_hex): (String, String)| async move {
+                let intention_id = parse_intention_id(&intention_id_hex)?;
+                let claimant = parse_member_id(&claimant_hex)?;
+                let blessings = this
+                    .realm
+                    .blessings_for_claim(intention_id, claimant)
+                    .await
+                    .map_err(mlua::Error::external)?;
+                let result = lua.create_table()?;
+                for (i, blessing) in blessings.iter().enumerate() {
+                    let t = lua.create_table()?;
+                    t.set("id", hex::encode(blessing.blessing_id))?;
+                    t.set("blesser", hex::encode(blessing.blesser))?;
+                    let indices_table = lua.create_table()?;
+                    for (j, idx) in blessing.event_indices.iter().enumerate() {
+                        indices_table.set(j + 1, *idx)?;
+                    }
+                    t.set("event_indices", indices_table)?;
+                    result.set(i + 1, t)?;
+                }
+                Ok(result)
+            },
+        );
+
+        // -- Tokens of Gratitude (sync-engine) --
+
+        methods.add_async_method(
+            "pledge_token",
+            |_, this, (token_id_hex, intention_id_hex): (String, String)| async move {
+                let token_id = parse_token_id(&token_id_hex)?;
+                let intention_id = parse_intention_id(&intention_id_hex)?;
+                this.realm
+                    .pledge_token(token_id, intention_id, this.owner_id)
+                    .await
+                    .map_err(mlua::Error::external)
+            },
+        );
+
+        methods.add_async_method(
+            "release_token",
+            |_, this, (token_id_hex, new_steward_hex): (String, String)| async move {
+                let token_id = parse_token_id(&token_id_hex)?;
+                let new_steward = parse_member_id(&new_steward_hex)?;
+                this.realm
+                    .release_token(token_id, new_steward, this.owner_id)
+                    .await
+                    .map_err(mlua::Error::external)
+            },
+        );
+
+        methods.add_async_method(
+            "withdraw_token",
+            |_, this, token_id_hex: String| async move {
+                let token_id = parse_token_id(&token_id_hex)?;
+                this.realm
+                    .withdraw_token(token_id, this.owner_id)
+                    .await
+                    .map_err(mlua::Error::external)
+            },
+        );
+
+        methods.add_async_method("read_tokens", |lua, this, ()| async move {
+            let tokens = this
+                .realm
+                .member_tokens(&this.owner_id)
+                .await
+                .map_err(mlua::Error::external)?;
+            let result = lua.create_table()?;
+            for (i, token) in tokens.iter().enumerate() {
+                let t = lua.create_table()?;
+                t.set("id", hex::encode(token.id))?;
+                t.set("steward", hex::encode(token.steward))?;
+                t.set("blesser", hex::encode(token.blesser))?;
+                t.set("source_intention_id", hex::encode(token.source_intention_id))?;
+                t.set("original_steward", hex::encode(token.original_steward))?;
+                if let Some(pledged) = token.pledged_to {
+                    t.set("pledged_to", hex::encode(pledged))?;
+                }
+                result.set(i + 1, t)?;
+            }
+            Ok(result)
+        });
+
+        methods.add_async_method(
+            "intention_pledged_tokens",
+            |lua, this, intention_id_hex: String| async move {
+                let intention_id = parse_intention_id(&intention_id_hex)?;
+                let tokens = this
+                    .realm
+                    .intention_pledged_tokens(&intention_id)
+                    .await
+                    .map_err(mlua::Error::external)?;
+                let result = lua.create_table()?;
+                for (i, token) in tokens.iter().enumerate() {
+                    let t = lua.create_table()?;
+                    t.set("id", hex::encode(token.id))?;
+                    t.set("steward", hex::encode(token.steward))?;
+                    t.set("blesser", hex::encode(token.blesser))?;
+                    t.set("source_intention_id", hex::encode(token.source_intention_id))?;
+                    t.set("original_steward", hex::encode(token.original_steward))?;
+                    if let Some(pledged) = token.pledged_to {
+                        t.set("pledged_to", hex::encode(pledged))?;
+                    }
+                    result.set(i + 1, t)?;
+                }
+                Ok(result)
+            },
+        );
 
         // -- ToString --
 
@@ -875,6 +1197,44 @@ impl UserData for LuaHomeRealm {
                 .await
                 .map_err(mlua::Error::external)?;
             Ok(LuaDocument { doc })
+        });
+
+        // -- Intentions (sync-engine) --
+
+        methods.add_async_method(
+            "create_intention",
+            |_, this, (title, description): (String, String)| async move {
+                use indras_sync_engine::HomeRealmIntentions;
+                let intention_id = this
+                    .home
+                    .create_intention(title, description, None)
+                    .await
+                    .map_err(mlua::Error::external)?;
+                Ok(hex::encode(intention_id))
+            },
+        );
+
+        methods.add_async_method("read_intentions", |lua, this, ()| async move {
+            use indras_sync_engine::HomeRealmIntentions;
+            let doc = this
+                .home
+                .intentions()
+                .await
+                .map_err(mlua::Error::external)?;
+            let guard = doc.read().await;
+            let result = lua.create_table()?;
+            for (i, intention) in guard.intentions.iter().enumerate() {
+                let t = lua.create_table()?;
+                t.set("id", hex::encode(intention.id))?;
+                t.set("title", intention.title.as_str())?;
+                t.set("description", intention.description.as_str())?;
+                t.set("creator", hex::encode(intention.creator))?;
+                t.set("claim_count", intention.claims.len())?;
+                t.set("is_complete", intention.is_complete())?;
+                t.set("has_verified_claims", intention.has_verified_claims())?;
+                result.set(i + 1, t)?;
+            }
+            Ok(result)
         });
 
         // -- ToString --

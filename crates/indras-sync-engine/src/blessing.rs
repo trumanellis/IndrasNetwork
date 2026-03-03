@@ -17,7 +17,7 @@
 //! - Each attention event can only be blessed once per quest claim
 
 use indras_network::member::MemberId;
-use crate::quest::QuestId;
+use crate::intention::IntentionId;
 
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -46,19 +46,19 @@ pub fn generate_blessing_id() -> BlessingId {
     id
 }
 
-/// Identifier for a quest claim (quest_id + claimant).
+/// Identifier for a quest claim (intention_id + claimant).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ClaimId {
     /// The quest this claim belongs to.
-    pub quest_id: QuestId,
+    pub intention_id: IntentionId,
     /// The member who submitted the claim.
     pub claimant: MemberId,
 }
 
 impl ClaimId {
     /// Create a new claim ID.
-    pub fn new(quest_id: QuestId, claimant: MemberId) -> Self {
-        Self { quest_id, claimant }
+    pub fn new(intention_id: IntentionId, claimant: MemberId) -> Self {
+        Self { intention_id, claimant }
     }
 }
 
@@ -71,7 +71,7 @@ impl ClaimId {
 pub struct Blessing {
     /// Unique identifier for this blessing.
     pub blessing_id: BlessingId,
-    /// The claim being blessed (quest_id + claimant).
+    /// The claim being blessed (intention_id + claimant).
     pub claim_id: ClaimId,
     /// The member giving the blessing.
     pub blesser: MemberId,
@@ -99,8 +99,8 @@ impl Blessing {
     }
 
     /// Get the quest ID being blessed.
-    pub fn quest_id(&self) -> QuestId {
-        self.claim_id.quest_id
+    pub fn intention_id(&self) -> IntentionId {
+        self.claim_id.intention_id
     }
 
     /// Get the claimant being blessed.
@@ -132,10 +132,10 @@ impl Ord for Blessing {
 pub struct BlessingDocument {
     /// Append-only log of blessings.
     blessings: Vec<Blessing>,
-    /// Derived state: blessed event indices per (blesser, quest_id).
-    /// Key = (blesser, quest_id), Value = set of blessed event indices.
+    /// Derived state: blessed event indices per (blesser, intention_id).
+    /// Key = (blesser, intention_id), Value = set of blessed event indices.
     #[serde(default)]
-    blessed_indices: HashMap<(MemberId, QuestId), HashSet<usize>>,
+    blessed_indices: HashMap<(MemberId, IntentionId), HashSet<usize>>,
 }
 
 impl BlessingDocument {
@@ -162,14 +162,14 @@ impl BlessingDocument {
         event_indices: Vec<usize>,
     ) -> Result<BlessingId, BlessingError> {
         // Check for double-blessing (same attention events used twice)
-        let key = (blesser, claim_id.quest_id);
+        let key = (blesser, claim_id.intention_id);
         let already_blessed = self.blessed_indices.get(&key).cloned().unwrap_or_default();
 
         for &idx in &event_indices {
             if already_blessed.contains(&idx) {
                 return Err(BlessingError::EventAlreadyBlessed {
                     event_index: idx,
-                    quest_id: claim_id.quest_id,
+                    intention_id: claim_id.intention_id,
                 });
             }
         }
@@ -199,10 +199,10 @@ impl BlessingDocument {
     }
 
     /// Get all blessings for a quest (all claimants).
-    pub fn blessings_for_quest(&self, quest_id: &QuestId) -> Vec<&Blessing> {
+    pub fn blessings_for_quest(&self, intention_id: &IntentionId) -> Vec<&Blessing> {
         self.blessings
             .iter()
-            .filter(|b| &b.claim_id.quest_id == quest_id)
+            .filter(|b| &b.claim_id.intention_id == intention_id)
             .collect()
     }
 
@@ -214,10 +214,10 @@ impl BlessingDocument {
             .collect()
     }
 
-    /// Get the set of blessed event indices for a (blesser, quest_id) pair.
-    pub fn blessed_event_indices(&self, blesser: &MemberId, quest_id: &QuestId) -> HashSet<usize> {
+    /// Get the set of blessed event indices for a (blesser, intention_id) pair.
+    pub fn blessed_event_indices(&self, blesser: &MemberId, intention_id: &IntentionId) -> HashSet<usize> {
         self.blessed_indices
-            .get(&(*blesser, *quest_id))
+            .get(&(*blesser, *intention_id))
             .cloned()
             .unwrap_or_default()
     }
@@ -229,10 +229,10 @@ impl BlessingDocument {
     pub fn unblessed_event_indices(
         &self,
         blesser: &MemberId,
-        quest_id: &QuestId,
+        intention_id: &IntentionId,
         candidate_indices: &[usize],
     ) -> Vec<usize> {
-        let blessed = self.blessed_event_indices(blesser, quest_id);
+        let blessed = self.blessed_event_indices(blesser, intention_id);
         candidate_indices
             .iter()
             .filter(|idx| !blessed.contains(idx))
@@ -241,9 +241,9 @@ impl BlessingDocument {
     }
 
     /// Check if a specific event index has been blessed.
-    pub fn is_event_blessed(&self, blesser: &MemberId, quest_id: &QuestId, event_index: usize) -> bool {
+    pub fn is_event_blessed(&self, blesser: &MemberId, intention_id: &IntentionId, event_index: usize) -> bool {
         self.blessed_indices
-            .get(&(*blesser, *quest_id))
+            .get(&(*blesser, *intention_id))
             .map(|set| set.contains(&event_index))
             .unwrap_or(false)
     }
@@ -269,7 +269,7 @@ impl BlessingDocument {
 
         // Replay blessings to rebuild blessed_indices
         for blessing in &self.blessings {
-            let key = (blessing.blesser, blessing.claim_id.quest_id);
+            let key = (blessing.blesser, blessing.claim_id.intention_id);
             let entry = self.blessed_indices.entry(key).or_default();
             for idx in &blessing.event_indices {
                 entry.insert(*idx);
@@ -329,7 +329,7 @@ pub enum BlessingError {
     /// The attention event has already been blessed for this quest.
     EventAlreadyBlessed {
         event_index: usize,
-        quest_id: QuestId,
+        intention_id: IntentionId,
     },
     /// The member has no attention events available to bless.
     NoAttentionAvailable,
@@ -366,7 +366,7 @@ mod tests {
         [n; 32]
     }
 
-    fn test_quest_id(n: u8) -> QuestId {
+    fn test_intention_id(n: u8) -> IntentionId {
         [n; 16]
     }
 
@@ -379,14 +379,14 @@ mod tests {
 
     #[test]
     fn test_blessing_creation() {
-        let quest_id = test_quest_id(1);
+        let intention_id = test_intention_id(1);
         let claimant = test_member_id(1);
         let blesser = test_member_id(2);
-        let claim_id = ClaimId::new(quest_id, claimant);
+        let claim_id = ClaimId::new(intention_id, claimant);
 
         let blessing = Blessing::new(claim_id, blesser, vec![0, 1, 2]);
 
-        assert_eq!(blessing.quest_id(), quest_id);
+        assert_eq!(blessing.intention_id(), intention_id);
         assert_eq!(blessing.claimant(), claimant);
         assert_eq!(blessing.blesser, blesser);
         assert_eq!(blessing.event_indices, vec![0, 1, 2]);
@@ -395,10 +395,10 @@ mod tests {
     #[test]
     fn test_bless_claim() {
         let mut doc = BlessingDocument::new();
-        let quest_id = test_quest_id(1);
+        let intention_id = test_intention_id(1);
         let claimant = test_member_id(1);
         let blesser = test_member_id(2);
-        let claim_id = ClaimId::new(quest_id, claimant);
+        let claim_id = ClaimId::new(intention_id, claimant);
 
         // First blessing should succeed
         let result = doc.bless_claim(claim_id, blesser, vec![0, 1, 2]);
@@ -418,11 +418,11 @@ mod tests {
     #[test]
     fn test_blessings_for_claim() {
         let mut doc = BlessingDocument::new();
-        let quest_id = test_quest_id(1);
+        let intention_id = test_intention_id(1);
         let claimant = test_member_id(1);
         let blesser1 = test_member_id(2);
         let blesser2 = test_member_id(3);
-        let claim_id = ClaimId::new(quest_id, claimant);
+        let claim_id = ClaimId::new(intention_id, claimant);
 
         doc.bless_claim(claim_id, blesser1, vec![0, 1]).unwrap();
         doc.bless_claim(claim_id, blesser2, vec![2, 3]).unwrap();
@@ -437,14 +437,14 @@ mod tests {
     #[test]
     fn test_blessed_event_indices() {
         let mut doc = BlessingDocument::new();
-        let quest_id = test_quest_id(1);
+        let intention_id = test_intention_id(1);
         let claimant = test_member_id(1);
         let blesser = test_member_id(2);
-        let claim_id = ClaimId::new(quest_id, claimant);
+        let claim_id = ClaimId::new(intention_id, claimant);
 
         doc.bless_claim(claim_id, blesser, vec![0, 2, 4]).unwrap();
 
-        let blessed = doc.blessed_event_indices(&blesser, &quest_id);
+        let blessed = doc.blessed_event_indices(&blesser, &intention_id);
         assert!(blessed.contains(&0));
         assert!(!blessed.contains(&1));
         assert!(blessed.contains(&2));
@@ -455,14 +455,14 @@ mod tests {
     #[test]
     fn test_unblessed_event_indices() {
         let mut doc = BlessingDocument::new();
-        let quest_id = test_quest_id(1);
+        let intention_id = test_intention_id(1);
         let claimant = test_member_id(1);
         let blesser = test_member_id(2);
-        let claim_id = ClaimId::new(quest_id, claimant);
+        let claim_id = ClaimId::new(intention_id, claimant);
 
         doc.bless_claim(claim_id, blesser, vec![0, 2]).unwrap();
 
-        let unblessed = doc.unblessed_event_indices(&blesser, &quest_id, &[0, 1, 2, 3, 4]);
+        let unblessed = doc.unblessed_event_indices(&blesser, &intention_id, &[0, 1, 2, 3, 4]);
         assert_eq!(unblessed, vec![1, 3, 4]);
     }
 
@@ -471,11 +471,11 @@ mod tests {
         let mut doc1 = BlessingDocument::new();
         let mut doc2 = BlessingDocument::new();
 
-        let quest_id = test_quest_id(1);
+        let intention_id = test_intention_id(1);
         let claimant = test_member_id(1);
         let blesser1 = test_member_id(2);
         let blesser2 = test_member_id(3);
-        let claim_id = ClaimId::new(quest_id, claimant);
+        let claim_id = ClaimId::new(intention_id, claimant);
 
         doc1.bless_claim(claim_id, blesser1, vec![0, 1]).unwrap();
         doc2.bless_claim(claim_id, blesser2, vec![2, 3]).unwrap();
@@ -491,10 +491,10 @@ mod tests {
     #[test]
     fn test_merge_deduplication() {
         let mut doc1 = BlessingDocument::new();
-        let quest_id = test_quest_id(1);
+        let intention_id = test_intention_id(1);
         let claimant = test_member_id(1);
         let blesser = test_member_id(2);
-        let claim_id = ClaimId::new(quest_id, claimant);
+        let claim_id = ClaimId::new(intention_id, claimant);
 
         doc1.bless_claim(claim_id, blesser, vec![0, 1]).unwrap();
 
@@ -509,9 +509,9 @@ mod tests {
     #[test]
     fn test_self_blessing_allowed() {
         let mut doc = BlessingDocument::new();
-        let quest_id = test_quest_id(1);
+        let intention_id = test_intention_id(1);
         let member = test_member_id(1);
-        let claim_id = ClaimId::new(quest_id, member);
+        let claim_id = ClaimId::new(intention_id, member);
 
         // Member can bless their own claim
         let result = doc.bless_claim(claim_id, member, vec![0, 1]);
@@ -521,8 +521,8 @@ mod tests {
     #[test]
     fn test_different_quests_independent() {
         let mut doc = BlessingDocument::new();
-        let quest1 = test_quest_id(1);
-        let quest2 = test_quest_id(2);
+        let quest1 = test_intention_id(1);
+        let quest2 = test_intention_id(2);
         let claimant = test_member_id(1);
         let blesser = test_member_id(2);
         let claim1 = ClaimId::new(quest1, claimant);
@@ -537,11 +537,11 @@ mod tests {
     #[test]
     fn test_total_blessed_events() {
         let mut doc = BlessingDocument::new();
-        let quest_id = test_quest_id(1);
+        let intention_id = test_intention_id(1);
         let claimant = test_member_id(1);
         let blesser1 = test_member_id(2);
         let blesser2 = test_member_id(3);
-        let claim_id = ClaimId::new(quest_id, claimant);
+        let claim_id = ClaimId::new(intention_id, claimant);
 
         doc.bless_claim(claim_id, blesser1, vec![0, 1, 2]).unwrap();
         doc.bless_claim(claim_id, blesser2, vec![3, 4]).unwrap();

@@ -1,47 +1,12 @@
-//! Quest/Need/Offering/Intention view component — full Intention Game Loop.
+//! Intention view component — full Intention Game Loop.
 
 use dioxus::prelude::*;
 use indras_ui::{ArtifactDisplayInfo, ArtifactGallery};
+use indras_sync_engine::IntentionKind;
 
 // ================================================================
 // Data Types
 // ================================================================
-
-/// The kind of quest-like artifact.
-#[derive(Clone, Debug, PartialEq)]
-pub enum QuestKind {
-    Quest,
-    Need,
-    Offering,
-    Intention,
-}
-
-impl QuestKind {
-    pub fn css_class(&self) -> &str {
-        match self {
-            QuestKind::Quest => "type-quest",
-            QuestKind::Need => "type-need",
-            QuestKind::Offering => "type-offering",
-            QuestKind::Intention => "type-intention",
-        }
-    }
-    pub fn icon(&self) -> &str {
-        match self {
-            QuestKind::Quest => "\u{2694}",
-            QuestKind::Need => "\u{1F331}",
-            QuestKind::Offering => "\u{1F381}",
-            QuestKind::Intention => "\u{2728}",
-        }
-    }
-    pub fn label(&self) -> &str {
-        match self {
-            QuestKind::Quest => "Quest",
-            QuestKind::Need => "Need",
-            QuestKind::Offering => "Offering",
-            QuestKind::Intention => "Intention",
-        }
-    }
-}
 
 /// An artifact attachment on a proof card.
 #[derive(Clone, Debug, PartialEq)]
@@ -79,6 +44,22 @@ pub struct ProofEntry {
     pub has_tokens: bool,
     pub total_token_count: usize,
     pub total_token_duration: String,
+    pub has_proof_artifact: bool,
+    pub has_proof_folder: bool,
+    pub blessings: Vec<BlessingInfo>,
+    pub total_blessed_duration: String,
+    pub is_verified: bool,
+    pub verified_ago: Option<String>,
+}
+
+/// Blessing information for a proof card.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BlessingInfo {
+    pub blesser_name: String,
+    pub blesser_letter: String,
+    pub blesser_color_class: String,
+    pub attention_duration: String,
+    pub blessed_ago: String,
 }
 
 /// An attention item for the token picker.
@@ -99,6 +80,14 @@ pub struct AttentionPeerSummary {
     pub total_duration_secs: u64,
     pub window_count: usize,
     pub bar_fraction: f32,
+}
+
+/// A member currently focused on this intention.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FocusedMember {
+    pub name: String,
+    pub letter: String,
+    pub color_class: String,
 }
 
 /// A single link in the stewardship chain visualization.
@@ -167,6 +156,13 @@ fn AttentionSummary(
     rsx! {
         div {
             class: "attention-summary",
+            // Amber timer row with pulsing dot
+            div {
+                class: "attn-timer-row",
+                div { class: "attn-pulse-dot" }
+                span { class: "attn-timer-label", "Collective attention" }
+                span { class: "attn-timer-value", "{total_duration}" }
+            }
             div {
                 class: "attention-summary-header",
                 div { class: "attention-summary-title", "Collective Attention" }
@@ -365,7 +361,14 @@ fn ProofCard(
     on_toggle_picker: Option<EventHandler<usize>>,
     on_confirm_tokens: Option<EventHandler<(usize, Vec<usize>)>>,
 ) -> Element {
-    let card_class = if proof.has_tokens { "proof-card has-tokens" } else { "proof-card" };
+    let has_blessings = !proof.blessings.is_empty();
+    let card_class = if has_blessings {
+        "proof-card blessed"
+    } else if proof.has_tokens {
+        "proof-card has-tokens"
+    } else {
+        "proof-card"
+    };
     let assign_label = if proof.has_tokens { "+ Assign more" } else { "+ Assign" };
 
     rsx! {
@@ -381,6 +384,37 @@ fn ProofCard(
                 div { class: "proof-card-time", "{proof.time_ago}" }
             }
             div { class: "proof-card-body", "{proof.body}" }
+            // Verification badge
+            if proof.is_verified {
+                span { class: "proof-verified-badge verified", "\u{2713} Verified" }
+            } else {
+                span { class: "proof-verified-badge pending", "Pending" }
+            }
+            // Artifact indicator
+            if proof.has_proof_artifact || proof.has_proof_folder {
+                div {
+                    class: "proof-artifact-indicator",
+                    "\u{1F4CE} Proof attached"
+                }
+            }
+            // Blessing flow
+            for blessing in proof.blessings.iter() {
+                div {
+                    class: "blessing-flow-row",
+                    div {
+                        class: "blessing-avatar {proof.author_color_class}",
+                        "{proof.author_letter}"
+                    }
+                    span { class: "blessing-arrow", "\u{2728}" }
+                    span { class: "blessing-duration", "{blessing.attention_duration}" }
+                    span { class: "blessing-arrow", "\u{2728}" }
+                    div {
+                        class: "blessing-avatar {blessing.blesser_color_class}",
+                        "{blessing.blesser_letter}"
+                    }
+                    span { class: "blessing-ago", "{blessing.blessed_ago}" }
+                }
+            }
             // Artifact attachments
             if proof.artifact_attachments.len() == 1 {
                 {
@@ -578,13 +612,70 @@ fn StewardshipChain(
 }
 
 // ================================================================
-// Main QuestView Component
+// Main IntentionView Component
 // ================================================================
 
-/// Quest view — hero card + attention summary + proofs + pledges + stewardship chain.
+/// Determine the highest Gift Cycle stage reached.
+fn gift_cycle_stage(
+    has_attention: bool,
+    has_proofs: bool,
+    has_blessings: bool,
+    has_tokens: bool,
+    has_renewals: bool,
+) -> usize {
+    if has_renewals { 6 }
+    else if has_tokens { 5 }
+    else if has_blessings { 4 }
+    else if has_proofs { 3 }
+    else if has_attention { 2 }
+    else { 1 }
+}
+
+/// Gift Cycle stage progress bar.
 #[component]
-pub fn QuestView(
-    kind: QuestKind,
+fn GiftCycleStages(current_stage: usize) -> Element {
+    let stages = [
+        (1, "\u{1F4A1}", "Intention",  "stage-intention"),
+        (2, "\u{1F441}",  "Attention",  "stage-attention"),
+        (3, "\u{1F932}", "Service",    "stage-service"),
+        (4, "\u{2728}",  "Blessing",   "stage-blessing"),
+        (5, "\u{1FA99}", "Token",      "stage-token"),
+        (6, "\u{1F504}", "Renewal",    "stage-renewal"),
+    ];
+
+    rsx! {
+        div {
+            class: "gift-cycle-stages",
+            for (num, icon, label, cls) in stages {
+                {
+                    let is_active = num <= current_stage;
+                    let is_current = num == current_stage;
+                    let state_cls = if is_current { format!("{cls} current") }
+                        else if is_active { format!("{cls} active") }
+                        else { format!("{cls} inactive") };
+                    rsx! {
+                        div {
+                            class: "gift-stage {state_cls}",
+                            div {
+                                class: "gift-stage-orb",
+                                span { class: "gift-stage-icon", "{icon}" }
+                            }
+                            span { class: "gift-stage-label", "{label}" }
+                        }
+                        if num < 6 {
+                            div { class: if is_active { "gift-stage-connector active" } else { "gift-stage-connector" } }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Intention view — hero card + attention summary + proofs + pledges + stewardship chain.
+#[component]
+pub fn IntentionView(
+    kind: IntentionKind,
     title: String,
     description: String,
     status: String,
@@ -623,6 +714,14 @@ pub fn QuestView(
     };
     let heat_pct = (heat * 100.0).min(100.0) as u32;
     let hclass = heat_class(heat);
+    let has_blessings = proofs.iter().any(|p| p.has_tokens);
+    let current_stage = gift_cycle_stage(
+        !attention_peers.is_empty(),
+        proofs_count > 0,
+        has_blessings,
+        !pledged_tokens.is_empty(),
+        !stewardship_chain.is_empty(),
+    );
 
     rsx! {
         div {
@@ -632,13 +731,16 @@ pub fn QuestView(
                 div {
                     class: "request-layout",
 
+                    // 0. Gift Cycle Stage Indicator
+                    GiftCycleStages { current_stage: current_stage }
+
                     // 1. Quest Hero Card
                     div {
                         class: "{card_class}",
                         div {
                             class: "quest-header",
                             div { class: "quest-icon", "{kind.icon()}" }
-                            div { class: "quest-title", "{title}" }
+                            div { class: "quest-title gradient-title", "{title}" }
                             div { class: "{status_class}", "{status}" }
                         }
                         div { class: "quest-description", "{description}" }
@@ -646,7 +748,7 @@ pub fn QuestView(
                             class: "quest-meta",
                             div {
                                 class: "quest-meta-item",
-                                span { style: "color:var(--accent-teal)", "\u{25CF}" }
+                                span { style: "color:var(--ac)", "\u{25CF}" }
                                 " Steward: {steward_name}"
                             }
                             div {
@@ -781,10 +883,11 @@ pub fn IntentionCreateOverlay(
     visible: bool,
     peers: Vec<PeerOption>,
     on_close: EventHandler<()>,
-    on_create: EventHandler<(String, String, Vec<[u8; 32]>)>,
+    on_create: EventHandler<(String, String, Vec<[u8; 32]>, IntentionKind)>,
 ) -> Element {
     let mut title = use_signal(String::new);
     let mut description = use_signal(String::new);
+    let mut selected_kind = use_signal(|| IntentionKind::Intention);
     let mut selected_peers = use_signal(|| {
         // All peers selected by default
         let all: std::collections::HashSet<usize> = (0..peers.len()).collect();
@@ -817,6 +920,42 @@ pub fn IntentionCreateOverlay(
                 // Body
                 div {
                     class: "intention-create-body",
+                    // Kind selector
+                    div {
+                        class: "intention-create-field",
+                        label { class: "intention-create-label", "Kind" }
+                        div {
+                            class: "kind-selector",
+                            {
+                                let kinds = [
+                                    (IntentionKind::Intention, "\u{1F4A1}", "Intention", "kind-intention"),
+                                    (IntentionKind::Quest, "\u{2694}", "Quest", "kind-quest"),
+                                    (IntentionKind::Need, "\u{1F331}", "Need", "kind-need"),
+                                    (IntentionKind::Offering, "\u{1F381}", "Offering", "kind-offering"),
+                                ];
+                                rsx! {
+                                    for (kind, icon, label, cls) in kinds {
+                                        {
+                                            let is_selected = *selected_kind.read() == kind;
+                                            let btn_cls = if is_selected {
+                                                format!("kind-selector-btn selected {cls}")
+                                            } else {
+                                                format!("kind-selector-btn {cls}")
+                                            };
+                                            rsx! {
+                                                button {
+                                                    class: "{btn_cls}",
+                                                    onclick: move |_| selected_kind.set(kind),
+                                                    span { class: "kind-selector-icon", "{icon}" }
+                                                    "{label}"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                     // Title field
                     div {
                         class: "intention-create-field",
@@ -892,7 +1031,7 @@ pub fn IntentionCreateOverlay(
                                 let audience: Vec<[u8; 32]> = selected_peers.read().iter()
                                     .filter_map(|&i| peers_clone.get(i).map(|p| p.player_id))
                                     .collect();
-                                handler.call((t, d, audience));
+                                handler.call((t, d, audience, *selected_kind.read()));
                                 // Reset fields
                                 title.set(String::new());
                                 description.set(String::new());

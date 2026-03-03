@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use dioxus::prelude::*;
 use indras_network::{IdentityCode, IndrasNetwork};
-use indras_sync_engine::{HomeRealmQuests, HomeRealmNotes};
+use indras_sync_engine::{HomeRealmIntentions, HomeRealmNotes};
 
 use crate::state::{AsyncStatus, ContactView, ContactSentiment, EventDirection, EventLogEntry, GenesisState, GenesisStep, NoteView, QuestAttentionView, QuestClaimView, QuestStatus, QuestView};
 use indras_ui::{ArtifactDisplayInfo, ArtifactDisplayStatus, ContactInviteOverlay, ThemedRoot};
@@ -135,9 +135,9 @@ pub fn App() -> Element {
                         log_event(&mut state, EventDirection::System, "Joining home realm...");
                         if let Ok(home) = net.home_realm().await {
                             // Load quests with full claim information
-                            if let Ok(doc) = home.quests().await {
+                            if let Ok(doc) = home.intentions().await {
                                 let data = doc.read().await;
-                                let quests: Vec<QuestView> = data.quests.iter().map(|q| {
+                                let quests: Vec<QuestView> = data.intentions.iter().map(|q| {
                                     let creator_id_short: String = q.creator.iter().take(8).map(|b| format!("{:02x}", b)).collect();
                                     let is_creator = q.creator == id;
                                     let is_complete = q.completed_at_millis.is_some();
@@ -542,9 +542,9 @@ pub async fn create_identity_and_load(
             // Load home realm - quests and notes
             log_event(state, EventDirection::System, "Joining home realm...");
             if let Ok(home) = net.home_realm().await {
-                if let Ok(doc) = home.quests().await {
+                if let Ok(doc) = home.intentions().await {
                     let data = doc.read().await;
-                    let quests: Vec<QuestView> = data.quests.iter().map(|q| {
+                    let quests: Vec<QuestView> = data.intentions.iter().map(|q| {
                         let creator_id_short: String = q.creator.iter().take(8).map(|b| format!("{:02x}", b)).collect();
                         let is_creator = q.creator == id;
                         let is_complete = q.completed_at_millis.is_some();

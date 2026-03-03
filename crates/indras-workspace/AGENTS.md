@@ -1,101 +1,79 @@
 # indras-workspace
 
-Full collaborative document editor desktop app. Provides block-based document editing
-(text, headings, code, callout, image, todo, divider), an artifact browser, quest panel,
-pass-story view, event log, and settings. Embeds `indras-chat` for in-app messaging.
-Optional `lua-scripting` feature enables a Lua 5.4 runtime for test automation.
+## Purpose
 
-## Module Map
+Desktop workspace application built on `indras-network` and `indras-sync-engine`. Provides a
+collaborative P2P environment centered on the Intention lifecycle — creating, tracking, and
+completing intentions with peers.
+
+## Architecture
+
+Dioxus desktop app. State is managed through reactive signals. Business logic lives in services.
+UI is broken into components. The network and vault are accessed through a bridge layer.
 
 ```
 src/
-  lib.rs              — pub mod state, components, bridge, scripting
-  main.rs             — Dioxus desktop launch entry point
-
-  state/
-    mod.rs            — re-exports state types
-    editor.rs         — EditorState: active document, block list, selection, dirty flag
-    workspace.rs      — WorkspaceState: open documents, realm membership, sidebar nav
-    navigation.rs     — NavigationState: current panel/view enum
-
-  components/
-    mod.rs            — re-exports all components
-    app.rs            — App root; reads navigation state, renders active panel
-    topbar.rs         — Topbar — title bar with realm name, controls, user avatar
-    document.rs       — Document — full document view, renders block list
-    blocks/           — one file per block type:
-      editor.rs       — BlockEditor — dispatches to per-type editors
-      (text, heading, code, callout, image, todo, divider block components)
-    artifact_browser.rs — ArtifactBrowser — browse and open realm artifacts
-    quest.rs          — QuestPanel — quest list and completion tracking
-    pass_story.rs     — PassStoryView — display and copy the node mnemonic
-    event_log.rs      — EventLog — live stream of network/sync events
-    settings.rs       — Settings — node config, skin switcher, relay config
-    setup.rs          — Setup — first-launch node initialisation flow
-
-  bridge/
-    mod.rs            — re-exports bridge types
-    network_bridge.rs — connects Dioxus signals to indras-network events
-    vault_bridge.rs   — connects Dioxus signals to artifact vault operations
-
-  scripting/          — (lua-scripting feature only)
-    mod.rs            — re-exports scripting types
-    lua_runtime.rs    — LuaRuntime: embeds mlua, loads and executes scripts
-    action.rs         — ScriptAction enum: commands scripts can issue
-    event.rs          — ScriptEvent enum: events forwarded to running scripts
-    query.rs          — query functions exposed to Lua (document state, peer list)
-    channels.rs       — async channels connecting runtime to Dioxus bridge
-    dispatcher.rs     — routes ScriptActions to the appropriate bridge
+  main.rs          # App entry point, boot sequence
+  lib.rs           # Module declarations
+  components/      # Dioxus UI components (IntentionBoard, tabs, cards)
+  state/           # Workspace state structs and signals
+  services/        # Boot, polling, intention data, event handling
+  bridge/          # Vault access and network integration
+  scripting/       # Lua scripting for test automation (optional feature)
 ```
 
-## Key Types
+## Key Concepts
 
-- `EditorState` — holds the active document's block list as a Dioxus signal; mutations
-  go through action dispatch to keep undo history consistent
-- `WorkspaceState` — top-level state signal; owns open document set and realm info
-- `NavigationState` — enum-driven panel routing (`Document`, `Artifacts`, `Quests`,
-  `PassStory`, `EventLog`, `Settings`, `Chat`)
-- `network_bridge::NetworkBridge` / `vault_bridge::VaultBridge` — async adapters that
-  subscribe to network/sync events and write into Dioxus signals
-- `LuaRuntime` (feature-gated) — wraps `mlua`; scripts call query functions and emit
-  `ScriptAction`s which drive the app state programmatically
+### IntentionBoard
 
-## Key Patterns
+The main dashboard. Organized around the Intention cycle — a user creates an intention, works
+toward it, and completes or abandons it. Peers can observe and interact with each other's
+intentions.
 
-- Block editing: each block type is its own component; `BlockEditor` dispatches on block
-  kind and renders the appropriate editor; mutations write to `EditorState` signal
-- Bridge pattern: `NetworkBridge` and `VaultBridge` are initialised once in `main.rs`,
-  spawn Tokio tasks, and communicate with Dioxus via signals — no direct async calls
-  inside components
-- Embedded chat: `indras-chat` `App` component is rendered inside the `Chat` navigation
-  panel; `CHAT_CSS` is injected alongside workspace CSS in `with_custom_head`
-- Lua scripting (test automation only): enabled with `--features lua-scripting`; scripts
-  are not used in production builds; the feature keeps `mlua` out of default binaries
-- File dialogs: `rfd` is used for image insertion and artifact import; always called from
-  a Tokio `spawn_blocking` context
+### Four Tabs
+
+| Tab | Description |
+|-----|-------------|
+| My Intentions | Personal intention list with create/edit/complete actions |
+| Community | Intentions shared by peers in the current realm |
+| Tokens | Token balances and transfer UI |
+| Chat | Peer messaging via `indras-chat` |
+
+### Services Layer
+
+- **Boot service**: Initializes the network node, opens the vault, joins realms
+- **Polling service**: Periodically syncs state from the sync engine
+- **Intention data service**: CRUD operations for intentions
+- **Event service**: Handles incoming network events and updates signals
+
+### Bridge Layer
+
+- **Vault bridge**: Reads/writes artifacts to the local vault via `indras-artifacts`
+- **Network bridge**: Sends and receives messages via `indras-network`
 
 ## Dependencies
 
 | Crate | Role |
-|---|---|
-| `dioxus` (0.7, desktop) | UI framework |
-| `indras-artifacts` | Artifact CRUD and vault access |
-| `indras-crypto` | Key formatting, mnemonic display |
-| `indras-network` | Network handle, peer events |
-| `indras-ui` | Shared theme, sidebar, detail panel, SHARED_CSS |
-| `indras-chat` | Embedded chat panel and CHAT_CSS |
+|-------|------|
+| `dioxus` | Desktop UI framework (reactive signals, component model) |
+| `indras-network` | P2P networking, realm membership, messaging |
+| `indras-sync-engine` | Intention sync protocol and state machine |
+| `indras-artifacts` | Vault storage for intentions and files |
+| `indras-ui` | Shared UI primitives and design tokens |
+| `indras-chat` | Chat tab implementation |
+| `indras-crypto` | Key management and signing |
 | `mlua` (optional) | Lua 5.4 scripting runtime |
 | `tokio` | Async runtime (multi-thread) |
-| `rfd` | Native file open/save dialogs |
-| `arboard` | Clipboard (mnemonic copy) |
-| `serde` / `serde_json` | Document serialisation |
-| `rand` | Block ID generation |
-| `chrono` | Timestamp display |
 
-## Testing
+## State Flow
 
-No automated tests in the crate itself. Lua scripting feature enables programmatic
-test automation via scripts in `simulation/scripts/`. Build with lua support:
-`cargo build -p indras-workspace --features lua-scripting`. For manual testing, run
-`cargo run -p indras-workspace` and verify: document editing (all block types), artifact
-upload/browse, quest creation, settings/skin switching, embedded chat.
+1. App boots → bridge initializes network node and vault
+2. Boot service joins configured realms
+3. Polling service fetches current intention state from sync engine
+4. Signals update → Dioxus re-renders affected components
+5. User actions → services write to vault/network → signals update
+
+## Notes
+
+- The `lua-scripting` feature is for test automation only; not enabled in production builds
+- All async work goes through Tokio; Dioxus signals are updated from async tasks via spawn

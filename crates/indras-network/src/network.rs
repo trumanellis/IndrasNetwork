@@ -556,9 +556,19 @@ impl IndrasNetwork {
 
                     // Check if we already have this DM realm (idempotent)
                     if realms.contains_key(&dm_realm_id) {
+                        // DM realm already exists (restored from previous session),
+                        // but still ensure the peer is in our contacts
+                        if let Some(contacts) = contacts_realm.read().await.as_ref() {
+                            if !contacts.is_contact(&peer_id).await {
+                                let _ = contacts.add_contact_with_name(
+                                    peer_id, notify.display_name.clone()
+                                ).await;
+                            }
+                            let _ = contacts.confirm_contact(&peer_id).await;
+                        }
                         tracing::debug!(
                             peer = %hex::encode(&peer_id[..8]),
-                            "Inbox: DM realm already exists, skipping"
+                            "Inbox: DM realm already exists, ensured contact"
                         );
                         continue;
                     }
@@ -1114,19 +1124,41 @@ impl IndrasNetwork {
             }
         }
 
-        // Serialize and send as a message on the peer's inbox
+        // Give gossip time to establish peer connectivity on this topic
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+        // Serialize and send with retries (gossip may need time to propagate)
         match notify.to_bytes() {
             Ok(payload) => {
-                if let Err(e) = self.inner.send_message(&peer_inbox_id, payload).await {
+                let mut sent = false;
+                for attempt in 0..3u32 {
+                    if attempt > 0 {
+                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    }
+                    match self.inner.send_message(&peer_inbox_id, payload.clone()).await {
+                        Ok(_) => {
+                            tracing::info!(
+                                peer = %hex::encode(&peer_id[..8]),
+                                attempt,
+                                "Sent connection notification to peer inbox"
+                            );
+                            sent = true;
+                            break;
+                        }
+                        Err(e) => {
+                            tracing::debug!(
+                                peer = %hex::encode(&peer_id[..8]),
+                                attempt,
+                                error = %e,
+                                "Inbox notify attempt failed (retrying)"
+                            );
+                        }
+                    }
+                }
+                if !sent {
                     tracing::debug!(
                         peer = %hex::encode(&peer_id[..8]),
-                        error = %e,
-                        "Failed to send inbox notification (non-fatal)"
-                    );
-                } else {
-                    tracing::info!(
-                        peer = %hex::encode(&peer_id[..8]),
-                        "Sent connection notification to peer inbox"
+                        "All inbox notify attempts failed (non-fatal)"
                     );
                 }
             }
@@ -1138,10 +1170,10 @@ impl IndrasNetwork {
             }
         }
 
-        // Schedule leaving the peer's inbox after a short delay (cleanup)
+        // Schedule leaving the peer's inbox after a delay (allow retries to complete)
         let inner = Arc::clone(&self.inner);
         tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
             let _ = inner.leave_interface(&peer_inbox_id).await;
         });
     }

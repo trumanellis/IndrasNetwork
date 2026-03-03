@@ -1,9 +1,9 @@
-//! Quest editor modal for viewing, editing, and creating quests.
+//! Intention editor modal for viewing, editing, and creating intentions.
 //!
 //! Three modes:
 //! - View: Rendered markdown description with claims list
 //! - Edit: Split view with textarea and live preview
-//! - Create: Same as Edit but for new quests
+//! - Create: Same as Edit but for new intentions
 
 use std::sync::Arc;
 
@@ -262,14 +262,14 @@ pub fn QuestEditorOverlay(
                                     };
 
                                     if is_create {
-                                        // Create new quest
+                                        // Create new intention
                                         if let Some(pid) = peer_id {
                                             // Peer realm
                                             let my_id = net.id();
                                             let dm_id = indras_network::artifact_sync::artifact_interface_id(&indras_network::dm_story_id(my_id, pid));
                                             if let Some(realm) = net.get_realm_by_id(&dm_id) {
-                                                use indras_sync_engine::RealmQuests;
-                                                match realm.create_quest(title, description, None, my_id).await {
+                                                use indras_sync_engine::RealmIntentions;
+                                                match realm.create_intention(title, description, None, my_id).await {
                                                     Ok(_) => {
                                                         let mut s = state.write();
                                                         s.quest_editor_open = false;
@@ -278,14 +278,14 @@ pub fn QuestEditorOverlay(
                                                         s.quest_editor_description.clear();
                                                         s.quest_editor_mode = QuestEditorMode::View;
                                                     }
-                                                    Err(e) => tracing::error!("Failed to create quest: {}", e),
+                                                    Err(e) => tracing::error!("Failed to create intention: {}", e),
                                                 }
                                             }
                                         } else {
                                             // Home realm
                                             if let Ok(home) = net.home_realm().await {
-                                                use indras_sync_engine::HomeRealmQuests;
-                                                match home.create_quest(title, description, None).await {
+                                                use indras_sync_engine::HomeRealmIntentions;
+                                                match home.create_intention(title, description, None).await {
                                                     Ok(_) => {
                                                         let mut s = state.write();
                                                         s.quest_editor_open = false;
@@ -294,12 +294,12 @@ pub fn QuestEditorOverlay(
                                                         s.quest_editor_description.clear();
                                                         s.quest_editor_mode = QuestEditorMode::View;
                                                     }
-                                                    Err(e) => tracing::error!("Failed to create quest: {}", e),
+                                                    Err(e) => tracing::error!("Failed to create intention: {}", e),
                                                 }
                                             }
                                         }
                                     } else {
-                                        // Update existing quest
+                                        // Update existing intention
                                         if let Some(ref qid) = quest_id {
                                             if let Some(id_bytes) = hex_to_quest_id(qid) {
                                                 if let Some(pid) = peer_id {
@@ -307,25 +307,25 @@ pub fn QuestEditorOverlay(
                                                     let my_id = net.id();
                                                     let dm_id = indras_network::artifact_sync::artifact_interface_id(&indras_network::dm_story_id(my_id, pid));
                                                     if let Some(realm) = net.get_realm_by_id(&dm_id) {
-                                                        use indras_sync_engine::RealmQuests;
-                                                        match realm.update_quest(id_bytes, title, description).await {
+                                                        use indras_sync_engine::RealmIntentions;
+                                                        match realm.update_intention(id_bytes, title, description).await {
                                                             Ok(_) => {
                                                                 let mut s = state.write();
                                                                 s.quest_editor_mode = QuestEditorMode::View;
                                                             }
-                                                            Err(e) => tracing::error!("Failed to update quest: {}", e),
+                                                            Err(e) => tracing::error!("Failed to update intention: {}", e),
                                                         }
                                                     }
                                                 } else {
                                                     // Home realm
                                                     if let Ok(home) = net.home_realm().await {
-                                                        use indras_sync_engine::HomeRealmQuests;
-                                                        match home.update_quest(id_bytes, title, description).await {
+                                                        use indras_sync_engine::HomeRealmIntentions;
+                                                        match home.update_intention(id_bytes, title, description).await {
                                                             Ok(_) => {
                                                                 let mut s = state.write();
                                                                 s.quest_editor_mode = QuestEditorMode::View;
                                                             }
-                                                            Err(e) => tracing::error!("Failed to update quest: {}", e),
+                                                            Err(e) => tracing::error!("Failed to update intention: {}", e),
                                                         }
                                                     }
                                                 }
@@ -334,7 +334,7 @@ pub fn QuestEditorOverlay(
                                     }
                                 });
                             },
-                            if is_create { "Create Quest" } else { "Save" }
+                            if is_create { "Create Intention" } else { "Save" }
                         }
                     }
                 }

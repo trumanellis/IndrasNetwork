@@ -23,6 +23,7 @@ indras-crypto = { path = "../indras-crypto" }
 indras-network = { path = "../indras-network" }
 indras-ui = { path = "../indras-ui" }
 indras-chat = { path = "../indras-chat" }
+indras-sync-engine = { path = "../indras-sync-engine" }
 
 # Async runtime
 tokio = { version = "1", features = ["full", "sync", "rt-multi-thread"] }

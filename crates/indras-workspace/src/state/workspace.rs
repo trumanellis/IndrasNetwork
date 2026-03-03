@@ -7,11 +7,37 @@ use std::collections::HashMap;
 /// The type of view currently displayed.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ViewType {
-    Document,
+    MyIntentions,
+    Community,
+    Tokens,
     Chat,
     Artifacts,
-    Quest,
     Settings,
+    /// When clicking a specific document in the sidebar.
+    Document,
+    /// When clicking on a specific intention card.
+    IntentionDetail,
+}
+
+/// The four main dashboard tabs.
+#[derive(Clone, Debug, PartialEq, Copy)]
+pub enum DashboardTab {
+    MyIntentions,
+    Community,
+    Tokens,
+    Chat,
+}
+
+impl DashboardTab {
+    /// Human-readable label for the tab.
+    pub fn label(&self) -> &str {
+        match self {
+            Self::MyIntentions => "My Intentions",
+            Self::Community => "Community",
+            Self::Tokens => "Tokens",
+            Self::Chat => "Chat",
+        }
+    }
 }
 
 /// Phase of the application lifecycle.
@@ -84,6 +110,7 @@ pub struct UiState {
     pub slash_menu_open: bool,
     pub active_detail_tab: usize,
     pub active_view: ViewType,
+    pub active_tab: DashboardTab,
 }
 
 /// Root workspace state.
@@ -109,6 +136,7 @@ impl WorkspaceState {
                 slash_menu_open: false,
                 active_detail_tab: 0,
                 active_view: ViewType::Document,
+                active_tab: DashboardTab::MyIntentions,
             },
             phase: AppPhase::Loading,
             event_log: Vec::new(),

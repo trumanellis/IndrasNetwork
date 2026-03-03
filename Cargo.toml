@@ -29,6 +29,7 @@ members = [
     "examples/chat-app",
     "examples/sync-demo",
     "examples/indras-notes",
+    "crates/indras-gift-cycle",
 ]
 
 [workspace.package]

@@ -1,10 +1,10 @@
 //! Extension trait adding quest methods to HomeRealm.
 //!
-//! This mirrors the pattern used by `RealmQuests` for shared realms,
+//! This mirrors the pattern used by `RealmIntentions` for shared realms,
 //! but tailored for the personal home realm where `self.member_id()`
 //! is always the creator.
 
-use crate::quest::{Quest, QuestDocument, QuestId};
+use crate::intention::{Intention, IntentionDocument, IntentionId};
 use indras_network::artifact::ArtifactId;
 use indras_network::document::Document;
 use indras_network::error::Result;
@@ -23,76 +23,82 @@ use tracing::debug;
 /// use indras_sync_engine::prelude::*;
 ///
 /// let home = network.home_realm().await?;
-/// let quest_id = home.create_quest("Read a book", "Finish chapter 3", None).await?;
-/// home.complete_quest(quest_id).await?;
+/// let intention_id = home.create_intention("Read a book", "Finish chapter 3", None).await?;
+/// home.complete_intention(intention_id).await?;
 /// ```
-pub trait HomeRealmQuests {
+pub trait HomeRealmIntentions {
     /// Get the quests document for this home realm.
-    async fn quests(&self) -> Result<Document<QuestDocument>>;
+    async fn intentions(&self) -> Result<Document<IntentionDocument>>;
 
     /// Seed a welcome quest if the quests document is empty.
     ///
     /// This is idempotent -- if the document already has quests
     /// (e.g., from a CRDT merge on a second device), the welcome
     /// quest is not re-seeded.
-    async fn seed_welcome_quest_if_empty(
+    async fn seed_welcome_intention_if_empty(
         &self,
     ) -> Result<()>;
 
     /// Create a new personal quest.
     ///
     /// The creator is automatically set to `self.member_id()`.
-    async fn create_quest(
+    async fn create_intention(
         &self,
         title: impl Into<String> + Send,
         description: impl Into<String> + Send,
         image: Option<ArtifactId>,
-    ) -> Result<QuestId>;
+    ) -> Result<IntentionId>;
 
     /// Complete a personal quest.
-    async fn complete_quest(
+    async fn complete_intention(
         &self,
-        quest_id: QuestId,
+        intention_id: IntentionId,
     ) -> Result<()>;
 
     /// Submit a claim/proof of service for a quest.
     ///
     /// In the home realm, claims are typically self-claims for personal tracking.
-    async fn submit_quest_claim(
+    async fn submit_service_claim(
         &self,
-        quest_id: QuestId,
+        intention_id: IntentionId,
         proof: Option<ArtifactId>,
     ) -> Result<usize>;
 
     /// Verify a claim on a quest.
     ///
     /// In the home realm, the owner verifies their own claims.
-    async fn verify_quest_claim(
+    async fn verify_service_claim(
         &self,
-        quest_id: QuestId,
+        intention_id: IntentionId,
         claim_index: usize,
     ) -> Result<()>;
 
     /// Update a quest's title and description.
-    async fn update_quest(
+    async fn update_intention(
         &self,
-        quest_id: QuestId,
+        intention_id: IntentionId,
         title: impl Into<String> + Send,
         description: impl Into<String> + Send,
     ) -> Result<()>;
+
+    /// Delete a personal intention (tombstone).
+    async fn delete_intention(
+        &self,
+        intention_id: IntentionId,
+    ) -> Result<()>;
 }
 
-impl HomeRealmQuests for HomeRealm {
-    async fn quests(&self) -> Result<Document<QuestDocument>> {
-        self.document::<QuestDocument>("quests").await
+impl HomeRealmIntentions for HomeRealm {
+    async fn intentions(&self) -> Result<Document<IntentionDocument>> {
+        self.document::<IntentionDocument>("intentions").await
     }
 
-    async fn seed_welcome_quest_if_empty(&self) -> Result<()> {
-        let doc = self.quests().await?;
+    async fn seed_welcome_intention_if_empty(&self) -> Result<()> {
+        let doc = self.intentions().await?;
         let data = doc.read().await;
 
         // Only seed if the quests document is completely empty
-        if data.quest_count() > 0 {
+        if data.intention_count() > 0 {
             debug!(
                 "Home realm already has quests, skipping welcome quest seed"
             );
@@ -100,7 +106,7 @@ impl HomeRealmQuests for HomeRealm {
         }
         drop(data);
 
-        let welcome_quest = Quest::new(
+        let welcome_intention = Intention::new(
             "Explore your home realm",
             "Your home realm is your private space on the network.\n\
              \n\
@@ -117,7 +123,7 @@ impl HomeRealmQuests for HomeRealm {
         );
 
         doc.update(|d| {
-            d.add(welcome_quest);
+            d.add(welcome_intention);
         })
         .await?;
 
@@ -126,29 +132,29 @@ impl HomeRealmQuests for HomeRealm {
         Ok(())
     }
 
-    async fn create_quest(
+    async fn create_intention(
         &self,
         title: impl Into<String> + Send,
         description: impl Into<String> + Send,
         image: Option<ArtifactId>,
-    ) -> Result<QuestId> {
-        let quest = Quest::new(title, description, image, self.member_id());
-        let quest_id = quest.id;
+    ) -> Result<IntentionId> {
+        let intention = Intention::new(title, description, image, self.member_id());
+        let intention_id = intention.id;
 
-        let doc = self.quests().await?;
+        let doc = self.intentions().await?;
         doc.update(|d| {
-            d.add(quest);
+            d.add(intention);
         })
         .await?;
 
-        Ok(quest_id)
+        Ok(intention_id)
     }
 
-    async fn complete_quest(&self, quest_id: QuestId) -> Result<()> {
-        let doc = self.quests().await?;
+    async fn complete_intention(&self, intention_id: IntentionId) -> Result<()> {
+        let doc = self.intentions().await?;
         doc.update(|d| {
-            if let Some(quest) = d.find_mut(&quest_id) {
-                let _ = quest.complete();
+            if let Some(intention) = d.find_mut(&intention_id) {
+                let _ = intention.complete();
             }
         })
         .await?;
@@ -156,17 +162,17 @@ impl HomeRealmQuests for HomeRealm {
         Ok(())
     }
 
-    async fn submit_quest_claim(
+    async fn submit_service_claim(
         &self,
-        quest_id: QuestId,
+        intention_id: IntentionId,
         proof: Option<ArtifactId>,
     ) -> Result<usize> {
         let mut claim_index = 0;
         let claimant = self.member_id();
-        let doc = self.quests().await?;
+        let doc = self.intentions().await?;
         doc.update(|d| {
-            if let Some(quest) = d.find_mut(&quest_id) {
-                if let Ok(idx) = quest.submit_claim(claimant, proof) {
+            if let Some(intention) = d.find_mut(&intention_id) {
+                if let Ok(idx) = intention.submit_claim(claimant, proof) {
                     claim_index = idx;
                 }
             }
@@ -176,15 +182,15 @@ impl HomeRealmQuests for HomeRealm {
         Ok(claim_index)
     }
 
-    async fn verify_quest_claim(
+    async fn verify_service_claim(
         &self,
-        quest_id: QuestId,
+        intention_id: IntentionId,
         claim_index: usize,
     ) -> Result<()> {
-        let doc = self.quests().await?;
+        let doc = self.intentions().await?;
         doc.update(|d| {
-            if let Some(quest) = d.find_mut(&quest_id) {
-                let _ = quest.verify_claim(claim_index);
+            if let Some(intention) = d.find_mut(&intention_id) {
+                let _ = intention.verify_claim(claim_index);
             }
         })
         .await?;
@@ -192,20 +198,30 @@ impl HomeRealmQuests for HomeRealm {
         Ok(())
     }
 
-    async fn update_quest(
+    async fn update_intention(
         &self,
-        quest_id: QuestId,
+        intention_id: IntentionId,
         title: impl Into<String> + Send,
         description: impl Into<String> + Send,
     ) -> Result<()> {
         let title = title.into();
         let description = description.into();
-        let doc = self.quests().await?;
+        let doc = self.intentions().await?;
         doc.update(|d| {
-            if let Some(quest) = d.find_mut(&quest_id) {
-                quest.set_title(title);
-                quest.set_description(description);
+            if let Some(intention) = d.find_mut(&intention_id) {
+                intention.set_title(title);
+                intention.set_description(description);
             }
+        })
+        .await?;
+
+        Ok(())
+    }
+
+    async fn delete_intention(&self, intention_id: IntentionId) -> Result<()> {
+        let doc = self.intentions().await?;
+        doc.update(|d| {
+            d.delete(&intention_id);
         })
         .await?;
 

@@ -18,7 +18,7 @@
 
 use crate::blessing::BlessingId;
 use indras_network::member::MemberId;
-use crate::quest::QuestId;
+use crate::intention::IntentionId;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -66,7 +66,7 @@ pub struct TokenOfGratitude {
     /// Who gave the blessing that minted this token.
     pub blesser: MemberId,
     /// Quest where the original proof was submitted.
-    pub source_quest_id: QuestId,
+    pub source_intention_id: IntentionId,
     /// Who submitted the proof (original recipient).
     pub original_steward: MemberId,
     /// Indices into AttentionDocument.events -- the "backing asset".
@@ -77,7 +77,7 @@ pub struct TokenOfGratitude {
 
     // Mutable pledge state
     /// If pledged, which quest is it pledged to.
-    pub pledged_to: Option<QuestId>,
+    pub pledged_to: Option<IntentionId>,
     /// When it was pledged (None if not pledged).
     pub pledged_at_millis: Option<i64>,
 }
@@ -91,7 +91,7 @@ pub enum TokenEvent {
         steward: MemberId,
         blessing_id: BlessingId,
         blesser: MemberId,
-        source_quest_id: QuestId,
+        source_intention_id: IntentionId,
         original_steward: MemberId,
         event_indices: Vec<usize>,
         created_at_millis: i64,
@@ -100,7 +100,7 @@ pub enum TokenEvent {
     /// A token was pledged to a quest as bounty.
     Pledged {
         token_id: TokenOfGratitudeId,
-        target_quest_id: QuestId,
+        target_intention_id: IntentionId,
         pledged_at_millis: i64,
     },
     /// A pledged token was released to a new steward.
@@ -172,7 +172,7 @@ impl TokenOfGratitudeDocument {
     /// * `steward` - The initial owner (proof submitter / claimant)
     /// * `blessing_id` - The blessing that produced this token
     /// * `blesser` - Who gave the blessing
-    /// * `source_quest_id` - Quest where the proof was submitted
+    /// * `source_intention_id` - Quest where the proof was submitted
     /// * `event_indices` - Indices into AttentionDocument.events (the backing asset)
     ///
     /// # Returns
@@ -183,7 +183,7 @@ impl TokenOfGratitudeDocument {
         steward: MemberId,
         blessing_id: BlessingId,
         blesser: MemberId,
-        source_quest_id: QuestId,
+        source_intention_id: IntentionId,
         event_indices: Vec<usize>,
     ) -> Result<TokenOfGratitudeId, TokenError> {
         if event_indices.is_empty() {
@@ -200,7 +200,7 @@ impl TokenOfGratitudeDocument {
             steward,
             blessing_id,
             blesser,
-            source_quest_id,
+            source_intention_id,
             original_steward: steward,
             event_indices: event_indices.clone(),
             created_at_millis,
@@ -217,7 +217,7 @@ impl TokenOfGratitudeDocument {
                 steward_chain,
                 blessing_id,
                 blesser,
-                source_quest_id,
+                source_intention_id,
                 original_steward: steward,
                 event_indices,
                 created_at_millis,
@@ -235,7 +235,7 @@ impl TokenOfGratitudeDocument {
     pub fn pledge(
         &mut self,
         token_id: TokenOfGratitudeId,
-        target_quest_id: QuestId,
+        target_intention_id: IntentionId,
     ) -> Result<(), TokenError> {
         let token = self.tokens.get(&token_id).ok_or(TokenError::TokenNotFound)?;
 
@@ -247,14 +247,14 @@ impl TokenOfGratitudeDocument {
 
         let event = TokenEvent::Pledged {
             token_id,
-            target_quest_id,
+            target_intention_id,
             pledged_at_millis,
         };
         self.events.push(event);
 
         // Update derived state
         if let Some(token) = self.tokens.get_mut(&token_id) {
-            token.pledged_to = Some(target_quest_id);
+            token.pledged_to = Some(target_intention_id);
             token.pledged_at_millis = Some(pledged_at_millis);
         }
 
@@ -346,11 +346,11 @@ impl TokenOfGratitudeDocument {
             .collect()
     }
 
-    /// Get all tokens pledged to a specific quest.
-    pub fn pledged_tokens_for_quest(&self, quest_id: &QuestId) -> Vec<&TokenOfGratitude> {
+    /// Get all tokens pledged to a specific intention.
+    pub fn pledged_tokens_for_intention(&self, intention_id: &IntentionId) -> Vec<&TokenOfGratitude> {
         self.tokens
             .values()
-            .filter(|t| t.pledged_to.as_ref() == Some(quest_id))
+            .filter(|t| t.pledged_to.as_ref() == Some(intention_id))
             .collect()
     }
 
@@ -385,7 +385,7 @@ impl TokenOfGratitudeDocument {
                     steward,
                     blessing_id,
                     blesser,
-                    source_quest_id,
+                    source_intention_id,
                     original_steward,
                     event_indices,
                     created_at_millis,
@@ -399,7 +399,7 @@ impl TokenOfGratitudeDocument {
                             steward_chain: steward_chain.clone(),
                             blessing_id: *blessing_id,
                             blesser: *blesser,
-                            source_quest_id: *source_quest_id,
+                            source_intention_id: *source_intention_id,
                             original_steward: *original_steward,
                             event_indices: event_indices.clone(),
                             created_at_millis: *created_at_millis,
@@ -410,11 +410,11 @@ impl TokenOfGratitudeDocument {
                 }
                 TokenEvent::Pledged {
                     token_id,
-                    target_quest_id,
+                    target_intention_id,
                     pledged_at_millis,
                 } => {
                     if let Some(token) = self.tokens.get_mut(token_id) {
-                        token.pledged_to = Some(*target_quest_id);
+                        token.pledged_to = Some(*target_intention_id);
                         token.pledged_at_millis = Some(*pledged_at_millis);
                     }
                 }
@@ -474,7 +474,7 @@ mod tests {
         [n; 32]
     }
 
-    fn test_quest_id(n: u8) -> QuestId {
+    fn test_intention_id(n: u8) -> IntentionId {
         [n; 16]
     }
 
@@ -487,17 +487,17 @@ mod tests {
         let mut doc = TokenOfGratitudeDocument::new();
         let steward = test_member_id(1);
         let blesser = test_member_id(2);
-        let quest_id = test_quest_id(1);
+        let intention_id = test_intention_id(1);
         let blessing_id = test_blessing_id(1);
 
         let token_id = doc
-            .mint(steward, blessing_id, blesser, quest_id, vec![0, 1, 2])
+            .mint(steward, blessing_id, blesser, intention_id, vec![0, 1, 2])
             .unwrap();
 
         let token = doc.find(&token_id).unwrap();
         assert_eq!(token.steward, steward);
         assert_eq!(token.blesser, blesser);
-        assert_eq!(token.source_quest_id, quest_id);
+        assert_eq!(token.source_intention_id, intention_id);
         assert_eq!(token.original_steward, steward);
         assert_eq!(token.event_indices, vec![0, 1, 2]);
         assert!(token.pledged_to.is_none());
@@ -510,7 +510,7 @@ mod tests {
             test_member_id(1),
             test_blessing_id(1),
             test_member_id(2),
-            test_quest_id(1),
+            test_intention_id(1),
             vec![],
         );
         assert_eq!(result, Err(TokenError::ZeroValue));
@@ -520,10 +520,10 @@ mod tests {
     fn test_pledge_token() {
         let mut doc = TokenOfGratitudeDocument::new();
         let steward = test_member_id(1);
-        let target_quest = test_quest_id(2);
+        let target_quest = test_intention_id(2);
 
         let token_id = doc
-            .mint(steward, test_blessing_id(1), test_member_id(2), test_quest_id(1), vec![0, 1])
+            .mint(steward, test_blessing_id(1), test_member_id(2), test_intention_id(1), vec![0, 1])
             .unwrap();
 
         doc.pledge(token_id, target_quest).unwrap();
@@ -537,11 +537,11 @@ mod tests {
     fn test_double_pledge_rejected() {
         let mut doc = TokenOfGratitudeDocument::new();
         let steward = test_member_id(1);
-        let quest_a = test_quest_id(2);
-        let quest_b = test_quest_id(3);
+        let quest_a = test_intention_id(2);
+        let quest_b = test_intention_id(3);
 
         let token_id = doc
-            .mint(steward, test_blessing_id(1), test_member_id(2), test_quest_id(1), vec![0])
+            .mint(steward, test_blessing_id(1), test_member_id(2), test_intention_id(1), vec![0])
             .unwrap();
 
         doc.pledge(token_id, quest_a).unwrap();
@@ -554,10 +554,10 @@ mod tests {
         let mut doc = TokenOfGratitudeDocument::new();
         let steward = test_member_id(1);
         let new_steward = test_member_id(3);
-        let target_quest = test_quest_id(2);
+        let target_quest = test_intention_id(2);
 
         let token_id = doc
-            .mint(steward, test_blessing_id(1), test_member_id(2), test_quest_id(1), vec![0, 1])
+            .mint(steward, test_blessing_id(1), test_member_id(2), test_intention_id(1), vec![0, 1])
             .unwrap();
 
         doc.pledge(token_id, target_quest).unwrap();
@@ -576,7 +576,7 @@ mod tests {
     fn test_release_unpledged_rejected() {
         let mut doc = TokenOfGratitudeDocument::new();
         let token_id = doc
-            .mint(test_member_id(1), test_blessing_id(1), test_member_id(2), test_quest_id(1), vec![0])
+            .mint(test_member_id(1), test_blessing_id(1), test_member_id(2), test_intention_id(1), vec![0])
             .unwrap();
 
         let result = doc.release(token_id, test_member_id(3));
@@ -587,10 +587,10 @@ mod tests {
     fn test_withdraw_token() {
         let mut doc = TokenOfGratitudeDocument::new();
         let steward = test_member_id(1);
-        let target_quest = test_quest_id(2);
+        let target_quest = test_intention_id(2);
 
         let token_id = doc
-            .mint(steward, test_blessing_id(1), test_member_id(2), test_quest_id(1), vec![0])
+            .mint(steward, test_blessing_id(1), test_member_id(2), test_intention_id(1), vec![0])
             .unwrap();
 
         doc.pledge(token_id, target_quest).unwrap();
@@ -606,7 +606,7 @@ mod tests {
     fn test_withdraw_unpledged_rejected() {
         let mut doc = TokenOfGratitudeDocument::new();
         let token_id = doc
-            .mint(test_member_id(1), test_blessing_id(1), test_member_id(2), test_quest_id(1), vec![0])
+            .mint(test_member_id(1), test_blessing_id(1), test_member_id(2), test_intention_id(1), vec![0])
             .unwrap();
 
         let result = doc.withdraw(token_id);
@@ -619,11 +619,11 @@ mod tests {
         let steward_a = test_member_id(1);
         let steward_b = test_member_id(3);
 
-        doc.mint(steward_a, test_blessing_id(1), test_member_id(2), test_quest_id(1), vec![0])
+        doc.mint(steward_a, test_blessing_id(1), test_member_id(2), test_intention_id(1), vec![0])
             .unwrap();
-        doc.mint(steward_a, test_blessing_id(2), test_member_id(2), test_quest_id(1), vec![1])
+        doc.mint(steward_a, test_blessing_id(2), test_member_id(2), test_intention_id(1), vec![1])
             .unwrap();
-        doc.mint(steward_b, test_blessing_id(3), test_member_id(2), test_quest_id(1), vec![2])
+        doc.mint(steward_b, test_blessing_id(3), test_member_id(2), test_intention_id(1), vec![2])
             .unwrap();
 
         assert_eq!(doc.tokens_for_steward(&steward_a).len(), 2);
@@ -636,36 +636,36 @@ mod tests {
         let steward = test_member_id(1);
 
         let t1 = doc
-            .mint(steward, test_blessing_id(1), test_member_id(2), test_quest_id(1), vec![0])
+            .mint(steward, test_blessing_id(1), test_member_id(2), test_intention_id(1), vec![0])
             .unwrap();
         let _t2 = doc
-            .mint(steward, test_blessing_id(2), test_member_id(2), test_quest_id(1), vec![1])
+            .mint(steward, test_blessing_id(2), test_member_id(2), test_intention_id(1), vec![1])
             .unwrap();
 
-        doc.pledge(t1, test_quest_id(2)).unwrap();
+        doc.pledge(t1, test_intention_id(2)).unwrap();
 
         assert_eq!(doc.tokens_for_steward(&steward).len(), 2);
         assert_eq!(doc.available_tokens_for_steward(&steward).len(), 1);
     }
 
     #[test]
-    fn test_pledged_tokens_for_quest() {
+    fn test_pledged_tokens_for_intention() {
         let mut doc = TokenOfGratitudeDocument::new();
         let steward = test_member_id(1);
-        let target = test_quest_id(2);
+        let target = test_intention_id(2);
 
         let t1 = doc
-            .mint(steward, test_blessing_id(1), test_member_id(2), test_quest_id(1), vec![0])
+            .mint(steward, test_blessing_id(1), test_member_id(2), test_intention_id(1), vec![0])
             .unwrap();
         let t2 = doc
-            .mint(steward, test_blessing_id(2), test_member_id(2), test_quest_id(1), vec![1])
+            .mint(steward, test_blessing_id(2), test_member_id(2), test_intention_id(1), vec![1])
             .unwrap();
 
         doc.pledge(t1, target).unwrap();
         doc.pledge(t2, target).unwrap();
 
-        assert_eq!(doc.pledged_tokens_for_quest(&target).len(), 2);
-        assert_eq!(doc.pledged_tokens_for_quest(&test_quest_id(3)).len(), 0);
+        assert_eq!(doc.pledged_tokens_for_intention(&target).len(), 2);
+        assert_eq!(doc.pledged_tokens_for_intention(&test_intention_id(3)).len(), 0);
     }
 
     #[test]
@@ -676,9 +676,9 @@ mod tests {
         let steward_b = test_member_id(3); // Second recipient
         let steward_c = test_member_id(4); // Third recipient
 
-        let quest_a = test_quest_id(1);
-        let quest_b = test_quest_id(2);
-        let quest_c = test_quest_id(3);
+        let quest_a = test_intention_id(1);
+        let quest_b = test_intention_id(2);
+        let quest_c = test_intention_id(3);
 
         // Mint to A
         let token_id = doc
@@ -711,9 +711,9 @@ mod tests {
         let steward = test_member_id(1);
         let blesser = test_member_id(2);
 
-        doc1.mint(steward, test_blessing_id(1), blesser, test_quest_id(1), vec![0])
+        doc1.mint(steward, test_blessing_id(1), blesser, test_intention_id(1), vec![0])
             .unwrap();
-        doc2.mint(steward, test_blessing_id(2), blesser, test_quest_id(1), vec![1])
+        doc2.mint(steward, test_blessing_id(2), blesser, test_intention_id(1), vec![1])
             .unwrap();
 
         doc1.merge(&doc2);
@@ -726,7 +726,7 @@ mod tests {
         let mut doc1 = TokenOfGratitudeDocument::new();
         let steward = test_member_id(1);
 
-        doc1.mint(steward, test_blessing_id(1), test_member_id(2), test_quest_id(1), vec![0])
+        doc1.mint(steward, test_blessing_id(1), test_member_id(2), test_intention_id(1), vec![0])
             .unwrap();
 
         let doc2 = doc1.clone();
@@ -740,10 +740,10 @@ mod tests {
     fn test_rebuild_derived_state() {
         let mut doc = TokenOfGratitudeDocument::new();
         let steward = test_member_id(1);
-        let target = test_quest_id(2);
+        let target = test_intention_id(2);
 
         let token_id = doc
-            .mint(steward, test_blessing_id(1), test_member_id(2), test_quest_id(1), vec![0, 1])
+            .mint(steward, test_blessing_id(1), test_member_id(2), test_intention_id(1), vec![0, 1])
             .unwrap();
 
         doc.pledge(token_id, target).unwrap();
@@ -765,7 +765,7 @@ mod tests {
         let steward_c = test_member_id(4);
 
         let token_id = doc
-            .mint(steward_a, test_blessing_id(1), test_member_id(2), test_quest_id(1), vec![0, 1])
+            .mint(steward_a, test_blessing_id(1), test_member_id(2), test_intention_id(1), vec![0, 1])
             .unwrap();
 
         // Chain starts with original steward
@@ -773,14 +773,14 @@ mod tests {
         assert_eq!(token.steward_chain, vec![steward_a]);
 
         // Release to B
-        doc.pledge(token_id, test_quest_id(2)).unwrap();
+        doc.pledge(token_id, test_intention_id(2)).unwrap();
         doc.release(token_id, steward_b).unwrap();
 
         let token = doc.find(&token_id).unwrap();
         assert_eq!(token.steward_chain, vec![steward_a, steward_b]);
 
         // Release to C
-        doc.pledge(token_id, test_quest_id(3)).unwrap();
+        doc.pledge(token_id, test_intention_id(3)).unwrap();
         doc.release(token_id, steward_c).unwrap();
 
         let token = doc.find(&token_id).unwrap();
@@ -794,10 +794,10 @@ mod tests {
         let steward_b = test_member_id(3);
 
         let token_id = doc
-            .mint(steward_a, test_blessing_id(1), test_member_id(2), test_quest_id(1), vec![0])
+            .mint(steward_a, test_blessing_id(1), test_member_id(2), test_intention_id(1), vec![0])
             .unwrap();
 
-        doc.pledge(token_id, test_quest_id(2)).unwrap();
+        doc.pledge(token_id, test_intention_id(2)).unwrap();
         doc.release(token_id, steward_b).unwrap();
 
         // Clear and rebuild
@@ -816,10 +816,10 @@ mod tests {
         let steward_b = test_member_id(3);
 
         let token_id = doc1
-            .mint(steward_a, test_blessing_id(1), test_member_id(2), test_quest_id(1), vec![0])
+            .mint(steward_a, test_blessing_id(1), test_member_id(2), test_intention_id(1), vec![0])
             .unwrap();
 
-        doc1.pledge(token_id, test_quest_id(2)).unwrap();
+        doc1.pledge(token_id, test_intention_id(2)).unwrap();
         doc1.release(token_id, steward_b).unwrap();
 
         let doc2 = doc1.clone();
