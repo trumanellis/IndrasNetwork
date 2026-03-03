@@ -42,6 +42,14 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --transition: 150ms ease;
   --transition-slide: 280ms cubic-bezier(0.4,0,0.2,1);
+  /* Indigo/violet/rose accent system */
+  --ac: #818cf8; --ac2: #c084fc; --ac3: #f472b6;
+  --ac-dim: rgba(129,140,248,0.08); --ac2-dim: rgba(192,132,252,0.08); --ac3-dim: rgba(244,114,182,0.08);
+  /* Gift Cycle stage colors */
+  --stage-intention: #818cf8; --stage-attention: #fbbf24; --stage-service: #34d399;
+  --stage-blessing: #c084fc; --stage-token: #f472b6; --stage-renewal: #818cf8;
+  /* Status colors */
+  --ok: #34d399; --wn: #fbbf24; --er: #f87171;
 }
 
 /* ================================================================
@@ -270,7 +278,7 @@ button{font-family:var(--font-body)}
 /* ================================================================
    VIEW: REQUEST (new — marketplace)
    ================================================================ */
-.request-scroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:24px}
+.request-scroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:24px;background-image:radial-gradient(circle,rgba(129,140,248,0.045) 1px,transparent 1px);background-size:24px 24px}
 .request-scroll::-webkit-scrollbar{width:5px}
 .request-scroll::-webkit-scrollbar-thumb{background:var(--text-ghost);border-radius:3px}
 
@@ -279,7 +287,8 @@ button{font-family:var(--font-body)}
 /* Central quest/intention/need/offering card */
 .quest-card{background:var(--bg-raised);border:2px solid var(--accent-rose);border-radius:var(--radius-xl);padding:24px;margin-bottom:32px;position:relative;overflow:hidden}
 .quest-card::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at center,var(--accent-rose-dim) 0%,transparent 70%);pointer-events:none}
-.quest-card.type-intention{border-color:var(--accent-violet)}.quest-card.type-intention::before{background:radial-gradient(ellipse at center,var(--accent-violet-dim) 0%,transparent 70%)}
+.quest-card.type-intention{border-color:var(--ac)}.quest-card.type-intention::before{background:radial-gradient(ellipse at center,var(--ac-dim) 0%,transparent 70%)}
+.quest-card.type-intention .quest-icon{background:var(--ac-dim);border:1px solid rgba(129,140,248,0.2)}
 .quest-card.type-need{border-color:var(--accent-rose)}.quest-card.type-need::before{background:radial-gradient(ellipse at center,var(--accent-rose-dim) 0%,transparent 70%)}
 .quest-card.type-offering{border-color:var(--accent-teal)}.quest-card.type-offering::before{background:radial-gradient(ellipse at center,var(--accent-teal-dim) 0%,transparent 70%)}
 .quest-card.type-quest{border-color:var(--accent-gold)}.quest-card.type-quest::before{background:radial-gradient(ellipse at center,var(--accent-gold-dim) 0%,transparent 70%)}
@@ -312,9 +321,15 @@ button{font-family:var(--font-body)}
 /* Proof cards */
 .proofs-list{display:flex;flex-direction:column;gap:12px;margin-bottom:32px}
 
-.proof-card{background:var(--bg-raised);border:1px solid var(--border-dim);border-radius:var(--radius-lg);padding:16px;transition:all var(--transition);position:relative}
-.proof-card:hover{border-color:var(--border-visible)}
+.proof-card{background:rgba(52,211,153,0.02);border:1px solid rgba(52,211,153,0.10);border-radius:var(--radius-lg);padding:16px;transition:all var(--transition);position:relative}
+.proof-card:hover{border-color:rgba(52,211,153,0.20)}
 .proof-card.has-tokens{border-color:var(--accent-gold);border-width:1.5px}
+.proof-card.blessed{background:rgba(192,132,252,0.02);border-color:rgba(192,132,252,0.12)}
+.proof-card.blessed:hover{border-color:rgba(192,132,252,0.22)}
+.proof-card .proof-verified-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:var(--radius-sm);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em}
+.proof-verified-badge.verified{background:rgba(52,211,153,0.10);color:var(--ok);border:1px solid rgba(52,211,153,0.2)}
+.proof-verified-badge.pending{background:rgba(251,191,36,0.08);color:var(--wn);border:1px solid rgba(251,191,36,0.15)}
+.proof-artifact-indicator{display:flex;align-items:center;gap:6px;padding:6px 10px;background:rgba(52,211,153,0.04);border:1px solid rgba(52,211,153,0.08);border-radius:var(--radius-sm);font-size:11px;color:var(--ok);margin-bottom:10px}
 .proof-card-header{display:flex;align-items:center;gap:8px;margin-bottom:10px}
 .proof-card-avatar{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex-shrink:0}
 .proof-card-from{font-size:13px;color:var(--text-secondary);font-weight:500}
@@ -888,6 +903,13 @@ button{font-family:var(--font-body)}
    ATTENTION SUMMARY
    ================================================================ */
 .attention-summary{background:var(--bg-raised);border:1px solid var(--border-dim);border-radius:var(--radius-lg);padding:20px;margin-bottom:24px}
+/* Attention timer row */
+.attn-timer-row{display:flex;align-items:center;gap:12px;padding:14px 18px;background:rgba(251,191,36,0.04);border:1px solid rgba(251,191,36,0.15);border-radius:10px;margin-bottom:16px}
+.attn-pulse-dot{width:10px;height:10px;border-radius:50%;background:var(--wn);flex-shrink:0;animation:attn-beat 2s ease-in-out infinite}
+.attn-timer-label{font-family:var(--font-mono);font-size:11px;color:var(--wn);flex:1}
+.attn-timer-value{font-family:var(--font-mono);font-size:17px;font-weight:700;color:var(--wn)}
+.attn-focused-members{display:flex;align-items:center;gap:6px;margin-top:8px;font-size:11px;color:var(--text-muted)}
+.attn-focused-dot{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;flex-shrink:0}
 .attention-summary-header{display:flex;align-items:center;gap:16px;margin-bottom:16px;flex-wrap:wrap}
 .attention-summary-title{font-size:14px;font-weight:600;color:var(--text-secondary)}
 .attention-summary-total{font-family:var(--font-mono);font-size:13px;color:var(--accent-gold);font-weight:500}
@@ -952,6 +974,32 @@ button{font-family:var(--font-body)}
 .chain-action.released{background:var(--accent-rose-dim);color:var(--accent-rose);border:1px solid rgba(255,107,157,0.2)}
 .chain-token{padding:2px 8px;border-radius:var(--radius-sm);font-family:var(--font-mono);font-size:11px;font-weight:500;background:var(--accent-gold-dim);color:var(--accent-gold);border:1px solid rgba(212,175,55,0.15)}
 
+/* Blessing flow visualization */
+.blessing-flow-row{display:flex;align-items:center;gap:10px;padding:10px 14px;background:rgba(192,132,252,0.03);border:1px solid rgba(192,132,252,0.10);border-radius:10px;margin-top:8px}
+.blessing-avatar{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;position:relative;flex-shrink:0}
+.blessing-avatar::after{content:'';position:absolute;inset:-3px;border-radius:50%;border:2px solid currentColor;opacity:0.3}
+.blessing-arrow{font-size:16px;color:var(--ac2);animation:blessing-pulse 2s ease-in-out infinite;flex-shrink:0}
+.blessing-duration{font-family:var(--font-mono);font-size:12px;font-weight:600;color:var(--ac2)}
+.blessing-ago{font-family:var(--font-mono);font-size:10px;color:var(--text-muted);margin-left:auto}
+
+/* Gradient text utility */
+.gradient-title{background:linear-gradient(135deg,var(--ac),var(--ac2),var(--ac3));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+
+/* Kind selector buttons */
+.kind-selector{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:16px}
+.kind-selector-btn{display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 8px;background:var(--bg-raised);border:1.5px solid var(--border-dim);border-radius:var(--radius-md);cursor:pointer;transition:all var(--transition);font-family:var(--font-body);font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em}
+.kind-selector-btn:hover{border-color:var(--border-visible);color:var(--text-secondary)}
+.kind-selector-btn.selected{color:var(--text-primary)}
+.kind-selector-btn.selected.kind-intention{border-color:var(--ac);background:var(--ac-dim)}
+.kind-selector-btn.selected.kind-quest{border-color:var(--accent-gold);background:var(--accent-gold-dim)}
+.kind-selector-btn.selected.kind-need{border-color:var(--accent-rose);background:var(--accent-rose-dim)}
+.kind-selector-btn.selected.kind-offering{border-color:var(--accent-teal);background:var(--accent-teal-dim)}
+.kind-selector-icon{font-size:20px}
+
+/* Animations */
+@keyframes attn-beat{0%,100%{box-shadow:0 0 0 0 rgba(251,191,36,0.3)}50%{box-shadow:0 0 0 8px rgba(251,191,36,0)}}
+@keyframes blessing-pulse{0%,100%{opacity:0.4;transform:scale(1)}50%{opacity:1;transform:scale(1.2)}}
+
 /* Quest heat bar in meta */
 .quest-heat{display:flex;align-items:center;gap:6px}
 .quest-heat-track{width:60px;height:5px;background:var(--bg-surface);border-radius:3px;overflow:hidden}
@@ -967,46 +1015,129 @@ button{font-family:var(--font-body)}
 .dashboard-tabs{display:flex;gap:2px;padding:12px 20px 0;border-bottom:1px solid var(--border-subtle);flex-shrink:0}
 .dashboard-tab{padding:10px 20px;background:none;border:none;border-bottom:2px solid transparent;color:var(--text-muted);font-size:14px;font-weight:500;cursor:pointer;transition:all var(--transition);font-family:var(--font-body)}
 .dashboard-tab:hover{color:var(--text-secondary)}
-.dashboard-tab.active{color:var(--accent-teal);border-bottom-color:var(--accent-teal)}
-.dashboard-content{flex:1;overflow-y:auto;padding:20px;-webkit-overflow-scrolling:touch}
+.dashboard-tab.active{color:var(--ac);border-bottom-color:var(--ac)}
+.dashboard-content{flex:1;overflow-y:auto;padding:20px;-webkit-overflow-scrolling:touch;background-image:radial-gradient(circle,rgba(129,140,248,0.045) 1px,transparent 1px);background-size:24px 24px}
 .dashboard-content::-webkit-scrollbar{width:5px}
 .dashboard-content::-webkit-scrollbar-thumb{background:var(--text-ghost);border-radius:3px}
 
 /* Create button */
-.create-intention-btn{width:100%;padding:14px;background:var(--accent-teal-dim);border:1px dashed rgba(0,212,170,0.3);border-radius:var(--radius-md);color:var(--accent-teal);font-size:14px;font-weight:500;cursor:pointer;transition:all var(--transition);margin-bottom:20px;font-family:var(--font-body)}
-.create-intention-btn:hover{background:rgba(0,212,170,0.15);border-style:solid}
+.create-intention-btn{width:100%;padding:14px;background:linear-gradient(135deg,var(--ac),var(--ac2));border:none;border-radius:var(--radius-md);color:#fff;font-size:14px;font-weight:600;cursor:pointer;transition:all var(--transition);margin-bottom:20px;font-family:var(--font-body);box-shadow:0 0 20px rgba(129,140,248,0.2)}
+.create-intention-btn:hover{box-shadow:0 0 28px rgba(129,140,248,0.35);transform:translateY(-1px)}
 
 /* Sections */
 .intentions-section{margin-bottom:24px}
-.intentions-section-title{font-size:12px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);margin-bottom:10px;user-select:none}
+.intentions-section-title{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:0.10em;color:var(--text-muted);margin-bottom:10px;user-select:none}
 .intentions-section-title.clickable{cursor:pointer}
 .intentions-section-title.clickable:hover{color:var(--text-secondary)}
 
 /* Intention cards */
 .intentions-list{display:flex;flex-direction:column;gap:8px}
-.intention-card{padding:14px 16px;background:var(--bg-raised);border:1px solid var(--border-dim);border-radius:var(--radius-md);cursor:pointer;transition:all var(--transition)}
-.intention-card:hover{background:var(--bg-hover);border-color:var(--border-visible)}
-.intention-card.completed{opacity:0.6}
-.intention-card.type-quest{border-left:3px solid var(--accent-gold)}
-.intention-card.type-need{border-left:3px solid var(--accent-rose)}
-.intention-card.type-offering{border-left:3px solid var(--accent-violet)}
-.intention-card.type-intention{border-left:3px solid var(--accent-teal)}
-.intention-card-header{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.intention-card{padding:14px 16px;background:var(--bg-raised);border:1px solid var(--border-dim);border-radius:var(--radius-md);cursor:pointer;transition:all var(--transition);position:relative;overflow:hidden}
+.intention-card::before{content:'';position:absolute;top:0;left:0;right:0;height:1.5px;background:linear-gradient(90deg,var(--border-dim),var(--border-dim));transition:background 300ms ease}
+.intention-card:hover{background:var(--bg-hover);border-color:var(--border-visible);transform:translateY(-1px)}
+.intention-card.completed{opacity:0.55}
+.intention-card.type-quest::before{background:linear-gradient(90deg,var(--accent-gold),rgba(212,175,55,0.3))}
+.intention-card.type-need::before{background:linear-gradient(90deg,var(--accent-rose),rgba(255,107,157,0.3))}
+.intention-card.type-offering::before{background:linear-gradient(90deg,var(--accent-teal),rgba(0,212,170,0.3))}
+.intention-card.type-intention::before{background:linear-gradient(90deg,var(--ac),rgba(129,140,248,0.3))}
+.intention-card-header{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.intention-card-icon-orb{width:32px;height:32px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;border:1.5px solid}
+.intention-card.type-quest .intention-card-icon-orb{border-color:var(--accent-gold);background:var(--accent-gold-dim);color:var(--accent-gold)}
+.intention-card.type-need .intention-card-icon-orb{border-color:var(--accent-rose);background:var(--accent-rose-dim);color:var(--accent-rose)}
+.intention-card.type-offering .intention-card-icon-orb{border-color:var(--accent-teal);background:var(--accent-teal-dim);color:var(--accent-teal)}
+.intention-card.type-intention .intention-card-icon-orb{border-color:var(--ac);background:var(--ac-dim);color:var(--ac)}
 .intention-card-icon{font-size:16px;flex-shrink:0}
 .intention-card-title{font-size:15px;font-weight:600;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.intention-card-heat{width:40px;height:4px;background:var(--bg-deep);border-radius:2px;overflow:hidden;flex-shrink:0}
+.intention-card-heat{width:48px;height:6px;background:var(--bg-deep);border-radius:3px;overflow:hidden;flex-shrink:0}
 .intention-card-heat-track{height:100%;background:var(--bg-deep)}
-.intention-card-heat-fill{height:100%;background:linear-gradient(90deg,var(--heat-2),var(--heat-5));border-radius:2px;transition:width 300ms ease}
+.intention-card-heat-fill{height:100%;background:linear-gradient(90deg,rgba(251,191,36,0.6),var(--wn));border-radius:3px;transition:width 300ms ease}
 .intention-card-desc{font-size:13px;color:var(--text-secondary);line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-bottom:8px}
 .intention-card-meta{display:flex;gap:12px;font-size:11px;color:var(--text-muted)}
 .intention-card-stat{display:flex;align-items:center;gap:4px}
 
 /* Empty states */
 .intentions-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px;text-align:center}
-.intentions-empty-icon{font-size:48px;margin-bottom:16px;opacity:0.5}
+.intentions-empty-icon{font-size:48px;margin-bottom:16px;filter:drop-shadow(0 0 12px rgba(129,140,248,0.4))}
 .intentions-empty-text{font-size:18px;font-weight:600;color:var(--text-secondary);margin-bottom:8px}
 .intentions-empty-hint{font-size:13px;color:var(--text-muted)}
 
 /* Tabs for community/tokens */
 .community-tab,.tokens-tab{padding:0}
 .intentions-tab{padding:0}
+
+/* ================================================================
+   TOKEN WALLET CARDS
+   ================================================================ */
+.tokens-section{margin-bottom:24px}
+.tokens-section-title{font-size:12px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);margin-bottom:10px;font-weight:500}
+.tokens-list{display:flex;flex-direction:column;gap:10px}
+
+.token-card{padding:18px 20px;background:linear-gradient(135deg,rgba(244,114,182,0.04),rgba(129,140,248,0.04));border:1px solid rgba(244,114,182,0.12);border-radius:var(--radius-lg);position:relative;overflow:hidden;transition:all var(--transition)}
+.token-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--ac3),var(--ac2),var(--ac))}
+.token-card:hover{border-color:rgba(244,114,182,0.25)}
+.token-card.token-pledged .token-state-pill{background:var(--ac2-dim);color:var(--ac2);border:1px solid rgba(192,132,252,0.15)}
+.token-card.token-available .token-state-pill{background:rgba(244,114,182,0.08);color:var(--ac3);border:1px solid rgba(244,114,182,0.15)}
+.token-card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.token-card-id-group{display:flex;align-items:center;gap:8px}
+.token-card-icon{font-size:16px;flex-shrink:0}
+.token-card-id{font-family:var(--font-mono);font-size:11px;color:var(--ac3);letter-spacing:0.02em}
+.token-state-pill{font-family:var(--font-mono);font-size:10px;font-weight:500;padding:2px 10px;border-radius:100px}
+/* Token data rows */
+.token-data-rows{display:flex;flex-direction:column;gap:0}
+.token-data-row{display:flex;justify-content:space-between;align-items:baseline;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.03)}
+.token-data-row:last-child{border-bottom:none}
+.token-data-key{font-size:12px;color:var(--text-muted)}
+.token-data-val{font-family:var(--font-mono);font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:6px}
+.token-data-val.gradient-text{background:linear-gradient(135deg,var(--ac3),var(--ac2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;font-weight:600}
+.token-data-val .token-avatar{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:600;flex-shrink:0}
+/* Steward chain dots */
+.token-card-chain{display:flex;align-items:center;gap:6px;margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.04);font-size:11px}
+.token-card-chain-label{color:var(--text-muted);margin-right:4px}
+.steward-chain-dot{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700}
+.steward-chain-arrow{color:var(--text-ghost);font-size:12px}
+
+/* ================================================================
+   GIFT CYCLE STAGE INDICATOR
+   ================================================================ */
+.gift-cycle-stages{display:flex;align-items:center;justify-content:center;gap:0;padding:16px 20px;margin-bottom:20px;background:var(--bg-raised);border:1px solid var(--border-dim);border-radius:var(--radius-lg);overflow-x:auto}
+.gift-stage{display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px 10px;border-radius:var(--radius-md);transition:all 300ms ease;min-width:64px;flex-shrink:0}
+.gift-stage-orb{width:48px;height:48px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:22px;border:2px solid;position:relative;transition:all 300ms ease}
+.gift-stage-orb::before{content:'';position:absolute;inset:-6px;border-radius:18px;border:1px solid;opacity:0;transition:opacity 300ms ease}
+.gift-stage-icon{font-size:20px;line-height:1;transition:transform 300ms ease}
+.gift-stage-label{font-family:var(--font-mono);font-size:9px;letter-spacing:0.06em;text-transform:uppercase;white-space:nowrap;transition:color 300ms ease}
+.gift-stage-connector{width:20px;height:2px;flex-shrink:0;transition:background 300ms ease;background:linear-gradient(90deg,var(--border-dim),var(--border-visible));border-radius:1px}
+.gift-stage-connector.active{background:linear-gradient(90deg,var(--ac),var(--ac2))}
+
+/* Stage color theming — orb borders, backgrounds, glows */
+.gift-stage.stage-intention .gift-stage-orb{border-color:var(--stage-intention);background:rgba(129,140,248,0.07)}
+.gift-stage.stage-attention .gift-stage-orb{border-color:var(--stage-attention);background:rgba(251,191,36,0.07)}
+.gift-stage.stage-service .gift-stage-orb{border-color:var(--stage-service);background:rgba(52,211,153,0.07)}
+.gift-stage.stage-blessing .gift-stage-orb{border-color:var(--stage-blessing);background:rgba(192,132,252,0.07)}
+.gift-stage.stage-token .gift-stage-orb{border-color:var(--stage-token);background:rgba(244,114,182,0.07)}
+.gift-stage.stage-renewal .gift-stage-orb{border-color:var(--stage-renewal);background:rgba(129,140,248,0.07)}
+
+/* Current stage: glow + outer ring */
+.gift-stage.stage-intention.current .gift-stage-orb{box-shadow:0 0 20px rgba(129,140,248,0.3)}
+.gift-stage.stage-attention.current .gift-stage-orb{box-shadow:0 0 20px rgba(251,191,36,0.3)}
+.gift-stage.stage-service.current .gift-stage-orb{box-shadow:0 0 20px rgba(52,211,153,0.3)}
+.gift-stage.stage-blessing.current .gift-stage-orb{box-shadow:0 0 20px rgba(192,132,252,0.3)}
+.gift-stage.stage-token.current .gift-stage-orb{box-shadow:0 0 20px rgba(244,114,182,0.3)}
+.gift-stage.stage-renewal.current .gift-stage-orb{box-shadow:0 0 20px rgba(129,140,248,0.3)}
+.gift-stage.current .gift-stage-orb::before{opacity:0.3}
+
+/* Labels match stage color when current */
+.gift-stage.stage-intention.current .gift-stage-label,.gift-stage.stage-intention.active .gift-stage-label{color:#818cf8}
+.gift-stage.stage-attention.current .gift-stage-label,.gift-stage.stage-attention.active .gift-stage-label{color:#fbbf24}
+.gift-stage.stage-service.current .gift-stage-label,.gift-stage.stage-service.active .gift-stage-label{color:#34d399}
+.gift-stage.stage-blessing.current .gift-stage-label,.gift-stage.stage-blessing.active .gift-stage-label{color:#c084fc}
+.gift-stage.stage-token.current .gift-stage-label,.gift-stage.stage-token.active .gift-stage-label{color:#f472b6}
+.gift-stage.stage-renewal.current .gift-stage-label,.gift-stage.stage-renewal.active .gift-stage-label{color:#818cf8}
+
+/* Active (past) stages: dimmed */
+.gift-stage.active .gift-stage-orb{opacity:0.7}
+.gift-stage.active .gift-stage-label{color:var(--text-muted)}
+
+/* Inactive stages: grayscale + dim */
+.gift-stage.inactive{opacity:0.3}
+.gift-stage.inactive .gift-stage-orb{filter:grayscale(1);border-color:var(--border-dim);background:var(--bg-deep)}
+.gift-stage.inactive .gift-stage-label{color:var(--text-ghost)}

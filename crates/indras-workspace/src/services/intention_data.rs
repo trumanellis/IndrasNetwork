@@ -287,6 +287,12 @@ fn build_proofs(
             has_tokens: false,
             total_token_count: 0,
             total_token_duration: String::new(),
+            has_proof_artifact: false,
+            has_proof_folder: false,
+            blessings: Vec::new(),
+            total_blessed_duration: String::new(),
+            is_verified: false,
+            verified_ago: None,
         });
     }
     proof_entries

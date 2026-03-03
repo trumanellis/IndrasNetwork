@@ -8,6 +8,7 @@ use tokio::sync::Mutex;
 
 use crate::bridge::vault_bridge::{VaultHandle, InMemoryVault};
 use crate::bridge::network_bridge::{NetworkHandle, create_identity};
+use crate::bridge::realm_bridge::RealmHandle;
 use crate::components::topbar::Topbar;
 use crate::components::document::DocumentView;
 use crate::components::intention_view::{IntentionView, PeerOption, IntentionCreateOverlay};
@@ -21,11 +22,11 @@ use crate::components::intention_board::{IntentionBoard, IntentionCardData};
 use crate::state::navigation::{NavigationState, VaultTreeNode};
 use crate::state::editor::{EditorState, DocumentMeta, BlockDocumentSchema};
 use crate::services::boot::{run_boot_sequence, BootError};
-use crate::services::intention_data::{IntentionViewData, build_intention_view_data, build_intention_cards};
+use crate::services::realm_data::{IntentionViewData, build_intention_view, build_intention_cards, build_community_intention_cards};
 use crate::services::event_subscription::subscribe_network_events;
 use crate::services::polling::{poll_contacts, check_dm_invites, join_invite, store_in_artifact_index};
 
-use indras_artifacts::Intention;
+use indras_sync_engine::IntentionId;
 use indras_ui::{
     IdentityRow, PeerStrip,
     NavigationSidebar, NavDestination, CreateAction, RecentItem,
@@ -35,7 +36,7 @@ use indras_ui::{
     ContactInviteOverlay,
 };
 use indras_ui::PeerDisplayInfo as UiPeerDisplayInfo;
-use indras_network::{ArtifactStatus, GeoLocation, HomeArtifactEntry, IdentityCode, IndrasNetwork, HomeRealm, Realm, EditableChatMessage, EditableMessageType, AccessMode};
+use indras_network::{ArtifactStatus, GeoLocation, HomeArtifactEntry, IdentityCode, IndrasNetwork, HomeRealm, Realm};
 use indras_ui::artifact_display::{ArtifactDisplayInfo, ArtifactDisplayStatus};
 
 #[cfg(feature = "lua-scripting")]
@@ -44,6 +45,18 @@ use crate::scripting::channels::AppTestChannels;
 use crate::scripting::dispatcher::spawn_dispatcher;
 #[cfg(feature = "lua-scripting")]
 use crate::scripting::event::AppEvent;
+
+/// Parse a hex-encoded IntentionId string back to [u8; 16].
+fn parse_hex_intention_id(hex: &str) -> Option<IntentionId> {
+    if hex.len() != 32 {
+        return None;
+    }
+    let mut id = [0u8; 16];
+    for i in 0..16 {
+        id[i] = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).ok()?;
+    }
+    Some(id)
+}
 
 /// Infer a logical artifact "type" from the entry's name and MIME type.
 fn infer_artifact_type(entry: &HomeArtifactEntry) -> &'static str {
@@ -206,10 +219,13 @@ pub fn RootApp() -> Element {
     let mut contact_display_name_sig = use_signal(String::new);
     let mut contact_member_id_short_sig = use_signal(String::new);
     let mut home_realm_handle = use_signal(|| None::<HomeRealm>);
+    let mut realm_handle = use_signal(|| None::<RealmHandle>);
     let mut realm_map = use_signal(|| std::collections::HashMap::<String, Realm>::new());
 
-    // Intention board cards
+    // Intention board cards and token wallet
     let mut intention_cards = use_signal(Vec::<IntentionCardData>::new);
+    let mut community_cards = use_signal(Vec::<IntentionCardData>::new);
+    let mut token_cards = use_signal(Vec::<crate::services::realm_data::TokenCardData>::new);
 
     // Artifact browser state
     let mut browser_artifacts = use_signal(Vec::<BrowsableArtifact>::new);
@@ -316,6 +332,12 @@ pub fn RootApp() -> Element {
                         if restored_count > 0 {
                             log_event(&mut workspace.write(), EventDirection::System, format!("Restored {} artifacts from home realm", restored_count));
                         }
+                    }
+
+                    // Set realm handle for CRDT intention operations
+                    if let Some(rh) = result.realm_handle {
+                        realm_handle.set(Some(rh));
+                        log_event(&mut workspace.write(), EventDirection::System, "Intentions realm ready".to_string());
                     }
 
                     // Emit AppReady AFTER network + home realm are initialized,
@@ -531,17 +553,24 @@ pub fn RootApp() -> Element {
         });
     });
 
-    // Load intention cards from vault whenever vault_tree updates
-    let vault_tree_len = workspace.read().nav.vault_tree.len();
+    // Poll intention cards from home realm CRDT every 2 seconds
     use_effect(move || {
-        // Re-run when vault_tree changes (vault_tree_len is a reactive dependency)
-        let _dep = vault_tree_len;
         spawn(async move {
-            let vh = vault_handle.read().clone();
-            if let Some(vh) = vh {
-                let vault = vh.vault.lock().await;
-                let cards = build_intention_cards(&vault, vh.player_id, &vh.player_name);
-                intention_cards.set(cards);
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                if workspace.read().phase != AppPhase::Workspace {
+                    continue;
+                }
+                let rh = realm_handle.read().clone();
+                if let Some(rh) = rh {
+                    let cards = build_intention_cards(&rh.home, rh.member_id).await;
+                    intention_cards.set(cards);
+                    let tokens = crate::services::realm_data::build_member_tokens(&rh.home, rh.member_id, &rh.player_name).await;
+                    token_cards.set(tokens);
+                    // Poll community intentions from DM realms
+                    let comm = build_community_intention_cards(&rh.network, rh.member_id).await;
+                    community_cards.set(comm);
+                }
             }
         });
     });
@@ -641,20 +670,11 @@ pub fn RootApp() -> Element {
                                             workspace.write().editor.title = label.clone();
                                         }
                                         ViewType::IntentionDetail => {
-                                            if let Some(view_data) = build_intention_view_data(
-                                                &vault,
-                                                artifact_id,
-                                                &artifact.artifact_type,
-                                                &label,
-                                                vh.player_id,
-                                                &vh.player_name,
-                                            ) {
-                                                // Set editor meta for topbar
-                                                workspace.write().editor.meta.steward_name = view_data.steward_name.clone();
-                                                workspace.write().editor.meta.audience_count = view_data.audience_count;
-                                                workspace.write().editor.title = label.clone();
-                                                quest_data.set(Some(view_data));
-                                            }
+                                            // Intention detail now loaded via on_intention_click from CRDT.
+                                            // Sidebar tree click falls through to set editor meta only.
+                                            workspace.write().editor.meta.steward_name = steward_name;
+                                            workspace.write().editor.meta.audience_count = audience_count;
+                                            workspace.write().editor.title = label.clone();
                                         }
                                     }
                                 }
@@ -1501,9 +1521,23 @@ pub fn RootApp() -> Element {
                                             workspace.write().ui.active_tab = tab;
                                         },
                                         my_intentions: intention_cards.read().clone(),
-                                        community_intentions: Vec::new(),
+                                        community_intentions: community_cards.read().clone(),
+                                        tokens: token_cards.read().clone(),
                                         on_intention_click: move |id: String| {
-                                            on_tree_click(id);
+                                            if let Some(intention_id) = parse_hex_intention_id(&id) {
+                                                workspace.write().ui.active_view = ViewType::IntentionDetail;
+                                                spawn(async move {
+                                                    let rh = realm_handle.read().clone();
+                                                    if let Some(rh) = rh {
+                                                        if let Some(vd) = build_intention_view(&rh.home, intention_id, rh.member_id, &rh.player_name).await {
+                                                            workspace.write().editor.meta.steward_name = vd.steward_name.clone();
+                                                            workspace.write().editor.meta.audience_count = vd.audience_count;
+                                                            workspace.write().editor.title = vd.title.clone();
+                                                            quest_data.set(Some(vd));
+                                                        }
+                                                    }
+                                                });
+                                            }
                                         },
                                         on_create_intention: move |_| {
                                             intention_create_open.set(true);
@@ -1559,22 +1593,19 @@ pub fn RootApp() -> Element {
                                         attention_items: qd.attention_items,
                                         pledged_tokens: qd.pledged_tokens,
                                         stewardship_chain: qd.stewardship_chain,
-                                        on_submit_proof: move |body: String| {
+                                        on_submit_proof: move |_body: String| {
                                             spawn(async move {
-                                                if let Some(vh) = vault_handle.read().clone() {
-                                                    let intention_id = quest_data.read().as_ref().map(|q| q.intention_id);
-                                                    if let Some(iid) = intention_id {
-                                                        let mut vault = vh.vault.lock().await;
-                                                        let intention = Intention::from_id(iid);
-                                                        let now = chrono::Utc::now().timestamp_millis();
-                                                        match intention.submit_proof(&mut vault, &body, now) {
-                                                            Ok(_) => {
-                                                                tracing::info!("Proof submitted successfully");
-                                                            }
-                                                            Err(e) => {
-                                                                tracing::error!(error = %e, "Failed to submit proof");
+                                                let rh = realm_handle.read().clone();
+                                                let qd = quest_data.read().clone();
+                                                if let (Some(rh), Some(qd)) = (rh, qd) {
+                                                    match rh.submit_proof(qd.intention_id).await {
+                                                        Ok(_) => {
+                                                            tracing::info!("Proof submitted via CRDT");
+                                                            if let Some(vd) = build_intention_view(&rh.home, qd.intention_id, rh.member_id, &rh.player_name).await {
+                                                                quest_data.set(Some(vd));
                                                             }
                                                         }
+                                                        Err(e) => tracing::error!(error = %e, "Failed to submit proof"),
                                                     }
                                                 }
                                             });
@@ -1582,87 +1613,26 @@ pub fn RootApp() -> Element {
                                         on_confirm_tokens: move |data: (usize, Vec<usize>)| {
                                             let (_proof_idx, selected_indices) = data;
                                             spawn(async move {
-                                                if let Some(vh) = vault_handle.read().clone() {
-                                                    let intention_id = quest_data.read().as_ref().map(|q| q.intention_id);
-                                                    if let Some(iid) = intention_id {
-                                                        let mut vault = vh.vault.lock().await;
-                                                        let intention = Intention::from_id(iid);
-                                                        let now = chrono::Utc::now().timestamp_millis();
-                                                        // Get unreleased windows for local player
-                                                        let windows = intention.unreleased_attention(&vault, vh.player_id).unwrap_or_default();
-                                                        let selected_windows: Vec<_> = selected_indices.iter()
-                                                            .filter_map(|&i| windows.get(i).cloned())
-                                                            .collect();
-                                                        if !selected_windows.is_empty() {
-                                                            // Determine proof submitter from the proof at proof_idx
-                                                            let proof_submitter = {
-                                                                let proof_refs = intention.proofs(&vault).unwrap_or_default();
-                                                                if let Some(pref) = proof_refs.get(_proof_idx) {
-                                                                    if let Some(label) = &pref.label {
-                                                                        let parts: Vec<&str> = label.splitn(3, ':').collect();
-                                                                        if parts.len() >= 2 {
-                                                                            let hex = parts[1];
-                                                                            if hex.starts_with("02") { [2u8; 32] }
-                                                                            else if hex.starts_with("03") { [3u8; 32] }
-                                                                            else { [1u8; 32] }
-                                                                        } else { [1u8; 32] }
-                                                                    } else { [1u8; 32] }
-                                                                } else { [1u8; 32] }
-                                                            };
-                                                            match intention.release_attention(&mut vault, &selected_windows, proof_submitter, now) {
-                                                                Ok(tokens) => {
-                                                                    tracing::info!(count = tokens.len(), "Released attention as tokens");
-                                                                }
-                                                                Err(e) => {
-                                                                    tracing::error!(error = %e, "Failed to release attention");
-                                                                }
+                                                let rh = realm_handle.read().clone();
+                                                let qd = quest_data.read().clone();
+                                                if let (Some(rh), Some(qd)) = (rh, qd) {
+                                                    // In home realm, claimant is self
+                                                    let claimant = rh.member_id;
+                                                    match rh.bless_claim(qd.intention_id, claimant, selected_indices).await {
+                                                        Ok(_) => {
+                                                            tracing::info!("Claim blessed via CRDT");
+                                                            if let Some(vd) = build_intention_view(&rh.home, qd.intention_id, rh.member_id, &rh.player_name).await {
+                                                                quest_data.set(Some(vd));
                                                             }
                                                         }
+                                                        Err(e) => tracing::error!(error = %e, "Failed to bless claim"),
                                                     }
                                                 }
                                             });
                                         },
-                                        on_release_pledged: move |indices: Vec<usize>| {
-                                            spawn(async move {
-                                                if let Some(vh) = vault_handle.read().clone() {
-                                                    let qd_clone = quest_data.read().clone();
-                                                    if let Some(qd) = qd_clone {
-                                                        let mut vault = vh.vault.lock().await;
-                                                        let intention = Intention::from_id(qd.intention_id);
-                                                        let now = chrono::Utc::now().timestamp_millis();
-                                                        // Get pledge refs and map indices to token IDs
-                                                        let pledge_refs = intention.pledged_tokens(&vault).unwrap_or_default();
-                                                        let token_ids: Vec<_> = indices.iter()
-                                                            .filter_map(|&i| pledge_refs.get(i).map(|r| r.artifact_id))
-                                                            .collect();
-                                                        // Determine a proof submitter (use first proof's author)
-                                                        let proof_submitter = {
-                                                            let proof_refs = intention.proofs(&vault).unwrap_or_default();
-                                                            if let Some(pref) = proof_refs.first() {
-                                                                if let Some(label) = &pref.label {
-                                                                    let parts: Vec<&str> = label.splitn(3, ':').collect();
-                                                                    if parts.len() >= 2 {
-                                                                        let hex = parts[1];
-                                                                        if hex.starts_with("02") { [2u8; 32] }
-                                                                        else if hex.starts_with("03") { [3u8; 32] }
-                                                                        else { [1u8; 32] }
-                                                                    } else { [1u8; 32] }
-                                                                } else { [1u8; 32] }
-                                                            } else { [1u8; 32] }
-                                                        };
-                                                        if !token_ids.is_empty() {
-                                                            match intention.release_pledged_tokens(&mut vault, &token_ids, proof_submitter, now) {
-                                                                Ok(()) => {
-                                                                    tracing::info!(count = token_ids.len(), "Released pledged tokens");
-                                                                }
-                                                                Err(e) => {
-                                                                    tracing::error!(error = %e, "Failed to release pledged tokens");
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            });
+                                        on_release_pledged: move |_indices: Vec<usize>| {
+                                            // Token release requires peer selection — will be wired with Tokens tab
+                                            tracing::info!("Release pledged tokens requested");
                                         },
                                     }
                                 }
@@ -1991,131 +1961,26 @@ pub fn RootApp() -> Element {
                             visible: *intention_create_open.read(),
                             peers: peer_options,
                             on_close: move |_| intention_create_open.set(false),
-                            on_create: move |(title, description, audience): (String, String, Vec<[u8; 32]>)| {
+                            on_create: move |(title, description, audience, kind): (String, String, Vec<[u8; 32]>, indras_sync_engine::IntentionKind)| {
                                 intention_create_open.set(false);
-                                let vh_signal = vault_handle;
-                                let mut ws_signal = workspace;
-                                let nh_signal = network_handle;
-                                let mut rm_signal = realm_map;
-                                let hr_signal = home_realm_handle;
                                 spawn(async move {
-                                    let vh = match vh_signal.read().clone() {
-                                        Some(h) => h,
-                                        None => return,
-                                    };
-                                    let mut vault = vh.vault.lock().await;
-                                    let now = chrono::Utc::now().timestamp_millis();
-
-                                    // Always include self in audience
-                                    let mut full_audience = audience;
-                                    if !full_audience.contains(&vh.player_id) {
-                                        full_audience.insert(0, vh.player_id);
-                                    }
-
-                                    let audience_for_sharing = full_audience.clone();
-                                    let intention = match Intention::create(&mut vault, &description, full_audience, now) {
-                                        Ok(i) => i,
-                                        Err(e) => {
-                                            tracing::error!("Failed to create intention: {}", e);
-                                            return;
-                                        }
-                                    };
-
-                                    // Add to root with title label
-                                    let root_id = vault.root.id.clone();
-                                    let root_for_pos = match vault.get_artifact(&root_id) {
-                                        Ok(Some(a)) => a,
-                                        _ => return,
-                                    };
-                                    let position = root_for_pos.references.len() as u64;
-                                    drop(root_for_pos);
-                                    if let Err(e) = vault.compose(&root_id, intention.id, position, Some(title.clone())) {
-                                        tracing::error!("Failed to add intention to root: {}", e);
-                                        return;
-                                    }
-
-                                    // Create a network Realm for this intention
-                                    let tree_node_id = format!("{:?}", intention.id);
-                                    drop(vault);
-                                    let net = {
-                                        let guard = nh_signal.read();
-                                        guard.as_ref().map(|nh| nh.network.clone())
-                                    };
-                                    if let Some(net) = net {
-                                        match net.create_realm(&title).await {
-                                            Ok(realm) => {
-                                                tracing::info!("Created realm for intention: {}", title);
-                                                log_event(&mut ws_signal.write(), EventDirection::System, format!("Intention created: {}", title));
-
-                                                // Extract invite code and artifact_id before moving realm into map
-                                                let invite_str = realm.invite_code().map(|ic| ic.to_string());
-                                                let realm_artifact_id = realm.artifact_id().cloned();
-                                                rm_signal.write().insert(tree_node_id.clone(), realm);
-
-                                                // Share with audience peers: grant access + send DM invite
-                                                if let Some(invite_str) = invite_str {
-                                                    for &peer_id in &audience_for_sharing {
-                                                        if peer_id == vh.player_id { continue; }
-
-                                                        // Grant peer access in HomeRealm artifact_index
-                                                        // Use the realm's artifact_id (not intention.id) so reconcile()
-                                                        // creates the correct sync interface and gossip topic
-                                                        if let Some(ref realm_aid) = realm_artifact_id {
-                                                            if let Some(hr) = hr_signal.read().as_ref() {
-                                                                let _ = hr.grant_access(
-                                                                    realm_aid, peer_id, AccessMode::Permanent,
-                                                                ).await;
-                                                            }
-                                                        }
-
-                                                        // Send realm invite via DM chat
-                                                        if let Ok(dm_realm) = net.connect(peer_id).await {
-                                                            if let Ok(chat_doc) = dm_realm.chat_doc().await {
-                                                                let msg = EditableChatMessage::new(
-                                                                    format!("realm-invite-{}", now),
-                                                                    format!("{}", dm_realm.id()),
-                                                                    vh.player_name.clone(),
-                                                                    format!("Shared intention: {}", title),
-                                                                    now as u64,
-                                                                    EditableMessageType::RealmInvite {
-                                                                        invite_code: invite_str.clone(),
-                                                                        name: title.clone(),
-                                                                        artifact_type: "Intention".to_string(),
-                                                                        description: description.clone(),
-                                                                    },
-                                                                );
-                                                                let _ = chat_doc.update(|doc| doc.add_message(msg)).await;
-                                                            }
-                                                        }
-                                                    }
-                                                }
+                                    let rh = realm_handle.read().clone();
+                                    if let Some(rh) = rh {
+                                        let result = if audience.is_empty() {
+                                            rh.create_intention(&title, &description, kind).await
+                                        } else {
+                                            rh.create_dm_intention(&title, &description, kind, audience).await
+                                        };
+                                        match result {
+                                            Ok(_id) => {
+                                                log_event(&mut workspace.write(), EventDirection::System, format!("Intention created: {}", title));
+                                                // Refresh cards from CRDT
+                                                let cards = build_intention_cards(&rh.home, rh.member_id).await;
+                                                intention_cards.set(cards);
                                             }
                                             Err(e) => {
-                                                tracing::warn!(error = %e, "Failed to create realm for intention (non-fatal)");
+                                                tracing::error!(error = %e, "Failed to create intention");
                                             }
-                                        }
-                                    }
-
-                                    // Store in ArtifactIndex and rebuild sidebar
-                                    if let Some(home) = hr_signal.read().as_ref().cloned() {
-                                        if let Ok(doc) = home.artifact_index().await {
-                                            let entry = HomeArtifactEntry {
-                                                id: intention.id,
-                                                name: title.clone(),
-                                                mime_type: None,
-                                                size: 0,
-                                                created_at: now,
-                                                encrypted_key: None,
-                                                status: ArtifactStatus::Active,
-                                                grants: vec![],
-                                                provenance: None,
-                                                location: None,
-                                            };
-                                            let _ = doc.update(|index| { index.store(entry); }).await;
-                                        }
-                                        let net = nh_signal.read().as_ref().map(|nh| nh.network.clone());
-                                        if let Some(net) = net {
-                                            rebuild_sidebar_from_index(&home, &net, ws_signal, rm_signal).await;
                                         }
                                     }
                                 });

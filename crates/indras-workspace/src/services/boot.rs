@@ -9,6 +9,7 @@ use tokio::sync::Mutex;
 
 use crate::bridge::network_bridge::{NetworkHandle, is_first_run, create_identity, load_identity};
 use crate::bridge::vault_bridge::{VaultHandle, InMemoryVault};
+use crate::bridge::realm_bridge::RealmHandle;
 
 /// Result of a successful boot sequence.
 pub struct BootResult {
@@ -18,6 +19,8 @@ pub struct BootResult {
     pub vault_handle: VaultHandle,
     /// The home realm for persistent artifact storage (if initialization succeeded).
     pub home_realm: Option<indras_network::HomeRealm>,
+    /// Realm handle for CRDT-based intention operations.
+    pub realm_handle: Option<RealmHandle>,
     /// Log messages generated during boot for the event log.
     pub log_messages: Vec<String>,
 }
@@ -121,10 +124,25 @@ pub async fn run_boot_sequence() -> Result<BootResult, BootError> {
         }
     };
 
+    // Construct RealmHandle from home realm for CRDT intention operations
+    let realm_handle = if let Some(ref hr) = home_realm {
+        // Seed welcome intention on first run
+        {
+            use indras_sync_engine::HomeRealmIntentions;
+            if let Err(e) = hr.seed_welcome_intention_if_empty().await {
+                tracing::warn!(error = %e, "Failed to seed welcome intention (non-fatal)");
+            }
+        }
+        Some(RealmHandle::new(hr.clone(), player_id, player_name.clone(), Arc::clone(&net)))
+    } else {
+        None
+    };
+
     Ok(BootResult {
         network_handle: nh,
         vault_handle,
         home_realm,
+        realm_handle,
         log_messages,
     })
 }

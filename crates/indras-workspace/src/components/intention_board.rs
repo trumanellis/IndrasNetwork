@@ -2,6 +2,7 @@
 
 use dioxus::prelude::*;
 use crate::state::workspace::DashboardTab;
+use crate::services::realm_data::TokenCardData;
 use indras_sync_engine::IntentionKind;
 
 /// Summary card for an intention in the board list.
@@ -73,7 +74,7 @@ fn IntentionCard(
             onclick: move |_| on_click.call(id.clone()),
             div {
                 class: "intention-card-header",
-                span { class: "intention-card-icon", "{kind_icon}" }
+                div { class: "intention-card-icon-orb", "{kind_icon}" }
                 span { class: "intention-card-title", "{data.title}" }
                 if data.heat > 0.0 {
                     div {
@@ -217,17 +218,142 @@ pub fn CommunityTab(
     }
 }
 
+/// Single token card in the wallet view.
+#[component]
+fn TokenCard(data: TokenCardData) -> Element {
+    let state_label = if data.pledged_to.is_some() { "Pledged" } else { "Held" };
+    let state_cls = if data.pledged_to.is_some() { "token-pledged" } else { "token-available" };
+    let pledged_display = data.pledged_to.clone().unwrap_or_else(|| "\u{2014} none \u{2014}".to_string());
+    let short_id = if data.id.len() > 12 {
+        format!("tok:{}..{}", &data.id[..4], &data.id[data.id.len()-4..])
+    } else {
+        format!("tok:{}", data.id)
+    };
+
+    rsx! {
+        div {
+            class: "token-card {state_cls}",
+            // Header: icon + id + state pill
+            div {
+                class: "token-card-header",
+                div {
+                    class: "token-card-id-group",
+                    span { class: "token-card-icon", "\u{1FA99}" }
+                    span { class: "token-card-id", "{short_id}" }
+                }
+                span { class: "token-state-pill", "{state_label}" }
+            }
+            // Data rows
+            div {
+                class: "token-data-rows",
+                div {
+                    class: "token-data-row",
+                    span { class: "token-data-key", "Backed by" }
+                    span { class: "token-data-val gradient-text", "{data.attention_duration}" }
+                }
+                div {
+                    class: "token-data-row",
+                    span { class: "token-data-key", "Blesser" }
+                    span {
+                        class: "token-data-val",
+                        span {
+                            class: "token-avatar {data.blesser_color_class}",
+                            "{data.blesser_letter}"
+                        }
+                        "{data.blesser_name}"
+                    }
+                }
+                div {
+                    class: "token-data-row",
+                    span { class: "token-data-key", "Intention" }
+                    span { class: "token-data-val", "{data.source_intention_title}" }
+                }
+                div {
+                    class: "token-data-row",
+                    span { class: "token-data-key", "Current holder" }
+                    span {
+                        class: "token-data-val",
+                        span {
+                            class: "token-avatar {data.current_holder_color_class}",
+                            "{data.current_holder_letter}"
+                        }
+                        "{data.current_holder_name}"
+                    }
+                }
+                div {
+                    class: "token-data-row",
+                    span { class: "token-data-key", "Pledged to" }
+                    span { class: "token-data-val", "{pledged_display}" }
+                }
+                if !data.created_ago.is_empty() {
+                    div {
+                        class: "token-data-row",
+                        span { class: "token-data-key", "Created" }
+                        span { class: "token-data-val", "{data.created_ago}" }
+                    }
+                }
+            }
+            // Steward chain dots
+            if data.steward_chain.len() > 1 {
+                div {
+                    class: "token-card-chain",
+                    span { class: "token-card-chain-label", "Chain:" }
+                    for (i, dot) in data.steward_chain.iter().enumerate() {
+                        span {
+                            class: "steward-chain-dot {dot.color_class}",
+                            "{dot.letter}"
+                        }
+                        if i < data.steward_chain.len() - 1 {
+                            span { class: "steward-chain-arrow", "\u{2192}" }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Tokens tab — wallet view showing earned and pledged tokens.
 #[component]
-pub fn TokensTab() -> Element {
+pub fn TokensTab(tokens: Vec<TokenCardData>) -> Element {
+    let available: Vec<_> = tokens.iter().filter(|t| t.pledged_to.is_none()).cloned().collect();
+    let pledged: Vec<_> = tokens.iter().filter(|t| t.pledged_to.is_some()).cloned().collect();
+
     rsx! {
         div {
             class: "tokens-tab",
-            div {
-                class: "intentions-empty",
-                div { class: "intentions-empty-icon", "\u{1FA99}" }
-                div { class: "intentions-empty-text", "Token Wallet" }
-                div { class: "intentions-empty-hint", "Your earned and pledged tokens will appear here" }
+            if tokens.is_empty() {
+                div {
+                    class: "intentions-empty",
+                    div { class: "intentions-empty-icon", "\u{1FA99}" }
+                    div { class: "intentions-empty-text", "Token Wallet" }
+                    div { class: "intentions-empty-hint", "Bless service claims to earn tokens of gratitude" }
+                }
+            } else {
+                if !available.is_empty() {
+                    div {
+                        class: "tokens-section",
+                        div { class: "tokens-section-title", "Available ({available.len()})" }
+                        div {
+                            class: "tokens-list",
+                            for t in available {
+                                TokenCard { data: t }
+                            }
+                        }
+                    }
+                }
+                if !pledged.is_empty() {
+                    div {
+                        class: "tokens-section",
+                        div { class: "tokens-section-title", "Pledged ({pledged.len()})" }
+                        div {
+                            class: "tokens-list",
+                            for t in pledged {
+                                TokenCard { data: t }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -240,6 +366,7 @@ pub fn IntentionBoard(
     on_tab_change: EventHandler<DashboardTab>,
     my_intentions: Vec<IntentionCardData>,
     community_intentions: Vec<IntentionCardData>,
+    tokens: Vec<TokenCardData>,
     on_intention_click: EventHandler<String>,
     on_create_intention: EventHandler<()>,
     chat_element: Element,
@@ -268,7 +395,7 @@ pub fn IntentionBoard(
                         }
                     },
                     DashboardTab::Tokens => rsx! {
-                        TokensTab {}
+                        TokensTab { tokens: tokens }
                     },
                     DashboardTab::Chat => rsx! {
                         {chat_element}
