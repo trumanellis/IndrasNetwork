@@ -49,7 +49,12 @@ pub mod vault;
 
 pub use access::{AccessGrant, AccessMode, ArtifactProvenance, ArtifactStatus, ProvenanceType};
 pub use artifact::*;
-pub use attention::{AttentionLog, AttentionSwitchEvent, AttentionValue, DwellWindow, compute_heat, extract_dwell_windows};
+pub use attention::{
+    AttentionLog, AttentionSwitchEvent, AttentionValue, DwellWindow, compute_heat,
+    extract_dwell_windows,
+};
+pub use attention::fraud::{EquivocationProof, check_equivocation};
+pub use attention::validate::{AuthorState, ValidationError, validate_chain, validate_event, validate_genesis};
 pub use error::VaultError;
 pub use exchange::Exchange;
 pub use intention::Intention;
