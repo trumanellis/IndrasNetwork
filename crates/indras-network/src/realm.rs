@@ -1140,9 +1140,9 @@ impl Realm {
             let mut stream = broadcast_to_stream(sync_rx);
             use futures::StreamExt;
             let mut last_emitted: u64 = 0;
-            const DEBOUNCE_MS: u64 = 30_000; // 30s debounce to avoid flooding
+            const DEBOUNCE_MS: u64 = 5_000; // 5s debounce for diagnostic visibility
             let mut skip_count: u32 = 0;
-            const INITIAL_SKIP: u32 = 3; // Skip first few syncs (startup catchup)
+            const INITIAL_SKIP: u32 = 1; // Skip first sync (startup catchup)
             while let Some(()) = stream.next().await {
                 skip_count += 1;
                 if skip_count <= INITIAL_SKIP {

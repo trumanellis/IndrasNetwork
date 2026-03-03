@@ -564,8 +564,11 @@ impl IntentionDocument {
         Self { intentions: Vec::new() }
     }
 
-    /// Add an intention to the document.
+    /// Add an intention to the document (idempotent by intention ID).
     pub fn add(&mut self, intention: Intention) {
+        if self.intentions.iter().any(|i| i.id == intention.id) {
+            return;
+        }
         self.intentions.push(intention);
     }
 
