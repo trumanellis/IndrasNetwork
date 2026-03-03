@@ -12,8 +12,11 @@
 
 use crate::attention::AttentionDocument;
 use crate::attention_tip::AttentionTipDocument;
+use crate::certificate::CertificateDocument;
+use crate::fraud_evidence::FraudEvidenceDocument;
 use indras_artifacts::artifact::ArtifactId;
 use indras_artifacts::attention::validate::{validate_chain, AuthorState, ValidationError};
+use indras_artifacts::attention::AttentionSwitchEvent as ChainedEvent;
 use indras_network::member::MemberId;
 use std::collections::HashMap;
 use tracing;
@@ -167,6 +170,76 @@ pub fn sync_attention_chains(
     gaps
 }
 
+// ---------------------------------------------------------------------------
+// Phase 2: Finality classification and slashing
+// ---------------------------------------------------------------------------
+
+/// Two-tier finality for attention events.
+///
+/// An event starts as `Observed` (valid chain event, no certificate) and
+/// becomes `Final` once a valid quorum certificate exists for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EventFinality {
+    /// Valid event, no quorum certificate yet.
+    Observed,
+    /// Valid event with a valid quorum certificate.
+    Final,
+}
+
+/// Classify the finality of an event based on quorum certificate validity.
+///
+/// An event is `Final` if the certificate document contains a certificate
+/// for its event hash with at least `k` witness signatures; otherwise
+/// it is `Observed`.
+pub fn classify_event_finality(
+    event: &ChainedEvent,
+    cert_doc: &CertificateDocument,
+    k: usize,
+) -> EventFinality {
+    let hash = event.event_hash();
+    if cert_doc.has_quorum(&hash, k) {
+        EventFinality::Final
+    } else {
+        EventFinality::Observed
+    }
+}
+
+/// Check if an author has been caught equivocating.
+///
+/// An author is "slashed" if the fraud evidence document contains any
+/// fraud records for them. Slashed authors' uncertified events should
+/// not be trusted.
+pub fn is_slashed(
+    author: &MemberId,
+    fraud_doc: &FraudEvidenceDocument,
+) -> bool {
+    fraud_doc.is_fraudulent(author)
+}
+
+/// Filter events: reject uncertified events from slashed authors.
+///
+/// Events from non-slashed authors pass through unchanged. Events from
+/// slashed authors are only kept if they have a quorum certificate.
+pub fn filter_slashed_events(
+    events: &[ChainedEvent],
+    fraud_doc: &FraudEvidenceDocument,
+    cert_doc: &CertificateDocument,
+) -> Vec<ChainedEvent> {
+    events
+        .iter()
+        .filter(|event| {
+            if !is_slashed(&event.author, fraud_doc) {
+                // Non-slashed author: keep all events
+                return true;
+            }
+            // Slashed author: only keep certified events
+            let hash = event.event_hash();
+            cert_doc.has_certificate(&hash)
+        })
+        .cloned()
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -305,5 +378,178 @@ mod tests {
 
         let errors = validate_synced_chains(&doc);
         assert!(errors.is_empty());
+    }
+
+    // =====================================================================
+    // Phase 2: Finality + Slashing tests
+    // =====================================================================
+
+    #[test]
+    fn test_classify_event_observed_when_no_cert() {
+        let cert_doc = CertificateDocument::new();
+        let event = ChainedSwitchEvent::new(test_author(1), 0, 1000, None, None, [0u8; 32]);
+
+        assert_eq!(
+            classify_event_finality(&event, &cert_doc, 1),
+            EventFinality::Observed
+        );
+    }
+
+    #[test]
+    fn test_classify_event_final_when_quorum_met() {
+        use indras_artifacts::artifact::ArtifactId;
+        use indras_artifacts::attention::certificate::{QuorumCertificate, WitnessSignature};
+
+        let event = ChainedSwitchEvent::new(test_author(1), 0, 1000, None, None, [0u8; 32]);
+        let event_hash = event.event_hash();
+
+        let mut cert_doc = CertificateDocument::new();
+        let mut cert = QuorumCertificate::new(event_hash, ArtifactId::Doc([0xAA; 32]));
+        cert.witnesses.push(WitnessSignature {
+            witness: test_author(2),
+            sig: vec![0u8; 32],
+        });
+        cert.witnesses.push(WitnessSignature {
+            witness: test_author(3),
+            sig: vec![0u8; 32],
+        });
+        cert_doc.store_certificate(cert);
+
+        // k=2: quorum met (2 sigs >= 2)
+        assert_eq!(
+            classify_event_finality(&event, &cert_doc, 2),
+            EventFinality::Final
+        );
+    }
+
+    #[test]
+    fn test_classify_event_observed_when_below_quorum() {
+        use indras_artifacts::artifact::ArtifactId;
+        use indras_artifacts::attention::certificate::{QuorumCertificate, WitnessSignature};
+
+        let event = ChainedSwitchEvent::new(test_author(1), 0, 1000, None, None, [0u8; 32]);
+        let event_hash = event.event_hash();
+
+        let mut cert_doc = CertificateDocument::new();
+        let mut cert = QuorumCertificate::new(event_hash, ArtifactId::Doc([0xAA; 32]));
+        cert.witnesses.push(WitnessSignature {
+            witness: test_author(2),
+            sig: vec![0u8; 32],
+        });
+        cert_doc.store_certificate(cert);
+
+        // k=3: quorum NOT met (1 sig < 3)
+        assert_eq!(
+            classify_event_finality(&event, &cert_doc, 3),
+            EventFinality::Observed
+        );
+    }
+
+    #[test]
+    fn test_is_slashed_false_when_clean() {
+        let fraud_doc = FraudEvidenceDocument::new();
+        assert!(!is_slashed(&test_author(1), &fraud_doc));
+    }
+
+    #[test]
+    fn test_is_slashed_true_when_fraud_recorded() {
+        use crate::fraud_evidence::FraudRecord;
+
+        let mut fraud_doc = FraudEvidenceDocument::new();
+        let author = test_author(1);
+        fraud_doc.add_record(FraudRecord {
+            author,
+            seq: 5,
+            event_a_bytes: vec![1, 2, 3],
+            event_b_bytes: vec![4, 5, 6],
+            reporter: test_author(2),
+            detected_at_ms: 1000,
+        });
+
+        assert!(is_slashed(&author, &fraud_doc));
+        assert!(!is_slashed(&test_author(3), &fraud_doc));
+    }
+
+    #[test]
+    fn test_filter_slashed_events_keeps_clean_authors() {
+        let fraud_doc = FraudEvidenceDocument::new();
+        let cert_doc = CertificateDocument::new();
+
+        let events = vec![
+            ChainedSwitchEvent::new(test_author(1), 0, 1000, None, None, [0u8; 32]),
+            ChainedSwitchEvent::new(test_author(2), 0, 2000, None, None, [0u8; 32]),
+        ];
+
+        let filtered = filter_slashed_events(&events, &fraud_doc, &cert_doc);
+        assert_eq!(filtered.len(), 2);
+    }
+
+    #[test]
+    fn test_filter_slashed_events_rejects_uncertified_from_slashed() {
+        use crate::fraud_evidence::FraudRecord;
+
+        let author = test_author(1);
+        let mut fraud_doc = FraudEvidenceDocument::new();
+        fraud_doc.add_record(FraudRecord {
+            author,
+            seq: 0,
+            event_a_bytes: vec![1],
+            event_b_bytes: vec![2],
+            reporter: test_author(2),
+            detected_at_ms: 1000,
+        });
+        let cert_doc = CertificateDocument::new();
+
+        let events = vec![
+            ChainedSwitchEvent::new(author, 0, 1000, None, None, [0u8; 32]),
+            ChainedSwitchEvent::new(test_author(3), 0, 2000, None, None, [0u8; 32]),
+        ];
+
+        let filtered = filter_slashed_events(&events, &fraud_doc, &cert_doc);
+        // Only the clean author's event survives
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].author, test_author(3));
+    }
+
+    #[test]
+    fn test_filter_slashed_events_keeps_certified_from_slashed() {
+        use crate::fraud_evidence::FraudRecord;
+        use indras_artifacts::artifact::ArtifactId;
+        use indras_artifacts::attention::certificate::{QuorumCertificate, WitnessSignature};
+
+        let author = test_author(1);
+
+        // Slash the author
+        let mut fraud_doc = FraudEvidenceDocument::new();
+        fraud_doc.add_record(FraudRecord {
+            author,
+            seq: 0,
+            event_a_bytes: vec![1],
+            event_b_bytes: vec![2],
+            reporter: test_author(2),
+            detected_at_ms: 1000,
+        });
+
+        // Create a certified event from the slashed author
+        let event = ChainedSwitchEvent::new(author, 1, 2000, None, None, [0u8; 32]);
+        let event_hash = event.event_hash();
+
+        let mut cert_doc = CertificateDocument::new();
+        let mut cert = QuorumCertificate::new(event_hash, ArtifactId::Doc([0xAA; 32]));
+        cert.witnesses.push(WitnessSignature {
+            witness: test_author(3),
+            sig: vec![0u8; 32],
+        });
+        cert_doc.store_certificate(cert);
+
+        // Uncertified event from slashed author
+        let uncertified = ChainedSwitchEvent::new(author, 2, 3000, None, None, [0u8; 32]);
+
+        let events = vec![event.clone(), uncertified];
+        let filtered = filter_slashed_events(&events, &fraud_doc, &cert_doc);
+
+        // Only the certified event from the slashed author survives
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].seq, 1);
     }
 }

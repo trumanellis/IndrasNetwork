@@ -33,6 +33,8 @@ pub mod attention;
 pub mod attention_tip;
 pub mod fraud_evidence;
 pub mod attention_sync;
+pub mod witness_roster;
+pub mod certificate;
 pub mod token_of_gratitude;
 pub mod token_valuation;
 pub mod humanness;
@@ -76,9 +78,12 @@ pub use attention::{
 };
 pub use attention_tip::{AttentionTip, AttentionTipDocument};
 pub use attention_sync::{
-    ChainGap, current_attention_targets, reconstruct_attention_state, sync_attention_chains,
+    ChainGap, EventFinality, classify_event_finality, current_attention_targets,
+    filter_slashed_events, is_slashed, reconstruct_attention_state, sync_attention_chains,
 };
 pub use fraud_evidence::{FraudEvidenceDocument, FraudRecord};
+pub use witness_roster::WitnessRosterDocument;
+pub use certificate::CertificateDocument;
 pub use token_of_gratitude::{
     TokenError, TokenEvent, TokenOfGratitude, TokenOfGratitudeDocument, TokenOfGratitudeId,
 };

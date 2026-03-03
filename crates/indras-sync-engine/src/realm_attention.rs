@@ -2,14 +2,17 @@
 
 use crate::attention::{AttentionDocument, AttentionEventId, QuestAttention};
 use crate::attention_tip::{AttentionTip, AttentionTipDocument};
+use crate::certificate::CertificateDocument;
 use crate::fraud_evidence::{FraudEvidenceDocument, FraudRecord};
 use crate::quest::QuestId;
+use crate::witness_roster::WitnessRosterDocument;
+use indras_artifacts::attention::certificate::{QuorumCertificate, WitnessSignature};
 use indras_artifacts::attention::AttentionSwitchEvent as ChainedSwitchEvent;
 use indras_artifacts::attention::validate::AuthorState;
 use indras_artifacts::artifact::ArtifactId;
-use indras_crypto::PQIdentity;
+use indras_crypto::{PQIdentity, PQPublicIdentity};
 use indras_network::document::Document;
-use indras_network::error::Result;
+use indras_network::error::{IndraError, Result};
 use indras_network::member::MemberId;
 use indras_network::Realm;
 
@@ -59,6 +62,41 @@ pub trait RealmAttention {
 
     /// Get the fraud evidence document (equivocation proofs).
     async fn fraud_evidence(&self) -> Result<Document<FraudEvidenceDocument>>;
+
+    /// Get the witness roster document.
+    async fn witness_roster(&self) -> Result<Document<WitnessRosterDocument>>;
+
+    /// Get the certificate document.
+    async fn certificates(&self) -> Result<Document<CertificateDocument>>;
+
+    /// Create a witness signature for an event.
+    ///
+    /// Validates the event's PQ signature against the author's public key
+    /// before co-signing. Returns an error if the event signature is invalid.
+    async fn request_witness_signature(
+        &self,
+        event: &ChainedSwitchEvent,
+        intention_scope: ArtifactId,
+        identity: &PQIdentity,
+        witness_id: MemberId,
+        author_pubkey: &PQPublicIdentity,
+    ) -> Result<WitnessSignature>;
+
+    /// Submit a completed quorum certificate for storage and distribution.
+    ///
+    /// Validates the certificate against the roster and public keys before
+    /// storing. The certificate must have at least `k` valid signatures
+    /// from roster members. Propagates to peers via CRDT sync.
+    async fn submit_certificate(
+        &self,
+        cert: QuorumCertificate,
+        roster: &[indras_artifacts::artifact::PlayerId],
+        k: usize,
+        public_keys: &std::collections::HashMap<
+            indras_artifacts::artifact::PlayerId,
+            PQPublicIdentity,
+        >,
+    ) -> Result<()>;
 
     /// Create a genesis event for a new author's attention chain.
     ///
@@ -140,6 +178,57 @@ impl RealmAttention for Realm {
 
     async fn fraud_evidence(&self) -> Result<Document<FraudEvidenceDocument>> {
         self.document("fraud-evidence").await
+    }
+
+    async fn witness_roster(&self) -> Result<Document<WitnessRosterDocument>> {
+        self.document("witness-roster").await
+    }
+
+    async fn certificates(&self) -> Result<Document<CertificateDocument>> {
+        self.document("certificates").await
+    }
+
+    async fn request_witness_signature(
+        &self,
+        event: &ChainedSwitchEvent,
+        intention_scope: ArtifactId,
+        identity: &PQIdentity,
+        witness_id: MemberId,
+        author_pubkey: &PQPublicIdentity,
+    ) -> Result<WitnessSignature> {
+        // Validate the event's PQ signature before co-signing
+        if !event.verify_signature(author_pubkey) {
+            return Err(IndraError::InvalidOperation(
+                "witness refused: event has invalid or missing author signature".to_string(),
+            ));
+        }
+
+        let event_hash = event.event_hash();
+        let ws = WitnessSignature::sign(&event_hash, &intention_scope, identity, witness_id);
+        Ok(ws)
+    }
+
+    async fn submit_certificate(
+        &self,
+        cert: QuorumCertificate,
+        roster: &[indras_artifacts::artifact::PlayerId],
+        k: usize,
+        public_keys: &std::collections::HashMap<
+            indras_artifacts::artifact::PlayerId,
+            PQPublicIdentity,
+        >,
+    ) -> Result<()> {
+        // Validate the certificate before storing
+        cert.verify(roster, k, public_keys).map_err(|e| {
+            IndraError::InvalidOperation(format!("certificate validation failed: {e}"))
+        })?;
+
+        let doc = self.certificates().await?;
+        doc.update(|d| {
+            d.store_certificate(cert);
+        })
+        .await?;
+        Ok(())
     }
 
     async fn create_genesis_event(
