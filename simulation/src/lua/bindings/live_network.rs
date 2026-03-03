@@ -19,6 +19,7 @@ use indras_network::{
     IndrasNetwork, MemberId, Message, MessageId, Realm, RealmChatDocument, RealmId,
 };
 use indras_node::Keystore;
+use indras_sync_engine::quest::QuestId;
 use indras_sync_engine::RealmAttention;
 
 // ============================================================
@@ -100,6 +101,17 @@ fn parse_artifact_id(hex_str: &str) -> std::result::Result<ArtifactId, mlua::Err
     let mut arr = [0u8; 32];
     arr.copy_from_slice(&bytes);
     Ok(ArtifactId::Blob(arr))
+}
+
+fn parse_quest_id(hex_str: &str) -> std::result::Result<QuestId, mlua::Error> {
+    let bytes = hex::decode(hex_str)
+        .map_err(|e| mlua::Error::external(format!("Invalid quest ID hex: {}", e)))?;
+    if bytes.len() != 16 {
+        return Err(mlua::Error::external("Quest ID must be 16 bytes"));
+    }
+    let mut arr = [0u8; 16];
+    arr.copy_from_slice(&bytes);
+    Ok(arr)
 }
 
 fn artifact_id_to_hex(id: &ArtifactId) -> String {
@@ -926,6 +938,131 @@ impl UserData for LuaRealm {
                 })
                 .await
                 .map_err(mlua::Error::external)
+            },
+        );
+
+        // -- Basic attention (focus/clear/rank) --
+
+        methods.add_async_method(
+            "focus_on_quest",
+            |_, this, (quest_id_hex, member_hex): (String, String)| async move {
+                let quest_id = parse_quest_id(&quest_id_hex)?;
+                let member = parse_member_id(&member_hex)?;
+                let event_id = this
+                    .realm
+                    .focus_on_quest(quest_id, member)
+                    .await
+                    .map_err(mlua::Error::external)?;
+                Ok(hex::encode(event_id))
+            },
+        );
+
+        methods.add_async_method(
+            "clear_attention",
+            |_, this, member_hex: String| async move {
+                let member = parse_member_id(&member_hex)?;
+                let event_id = this
+                    .realm
+                    .clear_attention(member)
+                    .await
+                    .map_err(mlua::Error::external)?;
+                Ok(hex::encode(event_id))
+            },
+        );
+
+        methods.add_async_method(
+            "get_member_focus",
+            |_, this, member_hex: String| async move {
+                let member = parse_member_id(&member_hex)?;
+                let focus = this
+                    .realm
+                    .get_member_focus(&member)
+                    .await
+                    .map_err(mlua::Error::external)?;
+                Ok(focus.map(hex::encode))
+            },
+        );
+
+        methods.add_async_method(
+            "get_quest_focusers",
+            |_, this, quest_id_hex: String| async move {
+                let quest_id = parse_quest_id(&quest_id_hex)?;
+                let focusers = this
+                    .realm
+                    .get_quest_focusers(&quest_id)
+                    .await
+                    .map_err(mlua::Error::external)?;
+                let result: Vec<String> = focusers.iter().map(hex::encode).collect();
+                Ok(result)
+            },
+        );
+
+        methods.add_async_method(
+            "quests_by_attention",
+            |lua, this, ()| async move {
+                let quests = this
+                    .realm
+                    .quests_by_attention()
+                    .await
+                    .map_err(mlua::Error::external)?;
+                let result = lua.create_table()?;
+                for (i, qa) in quests.iter().enumerate() {
+                    let t = lua.create_table()?;
+                    t.set("quest_id", hex::encode(qa.quest_id))?;
+                    t.set("total_ms", qa.total_attention_millis)?;
+                    let members = lua.create_table()?;
+                    for (j, m) in qa.currently_focused_members.iter().enumerate() {
+                        members.set(j + 1, hex::encode(m))?;
+                    }
+                    t.set("members", members)?;
+                    result.set(i + 1, t)?;
+                }
+                Ok(result)
+            },
+        );
+
+        // -- Fraud evidence --
+
+        methods.add_async_method(
+            "is_fraudulent",
+            |_, this, member_hex: String| async move {
+                let member = parse_member_id(&member_hex)?;
+                let doc = this.realm.fraud_evidence().await.map_err(mlua::Error::external)?;
+                let _ = doc.refresh().await;
+                let guard = doc.read().await;
+                Ok(guard.is_fraudulent(&member))
+            },
+        );
+
+        methods.add_async_method("fraudulent_authors", |_, this, ()| async move {
+            let doc = this.realm.fraud_evidence().await.map_err(mlua::Error::external)?;
+            let _ = doc.refresh().await;
+            let guard = doc.read().await;
+            let authors = guard.fraudulent_authors();
+            let result: Vec<String> = authors.iter().map(hex::encode).collect();
+            Ok(result)
+        });
+
+        // -- Chain events --
+
+        methods.add_async_method(
+            "chain_events_for",
+            |lua, this, author_hex: String| async move {
+                let author = parse_member_id(&author_hex)?;
+                let doc = this.realm.attention().await.map_err(mlua::Error::external)?;
+                let _ = doc.refresh().await;
+                let guard = doc.read().await;
+                let events = guard.chain_events_for(&author);
+                let result = lua.create_table()?;
+                for (i, ev) in events.iter().enumerate() {
+                    let t = lua.create_table()?;
+                    t.set("seq", ev.seq)?;
+                    t.set("hash", hex::encode(ev.event_hash()))?;
+                    t.set("from", ev.from.as_ref().map(artifact_id_to_hex))?;
+                    t.set("to", ev.to.as_ref().map(artifact_id_to_hex))?;
+                    result.set(i + 1, t)?;
+                }
+                Ok(result)
             },
         );
 
