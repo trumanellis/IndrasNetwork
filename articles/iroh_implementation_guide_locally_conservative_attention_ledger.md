@@ -678,8 +678,8 @@ The attention ledger maps onto the existing crate hierarchy. No new crates are n
 | Gossip messages | `indras-gossip` | via `InterfaceEvent::Custom` | **Done** (uses existing variant) |
 | Tip sync document | `indras-sync-engine` | `attention_tip.rs` | **Done** |
 | Fraud evidence document | `indras-sync-engine` | `fraud_evidence.rs` | **Done** |
-| Chain sync protocol | `indras-sync-engine` | `attention_sync.rs` (new) | Pending |
-| Realm-level API | `indras-sync-engine` | `realm_attention.rs` (upgraded) | Pending |
+| Chain sync protocol | `indras-sync-engine` | `attention_sync.rs` (new) | **Done** |
+| Realm-level API | `indras-sync-engine` | `realm_attention.rs` (upgraded) | **Done** |
 
 ### Re-export Chain
 
@@ -817,11 +817,11 @@ The codebase already has relevant test patterns:
 - [x] Genesis and farewell events for dynamic membership (`is_genesis()`, `end_session()`)
 - [x] Unit tests: determinism, PQ signature round-trip, validation rules (96 tests passing)
 - [x] Integration tests: chain validation, fraud detection, chain-aware store methods
-- [ ] Broadcast full events inline via gossip (not just hashes) — wiring pending
-- [ ] Implement chain sync protocol: tip comparison -> gap detection -> range request -> validate
-- [ ] Broadcast fraud proofs on author and intention topics — wiring pending
-- [ ] Deterministic state reconstruction: replay chains to compute current attention + attention-time
-- [ ] Lua simulation scenario for conservation stress testing
+- [ ] Broadcast full events inline via gossip (not just hashes) — deferred to Phase 1.5 (Document<T> CRDT sync used instead)
+- [x] Implement chain sync protocol: tip comparison -> gap detection -> range request -> validate (`attention_sync.rs`)
+- [ ] Broadcast fraud proofs on author and intention topics — deferred to Phase 1.5 (`FraudEvidenceDocument` CRDT used instead)
+- [x] Deterministic state reconstruction: replay chains to compute current attention + attention-time (`reconstruct_attention_state()`)
+- [x] Lua simulation scenario for conservation stress testing (`attention_conservation_stress.lua`)
 
 ### Phase 2: Hardening (Witness Rosters + Quorum Certificates + Finality)
 
