@@ -24,6 +24,9 @@
 use indras_network::member::MemberId;
 use crate::quest::QuestId;
 
+use indras_artifacts::attention::AttentionSwitchEvent as ChainedSwitchEvent;
+use indras_artifacts::attention::fraud::{check_equivocation, EquivocationProof};
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -132,6 +135,10 @@ pub struct AttentionDocument {
     /// Key = member, Value = Some(quest_id) if focused, None if cleared.
     #[serde(default)]
     current_focus: HashMap<MemberId, Option<QuestId>>,
+    /// Hash-chained attention switch events (from indras-artifacts layer).
+    /// Keyed by author (MemberId/PlayerId) for per-chain storage.
+    #[serde(default)]
+    chain_events: HashMap<MemberId, Vec<ChainedSwitchEvent>>,
 }
 
 impl AttentionDocument {
@@ -251,6 +258,18 @@ impl AttentionDocument {
 
         self.events = all_events;
         self.rebuild_derived_state();
+
+        // Merge chain events (union by event hash for each author)
+        for (author, events) in &other.chain_events {
+            let our_events = self.chain_events.entry(*author).or_default();
+            for event in events {
+                let dominated = our_events.iter().any(|e| e.seq == event.seq && e.event_hash() == event.event_hash());
+                if !dominated {
+                    our_events.push(event.clone());
+                }
+            }
+            our_events.sort_by_key(|e| e.seq);
+        }
     }
 
     /// Calculate attention for all quests up to a point in time.
@@ -346,6 +365,34 @@ impl AttentionDocument {
     /// Get quests ranked by total attention (highest first).
     pub fn quests_by_attention(&self, as_of: Option<i64>) -> Vec<QuestAttention> {
         self.calculate_attention(as_of)
+    }
+
+    /// Store a chained (PQ-signed, hash-linked) attention event.
+    pub fn store_chain_event(&mut self, event: ChainedSwitchEvent) {
+        self.chain_events.entry(event.author).or_default().push(event);
+    }
+
+    /// Get all chained events for an author.
+    pub fn chain_events_for(&self, author: &MemberId) -> &[ChainedSwitchEvent] {
+        self.chain_events
+            .get(author)
+            .map_or(&[], |events| events.as_slice())
+    }
+
+    /// Get all chained events across all authors.
+    pub fn all_chain_events(&self) -> &HashMap<MemberId, Vec<ChainedSwitchEvent>> {
+        &self.chain_events
+    }
+
+    /// Check a new chained event for equivocation against existing events for the same author.
+    ///
+    /// Returns an `EquivocationProof` if the event conflicts with an existing one.
+    pub fn check_chain_equivocation(
+        &self,
+        event: &ChainedSwitchEvent,
+    ) -> Option<EquivocationProof> {
+        let existing = self.chain_events_for(&event.author);
+        check_equivocation(event, existing)
     }
 }
 

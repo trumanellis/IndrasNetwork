@@ -32,6 +32,7 @@ pub mod blessing;
 pub mod attention;
 pub mod attention_tip;
 pub mod fraud_evidence;
+pub mod attention_sync;
 pub mod token_of_gratitude;
 pub mod token_valuation;
 pub mod humanness;
@@ -74,6 +75,9 @@ pub use attention::{
     AttentionDocument, AttentionError, AttentionEventId, AttentionSwitchEvent, QuestAttention,
 };
 pub use attention_tip::{AttentionTip, AttentionTipDocument};
+pub use attention_sync::{
+    ChainGap, current_attention_targets, reconstruct_attention_state, sync_attention_chains,
+};
 pub use fraud_evidence::{FraudEvidenceDocument, FraudRecord};
 pub use token_of_gratitude::{
     TokenError, TokenEvent, TokenOfGratitude, TokenOfGratitudeDocument, TokenOfGratitudeId,
