@@ -833,7 +833,7 @@ The codebase already has relevant test patterns:
 - [x] Broadcast certificates via `CertificateDocument` CRDT sync (`certificate.rs` — dedicated gossip deferred)
 - [x] Policy engine: `EventFinality::Observed` vs `EventFinality::Final` with `classify_event_finality()` (`attention_sync.rs`)
 - [x] Fraud proof slashing: `is_slashed()` + `filter_slashed_events()` rejects uncertified events from equivocators (`attention_sync.rs`)
-- [ ] Lua simulation scenario for Byzantine witness behavior
+- [x] Lua simulation scenario for Byzantine witness behavior (`live_witness_certificates.lua`)
 
 ---
 
