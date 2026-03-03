@@ -3509,6 +3509,8 @@ version = "1.0.0"
 dependencies = [
  "blake3",
  "bytes",
+ "indras-crypto",
+ "postcard",
  "rand 0.9.2",
  "serde",
  "thiserror 2.0.18",

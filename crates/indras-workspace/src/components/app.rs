@@ -845,8 +845,8 @@ pub fn RootApp() -> Element {
                                                 for &pid in &audience_ids {
                                                     let windows = intention.unreleased_attention(&vault, pid).unwrap_or_default();
                                                     if !windows.is_empty() {
-                                                        let total_ms: u64 = windows.iter().map(|w| w.duration_ms).sum();
-                                                        let total_secs = total_ms / 1000;
+                                                        let total_ms: i64 = windows.iter().map(|w| w.duration_ms).sum();
+                                                        let total_secs = (total_ms / 1000) as u64;
                                                         if total_secs > max_secs { max_secs = total_secs; }
                                                         peer_data.push((pid, windows));
                                                     }
@@ -854,8 +854,8 @@ pub fn RootApp() -> Element {
 
                                                 // Second pass: build summaries with bar fractions
                                                 for (pid, windows) in &peer_data {
-                                                    let total_ms: u64 = windows.iter().map(|w| w.duration_ms).sum();
-                                                    let total_secs = total_ms / 1000;
+                                                    let total_ms: i64 = windows.iter().map(|w| w.duration_ms).sum();
+                                                    let total_secs = (total_ms / 1000) as u64;
                                                     let (name, letter, color) = peer_display_info(*pid, &player_name_for_peers);
                                                     peers_summary.push(AttentionPeerSummary {
                                                         peer_name: name,
@@ -882,7 +882,7 @@ pub fn RootApp() -> Element {
                                                     AttentionItem {
                                                         target: "This Intention".into(),
                                                         when: format!("{}ms ago", w.start_timestamp),
-                                                        duration: format_duration_secs(w.duration_ms / 1000),
+                                                        duration: format_duration_secs((w.duration_ms / 1000) as u64),
                                                     }
                                                 }).collect::<Vec<_>>()
                                             };

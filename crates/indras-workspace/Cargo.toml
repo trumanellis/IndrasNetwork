@@ -2,7 +2,6 @@
 name = "indras-workspace"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
 description = "P2P collaborative workspace for Indras Network"
 
 [[bin]]

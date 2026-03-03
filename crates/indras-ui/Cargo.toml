@@ -2,7 +2,6 @@
 name = "indras-ui"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
 description = "Shared UI components, themes, and design tokens for Indras Network apps"
 
 [lib]

@@ -2,7 +2,6 @@
 name = "indras-genesis"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
 description = "Genesis flow - first-user onboarding for Indras Network"
 
 [[bin]]

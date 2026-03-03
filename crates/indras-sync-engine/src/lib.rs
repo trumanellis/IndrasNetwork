@@ -30,6 +30,8 @@ pub mod note;
 pub mod message;
 pub mod blessing;
 pub mod attention;
+pub mod attention_tip;
+pub mod fraud_evidence;
 pub mod token_of_gratitude;
 pub mod token_valuation;
 pub mod humanness;
@@ -71,6 +73,8 @@ pub use blessing::{Blessing, BlessingDocument, BlessingError, BlessingId, ClaimI
 pub use attention::{
     AttentionDocument, AttentionError, AttentionEventId, AttentionSwitchEvent, QuestAttention,
 };
+pub use attention_tip::{AttentionTip, AttentionTipDocument};
+pub use fraud_evidence::{FraudEvidenceDocument, FraudRecord};
 pub use token_of_gratitude::{
     TokenError, TokenEvent, TokenOfGratitude, TokenOfGratitudeDocument, TokenOfGratitudeId,
 };
@@ -99,6 +103,8 @@ indras_network::impl_document_schema!(
     MessageDocument,
     BlessingDocument,
     AttentionDocument,
+    AttentionTipDocument,
+    FraudEvidenceDocument,
     TokenOfGratitudeDocument,
     HumannessDocument,
     ProofFolderDocument,
