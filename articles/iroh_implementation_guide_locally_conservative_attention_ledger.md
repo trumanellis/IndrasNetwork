@@ -825,14 +825,14 @@ The codebase already has relevant test patterns:
 
 ### Phase 2: Hardening (Witness Rosters + Quorum Certificates + Finality)
 
-- [ ] Implement `WitnessRosterDocument` per intention
-- [ ] Witness selection: prefer peers in `M(p,q)` (mutual peers) for triangle finality
-- [ ] Implement `QuorumCertificate` with k-of-n PQ signatures
-- [ ] Certificate request protocol: author requests witness signatures
-- [ ] Certificate validation: verify quorum threshold against roster
-- [ ] Broadcast certificates via gossip
-- [ ] Policy engine: distinguish "observed" (valid event) from "final" (certified event)
-- [ ] Fraud proof slashing: reject uncertified events from equivocating authors
+- [x] Implement `WitnessRosterDocument` per intention (`witness_roster.rs` — custom `DocumentSchema` with per-scope union merge)
+- [x] Witness selection: `mutual_peers()` + `select_witnesses()` with k = floor(|M|/2) + 1 (`indras-artifacts/src/attention/witness.rs`)
+- [x] Implement `QuorumCertificate` with k-of-n PQ signatures (`indras-artifacts/src/attention/certificate.rs`)
+- [x] Certificate request protocol: `RealmAttention::request_witness_signature()` (`realm_attention.rs`)
+- [x] Certificate validation: `validate_certificate()` verifies quorum threshold against roster (`certificate.rs`)
+- [x] Broadcast certificates via `CertificateDocument` CRDT sync (`certificate.rs` — dedicated gossip deferred)
+- [x] Policy engine: `EventFinality::Observed` vs `EventFinality::Final` with `classify_event_finality()` (`attention_sync.rs`)
+- [x] Fraud proof slashing: `is_slashed()` + `filter_slashed_events()` rejects uncertified events from equivocators (`attention_sync.rs`)
 - [ ] Lua simulation scenario for Byzantine witness behavior
 
 ---

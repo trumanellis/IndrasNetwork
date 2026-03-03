@@ -9,7 +9,7 @@ use crate::access::{AccessGrant, ArtifactProvenance, ArtifactStatus};
 pub type PlayerId = [u8; 32];
 
 /// Identifies an artifact. Variant tells resolution strategy.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum ArtifactId {
     /// Content-addressed by BLAKE3 hash of payload.
     Blob([u8; 32]),

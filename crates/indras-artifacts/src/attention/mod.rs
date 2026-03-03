@@ -18,8 +18,10 @@
 //! - [`validate`]: Chain integrity and signature verification.
 //! - [`fraud`]: Fraud proof construction and verification.
 
+pub mod certificate;
 pub mod fraud;
 pub mod validate;
+pub mod witness;
 
 use serde::{Deserialize, Serialize};
 
