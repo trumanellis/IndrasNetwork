@@ -3666,6 +3666,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "indras-gift-cycle"
+version = "1.0.0"
+dependencies = [
+ "chrono",
+ "dioxus",
+ "futures",
+ "indras-crypto",
+ "indras-network",
+ "indras-sync-engine",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "indras-gossip"
 version = "1.0.0"
 dependencies = [

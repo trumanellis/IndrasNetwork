@@ -11,6 +11,7 @@ use futures::{Stream, StreamExt};
 
 use crate::bridge::GiftCycleBridge;
 use crate::components::blessing_view::BlessingView;
+use crate::components::contact_invite::ContactInviteOverlay;
 use crate::components::cycle_ring::CycleRing;
 use crate::components::event_log::EventLogPanel;
 use crate::components::intention_detail::IntentionDetail;
@@ -19,7 +20,7 @@ use crate::components::intention_form::IntentionForm;
 use crate::components::peer_bar::PeerBar;
 use crate::components::proof_submit::ProofSubmit;
 use crate::components::token_wallet::TokenWallet;
-use crate::data::{self, IntentionCardData, IntentionViewData, P2pLogEntry, TokenCardData};
+use crate::data::{self, IntentionCardData, IntentionViewData, P2pLogEntry, PeerDisplayInfo, TokenCardData};
 use indras_sync_engine::IntentionId;
 use crate::state::{AppView, CycleStage};
 
@@ -100,8 +101,9 @@ pub fn GiftCycleApp() -> Element {
     let mut all_cards = use_signal(Vec::<IntentionCardData>::new);
     let mut token_cards = use_signal(Vec::<TokenCardData>::new);
     let mut detail_data = use_signal(|| None::<IntentionViewData>);
-    let mut peer_count = use_signal(|| 0usize);
+    let mut peers = use_signal(Vec::<PeerDisplayInfo>::new);
     let mut p2p_log = use_signal(Vec::<P2pLogEntry>::new);
+    let mut contact_invite_open = use_signal(|| false);
 
     // Boot sequence — runs once
     let _boot = use_resource(move || async move {
@@ -237,8 +239,57 @@ pub fn GiftCycleApp() -> Element {
             let tokens = data::build_member_tokens(&b.home, b.member_id, &b.player_name).await;
             token_cards.set(tokens);
 
-            // Refresh peer count
-            peer_count.set(b.connected_peers().len());
+            // Refresh peers from contacts realm (matches workspace poll_contacts)
+            if let Some(contacts_realm) = b.network.contacts_realm().await {
+                if let Ok(doc) = contacts_realm.contacts().await {
+                    let contacts_data = doc.read().await;
+                    let current_count = peers.read().len();
+                    if contacts_data.contacts.len() != current_count {
+                        let peer_infos: Vec<PeerDisplayInfo> = contacts_data
+                            .contacts
+                            .iter()
+                            .enumerate()
+                            .map(|(i, (mid, entry))| {
+                                let name = entry.display_name.clone().unwrap_or_else(|| {
+                                    mid.iter().take(4).map(|b| format!("{b:02x}")).collect()
+                                });
+                                let letter = name.chars().next().unwrap_or('?').to_string();
+                                let color_class = data::PEER_COLORS[i % data::PEER_COLORS.len()].to_string();
+                                PeerDisplayInfo {
+                                    name,
+                                    letter,
+                                    color_class,
+                                    online: true,
+                                }
+                            })
+                            .collect();
+                        peers.set(peer_infos);
+                    }
+                }
+            }
+
+            // Fallback: scan DM realms for peers not yet in contacts
+            let known_peers: std::collections::HashSet<_> = peers
+                .read()
+                .iter()
+                .map(|p| p.name.clone())
+                .collect();
+            for rid in b.network.conversation_realms() {
+                if let Some(peer_mid) = b.network.dm_peer_for_realm(&rid) {
+                    let name: String = peer_mid
+                        .iter()
+                        .take(4)
+                        .map(|b| format!("{b:02x}"))
+                        .collect();
+                    if !known_peers.contains(&name) {
+                        if let Some(contacts_realm) = b.network.contacts_realm().await {
+                            if !contacts_realm.is_contact(&peer_mid).await {
+                                let _ = contacts_realm.add_contact(peer_mid).await;
+                            }
+                        }
+                    }
+                }
+            }
 
             // Refresh detail view if showing one
             let view = current_view.read().clone();
@@ -281,7 +332,13 @@ pub fn GiftCycleApp() -> Element {
             PeerBar {
                 player_name: player_name.clone(),
                 member_id,
-                peer_count: peer_count(),
+                peers: peers(),
+                on_add_contact: move |_| contact_invite_open.set(true),
+            }
+
+            ContactInviteOverlay {
+                bridge: bridge().unwrap(),
+                is_open: contact_invite_open,
             }
 
             CycleRing {
