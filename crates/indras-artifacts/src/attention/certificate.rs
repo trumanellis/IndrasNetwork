@@ -122,8 +122,11 @@ pub fn signable_bytes(event_hash: &[u8; 32], intention_scope: &ArtifactId) -> Ve
 
 /// Validate a quorum certificate against a roster and public keys.
 ///
+/// The quorum threshold `k` is computed as `floor(roster.len() / 2) + 1`
+/// (strict majority), ensuring two quorums must overlap.
+///
 /// Checks:
-/// 1. Certificate has >= `k` signatures.
+/// 1. Certificate has >= `k` signatures (where `k = floor(roster.len() / 2) + 1`).
 /// 2. Each signer is in the roster.
 /// 3. Each PQ signature verifies against `signable_bytes(event_hash, intention_scope)`.
 pub fn validate_certificate(
@@ -132,6 +135,14 @@ pub fn validate_certificate(
     k: usize,
     public_keys: &HashMap<PlayerId, indras_crypto::PQPublicIdentity>,
 ) -> Result<(), CertificateError> {
+    // Enforce that k matches the strict-majority threshold for this roster.
+    let expected_k = roster.len() / 2 + 1;
+    assert!(
+        k == expected_k,
+        "quorum threshold k={k} does not match expected floor(roster.len()={}/2)+1={expected_k}",
+        roster.len(),
+    );
+
     if cert.witnesses.len() < k {
         return Err(CertificateError::InsufficientSignatures {
             have: cert.witnesses.len(),
@@ -338,8 +349,10 @@ mod tests {
         let mut pubkeys = HashMap::new();
         pubkeys.insert(witness, identity.verifying_key());
 
-        // Need 2 but only have 1
-        let result = validate_certificate(&cert, &[witness], 2, &pubkeys);
+        // Roster of 3 → k = floor(3/2)+1 = 2, but cert only has 1 signature
+        let roster = [witness, test_player(2), test_player(3)];
+        let k = roster.len() / 2 + 1; // k=2
+        let result = validate_certificate(&cert, &roster, k, &pubkeys);
         assert!(matches!(
             result,
             Err(CertificateError::InsufficientSignatures { have: 1, need: 2 })
