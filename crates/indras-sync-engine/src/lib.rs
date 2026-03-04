@@ -29,6 +29,11 @@ pub mod intention;
 pub mod note;
 pub mod blessing;
 pub mod attention;
+pub mod attention_tip;
+pub mod fraud_evidence;
+pub mod attention_sync;
+pub mod witness_roster;
+pub mod certificate;
 pub mod token_of_gratitude;
 pub mod token_valuation;
 pub mod humanness;
@@ -68,6 +73,14 @@ pub use blessing::{Blessing, BlessingDocument, BlessingError, BlessingId, ClaimI
 pub use attention::{
     AttentionDocument, AttentionError, AttentionEventId, AttentionSwitchEvent, IntentionAttention,
 };
+pub use attention_tip::{AttentionTip, AttentionTipDocument};
+pub use attention_sync::{
+    ChainGap, EventFinality, classify_event_finality, current_attention_targets,
+    filter_slashed_events, is_slashed, reconstruct_attention_state, sync_attention_chains,
+};
+pub use fraud_evidence::{FraudEvidenceDocument, FraudRecord};
+pub use witness_roster::WitnessRosterDocument;
+pub use certificate::CertificateDocument;
 pub use token_of_gratitude::{
     TokenError, TokenEvent, TokenOfGratitude, TokenOfGratitudeDocument, TokenOfGratitudeId,
 };
@@ -94,19 +107,42 @@ pub use sync_engine::SyncEngine;
 // set-union merge semantics (see their respective modules).
 indras_network::impl_document_schema!(
     BlessingDocument,
-    AttentionDocument,
     TokenOfGratitudeDocument,
     HumannessDocument,
     ProofFolderDocument,
     SentimentRelayDocument,
 );
 
+// Custom CRDT merge implementations for attention-ledger documents.
+// These override the default replacement merge with proper union/max semantics.
+
+impl indras_network::document::DocumentSchema for AttentionDocument {
+    fn merge(&mut self, remote: Self) {
+        // Delegate to the inherent union-merge (takes &Self, so borrow remote).
+        AttentionDocument::merge(self, &remote);
+    }
+}
+
+impl indras_network::document::DocumentSchema for AttentionTipDocument {
+    fn merge(&mut self, remote: Self) {
+        // Per-author max-seq wins.
+        AttentionTipDocument::merge(self, remote);
+    }
+}
+
+impl indras_network::document::DocumentSchema for FraudEvidenceDocument {
+    fn merge(&mut self, remote: Self) {
+        // Union of fraud records by (author, seq).
+        FraudEvidenceDocument::merge(self, remote);
+    }
+}
+
 // Re-export extension traits
 pub use realm_intentions::RealmIntentions;
 pub use realm_notes::RealmNotes;
 pub use realm_chat::RealmChat;
 pub use realm_blessings::RealmBlessings;
-pub use realm_attention::RealmAttention;
+pub use realm_attention::{RealmAttention, WeightedQuestAttention};
 pub use realm_tokens::RealmTokens;
 pub use realm_humanness::RealmHumanness;
 pub use realm_proof_folders::RealmProofFolders;

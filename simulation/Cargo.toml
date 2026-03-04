@@ -16,6 +16,7 @@ indras-dtn.workspace = true
 indras-node.workspace = true
 indras-network.workspace = true
 indras-sync-engine.workspace = true
+indras-artifacts.workspace = true
 indras-iot.workspace = true
 
 # Core iroh stack (for future real networking)

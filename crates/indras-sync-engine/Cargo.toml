@@ -2,7 +2,6 @@
 name = "indras-sync-engine"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
 repository.workspace = true
 description = "SyncEngine app layer for Indra's Network — quests, blessings, tokens, attention, and proof-of-service"
 keywords = ["p2p", "sync", "quest", "collaboration"]
@@ -18,6 +17,7 @@ indras-node = { path = "../indras-node" }
 indras-storage = { path = "../indras-storage" }
 indras-transport = { path = "../indras-transport" }
 indras-crypto = { path = "../indras-crypto" }
+indras-artifacts.workspace = true
 
 # Async runtime
 tokio = { workspace = true, features = ["sync"] }

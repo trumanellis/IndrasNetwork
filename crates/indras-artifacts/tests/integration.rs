@@ -5,6 +5,11 @@ const NOVA: PlayerId = [1u8; 32];
 const ZEPHYR: PlayerId = [2u8; 32];
 const SAGE: PlayerId = [3u8; 32];
 
+/// Create a test attention event with minimal boilerplate.
+fn test_event(author: PlayerId, seq: u64, wall_time_ms: i64, from: Option<ArtifactId>, to: Option<ArtifactId>) -> AttentionSwitchEvent {
+    AttentionSwitchEvent::new(author, seq, wall_time_ms, from, to, [0u8; 32])
+}
+
 // ----------------------------------------------------------------------------
 // Artifact ID Tests
 // ----------------------------------------------------------------------------
@@ -234,12 +239,7 @@ fn test_attention_store_append_and_events() {
     let mut store = InMemoryAttentionStore::new();
     let artifact_id = generate_tree_id();
 
-    let event = AttentionSwitchEvent {
-        player: NOVA,
-        from: None,
-        to: Some(artifact_id),
-        timestamp: 1000,
-    };
+    let event = test_event(NOVA, 0, 1000, None, Some(artifact_id));
 
     store.append_event(event.clone()).unwrap();
     let events = store.events(&NOVA).unwrap();
@@ -253,19 +253,9 @@ fn test_attention_store_events_since() {
     let mut store = InMemoryAttentionStore::new();
     let artifact_id = generate_tree_id();
 
-    let event1 = AttentionSwitchEvent {
-        player: NOVA,
-        from: None,
-        to: Some(artifact_id),
-        timestamp: 1000,
-    };
+    let event1 = test_event(NOVA, 0, 1000, None, Some(artifact_id));
 
-    let event2 = AttentionSwitchEvent {
-        player: NOVA,
-        from: Some(artifact_id),
-        to: None,
-        timestamp: 2000,
-    };
+    let event2 = test_event(NOVA, 1, 2000, Some(artifact_id), None);
 
     store.append_event(event1).unwrap();
     store.append_event(event2.clone()).unwrap();
@@ -281,18 +271,8 @@ fn test_attention_store_integrity_consistent() {
     let artifact_id = generate_tree_id();
 
     let events = vec![
-        AttentionSwitchEvent {
-            player: ZEPHYR,
-            from: None,
-            to: Some(artifact_id),
-            timestamp: 1000,
-        },
-        AttentionSwitchEvent {
-            player: ZEPHYR,
-            from: Some(artifact_id),
-            to: None,
-            timestamp: 2000,
-        },
+        test_event(ZEPHYR, 0, 1000, None, Some(artifact_id)),
+        test_event(ZEPHYR, 1, 2000, Some(artifact_id), None),
     ];
 
     store.ingest_peer_log(ZEPHYR, events.clone()).unwrap();
@@ -307,27 +287,12 @@ fn test_attention_store_integrity_extended() {
     let artifact_id = generate_tree_id();
 
     let initial_events = vec![
-        AttentionSwitchEvent {
-            player: ZEPHYR,
-            from: None,
-            to: Some(artifact_id),
-            timestamp: 1000,
-        },
+        test_event(ZEPHYR, 0, 1000, None, Some(artifact_id)),
     ];
 
     let extended_events = vec![
-        AttentionSwitchEvent {
-            player: ZEPHYR,
-            from: None,
-            to: Some(artifact_id),
-            timestamp: 1000,
-        },
-        AttentionSwitchEvent {
-            player: ZEPHYR,
-            from: Some(artifact_id),
-            to: None,
-            timestamp: 2000,
-        },
+        test_event(ZEPHYR, 0, 1000, None, Some(artifact_id)),
+        test_event(ZEPHYR, 1, 2000, Some(artifact_id), None),
     ];
 
     store.ingest_peer_log(ZEPHYR, initial_events).unwrap();
@@ -343,21 +308,11 @@ fn test_attention_store_integrity_diverged() {
     let artifact2 = generate_tree_id();
 
     let our_events = vec![
-        AttentionSwitchEvent {
-            player: ZEPHYR,
-            from: None,
-            to: Some(artifact1),
-            timestamp: 1000,
-        },
+        test_event(ZEPHYR, 0, 1000, None, Some(artifact1)),
     ];
 
     let their_events = vec![
-        AttentionSwitchEvent {
-            player: ZEPHYR,
-            from: None,
-            to: Some(artifact2),
-            timestamp: 1000,
-        },
+        test_event(ZEPHYR, 0, 1000, None, Some(artifact2)),
     ];
 
     store.ingest_peer_log(ZEPHYR, our_events).unwrap();
@@ -372,12 +327,7 @@ fn test_attention_store_integrity_no_prior() {
     let artifact_id = generate_tree_id();
 
     let events = vec![
-        AttentionSwitchEvent {
-            player: ZEPHYR,
-            from: None,
-            to: Some(artifact_id),
-            timestamp: 1000,
-        },
+        test_event(ZEPHYR, 0, 1000, None, Some(artifact_id)),
     ];
 
     let result = store.check_integrity(&ZEPHYR, &events);
@@ -622,7 +572,7 @@ fn test_attention_navigate_to() {
 
     let events = vault.attention_events().unwrap();
     assert_eq!(events.len(), 1);
-    assert_eq!(events[0].player, NOVA);
+    assert_eq!(events[0].author, NOVA);
     assert_eq!(events[0].from, None);
     assert_eq!(events[0].to, Some(artifact_id));
 }
@@ -666,18 +616,8 @@ fn test_heat_positive_for_peer_activity() {
 
     // Ingest ZEPHYR's attention showing they viewed this artifact
     let peer_events = vec![
-        AttentionSwitchEvent {
-            player: ZEPHYR,
-            from: None,
-            to: Some(artifact_id),
-            timestamp: 1000,
-        },
-        AttentionSwitchEvent {
-            player: ZEPHYR,
-            from: Some(artifact_id),
-            to: None,
-            timestamp: 61000, // 60 seconds dwell time
-        },
+        test_event(ZEPHYR, 0, 1000, None, Some(artifact_id)),
+        test_event(ZEPHYR, 1, 61000, Some(artifact_id), None),
     ];
 
     vault.ingest_peer_log(ZEPHYR, peer_events).unwrap();
@@ -697,18 +637,8 @@ fn test_heat_excludes_non_audience_peers() {
     vault.peer(ZEPHYR, Some("Zephyr".to_string()), 1000).unwrap();
 
     let peer_events = vec![
-        AttentionSwitchEvent {
-            player: ZEPHYR,
-            from: None,
-            to: Some(artifact_id),
-            timestamp: 1000,
-        },
-        AttentionSwitchEvent {
-            player: ZEPHYR,
-            from: Some(artifact_id),
-            to: None,
-            timestamp: 61000,
-        },
+        test_event(ZEPHYR, 0, 1000, None, Some(artifact_id)),
+        test_event(ZEPHYR, 1, 61000, Some(artifact_id), None),
     ];
 
     vault.ingest_peer_log(ZEPHYR, peer_events).unwrap();
@@ -1545,4 +1475,258 @@ fn test_vault_audience_from_grants() {
     assert_eq!(audience.len(), 2);
     assert!(audience.contains(&NOVA));
     assert!(audience.contains(&ZEPHYR));
+}
+
+// ----------------------------------------------------------------------------
+// Chain Validation Tests
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_validate_genesis_valid() {
+    let event = test_event(NOVA, 0, 1000, None, Some(generate_tree_id()));
+    assert!(validate_genesis(&event, None).is_ok());
+}
+
+#[test]
+fn test_validate_genesis_invalid_seq() {
+    let artifact = generate_tree_id();
+    // seq != 0 is not a valid genesis
+    let event = AttentionSwitchEvent::new(NOVA, 1, 1000, None, Some(artifact), [0u8; 32]);
+    assert_eq!(validate_genesis(&event, None), Err(ValidationError::InvalidGenesis));
+}
+
+#[test]
+fn test_validate_genesis_invalid_from() {
+    let artifact = generate_tree_id();
+    // from != None is not a valid genesis
+    let event = AttentionSwitchEvent::new(NOVA, 0, 1000, Some(artifact), Some(artifact), [0u8; 32]);
+    assert_eq!(validate_genesis(&event, None), Err(ValidationError::InvalidGenesis));
+}
+
+#[test]
+fn test_validate_genesis_invalid_prev() {
+    let artifact = generate_tree_id();
+    // prev != zeros is not a valid genesis
+    let event = AttentionSwitchEvent::new(NOVA, 0, 1000, None, Some(artifact), [1u8; 32]);
+    assert_eq!(validate_genesis(&event, None), Err(ValidationError::InvalidGenesis));
+}
+
+#[test]
+fn test_validate_chain_two_events() {
+    let artifact1 = generate_tree_id();
+    let artifact2 = generate_tree_id();
+
+    let e0 = AttentionSwitchEvent::new(NOVA, 0, 1000, None, Some(artifact1), [0u8; 32]);
+    let e0_hash = e0.event_hash();
+
+    let e1 = AttentionSwitchEvent::new(NOVA, 1, 2000, Some(artifact1), Some(artifact2), e0_hash);
+
+    let result = validate_chain(&[e0, e1], None);
+    assert!(result.is_ok());
+    let state = result.unwrap();
+    assert_eq!(state.latest_seq, 1);
+    assert_eq!(state.current_attention, Some(artifact2));
+}
+
+#[test]
+fn test_validate_chain_seq_gap() {
+    let artifact1 = generate_tree_id();
+    let artifact2 = generate_tree_id();
+
+    let e0 = AttentionSwitchEvent::new(NOVA, 0, 1000, None, Some(artifact1), [0u8; 32]);
+    let e0_hash = e0.event_hash();
+
+    // Skip seq 1, go straight to seq 2
+    let e2 = AttentionSwitchEvent::new(NOVA, 2, 2000, Some(artifact1), Some(artifact2), e0_hash);
+
+    let result = validate_chain(&[e0, e2], None);
+    assert_eq!(result, Err(ValidationError::SequenceGap { expected: 1, got: 2 }));
+}
+
+#[test]
+fn test_validate_chain_prev_mismatch() {
+    let artifact1 = generate_tree_id();
+    let artifact2 = generate_tree_id();
+
+    let e0 = AttentionSwitchEvent::new(NOVA, 0, 1000, None, Some(artifact1), [0u8; 32]);
+
+    // Wrong prev hash
+    let e1 = AttentionSwitchEvent::new(NOVA, 1, 2000, Some(artifact1), Some(artifact2), [99u8; 32]);
+
+    let result = validate_chain(&[e0, e1], None);
+    assert_eq!(result, Err(ValidationError::PrevHashMismatch { seq: 1 }));
+}
+
+#[test]
+fn test_validate_chain_attention_continuity() {
+    let artifact1 = generate_tree_id();
+    let artifact2 = generate_tree_id();
+
+    let e0 = AttentionSwitchEvent::new(NOVA, 0, 1000, None, Some(artifact1), [0u8; 32]);
+    let e0_hash = e0.event_hash();
+
+    // from should be artifact1 (prior to), but we say None
+    let e1 = AttentionSwitchEvent::new(NOVA, 1, 2000, None, Some(artifact2), e0_hash);
+
+    let result = validate_chain(&[e0, e1], None);
+    assert!(matches!(result, Err(ValidationError::AttentionContinuity { .. })));
+}
+
+#[test]
+fn test_validate_chain_empty() {
+    let result = validate_chain(&[], None);
+    assert_eq!(result, Err(ValidationError::EmptyChain));
+}
+
+// ----------------------------------------------------------------------------
+// Fraud Detection Tests
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_equivocation_detected() {
+    let artifact1 = generate_tree_id();
+    let artifact2 = generate_tree_id();
+
+    // Two different events with same (author, seq)
+    let event_a = test_event(NOVA, 0, 1000, None, Some(artifact1));
+    let event_b = test_event(NOVA, 0, 1000, None, Some(artifact2));
+
+    let proof = check_equivocation(&event_b, &[event_a.clone()]);
+    assert!(proof.is_some());
+    let proof = proof.unwrap();
+    assert!(proof.is_valid());
+    assert_eq!(proof.author, NOVA);
+    assert_eq!(proof.seq, 0);
+}
+
+#[test]
+fn test_no_equivocation_same_event() {
+    let artifact = generate_tree_id();
+
+    let event = test_event(NOVA, 0, 1000, None, Some(artifact));
+
+    // Same event should not trigger equivocation
+    let proof = check_equivocation(&event, &[event.clone()]);
+    assert!(proof.is_none());
+}
+
+#[test]
+fn test_no_equivocation_different_seq() {
+    let artifact1 = generate_tree_id();
+    let artifact2 = generate_tree_id();
+
+    let event_a = test_event(NOVA, 0, 1000, None, Some(artifact1));
+    let event_b = test_event(NOVA, 1, 2000, Some(artifact1), Some(artifact2));
+
+    // Different seq, not equivocation
+    let proof = check_equivocation(&event_b, &[event_a]);
+    assert!(proof.is_none());
+}
+
+// ----------------------------------------------------------------------------
+// Event Hash & Signing Tests
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_event_hash_deterministic() {
+    let artifact = generate_tree_id();
+    let event = test_event(NOVA, 0, 1000, None, Some(artifact));
+
+    let hash1 = event.event_hash();
+    let hash2 = event.event_hash();
+    assert_eq!(hash1, hash2, "Event hash should be deterministic");
+}
+
+#[test]
+fn test_event_hash_differs_for_different_events() {
+    let artifact1 = generate_tree_id();
+    let artifact2 = generate_tree_id();
+
+    let event1 = test_event(NOVA, 0, 1000, None, Some(artifact1));
+    let event2 = test_event(NOVA, 0, 1000, None, Some(artifact2));
+
+    assert_ne!(event1.event_hash(), event2.event_hash());
+}
+
+#[test]
+fn test_event_is_genesis() {
+    let artifact = generate_tree_id();
+
+    let genesis = test_event(NOVA, 0, 1000, None, Some(artifact));
+    assert!(genesis.is_genesis());
+
+    let non_genesis = test_event(NOVA, 1, 2000, Some(artifact), None);
+    assert!(!non_genesis.is_genesis());
+}
+
+#[test]
+fn test_event_unsigned_by_default() {
+    let event = test_event(NOVA, 0, 1000, None, Some(generate_tree_id()));
+    assert!(!event.is_signed());
+}
+
+#[test]
+fn test_sign_and_verify() {
+    let identity = indras_crypto::PQIdentity::generate();
+    let public_key = identity.verifying_key();
+
+    let mut event = test_event(NOVA, 0, 1000, None, Some(generate_tree_id()));
+    assert!(!event.is_signed());
+
+    event.sign(&identity);
+    assert!(event.is_signed());
+    assert!(event.verify_signature(&public_key));
+}
+
+#[test]
+fn test_verify_wrong_key_fails() {
+    let identity1 = indras_crypto::PQIdentity::generate();
+    let identity2 = indras_crypto::PQIdentity::generate();
+
+    let mut event = test_event(NOVA, 0, 1000, None, Some(generate_tree_id()));
+    event.sign(&identity1);
+
+    // Verify with wrong key should fail
+    assert!(!event.verify_signature(&identity2.verifying_key()));
+}
+
+// ----------------------------------------------------------------------------
+// AttentionStore Chain-Aware Methods Tests
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_attention_store_events_by_seq_range() {
+    let mut store = InMemoryAttentionStore::new();
+    let artifact1 = generate_tree_id();
+    let artifact2 = generate_tree_id();
+
+    let e0 = test_event(NOVA, 0, 1000, None, Some(artifact1));
+    let e1 = test_event(NOVA, 1, 2000, Some(artifact1), Some(artifact2));
+    let e2 = test_event(NOVA, 2, 3000, Some(artifact2), None);
+
+    store.append_event(e0).unwrap();
+    store.append_event(e1.clone()).unwrap();
+    store.append_event(e2.clone()).unwrap();
+
+    let range = store.events_by_seq_range(&NOVA, 1, 2).unwrap();
+    assert_eq!(range.len(), 2);
+    assert_eq!(range[0].seq, 1);
+    assert_eq!(range[1].seq, 2);
+}
+
+#[test]
+fn test_attention_store_latest_tip() {
+    let mut store = InMemoryAttentionStore::new();
+    let artifact = generate_tree_id();
+
+    // No events yet
+    assert!(store.latest_tip(&NOVA).unwrap().is_none());
+
+    let e0 = test_event(NOVA, 0, 1000, None, Some(artifact));
+    let e0_hash = e0.event_hash();
+    store.append_event(e0).unwrap();
+
+    let tip = store.latest_tip(&NOVA).unwrap().unwrap();
+    assert_eq!(tip.0, 0); // seq
+    assert_eq!(tip.1, e0_hash); // hash
 }

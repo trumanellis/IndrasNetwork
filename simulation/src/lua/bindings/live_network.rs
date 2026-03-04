@@ -6,12 +6,19 @@
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use mlua::{Lua, LuaSerdeExt, MetaMethod, Result, Table, UserData, UserDataMethods, Value};
+use std::collections::HashMap;
 use std::sync::Arc;
 
+use indras_artifacts::artifact::PlayerId;
+use indras_artifacts::attention::certificate::{QuorumCertificate, WitnessSignature};
+use indras_artifacts::attention::validate::AuthorState;
+use indras_artifacts::attention::AttentionSwitchEvent;
+use indras_crypto::{PQIdentity, PQPublicIdentity};
 use indras_network::{
     AccessMode, ArtifactId, ContactsRealm, Content, Document, DocumentSchema, HomeRealm,
     IndrasNetwork, MemberId, Message, MessageId, Realm, RealmChatDocument, RealmId,
 };
+use indras_node::Keystore;
 use indras_sync_engine::{
     IntentionDocument, IntentionId, RealmIntentions,
     RealmAttention, RealmBlessings, RealmTokens,
@@ -99,6 +106,17 @@ fn parse_artifact_id(hex_str: &str) -> std::result::Result<ArtifactId, mlua::Err
     Ok(ArtifactId::Blob(arr))
 }
 
+fn parse_quest_id(hex_str: &str) -> std::result::Result<QuestId, mlua::Error> {
+    let bytes = hex::decode(hex_str)
+        .map_err(|e| mlua::Error::external(format!("Invalid quest ID hex: {}", e)))?;
+    if bytes.len() != 16 {
+        return Err(mlua::Error::external("Quest ID must be 16 bytes"));
+    }
+    let mut arr = [0u8; 16];
+    arr.copy_from_slice(&bytes);
+    Ok(arr)
+}
+
 fn artifact_id_to_hex(id: &ArtifactId) -> String {
     hex::encode(id.bytes())
 }
@@ -170,6 +188,105 @@ fn message_to_table(lua: &Lua, msg: &Message) -> Result<Table> {
     }
     t.set("timestamp", msg.timestamp.timestamp())?;
     Ok(t)
+}
+
+// ============================================================
+// LuaPQIdentity — wraps PQIdentity for Lua
+// ============================================================
+
+/// Lua wrapper for a PQ signing identity.
+///
+/// Allows Lua scripts to hold and pass PQ identities for signing
+/// attention events and witness signatures.
+struct LuaPQIdentity {
+    identity: PQIdentity,
+}
+
+impl UserData for LuaPQIdentity {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+        // Hex-encoded PQ verifying key bytes.
+        methods.add_method("public_key_hex", |_, this, ()| {
+            Ok(hex::encode(this.identity.verifying_key_bytes()))
+        });
+
+        methods.add_meta_method(MetaMethod::ToString, |_, _this, ()| {
+            Ok("PQIdentity(...)".to_string())
+        });
+    }
+}
+
+// ============================================================
+// LuaAttentionEvent — wraps AttentionSwitchEvent for Lua
+// ============================================================
+
+/// Lua wrapper for an attention switch event.
+///
+/// Returned by `create_genesis_event` and `switch_attention_conserved`,
+/// passed to `request_witness_signature`.
+struct LuaAttentionEvent {
+    event: AttentionSwitchEvent,
+}
+
+impl UserData for LuaAttentionEvent {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+        // Hex-encoded BLAKE3 hash of this event.
+        methods.add_method("event_hash_hex", |_, this, ()| {
+            Ok(hex::encode(this.event.event_hash()))
+        });
+
+        // Sequence number of this event.
+        methods.add_method("seq", |_, this, ()| Ok(this.event.seq));
+
+        // Hex-encoded author of this event.
+        methods.add_method("author_hex", |_, this, ()| {
+            Ok(hex::encode(this.event.author))
+        });
+
+        methods.add_meta_method(MetaMethod::ToString, |_, this, ()| {
+            Ok(format!(
+                "AttentionEvent(seq={}, hash={})",
+                this.event.seq,
+                hex::encode(&this.event.event_hash()[..4])
+            ))
+        });
+    }
+}
+
+/// Convert an `AuthorState` to a Lua table.
+fn author_state_to_table(lua: &Lua, state: &AuthorState) -> Result<Table> {
+    let t = lua.create_table()?;
+    t.set("latest_seq", state.latest_seq)?;
+    t.set("latest_hash", hex::encode(state.latest_hash))?;
+    match &state.current_attention {
+        Some(aid) => t.set("current_attention", hex::encode(aid.bytes()))?,
+        None => t.set("current_attention", mlua::Value::Nil)?,
+    }
+    Ok(t)
+}
+
+/// Parse a Lua table into an `AuthorState`.
+fn table_to_author_state(t: &Table) -> std::result::Result<AuthorState, mlua::Error> {
+    let latest_seq: u64 = t.get("latest_seq")?;
+    let latest_hash_hex: String = t.get("latest_hash")?;
+    let latest_hash_bytes = hex::decode(&latest_hash_hex)
+        .map_err(|e| mlua::Error::external(format!("Invalid latest_hash hex: {e}")))?;
+    if latest_hash_bytes.len() != 32 {
+        return Err(mlua::Error::external("latest_hash must be 32 bytes"));
+    }
+    let mut latest_hash = [0u8; 32];
+    latest_hash.copy_from_slice(&latest_hash_bytes);
+
+    let current_attention: Option<String> = t.get("current_attention")?;
+    let current_attention = match current_attention {
+        Some(hex_str) => Some(parse_artifact_id(&hex_str)?),
+        None => None,
+    };
+
+    Ok(AuthorState {
+        latest_seq,
+        latest_hash,
+        current_attention,
+    })
 }
 
 // ============================================================
@@ -317,6 +434,21 @@ impl UserData for LuaNetwork {
                 .await
                 .map_err(mlua::Error::external)?;
             Ok(STANDARD.encode(&bytes))
+        });
+
+        // -- PQ Identity --
+
+        methods.add_method("pq_identity", |_, this, ()| {
+            let data_dir = &this.network.config().data_dir;
+            let keystore = Keystore::new(data_dir);
+            let pq = keystore
+                .load_pq_identity()
+                .map_err(mlua::Error::external)?;
+            Ok(LuaPQIdentity { identity: pq })
+        });
+
+        methods.add_method("member_id", |_, this, ()| {
+            Ok(hex::encode(this.network.id()))
         });
 
         // -- Connect to another LuaNetwork by endpoint address (in-process) --
@@ -643,6 +775,30 @@ impl UserData for LuaRealm {
             },
         );
 
+        // -- Attention / Witness / Certificate --
+
+        methods.add_async_method(
+            "create_genesis_event",
+            |lua, this, (to_hex, author_hex, pq): (Option<String>, String, mlua::AnyUserData)| async move {
+                let to = match to_hex {
+                    Some(h) => Some(parse_artifact_id(&h)?),
+                    None => None,
+                };
+                let author = parse_member_id(&author_hex)?;
+                let pq_ref = pq.borrow::<LuaPQIdentity>()?;
+
+                let (event, author_state) = this
+                    .realm
+                    .create_genesis_event(to, author, &pq_ref.identity)
+                    .await
+                    .map_err(mlua::Error::external)?;
+
+                let state_table = author_state_to_table(&lua, &author_state)?;
+                let lua_event = LuaAttentionEvent { event };
+                Ok((lua_event, state_table))
+            },
+        );
+
         methods.add_async_method(
             "submit_service_claim",
             |_, this, (intention_id_hex, claimant_hex): (String, String)| async move {
@@ -654,6 +810,41 @@ impl UserData for LuaRealm {
                     .await
                     .map_err(mlua::Error::external)?;
                 Ok(claim_index)
+            },
+        );
+
+        methods.add_async_method(
+            "switch_attention_conserved",
+            |lua,
+             this,
+             (from_hex, to_hex, author_hex, pq, state_table): (
+                Option<String>,
+                Option<String>,
+                String,
+                mlua::AnyUserData,
+                Table,
+            )| async move {
+                let from = match from_hex {
+                    Some(h) => Some(parse_artifact_id(&h)?),
+                    None => None,
+                };
+                let to = match to_hex {
+                    Some(h) => Some(parse_artifact_id(&h)?),
+                    None => None,
+                };
+                let author = parse_member_id(&author_hex)?;
+                let pq_ref = pq.borrow::<LuaPQIdentity>()?;
+                let mut author_state = table_to_author_state(&state_table)?;
+
+                let event = this
+                    .realm
+                    .switch_attention_conserved(from, to, author, &pq_ref.identity, &mut author_state)
+                    .await
+                    .map_err(mlua::Error::external)?;
+
+                let new_state_table = author_state_to_table(&lua, &author_state)?;
+                let lua_event = LuaAttentionEvent { event };
+                Ok((lua_event, new_state_table))
             },
         );
 
@@ -705,6 +896,182 @@ impl UserData for LuaRealm {
             Ok(result)
         });
 
+        // -- Attention / Witness / Certificate --
+
+        methods.add_async_method(
+            "request_witness_signature",
+            |lua,
+             this,
+             (event_ud, scope_hex, witness_id_hex, pq_witness, author_pubkey_hex): (
+                mlua::AnyUserData,
+                String,
+                String,
+                mlua::AnyUserData,
+                String,
+            )| async move {
+                let event_ref = event_ud.borrow::<LuaAttentionEvent>()?;
+                let scope = parse_artifact_id(&scope_hex)?;
+                let witness_id = parse_member_id(&witness_id_hex)?;
+                let pq_ref = pq_witness.borrow::<LuaPQIdentity>()?;
+
+                let pubkey_bytes = hex::decode(&author_pubkey_hex)
+                    .map_err(|e| mlua::Error::external(format!("Invalid author pubkey hex: {e}")))?;
+                let author_pubkey = PQPublicIdentity::from_bytes(&pubkey_bytes)
+                    .map_err(|e| mlua::Error::external(format!("Invalid PQ public key: {e}")))?;
+
+                let ws = this
+                    .realm
+                    .request_witness_signature(
+                        &event_ref.event,
+                        scope,
+                        &pq_ref.identity,
+                        witness_id,
+                        &author_pubkey,
+                    )
+                    .await
+                    .map_err(mlua::Error::external)?;
+
+                let t = lua.create_table()?;
+                t.set("witness", hex::encode(ws.witness))?;
+                t.set("sig", STANDARD.encode(&ws.sig))?;
+                Ok(t)
+            },
+        );
+
+        methods.add_async_method(
+            "submit_certificate",
+            |_,
+             this,
+             (event_hash_hex, scope_hex, sigs_table, roster_table, k, pubkeys_table): (
+                String,
+                String,
+                Table,
+                Table,
+                usize,
+                Table,
+            )| async move {
+                // Parse event hash
+                let event_hash_bytes = hex::decode(&event_hash_hex)
+                    .map_err(|e| mlua::Error::external(format!("Invalid event_hash hex: {e}")))?;
+                let mut event_hash = [0u8; 32];
+                if event_hash_bytes.len() != 32 {
+                    return Err(mlua::Error::external("event_hash must be 32 bytes"));
+                }
+                event_hash.copy_from_slice(&event_hash_bytes);
+
+                let scope = parse_artifact_id(&scope_hex)?;
+
+                // Build QuorumCertificate
+                let mut cert = QuorumCertificate::new(event_hash, scope);
+                for pair in sigs_table.sequence_values::<Table>() {
+                    let sig_t = pair?;
+                    let witness_hex: String = sig_t.get("witness")?;
+                    let sig_b64: String = sig_t.get("sig")?;
+                    let witness = parse_member_id(&witness_hex)?;
+                    let sig_bytes = STANDARD
+                        .decode(&sig_b64)
+                        .map_err(|e| mlua::Error::external(format!("Invalid sig base64: {e}")))?;
+                    cert.add_witness(WitnessSignature {
+                        witness,
+                        sig: sig_bytes,
+                    });
+                }
+
+                // Parse roster
+                let mut roster: Vec<PlayerId> = Vec::new();
+                for val in roster_table.sequence_values::<String>() {
+                    let hex_str = val?;
+                    roster.push(parse_member_id(&hex_str)?);
+                }
+
+                // Parse public keys map: { [member_hex] = pubkey_hex }
+                let mut public_keys: HashMap<PlayerId, PQPublicIdentity> = HashMap::new();
+                for pair in pubkeys_table.pairs::<String, String>() {
+                    let (member_hex, pubkey_hex) = pair?;
+                    let member = parse_member_id(&member_hex)?;
+                    let pk_bytes = hex::decode(&pubkey_hex).map_err(|e| {
+                        mlua::Error::external(format!("Invalid pubkey hex: {e}"))
+                    })?;
+                    let pk = PQPublicIdentity::from_bytes(&pk_bytes).map_err(|e| {
+                        mlua::Error::external(format!("Invalid PQ public key: {e}"))
+                    })?;
+                    public_keys.insert(member, pk);
+                }
+
+                this.realm
+                    .submit_certificate(cert, &roster, k, &public_keys)
+                    .await
+                    .map_err(mlua::Error::external)
+            },
+        );
+
+        methods.add_async_method(
+            "has_certificate",
+            |_, this, event_hash_hex: String| async move {
+                let event_hash_bytes = hex::decode(&event_hash_hex)
+                    .map_err(|e| mlua::Error::external(format!("Invalid event_hash hex: {e}")))?;
+                let mut event_hash = [0u8; 32];
+                if event_hash_bytes.len() != 32 {
+                    return Err(mlua::Error::external("event_hash must be 32 bytes"));
+                }
+                event_hash.copy_from_slice(&event_hash_bytes);
+
+                let doc = this.realm.certificates().await.map_err(mlua::Error::external)?;
+                let _ = doc.refresh().await;
+                let guard = doc.read().await;
+                Ok(guard.has_certificate(&event_hash))
+            },
+        );
+
+        methods.add_async_method(
+            "has_quorum",
+            |_, this, (event_hash_hex, k): (String, usize)| async move {
+                let event_hash_bytes = hex::decode(&event_hash_hex)
+                    .map_err(|e| mlua::Error::external(format!("Invalid event_hash hex: {e}")))?;
+                let mut event_hash = [0u8; 32];
+                if event_hash_bytes.len() != 32 {
+                    return Err(mlua::Error::external("event_hash must be 32 bytes"));
+                }
+                event_hash.copy_from_slice(&event_hash_bytes);
+
+                let doc = this.realm.certificates().await.map_err(mlua::Error::external)?;
+                let _ = doc.refresh().await;
+                let guard = doc.read().await;
+                Ok(guard.has_quorum(&event_hash, k))
+            },
+        );
+
+        methods.add_async_method(
+            "get_witness_roster",
+            |_, this, scope_hex: String| async move {
+                let scope = parse_artifact_id(&scope_hex)?;
+                let doc = this.realm.witness_roster().await.map_err(mlua::Error::external)?;
+                let _ = doc.refresh().await;
+                let guard = doc.read().await;
+                let roster = guard.get_roster(&scope);
+                let result: Vec<String> = roster.iter().map(hex::encode).collect();
+                Ok(result)
+            },
+        );
+
+        methods.add_async_method(
+            "set_witness_roster",
+            |_, this, (scope_hex, members_table): (String, Table)| async move {
+                let scope = parse_artifact_id(&scope_hex)?;
+                let mut members: Vec<MemberId> = Vec::new();
+                for val in members_table.sequence_values::<String>() {
+                    let hex_str = val?;
+                    members.push(parse_member_id(&hex_str)?);
+                }
+                let doc = this.realm.witness_roster().await.map_err(mlua::Error::external)?;
+                doc.update(|d| {
+                    d.set_roster(scope, members);
+                })
+                .await
+                .map_err(mlua::Error::external)
+            },
+        );
+
         // -- Attention (sync-engine) --
 
         methods.add_async_method(
@@ -714,6 +1081,22 @@ impl UserData for LuaRealm {
                 let event_id = this
                     .realm
                     .focus_on_intention(intention_id, this.owner_id)
+                    .await
+                    .map_err(mlua::Error::external)?;
+                Ok(hex::encode(event_id))
+            },
+        );
+
+        // -- Basic attention (focus/clear/rank) --
+
+        methods.add_async_method(
+            "focus_on_quest",
+            |_, this, (quest_id_hex, member_hex): (String, String)| async move {
+                let quest_id = parse_quest_id(&quest_id_hex)?;
+                let member = parse_member_id(&member_hex)?;
+                let event_id = this
+                    .realm
+                    .focus_on_quest(quest_id, member)
                     .await
                     .map_err(mlua::Error::external)?;
                 Ok(hex::encode(event_id))
@@ -890,6 +1273,115 @@ impl UserData for LuaRealm {
                     if let Some(pledged) = token.pledged_to {
                         t.set("pledged_to", hex::encode(pledged))?;
                     }
+                    result.set(i + 1, t)?;
+                }
+                Ok(result)
+            },
+        );
+
+        methods.add_async_method(
+            "clear_attention",
+            |_, this, member_hex: String| async move {
+                let member = parse_member_id(&member_hex)?;
+                let event_id = this
+                    .realm
+                    .clear_attention(member)
+                    .await
+                    .map_err(mlua::Error::external)?;
+                Ok(hex::encode(event_id))
+            },
+        );
+
+        methods.add_async_method(
+            "get_member_focus",
+            |_, this, member_hex: String| async move {
+                let member = parse_member_id(&member_hex)?;
+                let focus = this
+                    .realm
+                    .get_member_focus(&member)
+                    .await
+                    .map_err(mlua::Error::external)?;
+                Ok(focus.map(hex::encode))
+            },
+        );
+
+        methods.add_async_method(
+            "get_quest_focusers",
+            |_, this, quest_id_hex: String| async move {
+                let quest_id = parse_quest_id(&quest_id_hex)?;
+                let focusers = this
+                    .realm
+                    .get_quest_focusers(&quest_id)
+                    .await
+                    .map_err(mlua::Error::external)?;
+                let result: Vec<String> = focusers.iter().map(hex::encode).collect();
+                Ok(result)
+            },
+        );
+
+        methods.add_async_method(
+            "quests_by_attention",
+            |lua, this, ()| async move {
+                let quests = this
+                    .realm
+                    .quests_by_attention()
+                    .await
+                    .map_err(mlua::Error::external)?;
+                let result = lua.create_table()?;
+                for (i, qa) in quests.iter().enumerate() {
+                    let t = lua.create_table()?;
+                    t.set("quest_id", hex::encode(qa.quest_id))?;
+                    t.set("total_ms", qa.total_attention_millis)?;
+                    let members = lua.create_table()?;
+                    for (j, m) in qa.currently_focused_members.iter().enumerate() {
+                        members.set(j + 1, hex::encode(m))?;
+                    }
+                    t.set("members", members)?;
+                    result.set(i + 1, t)?;
+                }
+                Ok(result)
+            },
+        );
+
+        // -- Fraud evidence --
+
+        methods.add_async_method(
+            "is_fraudulent",
+            |_, this, member_hex: String| async move {
+                let member = parse_member_id(&member_hex)?;
+                let doc = this.realm.fraud_evidence().await.map_err(mlua::Error::external)?;
+                let _ = doc.refresh().await;
+                let guard = doc.read().await;
+                Ok(guard.is_fraudulent(&member))
+            },
+        );
+
+        methods.add_async_method("fraudulent_authors", |_, this, ()| async move {
+            let doc = this.realm.fraud_evidence().await.map_err(mlua::Error::external)?;
+            let _ = doc.refresh().await;
+            let guard = doc.read().await;
+            let authors = guard.fraudulent_authors();
+            let result: Vec<String> = authors.iter().map(hex::encode).collect();
+            Ok(result)
+        });
+
+        // -- Chain events --
+
+        methods.add_async_method(
+            "chain_events_for",
+            |lua, this, author_hex: String| async move {
+                let author = parse_member_id(&author_hex)?;
+                let doc = this.realm.attention().await.map_err(mlua::Error::external)?;
+                let _ = doc.refresh().await;
+                let guard = doc.read().await;
+                let events = guard.chain_events_for(&author);
+                let result = lua.create_table()?;
+                for (i, ev) in events.iter().enumerate() {
+                    let t = lua.create_table()?;
+                    t.set("seq", ev.seq)?;
+                    t.set("hash", hex::encode(ev.event_hash()))?;
+                    t.set("from", ev.from.as_ref().map(artifact_id_to_hex))?;
+                    t.set("to", ev.to.as_ref().map(artifact_id_to_hex))?;
                     result.set(i + 1, t)?;
                 }
                 Ok(result)

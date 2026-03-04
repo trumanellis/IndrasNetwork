@@ -234,9 +234,22 @@ impl PayloadStore for InMemoryPayloadStore {
 
 /// Append-only attention log storage with integrity checking.
 pub trait AttentionStore {
+    /// Append a new event to the log.
     fn append_event(&mut self, event: AttentionSwitchEvent) -> Result<()>;
+    /// Get all events for a player.
     fn events(&self, player: &PlayerId) -> Result<Vec<AttentionSwitchEvent>>;
+    /// Get events since a given wall-clock time.
     fn events_since(&self, player: &PlayerId, since: i64) -> Result<Vec<AttentionSwitchEvent>>;
+    /// Get events in a sequence number range (inclusive).
+    fn events_by_seq_range(
+        &self,
+        player: &PlayerId,
+        from_seq: u64,
+        to_seq: u64,
+    ) -> Result<Vec<AttentionSwitchEvent>>;
+    /// Get the latest (seq, event_hash) tip for a player's chain.
+    fn latest_tip(&self, player: &PlayerId) -> Result<Option<(u64, [u8; 32])>>;
+    /// Replace our replica of a peer's log with their events.
     fn ingest_peer_log(
         &mut self,
         peer: PlayerId,
@@ -265,7 +278,7 @@ impl InMemoryAttentionStore {
 impl AttentionStore for InMemoryAttentionStore {
     fn append_event(&mut self, event: AttentionSwitchEvent) -> Result<()> {
         self.logs
-            .entry(event.player)
+            .entry(event.author)
             .or_default()
             .push(event);
         Ok(())
@@ -282,11 +295,36 @@ impl AttentionStore for InMemoryAttentionStore {
             .map(|events| {
                 events
                     .iter()
-                    .filter(|e| e.timestamp >= since)
+                    .filter(|e| e.wall_time_ms >= since)
                     .cloned()
                     .collect()
             })
             .unwrap_or_default())
+    }
+
+    fn events_by_seq_range(
+        &self,
+        player: &PlayerId,
+        from_seq: u64,
+        to_seq: u64,
+    ) -> Result<Vec<AttentionSwitchEvent>> {
+        Ok(self
+            .logs
+            .get(player)
+            .map(|events| {
+                events
+                    .iter()
+                    .filter(|e| e.seq >= from_seq && e.seq <= to_seq)
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default())
+    }
+
+    fn latest_tip(&self, player: &PlayerId) -> Result<Option<(u64, [u8; 32])>> {
+        Ok(self.logs.get(player).and_then(|events| {
+            events.last().map(|e| (e.seq, e.event_hash()))
+        }))
     }
 
     fn ingest_peer_log(

@@ -839,6 +839,254 @@ pub fn RootApp() -> Element {
                                             workspace.write().editor.meta.audience_count = audience_count;
                                             workspace.write().editor.title = label.clone();
                                         }
+                                        ViewType::Quest => {
+                                            let kind = match artifact.artifact_type.as_str() {
+                                                "need" => QuestKind::Need,
+                                                "offering" => QuestKind::Offering,
+                                                "intention" => QuestKind::Intention,
+                                                _ => QuestKind::Quest,
+                                            };
+
+                                            // Build description from first ref with "description" label
+                                            let description = {
+                                                let desc_ref = artifact.references.iter()
+                                                    .find(|r| r.label.as_deref() == Some("description"));
+                                                if let Some(dr) = desc_ref {
+                                                    vault.get_payload(&dr.artifact_id)
+                                                        .ok()
+                                                        .flatten()
+                                                        .map(|p| String::from_utf8_lossy(&p).to_string())
+                                                        .unwrap_or_else(|| "No description yet.".to_string())
+                                                } else {
+                                                    "No description yet.".to_string()
+                                                }
+                                            };
+
+                                            let steward_for_meta = steward_name.clone();
+                                            let intention = Intention::from_id(artifact.id);
+                                            let player_name_for_peers = vh.player_name.clone();
+
+                                            // Load proofs
+                                            let proofs = {
+                                                let proof_refs = intention.proofs(&vault).unwrap_or_default();
+                                                let mut proof_entries = Vec::new();
+                                                for proof_ref in &proof_refs {
+                                                    let (author_name, author_letter, author_color) = if let Some(label) = &proof_ref.label {
+                                                        let parts: Vec<&str> = label.splitn(3, ':').collect();
+                                                        if parts.len() >= 2 {
+                                                            let hex = parts[1];
+                                                            if hex.starts_with("02") {
+                                                                ("Sage".into(), "S".into(), "peer-dot-sage".into())
+                                                            } else if hex.starts_with("03") {
+                                                                ("Zephyr".into(), "Z".into(), "peer-dot-zeph".into())
+                                                            } else {
+                                                                (player_name_for_peers.clone(), player_name_for_peers.chars().next().unwrap_or('N').to_string(), "peer-dot-self".into())
+                                                            }
+                                                        } else {
+                                                            ("Unknown".into(), "?".into(), String::new())
+                                                        }
+                                                    } else {
+                                                        ("Unknown".into(), "?".into(), String::new())
+                                                    };
+
+                                                    let body = vault.get_payload(&proof_ref.artifact_id)
+                                                        .ok()
+                                                        .flatten()
+                                                        .map(|p| String::from_utf8_lossy(&p).to_string())
+                                                        .unwrap_or_else(|| "Proof submitted".to_string());
+
+                                                    proof_entries.push(ProofEntry {
+                                                        author_name,
+                                                        author_letter,
+                                                        author_color_class: author_color,
+                                                        body,
+                                                        time_ago: "recently".into(),
+                                                        artifact_attachments: Vec::new(),
+                                                        tokens: Vec::new(),
+                                                        has_tokens: false,
+                                                        total_token_count: 0,
+                                                        total_token_duration: String::new(),
+                                                    });
+                                                }
+                                                proof_entries
+                                            };
+
+                                            // Status
+                                            let status_str = {
+                                                match intention.status(&vault) {
+                                                    Ok(Some(s)) if s == "fulfilled" => "Fulfilled",
+                                                    _ => if proofs.is_empty() { "Open" } else { "Proven" },
+                                                }
+                                            };
+
+                                            // Heat
+                                            let now_ms = chrono::Utc::now().timestamp_millis();
+                                            let heat = vault.heat(&artifact.id, now_ms).unwrap_or(0.0);
+
+                                            // Attention per peer
+                                            let attention_peers = {
+                                                let mut peers_summary = Vec::new();
+                                                let audience_ids: Vec<indras_artifacts::PlayerId> = artifact.grants.iter().map(|g| g.grantee).collect();
+                                                let mut max_secs = 0u64;
+
+                                                // First pass: compute totals
+                                                let mut peer_data: Vec<(indras_artifacts::PlayerId, Vec<indras_artifacts::DwellWindow>)> = Vec::new();
+                                                for &pid in &audience_ids {
+                                                    let windows = intention.unreleased_attention(&vault, pid).unwrap_or_default();
+                                                    if !windows.is_empty() {
+                                                        let total_ms: i64 = windows.iter().map(|w| w.duration_ms).sum();
+                                                        let total_secs = (total_ms / 1000) as u64;
+                                                        if total_secs > max_secs { max_secs = total_secs; }
+                                                        peer_data.push((pid, windows));
+                                                    }
+                                                }
+
+                                                // Second pass: build summaries with bar fractions
+                                                for (pid, windows) in &peer_data {
+                                                    let total_ms: i64 = windows.iter().map(|w| w.duration_ms).sum();
+                                                    let total_secs = (total_ms / 1000) as u64;
+                                                    let (name, letter, color) = peer_display_info(*pid, &player_name_for_peers);
+                                                    peers_summary.push(AttentionPeerSummary {
+                                                        peer_name: name,
+                                                        peer_letter: letter,
+                                                        peer_color_class: color,
+                                                        total_duration: format_duration_secs(total_secs),
+                                                        total_duration_secs: total_secs,
+                                                        window_count: windows.len(),
+                                                        bar_fraction: if max_secs > 0 { total_secs as f32 / max_secs as f32 } else { 0.0 },
+                                                    });
+                                                }
+                                                peers_summary
+                                            };
+
+                                            let total_attention_duration = {
+                                                let total: u64 = attention_peers.iter().map(|p| p.total_duration_secs).sum();
+                                                format_duration_secs(total)
+                                            };
+
+                                            // Attention items for local player (for inline picker)
+                                            let attention_items = {
+                                                let windows = intention.unreleased_attention(&vault, vh.player_id).unwrap_or_default();
+                                                windows.iter().map(|w| {
+                                                    AttentionItem {
+                                                        target: "This Intention".into(),
+                                                        when: format!("{}ms ago", w.start_timestamp),
+                                                        duration: format_duration_secs((w.duration_ms / 1000) as u64),
+                                                    }
+                                                }).collect::<Vec<_>>()
+                                            };
+
+                                            // Pledged tokens
+                                            let pledged_tokens = {
+                                                let pledge_refs = intention.pledged_tokens(&vault).unwrap_or_default();
+                                                let mut pts = Vec::new();
+                                                for pref in &pledge_refs {
+                                                    let duration = vault.get_payload(&pref.artifact_id)
+                                                        .ok()
+                                                        .flatten()
+                                                        .and_then(|p| {
+                                                            if p.len() >= 8 {
+                                                                Some(u64::from_le_bytes(p[..8].try_into().unwrap_or([0u8; 8])))
+                                                            } else {
+                                                                None
+                                                            }
+                                                        })
+                                                        .unwrap_or(0);
+                                                    let from_name = if let Some(label) = &pref.label {
+                                                        let parts: Vec<&str> = label.splitn(3, ':').collect();
+                                                        if parts.len() >= 2 {
+                                                            let hex = parts[1];
+                                                            if hex.starts_with("02") { "Sage".into() }
+                                                            else if hex.starts_with("03") { "Zephyr".into() }
+                                                            else { player_name_for_peers.clone() }
+                                                        } else {
+                                                            "Unknown".into()
+                                                        }
+                                                    } else {
+                                                        "Unknown".into()
+                                                    };
+                                                    pts.push(PledgedToken {
+                                                        token_label: format!("Token"),
+                                                        duration: format_duration_secs(duration / 1000),
+                                                        from_name,
+                                                    });
+                                                }
+                                                pts
+                                            };
+
+                                            // Stewardship chain
+                                            let stewardship_chain = {
+                                                let mut chain = Vec::new();
+                                                // From proof refs — each proof represents a "created" link
+                                                let proof_refs = intention.proofs(&vault).unwrap_or_default();
+                                                for pref in &proof_refs {
+                                                    // Get tokens assigned to this proof via stewardship transfers
+                                                    if let Ok(Some(artifact)) = vault.get_artifact(&pref.artifact_id) {
+                                                        let (from_name, from_letter, from_color) = peer_display_info(artifact.steward, &player_name_for_peers);
+                                                        // Check blessing history on any tokens
+                                                        for blessing in &artifact.blessing_history {
+                                                            let (bn, bl, bc) = peer_display_info(blessing.from, &player_name_for_peers);
+                                                            chain.push(StewardshipChainEntry {
+                                                                from_name: bn,
+                                                                from_letter: bl,
+                                                                from_color_class: bc,
+                                                                action: "blessed".into(),
+                                                                token_label: "Token".into(),
+                                                                token_duration: String::new(),
+                                                                to_name: from_name.clone(),
+                                                                to_letter: from_letter.clone(),
+                                                                to_color_class: from_color.clone(),
+                                                            });
+                                                        }
+                                                    }
+                                                }
+                                                // From steward_history on any known tokens
+                                                let pledge_refs = intention.pledged_tokens(&vault).unwrap_or_default();
+                                                for pref in &pledge_refs {
+                                                    if let Ok(history) = vault.steward_history(&pref.artifact_id) {
+                                                        for record in &history {
+                                                            let (fn_, fl, fc) = peer_display_info(record.from, &player_name_for_peers);
+                                                            let (tn, tl, tc) = peer_display_info(record.to, &player_name_for_peers);
+                                                            chain.push(StewardshipChainEntry {
+                                                                from_name: fn_,
+                                                                from_letter: fl,
+                                                                from_color_class: fc,
+                                                                action: "released".into(),
+                                                                token_label: "Token".into(),
+                                                                token_duration: String::new(),
+                                                                to_name: tn,
+                                                                to_letter: tl,
+                                                                to_color_class: tc,
+                                                            });
+                                                        }
+                                                    }
+                                                }
+                                                chain
+                                            };
+
+                                            quest_data.set(Some(QuestViewData {
+                                                kind,
+                                                title: label.clone(),
+                                                description,
+                                                status: status_str.to_string(),
+                                                steward_name,
+                                                audience_count,
+                                                proofs,
+                                                posted_ago: String::new(),
+                                                heat,
+                                                attention_peers,
+                                                total_attention_duration,
+                                                pledged_tokens,
+                                                stewardship_chain,
+                                                attention_items,
+                                                intention_id: artifact.id,
+                                            }));
+
+                                            // Set editor meta for topbar
+                                            workspace.write().editor.meta.steward_name = steward_for_meta;
+                                            workspace.write().editor.meta.audience_count = audience_count;
+                                            workspace.write().editor.title = label.clone();
+                                        }
                                     }
                                 }
                             }
