@@ -4,6 +4,7 @@ use crate::attention::{AttentionDocument, AttentionEventId, QuestAttention};
 use crate::attention_tip::{AttentionTip, AttentionTipDocument};
 use crate::certificate::CertificateDocument;
 use crate::fraud_evidence::{FraudEvidenceDocument, FraudRecord};
+use crate::humanness::HumannessDocument;
 use crate::quest::QuestId;
 use crate::witness_roster::WitnessRosterDocument;
 use indras_artifacts::attention::certificate::{QuorumCertificate, WitnessSignature};
@@ -15,6 +16,24 @@ use indras_network::document::Document;
 use indras_network::error::{IndraError, Result};
 use indras_network::member::MemberId;
 use indras_network::Realm;
+use std::collections::HashMap;
+
+/// Quest attention weighted by humanness freshness.
+///
+/// Each member's attention contribution is multiplied by their humanness
+/// freshness (0.0–1.0). Fresh attestation = full weight, stale = reduced,
+/// absent = zero. This makes Sybil accounts' attention invisible.
+#[derive(Debug, Clone)]
+pub struct WeightedQuestAttention {
+    /// The quest.
+    pub quest_id: QuestId,
+    /// Raw total attention (unweighted, same as `QuestAttention`).
+    pub raw_attention_millis: u64,
+    /// Weighted total: sum of each member's (millis × freshness).
+    pub weighted_attention_millis: f64,
+    /// Per-member breakdown: (raw_millis, freshness, weighted_millis).
+    pub by_member: HashMap<MemberId, (u64, f64, f64)>,
+}
 
 /// Attention tracking extension trait for Realm.
 pub trait RealmAttention {
@@ -56,6 +75,13 @@ pub trait RealmAttention {
         &self,
         quest_id: &QuestId,
     ) -> Result<QuestAttention>;
+
+    /// Get quests ranked by humanness-weighted attention.
+    ///
+    /// Each member's attention is multiplied by their humanness freshness
+    /// (0.0–1.0). Members without recent attestation contribute zero.
+    /// This makes Sybil accounts' attention invisible without banning them.
+    async fn quests_by_weighted_attention(&self) -> Result<Vec<WeightedQuestAttention>>;
 
     /// Get the attention tip document (chain tip advertisements).
     async fn attention_tips(&self) -> Result<Document<AttentionTipDocument>>;
@@ -125,6 +151,47 @@ pub trait RealmAttention {
     ) -> Result<ChainedSwitchEvent>;
 }
 
+/// Ensure a witness roster exists for the given scope.
+///
+/// If no roster exists yet, populates it from current realm members
+/// (excluding the author) and computes the BFT quorum threshold.
+/// Returns `(roster_members, k)` for callers that need the threshold.
+async fn ensure_witness_roster(
+    realm: &Realm,
+    scope: &ArtifactId,
+    author: MemberId,
+) -> Result<()> {
+    let roster_doc = realm.document::<WitnessRosterDocument>("witness-roster").await?;
+
+    // Check if roster already exists for this scope
+    let has_roster = !roster_doc.read().await.get_roster(scope).is_empty();
+    if has_roster {
+        return Ok(());
+    }
+
+    // Get all realm members, exclude the author
+    let members = realm.member_list().await?;
+    let witnesses: Vec<MemberId> = members
+        .iter()
+        .map(|m| m.id())
+        .filter(|id| *id != author)
+        .collect();
+
+    if witnesses.is_empty() {
+        return Ok(()); // Solo participant — no witnesses possible
+    }
+
+    // Store the roster
+    let scope_clone = *scope;
+    roster_doc
+        .update(|d| {
+            d.set_roster(scope_clone, witnesses);
+        })
+        .await?;
+
+    Ok(())
+}
+
 impl RealmAttention for Realm {
     async fn attention(&self) -> Result<Document<AttentionDocument>> {
         self.document("attention").await
@@ -170,6 +237,46 @@ impl RealmAttention for Realm {
     async fn quest_attention(&self, quest_id: &QuestId) -> Result<QuestAttention> {
         let doc = self.attention().await?;
         Ok(doc.read().await.quest_attention(quest_id, None))
+    }
+
+    async fn quests_by_weighted_attention(&self) -> Result<Vec<WeightedQuestAttention>> {
+        let attention_doc = self.attention().await?;
+        let raw_rankings = attention_doc.read().await.quests_by_attention(None);
+
+        let humanness_doc: Document<HumannessDocument> = self.document("_humanness").await?;
+        let humanness_guard = humanness_doc.read().await;
+        let now = chrono::Utc::now().timestamp_millis();
+
+        let mut weighted: Vec<WeightedQuestAttention> = raw_rankings
+            .into_iter()
+            .map(|qa| {
+                let mut by_member = HashMap::new();
+                let mut weighted_total = 0.0_f64;
+
+                for (member, raw_millis) in &qa.attention_by_member {
+                    let freshness = humanness_guard.freshness_at(member, now);
+                    let w = *raw_millis as f64 * freshness;
+                    by_member.insert(*member, (*raw_millis, freshness, w));
+                    weighted_total += w;
+                }
+
+                WeightedQuestAttention {
+                    quest_id: qa.quest_id,
+                    raw_attention_millis: qa.total_attention_millis,
+                    weighted_attention_millis: weighted_total,
+                    by_member,
+                }
+            })
+            .collect();
+
+        // Sort by weighted attention (highest first)
+        weighted.sort_by(|a, b| {
+            b.weighted_attention_millis
+                .partial_cmp(&a.weighted_attention_millis)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        Ok(weighted)
     }
 
     async fn attention_tips(&self) -> Result<Document<AttentionTipDocument>> {
@@ -237,6 +344,11 @@ impl RealmAttention for Realm {
         author: MemberId,
         identity: &PQIdentity,
     ) -> Result<(ChainedSwitchEvent, AuthorState)> {
+        // Auto-populate witness roster for the target scope
+        if let Some(scope) = &to {
+            ensure_witness_roster(self, scope, author).await?;
+        }
+
         let now = chrono::Utc::now().timestamp_millis();
 
         // Create genesis event: seq=0, from=None, prev=zeros
@@ -279,6 +391,11 @@ impl RealmAttention for Realm {
         identity: &PQIdentity,
         author_state: &mut AuthorState,
     ) -> Result<ChainedSwitchEvent> {
+        // Auto-populate witness roster for the target scope
+        if let Some(scope) = &to {
+            ensure_witness_roster(self, scope, author).await?;
+        }
+
         let now = chrono::Utc::now().timestamp_millis();
         let seq = author_state.latest_seq + 1;
 

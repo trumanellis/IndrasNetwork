@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 480" font-family="system-ui, -apple-system, sans-serif">
+  <defs>
+    <linearGradient id="highlight" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#e8f0fe"/>
+      <stop offset="100%" stop-color="#d2e3fc"/>
+    </linearGradient>
+    <linearGradient id="base" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f8f9fa"/>
+      <stop offset="100%" stop-color="#eef0f2"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Legend -->
+  <rect x="490" y="8" width="14" height="14" rx="3" fill="url(#highlight)" stroke="#4285f4" stroke-width="1.5"/>
+  <text x="510" y="19" font-size="12" fill="#5f6368">= attention ledger</text>
+
+  <!-- Layer 7: indras-sync-engine (highlighted) -->
+  <rect x="20" y="32" width="640" height="62" rx="6" fill="url(#highlight)" stroke="#4285f4" stroke-width="2"/>
+  <text x="36" y="55" font-size="15" font-weight="bold" fill="#1a73e8">indras-sync-engine</text>
+  <text x="36" y="75" font-size="11.5" fill="#5f6368">Application layer — quests, blessings, attention, tokens, humanness, messaging</text>
+
+  <!-- Layer 6: indras-artifacts (highlighted) -->
+  <rect x="20" y="102" width="640" height="62" rx="6" fill="url(#highlight)" stroke="#4285f4" stroke-width="2"/>
+  <text x="36" y="125" font-size="15" font-weight="bold" fill="#1a73e8">indras-artifacts</text>
+  <text x="36" y="145" font-size="11.5" fill="#5f6368">Domain types — artifact DAG, access control, attention events, token model</text>
+
+  <!-- Layer 5: indras-network -->
+  <rect x="20" y="172" width="640" height="62" rx="6" fill="url(#base)" stroke="#dadce0" stroke-width="1.5"/>
+  <text x="36" y="195" font-size="15" font-weight="bold" fill="#202124">indras-network</text>
+  <text x="36" y="215" font-size="11.5" fill="#5f6368">High-level API — Realm, Document&lt;T&gt;, Artifact, member management</text>
+
+  <!-- Layer 4: indras-sync -->
+  <rect x="20" y="242" width="640" height="62" rx="6" fill="url(#base)" stroke="#dadce0" stroke-width="1.5"/>
+  <text x="36" y="265" font-size="15" font-weight="bold" fill="#202124">indras-sync</text>
+  <text x="36" y="285" font-size="11.5" fill="#5f6368">CRDT sync — Automerge document protocol, store-and-forward event delivery</text>
+
+  <!-- Layer 3: split - indras-transport + indras-storage -->
+  <rect x="20" y="312" width="312" height="62" rx="6" fill="url(#base)" stroke="#dadce0" stroke-width="1.5"/>
+  <text x="36" y="335" font-size="15" font-weight="bold" fill="#202124">indras-transport</text>
+  <text x="36" y="355" font-size="11.5" fill="#5f6368">QUIC via iroh, hole punching</text>
+
+  <rect x="348" y="312" width="312" height="62" rx="6" fill="url(#base)" stroke="#dadce0" stroke-width="1.5"/>
+  <text x="364" y="335" font-size="15" font-weight="bold" fill="#202124">indras-storage</text>
+  <text x="364" y="355" font-size="11.5" fill="#5f6368">Append-only logs, redb, blobs</text>
+
+  <!-- Layer 2: indras-crypto -->
+  <rect x="20" y="382" width="640" height="62" rx="6" fill="url(#base)" stroke="#dadce0" stroke-width="1.5"/>
+  <text x="36" y="405" font-size="15" font-weight="bold" fill="#202124">indras-crypto</text>
+  <text x="36" y="425" font-size="11.5" fill="#5f6368">Post-quantum cryptography — ML-DSA-65 signatures, ML-KEM-768, ChaCha20</text>
+
+  <!-- Layer 1: indras-core -->
+  <rect x="20" y="452" width="640" height="24" rx="6" fill="url(#base)" stroke="#dadce0" stroke-width="1.5"/>
+  <text x="36" y="469" font-size="12" font-weight="bold" fill="#202124">indras-core</text>
+  <text x="150" y="469" font-size="11" fill="#5f6368">Core traits — PeerIdentity, InterfaceEvent, Clock, Packet</text>
+</svg>

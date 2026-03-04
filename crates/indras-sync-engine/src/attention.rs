@@ -367,6 +367,47 @@ impl AttentionDocument {
         self.calculate_attention(as_of)
     }
 
+    /// Compute raw attention milliseconds from token event indices.
+    ///
+    /// Each index in `event_indices` refers to a focus-start event in the
+    /// sorted event log. The duration of each window is measured from that
+    /// event's timestamp to the next event for the same member (or `as_of`
+    /// if it's the most recent).
+    ///
+    /// This is the backing-asset computation for `TokenOfGratitude`:
+    /// `event_indices` records which focus sessions the token represents,
+    /// and this method calculates their total duration in milliseconds.
+    pub fn compute_attention_millis(
+        &self,
+        event_indices: &[usize],
+        as_of: Option<i64>,
+    ) -> u64 {
+        let as_of = as_of.unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+
+        let mut sorted_events = self.events.clone();
+        sorted_events.sort();
+
+        let mut total: u64 = 0;
+
+        for &idx in event_indices {
+            let Some(event) = sorted_events.get(idx) else {
+                continue; // Out-of-bounds index — skip
+            };
+
+            // Find the next event for this member after this one
+            let end_time = sorted_events[idx + 1..]
+                .iter()
+                .find(|e| e.member == event.member)
+                .map(|e| e.timestamp_millis)
+                .unwrap_or(as_of);
+
+            let duration = (end_time - event.timestamp_millis).max(0) as u64;
+            total += duration;
+        }
+
+        total
+    }
+
     /// Store a chained (PQ-signed, hash-linked) attention event.
     pub fn store_chain_event(&mut self, event: ChainedSwitchEvent) {
         self.chain_events.entry(event.author).or_default().push(event);

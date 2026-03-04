@@ -1,10 +1,17 @@
 //! Extension trait adding token of gratitude methods to Realm.
+//!
+//! Includes the attention→gratitude bridge: `token_attention_millis()` computes
+//! the raw attention duration backing a token, and `token_subjective_value()`
+//! combines it with trust and humanness for observer-specific valuation.
 
+use crate::attention::AttentionDocument;
 use crate::content::SyncContent;
+use crate::humanness::HumannessDocument;
 use crate::quest::QuestId;
 use crate::token_of_gratitude::{TokenOfGratitude, TokenOfGratitudeDocument, TokenOfGratitudeId};
+use crate::token_valuation::{SubjectiveTokenValue, subjective_value};
 use indras_network::document::Document;
-use indras_network::error::Result;
+use indras_network::error::{IndraError, Result};
 use indras_network::member::MemberId;
 use indras_network::Realm;
 
@@ -44,6 +51,31 @@ pub trait RealmTokens {
         &self,
         member: &MemberId,
     ) -> Result<Vec<TokenOfGratitude>>;
+
+    /// Compute raw attention milliseconds backing a token.
+    ///
+    /// Reads the attention document and calculates the total duration
+    /// of focus sessions referenced by the token's `event_indices`.
+    /// This is the objective component of token value — same for all observers.
+    async fn token_attention_millis(
+        &self,
+        token_id: &TokenOfGratitudeId,
+    ) -> Result<u64>;
+
+    /// Compute the subjective value of a token from the local node's perspective.
+    ///
+    /// Combines:
+    /// - Raw attention millis (from the attention document)
+    /// - Trust chain weight (from the provided sentiment function)
+    /// - Humanness freshness (from the humanness document)
+    ///
+    /// The `sentiment_fn` is observer-specific: it returns the local node's
+    /// sentiment toward a given member, or `None` if unknown.
+    async fn token_subjective_value(
+        &self,
+        token_id: &TokenOfGratitudeId,
+        sentiment_fn: &dyn Fn(&MemberId) -> Option<f64>,
+    ) -> Result<SubjectiveTokenValue>;
 }
 
 impl RealmTokens for Realm {
@@ -173,5 +205,55 @@ impl RealmTokens for Realm {
             .into_iter()
             .cloned()
             .collect())
+    }
+
+    async fn token_attention_millis(
+        &self,
+        token_id: &TokenOfGratitudeId,
+    ) -> Result<u64> {
+        let token_doc = self.tokens().await?;
+        let token_guard = token_doc.read().await;
+        let token = token_guard.find(token_id).ok_or_else(|| {
+            IndraError::InvalidOperation("token not found".to_string())
+        })?;
+        let event_indices = token.event_indices.clone();
+        drop(token_guard);
+
+        let attention_doc: Document<AttentionDocument> = self.document("attention").await?;
+        let attention_guard = attention_doc.read().await;
+        Ok(attention_guard.compute_attention_millis(&event_indices, None))
+    }
+
+    async fn token_subjective_value(
+        &self,
+        token_id: &TokenOfGratitudeId,
+        sentiment_fn: &dyn Fn(&MemberId) -> Option<f64>,
+    ) -> Result<SubjectiveTokenValue> {
+        // 1. Get the token
+        let token_doc = self.tokens().await?;
+        let token_guard = token_doc.read().await;
+        let token = token_guard.find(token_id).ok_or_else(|| {
+            IndraError::InvalidOperation("token not found".to_string())
+        })?.clone();
+        drop(token_guard);
+
+        // 2. Compute raw attention millis
+        let attention_doc: Document<AttentionDocument> = self.document("attention").await?;
+        let attention_guard = attention_doc.read().await;
+        let raw_millis = attention_guard.compute_attention_millis(&token.event_indices, None);
+        drop(attention_guard);
+
+        // 3. Get humanness freshness for the blesser
+        let humanness_doc: Document<HumannessDocument> = self.document("_humanness").await?;
+        let humanness_guard = humanness_doc.read().await;
+        let now = chrono::Utc::now().timestamp_millis();
+        let humanness_fn = |member: &MemberId| -> f64 {
+            humanness_guard.freshness_at(member, now)
+        };
+
+        // 4. Compute subjective value
+        let value = subjective_value(&token, raw_millis, sentiment_fn, humanness_fn);
+
+        Ok(value)
     }
 }
