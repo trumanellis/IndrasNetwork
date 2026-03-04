@@ -1,0 +1,1623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SyncEngine · The Gift Cycle</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: #09090b; --bg2: #111114; --card: #151518; --hover: #1c1c20;
+  --tx: #fafafa; --t2: #a0a0ab; --mt: #52525b; --gh: #3f3f46;
+  --bd: #27272a; --b2: #1c1c20;
+  --ac: #818cf8; --ac2: #c084fc; --ac3: #f472b6;
+  --ok: #34d399; --wn: #fbbf24; --er: #f87171;
+  --font: 'Inter', -apple-system, system-ui, sans-serif;
+  --mono: 'JetBrains Mono', monospace;
+  --radius: 12px;
+
+  /* Stage colors */
+  --stage-intention: #818cf8;
+  --stage-attention: #fbbf24;
+  --stage-service: #34d399;
+  --stage-blessing: #c084fc;
+  --stage-token: #f472b6;
+  --stage-renewal: #818cf8;
+
+  /* Member colors */
+  --love: #ff6b9d; --joy: #ffd93d; --peace: #6bcfff;
+  --grace: #b19cd9; --hope: #98d8aa; --faith: #ffb347;
+}
+
+body {
+  font-family: var(--font);
+  font-size: 15px; line-height: 1.7;
+  background: var(--bg);
+  color: var(--tx);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* Dot grid */
+body::before {
+  content: ''; position: fixed; inset: 0;
+  background-image: radial-gradient(circle, rgba(129,140,248,0.05) 1px, transparent 1px);
+  background-size: 24px 24px;
+  pointer-events: none; z-index: 0;
+}
+
+/* Scroll container */
+.scroll { position: relative; z-index: 10; max-width: 900px; margin: 0 auto; padding: 0 32px; }
+
+/* ========================================================================
+   HERO
+   ======================================================================== */
+
+.hero {
+  padding: 100px 0 60px;
+  text-align: center;
+  position: relative;
+}
+.hero::before {
+  content: ''; position: absolute;
+  top: 20px; left: 50%; transform: translateX(-50%);
+  width: 600px; height: 400px;
+  background: radial-gradient(circle, rgba(129,140,248,0.06) 0%, rgba(192,132,252,0.03) 40%, transparent 70%);
+  border-radius: 50%; pointer-events: none;
+}
+.hero-eyebrow {
+  font-family: var(--mono); font-size: 11px;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--ac); margin-bottom: 20px;
+}
+.hero-title {
+  font-size: clamp(36px, 5vw, 60px);
+  font-weight: 800; letter-spacing: -0.04em; line-height: 1.05;
+  margin-bottom: 20px;
+}
+.hero-title em {
+  font-style: normal;
+  background: linear-gradient(135deg, var(--ac), var(--ac2), var(--ac3));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
+.hero-sub {
+  font-size: 16px; color: var(--t2); max-width: 540px;
+  margin: 0 auto 40px; line-height: 1.8; font-weight: 300;
+}
+
+/* ========================================================================
+   CYCLE RING — the central visualization
+   ======================================================================== */
+
+.cycle-ring {
+  position: relative;
+  width: 100%; max-width: 700px;
+  aspect-ratio: 1;
+  margin: 0 auto 80px;
+}
+
+/* The connecting arcs */
+.cycle-ring svg {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+}
+
+/* Stage nodes */
+.cycle-node {
+  position: absolute;
+  width: 120px; height: 120px;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 5;
+}
+.cycle-node:hover { transform: scale(1.08); }
+.cycle-node.active { transform: scale(1.12); }
+
+.node-orb {
+  width: 64px; height: 64px;
+  border-radius: 16px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 28px;
+  position: relative;
+  transition: all 0.4s;
+  border: 2px solid;
+}
+.node-orb::before {
+  content: ''; position: absolute; inset: -6px;
+  border-radius: 20px;
+  border: 1px solid;
+  opacity: 0; transition: all 0.4s;
+}
+.cycle-node.active .node-orb::before { opacity: 0.3; }
+.cycle-node.active .node-orb { box-shadow: 0 0 30px; }
+
+.node-label {
+  font-family: var(--mono); font-size: 10px; font-weight: 500;
+  letter-spacing: 0.06em; margin-top: 8px;
+  text-transform: uppercase; transition: color 0.3s;
+}
+
+/* Position nodes in a hexagonal ring */
+.cycle-node:nth-child(1) { top: 0%; left: 50%; transform: translateX(-50%); }
+.cycle-node:nth-child(2) { top: 18%; right: 5%; }
+.cycle-node:nth-child(3) { bottom: 18%; right: 5%; }
+.cycle-node:nth-child(4) { bottom: 0%; left: 50%; transform: translateX(-50%); }
+.cycle-node:nth-child(5) { bottom: 18%; left: 5%; }
+.cycle-node:nth-child(6) { top: 18%; left: 5%; }
+
+/* Hover overrides */
+.cycle-node:nth-child(1):hover, .cycle-node:nth-child(1).active { transform: translateX(-50%) scale(1.1); }
+.cycle-node:nth-child(4):hover, .cycle-node:nth-child(4).active { transform: translateX(-50%) scale(1.1); }
+
+/* Center label */
+.cycle-center {
+  position: absolute;
+  top: 50%; left: 50%; transform: translate(-50%, -50%);
+  text-align: center; z-index: 6; pointer-events: none;
+}
+.cycle-center-label {
+  font-size: 13px; font-weight: 600;
+  color: var(--mt); letter-spacing: 0.06em;
+}
+.cycle-center-realm {
+  font-family: var(--mono); font-size: 10px;
+  color: var(--gh); margin-top: 2px;
+}
+
+/* Arrow tip between nodes */
+.arrow-pulse {
+  animation: arrow-drift 3s ease-in-out infinite;
+}
+@keyframes arrow-drift {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.8; }
+}
+
+/* ========================================================================
+   STAGE DETAIL PANELS
+   ======================================================================== */
+
+.stage-detail {
+  margin-bottom: 80px;
+}
+@keyframes fadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+
+.stage-header {
+  display: flex; align-items: center; gap: 16px;
+  margin-bottom: 32px; padding-bottom: 20px;
+  border-bottom: 1px solid var(--bd);
+}
+.stage-icon {
+  width: 48px; height: 48px; border-radius: 14px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 24px; border: 2px solid; flex-shrink: 0;
+}
+.stage-title-group { flex: 1; }
+.stage-num {
+  font-family: var(--mono); font-size: 10px;
+  letter-spacing: 0.12em; text-transform: uppercase;
+}
+.stage-title {
+  font-size: 28px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.2;
+}
+.stage-arrow {
+  font-family: var(--mono); font-size: 12px;
+  color: var(--mt); letter-spacing: 0.08em;
+}
+
+/* Stage body */
+.stage-body { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.stage-body-full { grid-column: 1 / -1; }
+
+/* Description panel */
+.desc-panel {
+  background: var(--bg2); border: 1px solid var(--bd);
+  border-radius: var(--radius); padding: 24px;
+}
+.desc-panel h4 {
+  font-family: var(--mono); font-size: 10px;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--mt); margin-bottom: 12px;
+}
+.desc-panel p { font-size: 14px; color: var(--t2); line-height: 1.8; }
+.desc-panel p strong { color: var(--tx); font-weight: 600; }
+
+/* UI mock panel */
+.ui-mock {
+  background: var(--card); border: 1px solid var(--bd);
+  border-radius: var(--radius); overflow: hidden;
+  position: relative;
+}
+.ui-mock::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(129,140,248,0.2), transparent);
+}
+.ui-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 16px;
+  background: var(--bg2); border-bottom: 1px solid var(--bd);
+}
+.ui-bar-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--gh); }
+.ui-bar-title {
+  font-family: var(--mono); font-size: 10px;
+  color: var(--mt); letter-spacing: 0.05em; margin-left: 4px;
+}
+.ui-content { padding: 20px; }
+
+/* Mock form */
+.mock-field { margin-bottom: 14px; }
+.mock-label { font-size: 12px; font-weight: 500; color: var(--t2); margin-bottom: 4px; }
+.mock-input {
+  width: 100%; height: 36px; padding: 0 12px;
+  background: var(--bg); border: 1px solid var(--bd);
+  border-radius: 8px; color: var(--tx);
+  font-family: var(--font); font-size: 13px;
+  display: flex; align-items: center;
+}
+.mock-textarea {
+  width: 100%; height: 80px; padding: 10px 12px;
+  background: var(--bg); border: 1px solid var(--bd);
+  border-radius: 8px; color: var(--t2);
+  font-family: var(--font); font-size: 13px;
+  line-height: 1.5;
+}
+.mock-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 20px; border: none; border-radius: 8px;
+  font-family: var(--font); font-size: 13px; font-weight: 600;
+  cursor: default; transition: all 0.15s;
+}
+.mock-btn-primary { background: var(--ac); color: var(--bg); }
+.mock-btn-outline { background: transparent; color: var(--ac); border: 1px solid var(--ac); }
+.mock-btn-success { background: var(--ok); color: var(--bg); }
+.mock-btn-warm { background: var(--wn); color: var(--bg); }
+.mock-btn-glow {
+  background: linear-gradient(135deg, var(--ac), var(--ac2));
+  color: white;
+  box-shadow: 0 0 20px rgba(129,140,248,0.2);
+}
+
+/* Attention timer */
+.attn-timer {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 18px;
+  background: rgba(251,191,36,0.04);
+  border: 1px solid rgba(251,191,36,0.15);
+  border-radius: 10px; margin-bottom: 14px;
+}
+.attn-pulse {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--wn);
+  animation: attn-beat 2s ease-in-out infinite;
+}
+@keyframes attn-beat {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(251,191,36,0.3); }
+  50% { box-shadow: 0 0 0 8px rgba(251,191,36,0); }
+}
+.attn-label { font-family: var(--mono); font-size: 11px; color: var(--wn); flex: 1; }
+.attn-value { font-family: var(--mono); font-size: 18px; font-weight: 600; color: var(--wn); }
+
+/* Proof card */
+.proof-card {
+  display: flex; gap: 12px; align-items: center;
+  padding: 12px 16px;
+  background: rgba(52,211,153,0.03);
+  border: 1px solid rgba(52,211,153,0.12);
+  border-radius: 10px;
+}
+.proof-thumb {
+  width: 44px; height: 44px; border-radius: 8px;
+  background: var(--bg); display: flex; align-items: center;
+  justify-content: center; font-size: 20px; flex-shrink: 0;
+}
+.proof-info { flex: 1; }
+.proof-name { font-size: 13px; font-weight: 600; color: var(--tx); }
+.proof-meta { font-family: var(--mono); font-size: 10px; color: var(--mt); }
+
+/* Blessing visualization */
+.blessing-visual {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 16px; padding: 24px;
+  background: rgba(192,132,252,0.03);
+  border: 1px solid rgba(192,132,252,0.1);
+  border-radius: 14px;
+}
+.blessing-flow {
+  display: flex; align-items: center; gap: 12px;
+}
+.blessing-avatar {
+  width: 40px; height: 40px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 700;
+  position: relative;
+}
+.blessing-avatar::after {
+  content: ''; position: absolute; inset: -3px;
+  border-radius: 50%; border: 2px solid currentColor; opacity: 0.3;
+}
+.blessing-arrow {
+  font-size: 18px; color: var(--ac2);
+  animation: blessing-pulse 2s ease-in-out infinite;
+}
+@keyframes blessing-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.2); }
+}
+.blessing-label { font-family: var(--mono); font-size: 11px; color: var(--ac2); }
+
+/* Token card */
+.token-card {
+  padding: 20px;
+  background: linear-gradient(135deg, rgba(244,114,182,0.04), rgba(129,140,248,0.04));
+  border: 1px solid rgba(244,114,182,0.12);
+  border-radius: 14px;
+  position: relative; overflow: hidden;
+}
+.token-card::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--ac3), var(--ac2), var(--ac));
+}
+.token-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.token-id { font-family: var(--mono); font-size: 11px; color: var(--ac3); }
+.token-state {
+  font-family: var(--mono); font-size: 10px; font-weight: 500;
+  padding: 2px 10px; border-radius: 100px;
+  background: rgba(244,114,182,0.1); color: var(--ac3);
+}
+.token-row {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.03);
+}
+.token-row:last-child { border-bottom: none; }
+.token-key { font-size: 12px; color: var(--mt); }
+.token-val { font-family: var(--mono); font-size: 12px; color: var(--t2); }
+.token-val em {
+  font-style: normal;
+  background: linear-gradient(135deg, var(--ac3), var(--ac2));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+  font-weight: 600;
+}
+
+/* Steward chain */
+.steward-chain {
+  display: flex; align-items: center; gap: 6px;
+  margin-top: 14px; padding-top: 14px;
+  border-top: 1px solid rgba(255,255,255,0.04);
+}
+.steward-chain-label { font-size: 11px; color: var(--mt); margin-right: 4px; }
+.steward-dot {
+  width: 28px; height: 28px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 700;
+}
+.steward-arrow { color: var(--gh); font-size: 12px; }
+
+/* Data structure panel */
+.data-panel {
+  background: var(--bg2); border: 1px solid var(--bd);
+  border-radius: var(--radius); overflow: hidden;
+}
+.data-panel-header {
+  padding: 10px 16px;
+  background: var(--bg); border-bottom: 1px solid var(--bd);
+  font-family: var(--mono); font-size: 10px;
+  color: var(--mt); letter-spacing: 0.08em;
+}
+.data-panel-body {
+  padding: 16px;
+  font-family: var(--mono); font-size: 11px;
+  color: var(--t2); line-height: 1.9;
+  white-space: pre-wrap;
+}
+.dk { color: var(--ac); }
+.ds { color: var(--ok); }
+.dv { color: var(--wn); }
+.dc { color: var(--gh); font-style: italic; }
+
+/* Valuation formula */
+.formula {
+  padding: 20px 24px;
+  background: var(--bg2); border: 1px solid var(--bd);
+  border-radius: var(--radius);
+  font-family: var(--mono); font-size: 13px;
+  color: var(--t2); text-align: center;
+  line-height: 2;
+}
+.formula em {
+  font-style: normal; font-weight: 600;
+  background: linear-gradient(135deg, var(--ac3), var(--ac2));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
+.formula .dim { color: var(--gh); }
+
+/* ========================================================================
+   SECTION DIVIDERS
+   ======================================================================== */
+
+.divider {
+  display: flex; align-items: center; gap: 12px;
+  margin: 64px 0 32px;
+}
+.divider-line { flex: 1; height: 1px; background: linear-gradient(to right, var(--bd), transparent); }
+.divider-label {
+  font-family: var(--mono); font-size: 10px;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--mt);
+}
+
+/* ========================================================================
+   NARRATIVE FLOW — walkthrough with actors
+   ======================================================================== */
+
+.narrative {
+  padding: 20px 24px;
+  background: var(--bg2); border: 1px solid var(--bd);
+  border-left: 3px solid; border-radius: var(--radius);
+  margin-bottom: 24px;
+}
+.narrative p { font-size: 14px; color: var(--t2); line-height: 1.8; }
+.narrative p strong { color: var(--tx); font-weight: 600; }
+.narrative .actor {
+  font-weight: 600;
+  padding: 1px 6px; border-radius: 4px;
+  font-size: 13px;
+}
+.actor-zephyr { background: rgba(107,207,255,0.1); color: var(--peace); }
+.actor-ember { background: rgba(255,107,157,0.1); color: var(--love); }
+.actor-sage { background: rgba(152,216,170,0.1); color: var(--hope); }
+
+/* ========================================================================
+   TAGGED TOKEN BADGE (new)
+   ======================================================================== */
+
+.tagged-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 14px; border-radius: 10px;
+  background: linear-gradient(135deg, rgba(244,114,182,0.06), rgba(129,140,248,0.06));
+  border: 1px solid rgba(244,114,182,0.18);
+  font-family: var(--mono); font-size: 10px;
+  animation: tagged-shimmer 4s ease-in-out infinite;
+}
+@keyframes tagged-shimmer {
+  0%, 100% { border-color: rgba(244,114,182,0.18); }
+  50% { border-color: rgba(244,114,182,0.35); }
+}
+.tagged-badge .tagged-icon { font-size: 13px; }
+.tagged-badge .tagged-label { color: var(--ac3); font-weight: 500; }
+.tagged-badge .tagged-val { color: var(--t2); }
+
+/* Tag connector line */
+.tag-connector {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 10px 0;
+  color: var(--gh);
+}
+.tag-connector-line {
+  width: 40px; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--ac3), transparent);
+}
+
+/* ========================================================================
+   FOOTER
+   ======================================================================== */
+
+.footer {
+  margin-top: 60px; padding: 32px 0 52px;
+  text-align: center;
+  position: relative;
+}
+.footer::before {
+  content: ''; position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+  width: 120px; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--bd), transparent);
+}
+.footer-line { font-size: 14px; font-weight: 500; color: var(--t2); margin-bottom: 6px; }
+.footer-sub { font-family: var(--mono); font-size: 9px; color: var(--mt); letter-spacing: 0.15em; text-transform: uppercase; }
+
+/* ===== Responsive ===== */
+@media (max-width: 768px) {
+  .scroll { padding: 0 20px; }
+  .stage-body { grid-template-columns: 1fr; }
+  .cycle-ring { display: none; }
+  .hero-title { font-size: 32px; }
+}
+</style>
+</head>
+<body>
+
+<div class="scroll">
+
+  <!-- ===== HERO ===== -->
+  <header class="hero">
+    <div class="hero-eyebrow">Synchronicity Engine · Gift Economy Cycle</div>
+    <h1 class="hero-title">Intention → Attention →<br><em>Gratitude</em></h1>
+    <p class="hero-sub">The metabolic loop of the Synchronicity Engine. Someone voices an intention, peers invest attention, service is rendered and proven, the creator blesses the work, and gratitude crystallizes into a token that feeds new intentions. SyncEngine is the application layer built on Indra's Network.</p>
+  </header>
+
+  <!-- ===== CYCLE RING ===== -->
+  <div class="cycle-ring" id="cycleRing">
+    <svg viewBox="0 0 700 700" fill="none">
+      <!-- Connecting arcs between nodes (hexagonal path) -->
+      <path d="M350 80 L590 200" stroke="url(#g1)" stroke-width="1.5" stroke-dasharray="6 4" class="arrow-pulse"/>
+      <path d="M590 200 L590 500" stroke="url(#g2)" stroke-width="1.5" stroke-dasharray="6 4" class="arrow-pulse" style="animation-delay:0.5s"/>
+      <path d="M590 500 L350 620" stroke="url(#g3)" stroke-width="1.5" stroke-dasharray="6 4" class="arrow-pulse" style="animation-delay:1s"/>
+      <path d="M350 620 L110 500" stroke="url(#g4)" stroke-width="1.5" stroke-dasharray="6 4" class="arrow-pulse" style="animation-delay:1.5s"/>
+      <path d="M110 500 L110 200" stroke="url(#g5)" stroke-width="1.5" stroke-dasharray="6 4" class="arrow-pulse" style="animation-delay:2s"/>
+      <path d="M110 200 L350 80" stroke="url(#g6)" stroke-width="1.5" stroke-dasharray="6 4" class="arrow-pulse" style="animation-delay:2.5s"/>
+      <!-- Gradients -->
+      <defs>
+        <linearGradient id="g1"><stop stop-color="#818cf8"/><stop offset="1" stop-color="#fbbf24"/></linearGradient>
+        <linearGradient id="g2"><stop stop-color="#fbbf24"/><stop offset="1" stop-color="#34d399"/></linearGradient>
+        <linearGradient id="g3"><stop stop-color="#34d399"/><stop offset="1" stop-color="#c084fc"/></linearGradient>
+        <linearGradient id="g4"><stop stop-color="#c084fc"/><stop offset="1" stop-color="#f472b6"/></linearGradient>
+        <linearGradient id="g5"><stop stop-color="#f472b6"/><stop offset="1" stop-color="#818cf8"/></linearGradient>
+        <linearGradient id="g6"><stop stop-color="#818cf8"/><stop offset="1" stop-color="#818cf8"/></linearGradient>
+      </defs>
+    </svg>
+
+    <!-- 6 stage nodes -->
+    <div class="cycle-node active" data-stage="intention" onclick="showStage('intention')">
+      <div class="node-orb" style="border-color:var(--stage-intention);background:rgba(129,140,248,0.06);color:var(--stage-intention);box-shadow:0 0 20px rgba(129,140,248,0.15)">💡</div>
+      <div class="node-label" style="color:var(--stage-intention)">Intention</div>
+    </div>
+    <div class="cycle-node" data-stage="attention" onclick="showStage('attention')">
+      <div class="node-orb" style="border-color:var(--stage-attention);background:rgba(251,191,36,0.06);color:var(--stage-attention)">👁</div>
+      <div class="node-label" style="color:var(--stage-attention)">Attention</div>
+    </div>
+    <div class="cycle-node" data-stage="service" onclick="showStage('service')">
+      <div class="node-orb" style="border-color:var(--stage-service);background:rgba(52,211,153,0.06);color:var(--stage-service)">🤲</div>
+      <div class="node-label" style="color:var(--stage-service)">Act of Service</div>
+    </div>
+    <div class="cycle-node" data-stage="blessing" onclick="showStage('blessing')">
+      <div class="node-orb" style="border-color:var(--stage-blessing);background:rgba(192,132,252,0.06);color:var(--stage-blessing)">✨</div>
+      <div class="node-label" style="color:var(--stage-blessing)">Blessing</div>
+    </div>
+    <div class="cycle-node" data-stage="token" onclick="showStage('token')">
+      <div class="node-orb" style="border-color:var(--stage-token);background:rgba(244,114,182,0.06);color:var(--stage-token)">🪙</div>
+      <div class="node-label" style="color:var(--stage-token)">Token</div>
+    </div>
+    <div class="cycle-node" data-stage="renewal" onclick="showStage('renewal')">
+      <div class="node-orb" style="border-color:var(--stage-renewal);background:rgba(129,140,248,0.06);color:var(--stage-renewal)">🔄</div>
+      <div class="node-label" style="color:var(--stage-renewal)">Renewal</div>
+    </div>
+
+    <div class="cycle-center">
+      <div class="cycle-center-label">SyncEngine</div>
+      <div class="cycle-center-realm">The Gift Cycle</div>
+    </div>
+  </div>
+
+  <!-- ===== STAGE 1: INTENTION ===== -->
+  <div class="stage-detail" id="stage-intention">
+    <div class="stage-header">
+      <div class="stage-icon" style="border-color:var(--stage-intention);background:rgba(129,140,248,0.06);color:var(--stage-intention)">💡</div>
+      <div class="stage-title-group">
+        <div class="stage-num" style="color:var(--stage-intention)">Stage 01</div>
+        <div class="stage-title">Intention</div>
+      </div>
+      <div class="stage-arrow">→ Attention</div>
+    </div>
+
+    <div class="narrative" style="border-color:var(--peace)">
+      <p><span class="actor actor-zephyr">Zephyr</span> is working on the SyncEngine UI. They need help reviewing the new quest detail view. Zephyr opens their realm and posts an <strong>Intention</strong> — a clear ask that any peer can respond to.</p>
+    </div>
+
+    <div class="stage-body">
+      <div class="ui-mock">
+        <div class="ui-bar"><div class="ui-bar-dot"></div><div class="ui-bar-dot"></div><div class="ui-bar-dot"></div><span class="ui-bar-title">New Intention</span></div>
+        <div class="ui-content">
+          <div class="mock-field"><div class="mock-label">Title</div><div class="mock-input" style="color:var(--tx)">Review quest detail view</div></div>
+          <div class="mock-field"><div class="mock-label">Description</div><div class="mock-textarea">Please review the new quest detail layout and leave feedback on the card hierarchy, spacing, and heat visualization placement. Screenshots or annotated mockups preferred.</div></div>
+          <div style="display:flex;gap:10px;margin-top:16px"><button class="mock-btn mock-btn-primary">Post Intention</button><button class="mock-btn mock-btn-outline">Add Image</button></div>
+        </div>
+      </div>
+
+      <div class="data-panel">
+        <div class="data-panel-header">INTENTION STRUCT</div>
+        <div class="data-panel-body"><span class="dk">pub struct</span> Intention {
+    <span class="dk">id</span>: IntentionId,          <span class="dc">// 16-byte UUID</span>
+    <span class="dk">title</span>: String,
+    <span class="dk">description</span>: String,
+    <span class="dk">image</span>: Option&lt;ArtifactId&gt;,
+    <span class="dk">creator</span>: MemberId,       <span class="dc">// Zephyr's pubkey</span>
+    <span class="dk">claims</span>: Vec&lt;Claim&gt;,     <span class="dc">// initially empty</span>
+    <span class="dk">tagged_tokens</span>: Vec&lt;TokenOfGratitudeId&gt;,
+    <span class="dk">created_at_millis</span>: <span class="dv">i64</span>,
+    <span class="dk">completed_at</span>: <span class="ds">None</span>,
+    <span class="dc">// No priority field — priority is emergent.</span>
+    <span class="dc">// Heat = collective attention + tagged token weight.</span>
+}</div>
+      </div>
+    </div>
+
+    <div class="desc-panel" style="margin-top:24px">
+      <h4>What happens on the network</h4>
+      <p>The Intention is written to the realm's CRDT document via Indra's Network and broadcast via gossip to all realm members. It appears immediately for Zephyr (optimistic rendering) and materializes for peers as sync completes. <strong>There is no priority field</strong> — priority is emergent. As peers open and dwell on the intention, their collective attention accumulates as heat (0.0–1.0). Intentions that matter to the group glow brighter and rise naturally. The system discovers what's important; nobody declares it. In later revolutions, creators can also <strong>tag earned tokens</strong> to their intentions, staking gratitude as a signal that this matters to them.</p>
+    </div>
+  </div>
+
+  <!-- ===== STAGE 2: ATTENTION ===== -->
+  <div class="stage-detail" id="stage-attention">
+    <div class="stage-header">
+      <div class="stage-icon" style="border-color:var(--stage-attention);background:rgba(251,191,36,0.06);color:var(--stage-attention)">👁</div>
+      <div class="stage-title-group">
+        <div class="stage-num" style="color:var(--stage-attention)">Stage 02</div>
+        <div class="stage-title">Attention</div>
+      </div>
+      <div class="stage-arrow">→ Act of Service</div>
+    </div>
+
+    <div class="narrative" style="border-color:var(--love)">
+      <p><span class="actor actor-ember">Ember</span> sees Zephyr's intention in the realm feed. They open it and begin reading — this navigation event fires an <strong>AttentionSwitchEvent</strong>. Every moment Ember spends dwelling on this intention is tracked as dwell time. When Ember navigates away, the interval is recorded.</p>
+    </div>
+
+    <div class="stage-body">
+      <div class="ui-mock">
+        <div class="ui-bar"><div class="ui-bar-dot"></div><div class="ui-bar-dot"></div><div class="ui-bar-dot"></div><span class="ui-bar-title">Intention Detail · Ember's View</span></div>
+        <div class="ui-content">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+            <div style="width:32px;height:32px;border-radius:50%;background:rgba(107,207,255,0.15);color:var(--peace);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">Z</div>
+            <div><div style="font-size:15px;font-weight:600">Review quest detail view</div><div style="font-family:var(--mono);font-size:10px;color:var(--mt)">by Zephyr · 2h ago</div></div>
+          </div>
+          <div class="attn-timer">
+            <div class="attn-pulse"></div>
+            <span class="attn-label">Attention active</span>
+            <span class="attn-value">4:32</span>
+          </div>
+          <p style="font-size:13px;color:var(--t2);margin-bottom:14px;line-height:1.7">Please review the new quest detail layout and leave feedback on the card hierarchy, spacing, and heat visualization placement.</p>
+          <div style="display:flex;gap:10px"><button class="mock-btn mock-btn-success">Claim & Submit Proof</button></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="data-panel" style="margin-bottom:16px">
+          <div class="data-panel-header">ATTENTION SWITCH EVENT</div>
+          <div class="data-panel-body"><span class="dk">AttentionSwitchEvent</span> {
+    <span class="dk">member</span>: Ember,
+    <span class="dk">from_intention</span>: <span class="ds">None</span>,     <span class="dc">// was idle</span>
+    <span class="dk">to_intention</span>: <span class="dv">"a7f3..c9"</span>, <span class="dc">// this one</span>
+    <span class="dk">timestamp</span>: <span class="dv">1709312400000</span>,
+}</div>
+        </div>
+
+        <div class="desc-panel">
+          <h4>How attention accumulates</h4>
+          <p><strong>Navigation IS the instrument.</strong> Each time a peer switches their focus — opening an intention, moving to another, going idle — a switch event fires. Time on an intention = gap between two consecutive switch events. Attention accumulates silently until the creator releases it as a Blessing. The <strong>heat visualization</strong> (0.0–1.0) aggregates total attention across all peers, making collectively-noticed intentions visually warmer.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== STAGE 3: ACT OF SERVICE ===== -->
+  <div class="stage-detail" id="stage-service">
+    <div class="stage-header">
+      <div class="stage-icon" style="border-color:var(--stage-service);background:rgba(52,211,153,0.06);color:var(--stage-service)">🤲</div>
+      <div class="stage-title-group">
+        <div class="stage-num" style="color:var(--stage-service)">Stage 03</div>
+        <div class="stage-title">Act of Service</div>
+      </div>
+      <div class="stage-arrow">→ Blessing</div>
+    </div>
+
+    <div class="narrative" style="border-color:var(--love)">
+      <p><span class="actor actor-ember">Ember</span> decides to act. They review the quest detail view, annotate screenshots with feedback, and assemble their work into a <strong>Proof Folder</strong> — an immutable artifact collection submitted as evidence of service.</p>
+    </div>
+
+    <div class="stage-body">
+      <div class="ui-mock">
+        <div class="ui-bar"><div class="ui-bar-dot"></div><div class="ui-bar-dot"></div><div class="ui-bar-dot"></div><span class="ui-bar-title">Submit Claim · Ember</span></div>
+        <div class="ui-content">
+          <div style="font-size:14px;font-weight:600;margin-bottom:14px;color:var(--tx)">Proof of Service</div>
+          <div class="proof-card" style="margin-bottom:10px">
+            <div class="proof-thumb">📸</div>
+            <div class="proof-info"><div class="proof-name">quest-detail-annotated.png</div><div class="proof-meta">Screenshot · 842 KB · BLAKE3:7f3a..c91e</div></div>
+          </div>
+          <div class="proof-card" style="margin-bottom:10px">
+            <div class="proof-thumb">📝</div>
+            <div class="proof-info"><div class="proof-name">spacing-review-notes.md</div><div class="proof-meta">Document · 3.2 KB · BLAKE3:a2b1..d4f8</div></div>
+          </div>
+          <div class="proof-card" style="margin-bottom:16px">
+            <div class="proof-thumb">📸</div>
+            <div class="proof-info"><div class="proof-name">heat-viz-suggestion.png</div><div class="proof-meta">Screenshot · 1.1 MB · BLAKE3:c8e2..91a3</div></div>
+          </div>
+          <div style="display:flex;gap:10px"><button class="mock-btn mock-btn-success">Submit Proof</button><button class="mock-btn mock-btn-outline" style="color:var(--ok);border-color:var(--ok)">Add More</button></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="data-panel" style="margin-bottom:16px">
+          <div class="data-panel-header">CLAIM STRUCT</div>
+          <div class="data-panel-body"><span class="dk">Claim</span> {
+    <span class="dk">claimant</span>: Ember,
+    <span class="dk">proof_folder</span>: <span class="ds">Some</span>(<span class="dv">"pf:8a2c..e7"</span>),
+    <span class="dk">artifacts</span>: [
+        <span class="dv">"7f3a..c91e"</span>, <span class="dc">// annotated screenshot</span>
+        <span class="dv">"a2b1..d4f8"</span>, <span class="dc">// review notes</span>
+        <span class="dv">"c8e2..91a3"</span>, <span class="dc">// heat suggestion</span>
+    ],
+    <span class="dk">submitted_at</span>: <span class="dv">1709316000000</span>,
+    <span class="dk">verified</span>: <span class="ds">false</span>,
+}</div>
+        </div>
+
+        <div class="desc-panel">
+          <h4>Multiple claims, one intention</h4>
+          <p>Any number of peers can submit claims to the same intention. Each claim is independent — <strong>collaborative, not competitive</strong>. Proof artifacts are content-addressed (BLAKE3 hashes), immutable, and encrypted per-realm. The creator reviews all claims and can verify any, all, or none.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== STAGE 4: BLESSING ===== -->
+  <div class="stage-detail" id="stage-blessing">
+    <div class="stage-header">
+      <div class="stage-icon" style="border-color:var(--stage-blessing);background:rgba(192,132,252,0.06);color:var(--stage-blessing)">✨</div>
+      <div class="stage-title-group">
+        <div class="stage-num" style="color:var(--stage-blessing)">Stage 04</div>
+        <div class="stage-title">Blessing</div>
+      </div>
+      <div class="stage-arrow">→ Token</div>
+    </div>
+
+    <div class="narrative" style="border-color:var(--peace)">
+      <p><span class="actor actor-zephyr">Zephyr</span> reviews Ember's proof folder and finds it thorough and helpful. They <strong>verify the claim</strong>, which triggers a Blessing — Zephyr's accumulated attention on this intention is released as validation, transferring to Ember as recognized value.</p>
+    </div>
+
+    <div class="stage-body">
+      <div class="ui-mock">
+        <div class="ui-bar"><div class="ui-bar-dot"></div><div class="ui-bar-dot"></div><div class="ui-bar-dot"></div><span class="ui-bar-title">Review Claim · Zephyr</span></div>
+        <div class="ui-content">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+            <div style="width:32px;height:32px;border-radius:50%;background:rgba(255,107,157,0.15);color:var(--love);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">E</div>
+            <div><div style="font-size:14px;font-weight:600">Ember's Claim</div><div style="font-family:var(--mono);font-size:10px;color:var(--mt)">3 artifacts · Submitted 1h ago</div></div>
+          </div>
+          <div class="blessing-visual">
+            <div class="blessing-flow">
+              <div class="blessing-avatar" style="background:rgba(107,207,255,0.15);color:var(--peace)">Z</div>
+              <div class="blessing-arrow">→</div>
+              <div style="display:flex;flex-direction:column;align-items:center;gap:2px">
+                <span style="font-family:var(--mono);font-size:18px;color:var(--ac2)">12:47</span>
+                <span class="blessing-label">attention released</span>
+              </div>
+              <div class="blessing-arrow">→</div>
+              <div class="blessing-avatar" style="background:rgba(255,107,157,0.15);color:var(--love)">E</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;margin-top:16px;justify-content:center"><button class="mock-btn mock-btn-glow">✨ Verify & Bless</button></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="data-panel" style="margin-bottom:16px">
+          <div class="data-panel-header">BLESSING STRUCT</div>
+          <div class="data-panel-body"><span class="dk">Blessing</span> {
+    <span class="dk">id</span>: <span class="dv">"bl:d4f8..2c"</span>,
+    <span class="dk">blesser</span>: Zephyr,
+    <span class="dk">blessed</span>: Ember,
+    <span class="dk">intention_id</span>: <span class="dv">"a7f3..c9"</span>,
+    <span class="dk">claim_id</span>: <span class="dv">0</span>,         <span class="dc">// first claim</span>
+    <span class="dk">attention_millis</span>: <span class="dv">767_000</span>, <span class="dc">// 12m 47s</span>
+    <span class="dk">timestamp</span>: <span class="dv">1709319600000</span>,
+}</div>
+        </div>
+
+        <div class="desc-panel">
+          <h4>Attention → validation</h4>
+          <p>The Blessing is the moment of <strong>conversion</strong>. All attention Zephyr invested in this intention — reading it, reviewing claims, thinking about it — is released as a measurable quantity (12 minutes, 47 seconds) and directed to Ember. This is not a rating or a like. It's <strong>real time</strong> that Zephyr chose to spend, now acknowledged as value received.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== STAGE 5: TOKEN ===== -->
+  <div class="stage-detail" id="stage-token">
+    <div class="stage-header">
+      <div class="stage-icon" style="border-color:var(--stage-token);background:rgba(244,114,182,0.06);color:var(--stage-token)">🪙</div>
+      <div class="stage-title-group">
+        <div class="stage-num" style="color:var(--stage-token)">Stage 05</div>
+        <div class="stage-title">Token of Gratitude</div>
+      </div>
+      <div class="stage-arrow">→ Renewal</div>
+    </div>
+
+    <div class="narrative" style="border-color:var(--love)">
+      <p>Zephyr's Blessing crystallizes into a <strong>Token of Gratitude</strong> — a transferable artifact backed by real attention time. <span class="actor actor-ember">Ember</span> now holds this token. Its value is <strong>objective</strong>: attention time × the blesser's liveness score. If Zephyr hasn't attended an in-person event recently, their liveness decays and the token's effective value drops with it.</p>
+    </div>
+
+    <div class="stage-body">
+      <div>
+        <div class="token-card">
+          <div class="token-header">
+            <span class="token-id">tok:e7a2..f831</span>
+            <span class="token-state">Held</span>
+          </div>
+          <div class="token-row"><span class="token-key">Backed by</span><span class="token-val"><em>12m 47s</em> attention</span></div>
+          <div class="token-row"><span class="token-key">Blesser</span><span class="token-val" style="color:var(--peace)">Zephyr</span></div>
+          <div class="token-row"><span class="token-key">Intention</span><span class="token-val">Review quest detail view</span></div>
+          <div class="token-row"><span class="token-key">Current holder</span><span class="token-val" style="color:var(--love)">Ember</span></div>
+          <div class="token-row"><span class="token-key">Blesser liveness</span><span class="token-val">0.95 <span style="color:var(--gh)">(2 days fresh)</span></span></div>
+          <div class="token-row"><span class="token-key">Tagged to</span><span class="token-val" style="color:var(--gh)">— none yet —</span></div>
+        </div>
+
+        <div class="formula" style="margin-top:16px">
+          <em>token_value</em><br>
+          <span class="dim">=</span> raw_attention <span class="dim">×</span> blesser_liveness<br>
+          <span class="dim">=</span> <span style="color:var(--wn)">767,000ms</span> <span class="dim">×</span> <span style="color:var(--ac2)">0.95</span><br>
+          <span class="dim">=</span> <em>728,650ms effective value</em>
+        </div>
+      </div>
+
+      <div>
+        <div class="data-panel" style="margin-bottom:16px">
+          <div class="data-panel-header">TOKEN OF GRATITUDE</div>
+          <div class="data-panel-body"><span class="dk">TokenOfGratitude</span> {
+    <span class="dk">id</span>: <span class="dv">"tok:e7a2..f831"</span>,
+    <span class="dk">current_holder</span>: Ember,
+    <span class="dk">blesser</span>: Zephyr,
+    <span class="dk">blessing_id</span>: <span class="dv">"bl:d4f8..2c"</span>,
+    <span class="dk">intention_id</span>: <span class="dv">"a7f3..c9"</span>,
+    <span class="dk">tagged_to</span>: <span class="ds">None</span>,        <span class="dc">// not yet tagged</span>
+    <span class="dk">state</span>: <span class="ds">Held</span>,
+
+    <span class="dc">// Value = attention × blesser's liveness.</span>
+    <span class="dc">// Liveness defaults to 0 unless the blesser</span>
+    <span class="dc">// has attended an in-person affiliated event.</span>
+    <span class="dc">// No liveness → token is worth zero.</span>
+}</div>
+        </div>
+
+        <div class="desc-panel">
+          <h4>Why liveness?</h4>
+          <p>Tokens are only as valuable as the <strong>proof that a real human blessed them</strong>. Liveness is verified by attending an affiliated in-person event — a gathering, a Proof of Life celebration, a bioregional meetup. Without attendance, your liveness defaults to <strong>zero</strong>, and any tokens you bless are worth zero. This makes Sybil attacks impossible: you can't fake showing up in person.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== STAGE 6: RENEWAL ===== -->
+  <div class="stage-detail" id="stage-renewal">
+    <div class="stage-header">
+      <div class="stage-icon" style="border-color:var(--stage-renewal);background:rgba(129,140,248,0.06);color:var(--stage-renewal)">🔄</div>
+      <div class="stage-title-group">
+        <div class="stage-num" style="color:var(--stage-renewal)">Stage 06</div>
+        <div class="stage-title">Renewal</div>
+      </div>
+      <div class="stage-arrow">→ Intention</div>
+    </div>
+
+    <div class="narrative" style="border-color:var(--love)">
+      <p><span class="actor actor-ember">Ember</span> now carries a token backed by 12m47s of real attention, blessed by Zephyr. But gratitude isn't an endpoint — it's fuel. Ember has their own needs. They post a <strong>new intention</strong> and <strong>tag their token to it</strong>, staking earned gratitude as a signal: <em>this matters to me enough that I'm putting my reputation behind it</em>.</p>
+    </div>
+
+    <div class="stage-body">
+      <div class="ui-mock">
+        <div class="ui-bar"><div class="ui-bar-dot"></div><div class="ui-bar-dot"></div><div class="ui-bar-dot"></div><span class="ui-bar-title">New Intention · Ember</span></div>
+        <div class="ui-content">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+            <div style="width:32px;height:32px;border-radius:50%;background:rgba(255,107,157,0.15);color:var(--love);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;position:relative">E<div style="position:absolute;inset:-3px;border-radius:50%;border:2px solid var(--love);opacity:0.3"></div></div>
+            <div>
+              <div style="font-size:14px;font-weight:600">Ember</div>
+              <div style="display:flex;gap:6px;align-items:center"><span style="font-family:var(--mono);font-size:9px;color:var(--mt)">1 token held</span><span style="width:4px;height:4px;border-radius:50%;background:var(--gh)"></span><span style="font-family:var(--mono);font-size:9px;color:var(--mt)">liveness 0.92</span></div>
+            </div>
+          </div>
+          <div class="mock-field"><div class="mock-label">Title</div><div class="mock-input" style="color:var(--tx)">Help with CRDT merge conflict UX</div></div>
+          <div class="mock-field"><div class="mock-textarea">When two peers edit the same quest offline and reconnect, the merge is automatic but the user doesn't know something changed. Need a pattern for surfacing "this was edited while you were away" without being intrusive.</div></div>
+
+          <!-- TAG TOKEN SECTION -->
+          <div style="margin-top:16px;padding:14px 18px;background:linear-gradient(135deg,rgba(244,114,182,0.04),rgba(129,140,248,0.04));border:1px solid rgba(244,114,182,0.18);border-radius:10px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+              <span style="font-family:var(--mono);font-size:10px;letter-spacing:0.08em;color:var(--ac3)">TAG TOKEN TO THIS INTENTION</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px">
+              <div style="flex:1;padding:8px 12px;background:var(--bg);border:1px solid var(--bd);border-radius:8px;display:flex;align-items:center;gap:8px">
+                <span style="font-size:14px">🪙</span>
+                <span style="font-family:var(--mono);font-size:11px;color:var(--t2)">tok:e7a2..f831</span>
+                <span style="font-family:var(--mono);font-size:10px;color:var(--wn);margin-left:auto">12m 47s</span>
+              </div>
+              <button class="mock-btn" style="background:rgba(244,114,182,0.12);color:var(--ac3);border:1px solid rgba(244,114,182,0.25);padding:8px 14px;font-size:12px">🏷️ Tag</button>
+            </div>
+            <div style="font-size:11px;color:var(--mt);margin-top:8px;line-height:1.6">Staking this token signals that you care enough about this intention to put earned gratitude behind it. The token's weight is added to the intention's heat.</div>
+          </div>
+
+          <div style="display:flex;gap:10px;margin-top:16px"><button class="mock-btn mock-btn-primary">Post Intention with Tag</button></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="desc-panel" style="margin-bottom:16px">
+          <h4>Tagging: gratitude as fuel</h4>
+          <p>Ember doesn't just post a bare intention — they <strong>tag their earned token to it</strong>. This is the renewal mechanic: gratitude received becomes motivation offered. The tagged token adds its attention-weight to the intention's heat calculation <em>immediately</em>, before any peer even opens it. When Sage sees this intention in the feed, they see 12m47s of staked gratitude — a signal that a verified participant is investing their earned reputation.</p>
+        </div>
+
+        <div class="data-panel">
+          <div class="data-panel-header">TOKEN STATE TRANSITION</div>
+          <div class="data-panel-body"><span class="dc">// Before tagging:</span>
+<span class="dk">token</span>.state = <span class="ds">Held</span>
+<span class="dk">token</span>.tagged_to = <span class="ds">None</span>
+
+<span class="dc">// After tagging to new intention:</span>
+<span class="dk">token</span>.state = <span class="ds">Tagged</span>
+<span class="dk">token</span>.tagged_to = <span class="ds">Some</span>(<span class="dv">"b3c1..a2"</span>)
+
+<span class="dc">// Effect on the intention:</span>
+<span class="dk">intention</span>.tagged_tokens = [<span class="dv">"tok:e7a2..f831"</span>]
+<span class="dc">// Heat now includes tagged token weight</span>
+<span class="dc">// BEFORE any peer even dwells on it.</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== SECOND REVOLUTION — TAG-FORWARD MECHANIC ===== -->
+  <div class="divider"><div class="divider-line"></div><span class="divider-label">Second Revolution</span><div class="divider-line" style="background:linear-gradient(to left,var(--bd),transparent)"></div></div>
+
+  <div style="text-align:center;margin-bottom:40px">
+    <h2 style="font-size:28px;font-weight:700;letter-spacing:-0.03em;margin-bottom:10px">Gratitude Tags <span style="background:linear-gradient(135deg,var(--ac),var(--ac2),var(--ac3));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text">Forward</span></h2>
+    <p style="font-size:14px;color:var(--t2);max-width:520px;margin:0 auto;line-height:1.8;font-weight:300">Ember was the responder in Revolution 1. Now they become the intention-holder — and they tag their earned token to the new intention, converting received gratitude into a signal that motivates others. The same six stages run, but the trust landscape has changed: there's skin in the game now.</p>
+  </div>
+
+  <!-- Rev 2: Sage sees Ember's TAGGED intention in the feed -->
+  <div class="narrative" style="border-color:var(--hope);margin-bottom:24px">
+    <p><span class="actor actor-sage">Sage</span> opens the realm and sees Ember's intention in the feed. Something is different from Revolution 1: this intention has a <strong>tagged token</strong> glowing beside it. Ember staked 12m47s of earned gratitude — gratitude blessed by Zephyr, someone Sage recognizes. The tag is a signal: <em>Ember did real work, earned real trust, and is investing it here.</em></p>
+  </div>
+
+  <!-- 2A: The Realm Feed — tagged intention visible -->
+  <div class="stage-body" style="margin-bottom:32px">
+    <div class="ui-mock" style="grid-column:1/-1">
+      <div class="ui-bar"><div class="ui-bar-dot"></div><div class="ui-bar-dot"></div><div class="ui-bar-dot"></div><span class="ui-bar-title">Realm Feed · Sage's View</span></div>
+      <div class="ui-content" style="padding:0">
+        <!-- Completed intention (Rev 1) -->
+        <div style="padding:16px 20px;border-bottom:1px solid var(--bd);opacity:0.6">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+            <div style="width:28px;height:28px;border-radius:50%;background:rgba(107,207,255,0.15);color:var(--peace);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700">Z</div>
+            <div style="flex:1">
+              <div style="font-size:13px;font-weight:500;text-decoration:line-through;color:var(--t2)">Review quest detail view</div>
+            </div>
+            <span style="font-family:var(--mono);font-size:9px;padding:2px 8px;border-radius:100px;background:rgba(52,211,153,0.08);color:var(--ok)">Completed</span>
+          </div>
+          <div style="display:flex;gap:12px;font-family:var(--mono);font-size:9px;color:var(--mt);margin-left:38px">
+            <span>1 claim verified</span><span>·</span><span>1 blessing</span><span>·</span><span>heat 0.71</span>
+          </div>
+        </div>
+
+        <!-- Active intention (Rev 2) — Ember's with TAGGED TOKEN -->
+        <div style="padding:16px 20px;border-bottom:1px solid var(--bd);background:rgba(244,114,182,0.02)">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+            <div style="width:28px;height:28px;border-radius:50%;background:rgba(255,107,157,0.15);color:var(--love);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;position:relative">E
+              <div style="position:absolute;bottom:-2px;right:-2px;width:10px;height:10px;border-radius:50%;background:var(--card);display:flex;align-items:center;justify-content:center;font-size:6px">🪙</div>
+            </div>
+            <div style="flex:1">
+              <div style="font-size:14px;font-weight:600">Help with CRDT merge conflict UX</div>
+              <div style="font-family:var(--mono);font-size:10px;color:var(--mt);margin-top:1px">by Ember · 45m ago</div>
+            </div>
+            <!-- Heat indicator — elevated from tagged token -->
+            <div style="display:flex;align-items:center;gap:6px">
+              <div style="width:8px;height:8px;border-radius:50%;background:var(--wn);opacity:0.7"></div>
+              <span style="font-family:var(--mono);font-size:10px;color:var(--wn)">0.34</span>
+            </div>
+          </div>
+          <!-- Tagged token badge — the key new element -->
+          <div style="margin-left:38px;margin-bottom:8px">
+            <div class="tagged-badge">
+              <span class="tagged-icon">🏷️</span>
+              <span class="tagged-label">Tagged</span>
+              <span class="tagged-val">🪙 12m 47s · blessed by <span style="color:var(--peace)">Zephyr</span></span>
+            </div>
+          </div>
+          <p style="font-size:12px;color:var(--t2);line-height:1.6;margin-left:38px">When two peers edit the same quest offline and reconnect, the merge is automatic but the user doesn't know something changed…</p>
+        </div>
+
+        <!-- Another intention from someone else — NO tagged token, lower heat -->
+        <div style="padding:16px 20px;opacity:0.5">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="width:28px;height:28px;border-radius:50%;background:rgba(177,156,217,0.15);color:var(--grace);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700">N</div>
+            <div style="flex:1">
+              <div style="font-size:13px;font-weight:500;color:var(--t2)">Test gossip discovery across NAT boundaries</div>
+              <div style="font-family:var(--mono);font-size:10px;color:var(--mt);margin-top:1px">by Nova · 3h ago</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <div style="width:8px;height:8px;border-radius:50%;background:var(--wn);opacity:0.2"></div>
+              <span style="font-family:var(--mono);font-size:10px;color:var(--gh)">0.04</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2B: Sage dwells — tagged token gives trust context -->
+  <div class="narrative" style="border-color:var(--hope);margin-bottom:24px">
+    <p>Sage opens Ember's intention. The <strong>attention timer</strong> starts. The tagged token is front and center — not just a badge, but an auditable claim. Sage can inspect it: 12m47s of attention, blessed by Zephyr (who Sage knows from the realm), backed by a liveness score of 0.95. Ember didn't just <em>ask</em> for help — they put something real on the line.</p>
+  </div>
+
+  <div class="stage-body" style="margin-bottom:32px">
+    <div class="ui-mock">
+      <div class="ui-bar"><div class="ui-bar-dot"></div><div class="ui-bar-dot"></div><div class="ui-bar-dot"></div><span class="ui-bar-title">Intention Detail · Sage's View</span></div>
+      <div class="ui-content">
+        <!-- Creator info -->
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <div style="width:36px;height:36px;border-radius:50%;background:rgba(255,107,157,0.15);color:var(--love);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;position:relative">E
+            <div style="position:absolute;bottom:-2px;right:-2px;width:12px;height:12px;border-radius:50%;background:var(--card);display:flex;align-items:center;justify-content:center;font-size:7px">🪙</div>
+          </div>
+          <div style="flex:1">
+            <div style="font-size:15px;font-weight:600">Help with CRDT merge conflict UX</div>
+            <div style="font-family:var(--mono);font-size:10px;color:var(--mt)">by Ember · 45m ago</div>
+          </div>
+        </div>
+
+        <!-- TAGGED TOKEN — prominent display -->
+        <div style="padding:14px 18px;background:linear-gradient(135deg,rgba(244,114,182,0.05),rgba(129,140,248,0.04));border:1px solid rgba(244,114,182,0.18);border-radius:12px;margin-bottom:14px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <span style="font-family:var(--mono);font-size:10px;letter-spacing:0.08em;color:var(--ac3)">🏷️ STAKED GRATITUDE</span>
+            <span style="font-family:var(--mono);font-size:10px;color:var(--mt)">tok:e7a2..f831</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="display:flex;flex-direction:column;gap:2px;flex:1">
+              <div style="display:flex;align-items:baseline;gap:6px">
+                <span style="font-family:var(--mono);font-size:18px;font-weight:600;color:var(--ac3)">12:47</span>
+                <span style="font-size:11px;color:var(--mt)">attention staked</span>
+              </div>
+              <div style="display:flex;gap:8px;font-family:var(--mono);font-size:9px">
+                <span style="color:var(--t2)">blessed by <span style="color:var(--peace)">Zephyr</span></span>
+                <span style="color:var(--gh)">·</span>
+                <span style="color:var(--t2)">liveness 0.95</span>
+                <span style="color:var(--gh)">·</span>
+                <span style="color:var(--ok)">✓ verified claim</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Participation badges -->
+        <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+          <span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:100px;background:rgba(52,211,153,0.06);border:1px solid rgba(52,211,153,0.12);font-family:var(--mono);font-size:9px;color:var(--ok)">✓ 1 claim verified</span>
+          <span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:100px;background:rgba(192,132,252,0.06);border:1px solid rgba(192,132,252,0.12);font-family:var(--mono);font-size:9px;color:var(--ac2)">♡ humanness 0.92</span>
+        </div>
+
+        <div class="attn-timer">
+          <div class="attn-pulse"></div>
+          <span class="attn-label">Attention active</span>
+          <span class="attn-value">8:14</span>
+        </div>
+
+        <p style="font-size:13px;color:var(--t2);margin-bottom:14px;line-height:1.7">When two peers edit the same quest offline and reconnect, the merge is automatic but the user doesn't know something changed. Need a pattern for surfacing "this was edited while you were away" without being intrusive.</p>
+        <div style="display:flex;gap:10px"><button class="mock-btn mock-btn-success">Claim & Submit Proof</button></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="data-panel" style="margin-bottom:16px">
+        <div class="data-panel-header">HEAT CALCULATION WITH TAG</div>
+        <div class="data-panel-body"><span class="dc">// Without tag: heat = Σ dwell_time / capacity</span>
+<span class="dc">// No one has dwelled yet → heat = 0.00</span>
+
+<span class="dc">// With tagged token:</span>
+<span class="dk">heat</span> = (<span class="dv">Σ dwell_time</span> + <span class="dv">Σ tagged_token_value</span>) / capacity
+
+<span class="dc">// Token value to Sage's subjective view:</span>
+<span class="dk">tag_weight</span> = token.attention_millis
+           × blesser_liveness
+           × sage_trust_in_chain
+         = <span class="dv">767,000</span> × <span class="dv">0.95</span> × <span class="dv">0.7</span>
+         = <span class="dv">510,055ms</span>
+
+<span class="dc">// Result: intention starts at heat 0.34</span>
+<span class="dc">// BEFORE Sage even opens it.</span>
+<span class="dc">// Ember's staked gratitude does the talking.</span></div>
+      </div>
+
+      <div class="desc-panel">
+        <h4>Why tagging changes everything</h4>
+        <p>In Revolution 1, all intentions started cold — heat only came from people actually reading them. Now Ember's intention <strong>arrives warm</strong>. The tagged token says: "I earned 12m47s of validated attention and I'm investing it in getting this done." The heat calculation weights the tag by Sage's own trust in the chain (Ember ← Zephyr), so <strong>tags from strangers have no effect</strong>. Only tokens backed by people you trust can warm an intention for you.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2C: Sage submits proof -->
+  <div class="narrative" style="border-color:var(--hope);margin-bottom:24px">
+    <p><span class="actor actor-sage">Sage</span> builds a merge-conflict UX pattern — a markdown spec and an HTML prototype. They submit this as a <strong>proof folder</strong> with two artifacts. The staked token made Sage confident this intention mattered: Ember put something at risk.</p>
+  </div>
+
+  <div class="stage-body" style="margin-bottom:32px">
+    <div class="ui-mock">
+      <div class="ui-bar"><div class="ui-bar-dot"></div><div class="ui-bar-dot"></div><div class="ui-bar-dot"></div><span class="ui-bar-title">Submit Claim · Sage</span></div>
+      <div class="ui-content">
+        <div style="font-size:14px;font-weight:600;margin-bottom:14px;color:var(--tx)">Proof of Service</div>
+        <div class="proof-card" style="margin-bottom:10px">
+          <div class="proof-thumb">📝</div>
+          <div class="proof-info"><div class="proof-name">merge-conflict-ux-pattern.md</div><div class="proof-meta">Document · 6.8 KB · BLAKE3:d1f2..a7c3</div></div>
+        </div>
+        <div class="proof-card" style="margin-bottom:16px">
+          <div class="proof-thumb">🌐</div>
+          <div class="proof-info"><div class="proof-name">crdt-diff-prototype.html</div><div class="proof-meta">Prototype · 24 KB · BLAKE3:e4b8..3f91</div></div>
+        </div>
+        <div style="display:flex;gap:10px"><button class="mock-btn mock-btn-success">Submit Proof</button></div>
+      </div>
+    </div>
+
+    <div class="data-panel">
+      <div class="data-panel-header">CLAIM STRUCT</div>
+      <div class="data-panel-body"><span class="dk">Claim</span> {
+    <span class="dk">claimant</span>: Sage,
+    <span class="dk">proof_folder</span>: <span class="ds">Some</span>(<span class="dv">"pf:c2a1..d8"</span>),
+    <span class="dk">artifacts</span>: [
+        <span class="dv">"d1f2..a7c3"</span>, <span class="dc">// UX pattern spec</span>
+        <span class="dv">"e4b8..3f91"</span>, <span class="dc">// interactive prototype</span>
+    ],
+    <span class="dk">submitted_at</span>: <span class="dv">1709321400000</span>,
+    <span class="dk">verified</span>: <span class="ds">false</span>,
+}</div>
+    </div>
+  </div>
+
+  <!-- 2D: Ember blesses Sage -->
+  <div class="narrative" style="border-color:var(--love);margin-bottom:24px">
+    <p><span class="actor actor-ember">Ember</span> reviews Sage's proof folder, opens the prototype, reads the spec. Their attention accumulates on the claim review. Satisfied, Ember verifies the claim and blesses Sage — releasing <strong>8 minutes 14 seconds</strong> of accumulated attention. The tagged token is released back to Ember as <strong>Held</strong>, its job done.</p>
+  </div>
+
+  <div class="stage-body" style="margin-bottom:32px">
+    <div class="ui-mock">
+      <div class="ui-bar"><div class="ui-bar-dot"></div><div class="ui-bar-dot"></div><div class="ui-bar-dot"></div><span class="ui-bar-title">Review Claim · Ember</span></div>
+      <div class="ui-content">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+          <div style="width:32px;height:32px;border-radius:50%;background:rgba(152,216,170,0.15);color:var(--hope);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">S</div>
+          <div><div style="font-size:14px;font-weight:600">Sage's Claim</div><div style="font-family:var(--mono);font-size:10px;color:var(--mt)">2 artifacts · Submitted 30m ago</div></div>
+        </div>
+        <div class="blessing-visual">
+          <div class="blessing-flow">
+            <div class="blessing-avatar" style="background:rgba(255,107,157,0.15);color:var(--love)">E</div>
+            <div class="blessing-arrow">→</div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:2px">
+              <span style="font-family:var(--mono);font-size:18px;color:var(--ac2)">8:14</span>
+              <span class="blessing-label">attention released</span>
+            </div>
+            <div class="blessing-arrow">→</div>
+            <div class="blessing-avatar" style="background:rgba(152,216,170,0.15);color:var(--hope)">S</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:16px;justify-content:center"><button class="mock-btn mock-btn-glow">✨ Verify & Bless</button></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="data-panel" style="margin-bottom:16px">
+        <div class="data-panel-header">BLESSING + TAG RELEASE</div>
+        <div class="data-panel-body"><span class="dk">Blessing</span> {
+    <span class="dk">id</span>: <span class="dv">"bl:a1c2..f7"</span>,
+    <span class="dk">blesser</span>: Ember,
+    <span class="dk">blessed</span>: Sage,
+    <span class="dk">intention_id</span>: <span class="dv">"b3c1..a2"</span>,
+    <span class="dk">claim_id</span>: <span class="dv">0</span>,
+    <span class="dk">attention_millis</span>: <span class="dv">494_000</span>, <span class="dc">// 8m 14s</span>
+}
+
+<span class="dc">// On intention completion, tagged token returns:</span>
+<span class="dk">tok:e7a2..f831</span>.state = <span class="ds">Held</span>   <span class="dc">// released</span>
+<span class="dk">tok:e7a2..f831</span>.tagged_to = <span class="ds">None</span> <span class="dc">// unbound</span>
+<span class="dc">// Token is now free to tag to a new intention.</span>
+<span class="dc">// The tag history is preserved in the event log.</span></div>
+      </div>
+
+      <div class="desc-panel">
+        <h4>Tags are temporary, trust is cumulative</h4>
+        <p>When the intention completes, Ember's tagged token <strong>returns to Held state</strong>. The token wasn't consumed — it was staked as a signal and then released. But the act of tagging is <strong>permanently recorded in the event log</strong>. Anyone can see that Ember staked gratitude behind this intention and it was completed. This builds a richer participation trail than tokens alone.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2E: Second token minted — Sage now holds one -->
+  <div class="narrative" style="border-color:var(--hope);margin-bottom:24px">
+    <p>The blessing crystallizes into a <strong>second Token of Gratitude</strong>. Sage now holds a token backed by Ember — who themselves hold a token backed by Zephyr. The trust web is thickening. And Sage now has fuel for <em>their</em> next intention.</p>
+  </div>
+
+  <!-- Side-by-side token comparison -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:40px">
+    <div class="token-card">
+      <div class="token-header">
+        <span class="token-id">tok:e7a2..f831</span>
+        <span class="token-state">Held</span>
+      </div>
+      <div class="token-row"><span class="token-key">Revolution</span><span class="token-val">1st (earned) → 2nd (tagged) → released</span></div>
+      <div class="token-row"><span class="token-key">Backed by</span><span class="token-val"><em>12m 47s</em></span></div>
+      <div class="token-row"><span class="token-key">Blesser → Holder</span><span class="token-val"><span style="color:var(--peace)">Zephyr</span> → <span style="color:var(--love)">Ember</span></span></div>
+      <div class="token-row"><span class="token-key">Tag history</span><span class="token-val" style="font-size:11px">CRDT merge conflict UX ✓</span></div>
+      <div class="steward-chain">
+        <span class="steward-chain-label">Chain:</span>
+        <div class="steward-dot" style="background:rgba(255,107,157,0.15);color:var(--love)">E</div>
+      </div>
+    </div>
+    <div class="token-card" style="border-color:rgba(152,216,170,0.2)">
+      <div class="token-header">
+        <span class="token-id" style="color:var(--hope)">tok:f9b2..c4a1</span>
+        <span class="token-state" style="background:rgba(152,216,170,0.1);color:var(--hope)">New</span>
+      </div>
+      <div class="token-row"><span class="token-key">Revolution</span><span class="token-val">2nd (earned)</span></div>
+      <div class="token-row"><span class="token-key">Backed by</span><span class="token-val"><em>8m 14s</em></span></div>
+      <div class="token-row"><span class="token-key">Blesser → Holder</span><span class="token-val"><span style="color:var(--love)">Ember</span> → <span style="color:var(--hope)">Sage</span></span></div>
+      <div class="token-row"><span class="token-key">Tag history</span><span class="token-val" style="font-size:11px;color:var(--gh)">— none yet —</span></div>
+      <div class="steward-chain">
+        <span class="steward-chain-label">Chain:</span>
+        <div class="steward-dot" style="background:rgba(152,216,170,0.15);color:var(--hope)">S</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== TAG MECHANICS DEEP DIVE ===== -->
+  <div class="divider"><div class="divider-line"></div><span class="divider-label">Tag Mechanics</span><div class="divider-line" style="background:linear-gradient(to left,var(--bd),transparent)"></div></div>
+
+  <div style="text-align:center;margin-bottom:40px">
+    <h2 style="font-size:28px;font-weight:700;letter-spacing:-0.03em;margin-bottom:10px">How Tokens <span style="background:linear-gradient(135deg,var(--ac),var(--ac2),var(--ac3));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text">Tag Forward</span></h2>
+    <p style="font-size:14px;color:var(--t2);max-width:520px;margin:0 auto;line-height:1.8;font-weight:300">Tagging is the mechanism by which gratitude received becomes motivation offered. You earned it — now stake it on what matters to you.</p>
+  </div>
+
+  <!-- Tag mechanic: how it works -->
+  <div class="stage-body" style="margin-bottom:40px">
+    <div class="ui-mock">
+      <div class="ui-bar"><div class="ui-bar-dot"></div><div class="ui-bar-dot"></div><div class="ui-bar-dot"></div><span class="ui-bar-title">Tag Token to Intention</span></div>
+      <div class="ui-content">
+        <!-- Visual: Token → Tag → Intention -->
+        <div style="display:flex;flex-direction:column;align-items:center;gap:0;padding:16px 0">
+          <!-- Token -->
+          <div style="padding:12px 20px;background:linear-gradient(135deg,rgba(244,114,182,0.06),rgba(129,140,248,0.06));border:1px solid rgba(244,114,182,0.15);border-radius:12px;display:flex;align-items:center;gap:10px">
+            <span style="font-size:18px">🪙</span>
+            <div>
+              <div style="font-family:var(--mono);font-size:11px;color:var(--ac3)">tok:e7a2..f831</div>
+              <div style="font-family:var(--mono);font-size:10px;color:var(--mt)">12m 47s · state: Held</div>
+            </div>
+          </div>
+
+          <!-- Connector -->
+          <div class="tag-connector">
+            <div class="tag-connector-line"></div>
+            <span style="font-size:16px">🏷️</span>
+            <div class="tag-connector-line"></div>
+          </div>
+
+          <!-- Intention -->
+          <div style="padding:12px 20px;background:rgba(129,140,248,0.04);border:1px solid rgba(129,140,248,0.15);border-radius:12px;display:flex;align-items:center;gap:10px;width:100%">
+            <span style="font-size:18px">💡</span>
+            <div style="flex:1">
+              <div style="font-size:13px;font-weight:600">Help with CRDT merge conflict UX</div>
+              <div style="font-family:var(--mono);font-size:10px;color:var(--mt)">by Ember · heat jumps from 0.00 → 0.34</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="padding:12px 16px;background:var(--bg);border-radius:8px;margin-top:12px">
+          <div style="font-family:var(--mono);font-size:10px;color:var(--mt);line-height:1.8">
+            <span style="color:var(--ac3)">on tag:</span> token.state = Tagged, token.tagged_to = intention_id<br>
+            <span style="color:var(--wn)">effect:</span> intention.heat += token_value × observer_trust<br>
+            <span style="color:var(--ok)">on complete:</span> token.state = Held, token.tagged_to = None<br>
+            <span style="color:var(--ac)">preserved:</span> tag event in append-only log (permanent record)
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="data-panel" style="margin-bottom:16px">
+        <div class="data-panel-header">TOKEN STATE MACHINE</div>
+        <div class="data-panel-body"><span class="dc">// Full token lifecycle with tagging:</span>
+
+<span class="dk">Token::Minted</span>                  <span class="dc">// blessing crystallizes</span>
+  └─ state: <span class="ds">Held</span>
+
+<span class="dk">Token::Tagged</span>                   <span class="dc">// owner tags to intention</span>
+  ├─ tagged_to: <span class="dv">intention_id</span>
+  ├─ adds weight to intention heat
+  └─ token locked while tagged
+
+<span class="dk">Token::Released</span>                 <span class="dc">// intention completes</span>
+  ├─ tagged_to: <span class="ds">None</span>
+  ├─ state: <span class="ds">Held</span>
+  └─ <span class="dc">free to tag again</span>
+
+<span class="dc">// A token can be tagged → released → tagged</span>
+<span class="dc">// repeatedly. Each tag is a new commitment.</span>
+<span class="dc">// The tag history grows with each cycle,</span>
+<span class="dc">// building an ever-richer participation trail.</span></div>
+      </div>
+
+      <div class="desc-panel">
+        <h4>Three properties of tagging</h4>
+        <p><strong>1. Voluntary stake:</strong> No one forces you to tag. You choose which intentions get your earned gratitude as a signal.<br><br><strong>2. Liveness-weighted:</strong> A tag's effect on heat depends on the blesser's liveness score. Tags backed by stale or unattested blessers carry less weight; tags from recently attested humans are powerful.<br><br><strong>3. Reusable signal:</strong> Tokens aren't consumed by tagging. When the intention completes, the token returns. But the <em>act</em> of staking is permanently recorded — your commitment history is your reputation.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Why tagging beats transfer/pledge -->
+  <div class="desc-panel" style="margin-bottom:40px">
+    <h4>Why tag instead of transfer?</h4>
+    <p>Transferring a token gives it away permanently — the steward chain grows, the original holder loses their stake. Tagging is different: <strong>you keep the token while lending its weight</strong>. This is closer to how real social capital works. When you vouch for a project, you don't give away your reputation — you put it on the line temporarily. If the intention succeeds, your standing is reinforced. If you tag frivolously, the pattern is visible in your history. Tagging creates accountability without loss.</p>
+  </div>
+
+  <!-- ===== THIRD REVOLUTION — THE TRIANGLE CLOSES ===== -->
+  <div class="divider"><div class="divider-line"></div><span class="divider-label">Third Revolution</span><div class="divider-line" style="background:linear-gradient(to left,var(--bd),transparent)"></div></div>
+
+  <div style="text-align:center;margin-bottom:40px">
+    <h2 style="font-size:28px;font-weight:700;letter-spacing:-0.03em;margin-bottom:10px">The Triangle <span style="background:linear-gradient(135deg,var(--ac),var(--ac2),var(--ac3));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text">Closes</span></h2>
+    <p style="font-size:14px;color:var(--t2);max-width:520px;margin:0 auto;line-height:1.8;font-weight:300">Sage posts an intention and tags their freshly earned token. Zephyr responds. The third side of the triangle completes. Every actor has now been both creator and servant — and every token has been tagged forward.</p>
+  </div>
+
+  <div class="narrative" style="border-color:var(--hope);margin-bottom:24px">
+    <p><span class="actor actor-sage">Sage</span> posts their own intention and <strong>tags their new token</strong> (tok:f9b2, 8m14s, blessed by Ember) to it. <span class="actor actor-zephyr">Zephyr</span> — who started everything in Revolution 1 — sees the tagged intention arrive warm. They dwell, do the work, submit proof. Sage blesses. A <strong>third token</strong> enters circulation. Every participant has now occupied every role, and every earned token has been tagged forward to fuel the next cycle.</p>
+  </div>
+
+  <div class="stage-body" style="margin-bottom:32px">
+    <!-- Compressed timeline for Rev 3 -->
+    <div class="ui-mock" style="grid-column:1/-1">
+      <div class="ui-bar"><div class="ui-bar-dot"></div><div class="ui-bar-dot"></div><div class="ui-bar-dot"></div><span class="ui-bar-title">Revolution 3 · Sage → Zephyr (tagged)</span></div>
+      <div class="ui-content" style="padding:24px">
+        <div style="display:flex;flex-direction:column;gap:0">
+
+          <div style="display:grid;grid-template-columns:80px 24px 1fr;gap:0;align-items:start">
+            <div style="font-family:var(--mono);font-size:10px;color:var(--stage-intention);text-align:right;padding-top:2px">INTENTION</div>
+            <div style="display:flex;flex-direction:column;align-items:center">
+              <div style="width:10px;height:10px;border-radius:50%;background:var(--stage-intention);flex-shrink:0"></div>
+              <div style="width:1px;height:44px;background:linear-gradient(to bottom,var(--stage-intention),var(--stage-attention))"></div>
+            </div>
+            <div style="padding:0 0 12px 12px">
+              <div style="font-size:13px;font-weight:600"><span style="color:var(--hope)">Sage</span> posts <span style="color:var(--t2);font-weight:400">"Design encounter code exchange flow"</span></div>
+              <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
+                <div class="tagged-badge" style="padding:3px 10px">
+                  <span class="tagged-icon" style="font-size:10px">🏷️</span>
+                  <span class="tagged-label" style="font-size:9px">Tagged</span>
+                  <span class="tagged-val" style="font-size:9px">8m 14s · from <span style="color:var(--love)">Ember</span></span>
+                </div>
+                <span style="font-family:var(--mono);font-size:9px;color:var(--wn)">heat → 0.28</span>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:80px 24px 1fr;gap:0;align-items:start">
+            <div style="font-family:var(--mono);font-size:10px;color:var(--stage-attention);text-align:right;padding-top:2px">ATTENTION</div>
+            <div style="display:flex;flex-direction:column;align-items:center">
+              <div style="width:10px;height:10px;border-radius:50%;background:var(--stage-attention);flex-shrink:0"></div>
+              <div style="width:1px;height:44px;background:linear-gradient(to bottom,var(--stage-attention),var(--stage-service))"></div>
+            </div>
+            <div style="padding:0 0 12px 12px">
+              <div style="font-size:13px;font-weight:600"><span style="color:var(--peace)">Zephyr</span> dwells <span style="color:var(--wn);font-weight:600">15m 02s</span></div>
+              <div style="font-family:var(--mono);font-size:10px;color:var(--mt);margin-top:2px">Ember also opens it → heat rises to 0.67 from tag + two peers attending</div>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:80px 24px 1fr;gap:0;align-items:start">
+            <div style="font-family:var(--mono);font-size:10px;color:var(--stage-service);text-align:right;padding-top:2px">SERVICE</div>
+            <div style="display:flex;flex-direction:column;align-items:center">
+              <div style="width:10px;height:10px;border-radius:50%;background:var(--stage-service);flex-shrink:0"></div>
+              <div style="width:1px;height:44px;background:linear-gradient(to bottom,var(--stage-service),var(--stage-blessing))"></div>
+            </div>
+            <div style="padding:0 0 12px 12px">
+              <div style="font-size:13px;font-weight:600"><span style="color:var(--peace)">Zephyr</span> submits proof: <span style="color:var(--t2);font-weight:400">encounter-flow.fig + user-testing-notes.md</span></div>
+              <div style="font-family:var(--mono);font-size:10px;color:var(--mt);margin-top:2px">Claim { claimant: Zephyr, proof_folder: Some("pf:a8d2..c1") }</div>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:80px 24px 1fr;gap:0;align-items:start">
+            <div style="font-family:var(--mono);font-size:10px;color:var(--stage-blessing);text-align:right;padding-top:2px">BLESSING</div>
+            <div style="display:flex;flex-direction:column;align-items:center">
+              <div style="width:10px;height:10px;border-radius:50%;background:var(--stage-blessing);flex-shrink:0"></div>
+              <div style="width:1px;height:44px;background:linear-gradient(to bottom,var(--stage-blessing),var(--stage-token))"></div>
+            </div>
+            <div style="padding:0 0 12px 12px">
+              <div style="font-size:13px;font-weight:600"><span style="color:var(--hope)">Sage</span> blesses <span style="color:var(--ac2);font-weight:600">15m 02s</span> to <span style="color:var(--peace)">Zephyr</span> · tagged tok:f9b2 released</div>
+              <div style="font-family:var(--mono);font-size:10px;color:var(--mt);margin-top:2px">Blessing { blesser: Sage, blessed: Zephyr, attention_millis: 902_000 }</div>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:80px 24px 1fr;gap:0;align-items:start">
+            <div style="font-family:var(--mono);font-size:10px;color:var(--stage-token);text-align:right;padding-top:2px">TOKEN</div>
+            <div style="display:flex;flex-direction:column;align-items:center">
+              <div style="width:10px;height:10px;border-radius:50%;background:var(--stage-token);flex-shrink:0"></div>
+            </div>
+            <div style="padding:0 0 0 12px">
+              <div style="font-size:13px;font-weight:600">Token <span style="font-family:var(--mono);color:var(--ac3)">tok:b7c1..e2d4</span> minted → <span style="color:var(--peace)">Zephyr</span> holds</div>
+              <div style="font-family:var(--mono);font-size:10px;color:var(--mt);margin-top:2px">backed by 902,000ms | blesser: Sage | ready to tag forward</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Three tokens side by side -->
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:40px">
+    <div class="token-card">
+      <div class="token-header"><span class="token-id">tok:e7a2</span><span class="token-state">Held</span></div>
+      <div class="token-row"><span class="token-key">Rev</span><span class="token-val">1</span></div>
+      <div class="token-row"><span class="token-key">Time</span><span class="token-val"><em>12:47</em></span></div>
+      <div class="token-row"><span class="token-key">Flow</span><span class="token-val"><span style="color:var(--peace)">Z</span>→<span style="color:var(--love)">E</span></span></div>
+      <div class="token-row"><span class="token-key">Tags</span><span class="token-val" style="font-size:10px">Rev 2 ✓</span></div>
+    </div>
+    <div class="token-card" style="border-color:rgba(152,216,170,0.15)">
+      <div class="token-header"><span class="token-id" style="color:var(--hope)">tok:f9b2</span><span class="token-state">Held</span></div>
+      <div class="token-row"><span class="token-key">Rev</span><span class="token-val">2</span></div>
+      <div class="token-row"><span class="token-key">Time</span><span class="token-val"><em>8:14</em></span></div>
+      <div class="token-row"><span class="token-key">Flow</span><span class="token-val"><span style="color:var(--love)">E</span>→<span style="color:var(--hope)">S</span></span></div>
+      <div class="token-row"><span class="token-key">Tags</span><span class="token-val" style="font-size:10px">Rev 3 ✓</span></div>
+    </div>
+    <div class="token-card" style="border-color:rgba(107,207,255,0.15)">
+      <div class="token-header"><span class="token-id" style="color:var(--peace)">tok:b7c1</span><span class="token-state" style="background:rgba(107,207,255,0.1);color:var(--peace)">New</span></div>
+      <div class="token-row"><span class="token-key">Rev</span><span class="token-val">3</span></div>
+      <div class="token-row"><span class="token-key">Time</span><span class="token-val"><em>15:02</em></span></div>
+      <div class="token-row"><span class="token-key">Flow</span><span class="token-val"><span style="color:var(--hope)">S</span>→<span style="color:var(--peace)">Z</span></span></div>
+      <div class="token-row"><span class="token-key">Tags</span><span class="token-val" style="font-size:10px;color:var(--gh)">—</span></div>
+    </div>
+  </div>
+
+  <!-- Trust state after 3 revolutions -->
+  <div class="desc-panel" style="margin-bottom:16px">
+    <h4>The trust web after three revolutions</h4>
+    <p>Every participant has now been both <strong>intention-holder and responder</strong>. Zephyr blessed Ember, Ember blessed Sage, Sage blessed Zephyr. There are three tokens in circulation, backed by a total of <strong>36 minutes 3 seconds</strong> of real human attention. Two of those tokens have been tagged forward — staked as signals on intentions that were completed. Each peer can see every other peer's tag history: not just "what they hold" but "what they put on the line." The trust graph has gone from empty to a complete triangle, reinforced by verifiable commitments.</p>
+  </div>
+
+  <!-- Network state visualization -->
+  <div class="data-panel" style="margin-bottom:40px">
+    <div class="data-panel-header">REALM STATE · AFTER 3 REVOLUTIONS</div>
+    <div class="data-panel-body"><span class="dc">// Trust triangle (each peer's subjective view):</span>
+
+<span style="color:var(--peace)">Zephyr</span> sees:
+  <span style="color:var(--love)">Ember</span>  → liveness <span class="dv">0.95</span> <span class="dc">(blessed them, tagged tok forward)</span>
+  <span style="color:var(--hope)">Sage</span>   → liveness <span class="dv">0.92</span> <span class="dc">(blessed them, tagged tok forward)</span>
+  tokens held: <span class="dv">2</span> <span class="dc">(tok:e7a2 original + tok:b7c1 earned)</span>
+
+<span style="color:var(--love)">Ember</span> sees:
+  <span style="color:var(--peace)">Zephyr</span> → liveness <span class="dv">0.95</span> <span class="dc">(received blessing from them)</span>
+  <span style="color:var(--hope)">Sage</span>   → liveness <span class="dv">0.92</span> <span class="dc">(blessed them, responded to tagged intention)</span>
+  tokens held: <span class="dv">1</span> <span class="dc">(tok:e7a2, tagged once to Rev 2)</span>
+
+<span style="color:var(--hope)">Sage</span> sees:
+  <span style="color:var(--love)">Ember</span>  → liveness <span class="dv">0.92</span> <span class="dc">(received blessing, saw their tagged commitment)</span>
+  <span style="color:var(--peace)">Zephyr</span> → liveness <span class="dv">0.95</span> <span class="dc">(via Ember's steward chain)</span>
+  tokens held: <span class="dv">1</span> <span class="dc">(tok:f9b2, tagged once to Rev 3)</span>
+
+<span class="dc">// Aggregate realm attention: 2,163,000ms (36m 03s)</span>
+<span class="dc">// Completed intentions: 3</span>
+<span class="dc">// Tokens in circulation: 3</span>
+<span class="dc">// Tag-forward events: 2 (Rev 2 + Rev 3)</span>
+<span class="dc">// Average heat at completion: 0.57 (higher from tags)</span></div>
+  </div>
+
+  <!-- ===== METABOLISM MAP ===== -->
+  <div class="divider"><div class="divider-line"></div><span class="divider-label">Metabolism Map</span><div class="divider-line" style="background:linear-gradient(to left,var(--bd),transparent)"></div></div>
+
+  <div style="text-align:center;margin-bottom:32px">
+    <h2 style="font-size:28px;font-weight:700;letter-spacing:-0.03em;margin-bottom:10px">What Flows, What <span style="background:linear-gradient(135deg,var(--ac),var(--ac2),var(--ac3));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text">Decays</span>, What Grows</h2>
+    <p style="font-size:14px;color:var(--t2);max-width:500px;margin:0 auto;line-height:1.8;font-weight:300">The Synchronicity Engine is a living system with metabolic dynamics. Some quantities flow, some decay, some accumulate. Nothing is static.</p>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:40px">
+    <div style="padding:24px;background:var(--bg2);border:1px solid var(--bd);border-radius:var(--radius);border-top:2px solid var(--wn)">
+      <div style="font-family:var(--mono);font-size:9px;letter-spacing:0.12em;color:var(--wn);margin-bottom:12px">FLOWS</div>
+      <div style="font-size:15px;font-weight:600;margin-bottom:10px">Attention</div>
+      <p style="font-size:12px;color:var(--t2);line-height:1.7">Accumulates per-intention while you dwell. Released as a blessing when the creator verifies. <strong style="color:var(--tx)">Cannot be hoarded</strong> — it only has value when given away. The act of using the system generates it; you cannot not produce it.</p>
+      <div style="margin-top:14px;padding:10px 14px;background:var(--bg);border-radius:8px;font-family:var(--mono);font-size:10px;color:var(--mt);line-height:1.8">
+        <span style="color:var(--wn)">generate:</span> navigation events<br>
+        <span style="color:var(--wn)">release:</span> blessing (verify claim)<br>
+        <span style="color:var(--wn)">visible as:</span> heat (0.0–1.0)
+      </div>
+    </div>
+
+    <div style="padding:24px;background:var(--bg2);border:1px solid var(--bd);border-radius:var(--radius);border-top:2px solid var(--ac3)">
+      <div style="font-family:var(--mono);font-size:9px;letter-spacing:0.12em;color:var(--ac3);margin-bottom:12px">DECAYS</div>
+      <div style="font-size:15px;font-weight:600;margin-bottom:10px">Humanness</div>
+      <p style="font-size:12px;color:var(--t2);line-height:1.7">Full freshness (1.0) for 7 days after attestation, then exponential decay. At 14 days: ~0.50. At 30 days: ~0.10. <strong style="color:var(--tx)">Must be refreshed</strong> through Proof of Life gatherings. This is a heartbeat, not a credential.</p>
+      <div style="margin-top:14px;padding:10px 14px;background:var(--bg);border-radius:8px;font-family:var(--mono);font-size:10px;color:var(--mt);line-height:1.8">
+        <span style="color:var(--ac3)">formula:</span> e^(-0.1 × (days - 7))<br>
+        <span style="color:var(--ac3)">refresh:</span> bioregional attestation<br>
+        <span style="color:var(--ac3)">affects:</span> token effective value
+      </div>
+    </div>
+
+    <div style="padding:24px;background:var(--bg2);border:1px solid var(--bd);border-radius:var(--radius);border-top:2px solid var(--ok)">
+      <div style="font-family:var(--mono);font-size:9px;letter-spacing:0.12em;color:var(--ok);margin-bottom:12px">GROWS</div>
+      <div style="font-size:15px;font-weight:600;margin-bottom:10px">Trust</div>
+      <p style="font-size:12px;color:var(--t2);line-height:1.7">Each completed cycle adds observable evidence. Tag-forward events are especially strong signals: they show what people <strong style="color:var(--tx)">chose to stake on</strong>. Trust is grounded in liveness — proof of humanness from in-person attestation, decaying exponentially. Sybil nodes can't accumulate trust because they can't attend gatherings.</p>
+      <div style="margin-top:14px;padding:10px 14px;background:var(--bg);border-radius:8px;font-family:var(--mono);font-size:10px;color:var(--mt);line-height:1.8">
+        <span style="color:var(--ok)">liveness:</span> in-person attestation freshness (0.0–1.0)<br>
+        <span style="color:var(--ok)">decay:</span> e^(-0.1 × (days - 7)) after grace period<br>
+        <span style="color:var(--ok)">tag signal:</span> staked commitment history
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== STATE MACHINE ===== -->
+  <div class="divider"><div class="divider-line"></div><span class="divider-label">State Machine</span><div class="divider-line" style="background:linear-gradient(to left,var(--bd),transparent)"></div></div>
+
+  <div class="data-panel" style="margin-bottom:40px">
+    <div class="data-panel-header">COMPLETE CYCLE · ALL STATE TRANSITIONS</div>
+    <div class="data-panel-body"><span class="dc">// The full state machine of one gift cycle revolution.</span>
+<span class="dc">// Each arrow (→) is a CRDT event appended to the realm log.</span>
+
+<span class="dk">Intention::Created</span>             <span class="dc">// creator posts intention</span>
+  │
+  ├─ <span class="dk">Token::Tagged</span>               <span class="dc">// creator tags earned token (optional)</span>
+  │    ├─ token.tagged_to = intention_id
+  │    └─ heat += token_value × observer_trust
+  │
+  ├─ <span class="dv">AttentionSwitchEvent</span>        <span class="dc">// peers navigate to it (repeats)</span>
+  │    └─ heat accumulates        <span class="dc">// derived: Σ dwell_time + Σ tag_weight</span>
+  │
+  ├─ <span class="dk">Claim::Submitted</span>           <span class="dc">// one or more peers submit proof</span>
+  │    ├─ proof_folder: [artifacts]
+  │    └─ verified: <span class="ds">false</span>
+  │
+  ├─ <span class="dk">Claim::Verified</span>            <span class="dc">// creator reviews, verifies</span>
+  │    └─ verified: <span class="ds">true</span>
+  │
+  ├─ <span class="dk">Blessing::Created</span>          <span class="dc">// creator blesses claimant</span>
+  │    ├─ attention_millis: <span class="dv">Σ creator's dwell time</span>
+  │    └─ <span class="dk">TokenOfGratitude::Minted</span>
+  │         ├─ backed_by: blessing.attention_millis
+  │         ├─ steward_chain: [blessed]
+  │         └─ state: <span class="ds">Held</span>
+  │
+  ├─ <span class="dk">Token::Released</span>            <span class="dc">// tagged token returns to Held</span>
+  │    ├─ tagged_to: <span class="ds">None</span>
+  │    └─ tag event preserved in log
+  │
+  └─ <span class="dk">Intention::Completed</span>       <span class="dc">// creator closes the intention</span>
+
+<span class="dc">// Token lifecycle (post-minting):</span>
+<span class="dk">Token::Held</span>                     <span class="dc">// steward holds, ready to tag</span>
+  ├─ <span class="dk">Token::Tagged</span>              <span class="dc">// staked toward own intention</span>
+  │    └─ adds attention-weight to heat
+  │    └─ locked while tagged
+  │    └─ released on intention completion
+  ├─ <span class="dk">Token::Transferred</span>         <span class="dc">// given to another (rare)</span>
+  │    └─ steward_chain.push(new_steward)
+  │    └─ steward_chain tracks provenance
+  └─ <span class="dk">Token::Released</span>            <span class="dc">// returned to the commons</span>
+
+<span class="dc">// Subjective valuation (computed by each observer):</span>
+<span class="dk">fn</span> value(token, observer) -> <span class="dv">f64</span> {
+    <span class="dk">let</span> fresh = humanness_freshness(token.blesser);
+    token.attention_millis * fresh
+}</div>
+  </div>
+
+  <!-- ===== CLOSING ===== -->
+  <div style="text-align:center;padding:48px 0 20px">
+    <div style="font-size:48px;margin-bottom:16px;opacity:0.6">∞</div>
+    <h2 style="font-size:24px;font-weight:700;letter-spacing:-0.02em;margin-bottom:12px">The Gift <span style="background:linear-gradient(135deg,var(--ac),var(--ac2),var(--ac3));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text">Tags Forward</span></h2>
+    <p style="font-size:14px;color:var(--t2);max-width:480px;margin:0 auto;line-height:1.9;font-weight:300">There is no separate economy layer. The Synchronicity Engine <strong style="color:var(--tx)">is</strong> the collaboration model. Attention is the metabolism, intentions are the needs, service is the exchange, blessings are the validation, and tokens tag forward — staking earned gratitude on the intentions that matter most. The waste product of one process becomes the nutrient for the next. The cycle is the system.</p>
+  </div>
+
+  <footer class="footer">
+    <div class="footer-line">Every jewel reflects all others.</div>
+    <div class="footer-sub">SyncEngine · Indra's Network · Dioxus · Rust · Iroh · Automerge · BLAKE3</div>
+  </footer>
+
+</div>
+
+<script>
+function showStage(id) {
+  // Scroll to the stage
+  const target = document.getElementById('stage-' + id);
+  if (target) {
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  // Update cycle ring active state
+  document.querySelectorAll('.cycle-node').forEach(el => {
+    el.classList.toggle('active', el.dataset.stage === id);
+    const orb = el.querySelector('.node-orb');
+    if (el.dataset.stage === id) {
+      const color = getComputedStyle(document.documentElement).getPropertyValue('--stage-' + id).trim();
+      orb.style.boxShadow = '0 0 30px ' + color;
+    } else {
+      orb.style.boxShadow = 'none';
+    }
+  });
+}
+</script>
+</body>
+</html>
