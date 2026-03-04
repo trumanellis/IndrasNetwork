@@ -111,13 +111,34 @@ indras_network::impl_document_schema!(
     NoteDocument,
     MessageDocument,
     BlessingDocument,
-    AttentionDocument,
-    AttentionTipDocument,
-    FraudEvidenceDocument,
     TokenOfGratitudeDocument,
     HumannessDocument,
     ProofFolderDocument,
 );
+
+// Custom CRDT merge implementations for attention-ledger documents.
+// These override the default replacement merge with proper union/max semantics.
+
+impl indras_network::document::DocumentSchema for AttentionDocument {
+    fn merge(&mut self, remote: Self) {
+        // Delegate to the inherent union-merge (takes &Self, so borrow remote).
+        AttentionDocument::merge(self, &remote);
+    }
+}
+
+impl indras_network::document::DocumentSchema for AttentionTipDocument {
+    fn merge(&mut self, remote: Self) {
+        // Per-author max-seq wins.
+        AttentionTipDocument::merge(self, remote);
+    }
+}
+
+impl indras_network::document::DocumentSchema for FraudEvidenceDocument {
+    fn merge(&mut self, remote: Self) {
+        // Union of fraud records by (author, seq).
+        FraudEvidenceDocument::merge(self, remote);
+    }
+}
 
 // Re-export extension traits
 pub use realm_quests::RealmQuests;

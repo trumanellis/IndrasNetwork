@@ -224,6 +224,7 @@ pub fn filter_slashed_events(
     events: &[ChainedEvent],
     fraud_doc: &FraudEvidenceDocument,
     cert_doc: &CertificateDocument,
+    k: usize,
 ) -> Vec<ChainedEvent> {
     events
         .iter()
@@ -232,9 +233,9 @@ pub fn filter_slashed_events(
                 // Non-slashed author: keep all events
                 return true;
             }
-            // Slashed author: only keep certified events
+            // Slashed author: only keep events with a valid quorum certificate
             let hash = event.event_hash();
-            cert_doc.has_certificate(&hash)
+            cert_doc.has_quorum(&hash, k)
         })
         .cloned()
         .collect()
@@ -480,7 +481,7 @@ mod tests {
             ChainedSwitchEvent::new(test_author(2), 0, 2000, None, None, [0u8; 32]),
         ];
 
-        let filtered = filter_slashed_events(&events, &fraud_doc, &cert_doc);
+        let filtered = filter_slashed_events(&events, &fraud_doc, &cert_doc, 1);
         assert_eq!(filtered.len(), 2);
     }
 
@@ -505,7 +506,7 @@ mod tests {
             ChainedSwitchEvent::new(test_author(3), 0, 2000, None, None, [0u8; 32]),
         ];
 
-        let filtered = filter_slashed_events(&events, &fraud_doc, &cert_doc);
+        let filtered = filter_slashed_events(&events, &fraud_doc, &cert_doc, 1);
         // Only the clean author's event survives
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].author, test_author(3));
@@ -546,7 +547,8 @@ mod tests {
         let uncertified = ChainedSwitchEvent::new(author, 2, 3000, None, None, [0u8; 32]);
 
         let events = vec![event.clone(), uncertified];
-        let filtered = filter_slashed_events(&events, &fraud_doc, &cert_doc);
+        // k=1: the certificate has 1 witness signature, which meets quorum
+        let filtered = filter_slashed_events(&events, &fraud_doc, &cert_doc, 1);
 
         // Only the certified event from the slashed author survives
         assert_eq!(filtered.len(), 1);
