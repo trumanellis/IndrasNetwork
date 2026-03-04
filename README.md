@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/Logo_black.png" alt="Indra's Network" width="200">
+</p>
+
 # Indra's Network
 
 Energy cannot be created or destroyed — only moved from one place to another. Attention works the same way. You can only focus on one thing at a time. Shift your focus to something new, and the old thing loses exactly what the new thing gains. The total never changes.
