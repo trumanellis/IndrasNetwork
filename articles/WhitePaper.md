@@ -1,6 +1,6 @@
-# The Locally-Conservative Attention Ledger
+# The Conservation of Attention
 
-*A conservation-law approach to tracking collective cognitive focus without global consensus*
+*A peer-to-peer protocol that tracks collective focus the way physics tracks energy — no blockchain, no global consensus*
 
 ## The Problem
 

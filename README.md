@@ -2,13 +2,13 @@
 
 [![CI](https://github.com/trumanellis/IndrasNetwork/actions/workflows/ci.yml/badge.svg)](https://github.com/trumanellis/IndrasNetwork/actions/workflows/ci.yml)
 
-A peer-to-peer SDK exploring what happens when you replace blockchain with conservation laws and local trust.
+Energy cannot be created or destroyed — only moved from one place to another. Attention works the same way. You can only focus on one thing at a time. Shift your focus to something new, and the old thing loses exactly what the new thing gains. The total never changes.
 
-The core idea: attention is scarce the way energy is scarce — you can move it, but you can't create or destroy it. Indra's Network tracks collective human focus using this conservation law, enforced locally between peers, with no global consensus and no blockchain. The total never changes. Nobody needs to agree on a single history. Trust flows through direct relationships, not mining pools.
+This project takes that observation seriously. Indra's Network is a peer-to-peer SDK that enforces a conservation law on human attention — the same kind of law that governs energy in physics. No blockchain, no global consensus. Just local peers witnessing each other's state transitions, and a mathematical guarantee that nothing is created from thin air.
 
-We're building this in the open as a research project — 25+ Rust crates, actively evolving, and available for collaboration. If the idea that *physics-style invariants can replace global consensus* interests you, start with the whitepaper:
+We're building this in the open as a research project — 25+ Rust crates, actively evolving, and available for collaboration.
 
-**[The Locally-Conservative Attention Ledger — Whitepaper](articles/WhitePaper.md)**
+**[The Conservation of Attention — Whitepaper](articles/WhitePaper.md)**
 
 ## What Makes This Different
 
@@ -169,7 +169,7 @@ flowchart LR
 
 ## Articles & Whitepaper
 
-**[The Locally-Conservative Attention Ledger](articles/WhitePaper.md)** — The whitepaper: a conservation-law approach to tracking collective cognitive focus without global consensus
+**[The Conservation of Attention](articles/WhitePaper.md)** — The whitepaper: what happens when you enforce conservation laws on human attention instead of cryptocurrency
 
 - **[The Attention Ledger (general audience)](articles/attention_ledger_general_audience_article.md)** — A non-technical introduction to the attention ledger
 - **[Formal Whitepaper](articles/locally_conservative_attention_ledger_whitepaper.md)** — Academic treatment with proofs: safety, liveness, and Byzantine fault tolerance
