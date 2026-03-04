@@ -146,7 +146,7 @@ pub use realm_notes::RealmNotes;
 pub use realm_messages::RealmMessages;
 pub use realm_chat::RealmChat;
 pub use realm_blessings::RealmBlessings;
-pub use realm_attention::RealmAttention;
+pub use realm_attention::{RealmAttention, WeightedQuestAttention};
 pub use realm_tokens::RealmTokens;
 pub use realm_humanness::RealmHumanness;
 pub use realm_proof_folders::RealmProofFolders;

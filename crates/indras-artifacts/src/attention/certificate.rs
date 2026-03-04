@@ -122,11 +122,11 @@ pub fn signable_bytes(event_hash: &[u8; 32], intention_scope: &ArtifactId) -> Ve
 
 /// Validate a quorum certificate against a roster and public keys.
 ///
-/// The quorum threshold `k` is computed as `floor(roster.len() / 2) + 1`
-/// (strict majority), ensuring two quorums must overlap.
+/// The quorum threshold `k` is computed via BFT: `k = n - f` where
+/// `f = floor((n-1)/3)`, ensuring two quorums overlap by at least `f+1` nodes.
 ///
 /// Checks:
-/// 1. Certificate has >= `k` signatures (where `k = floor(roster.len() / 2) + 1`).
+/// 1. Certificate has >= `k` signatures (BFT threshold).
 /// 2. Each signer is in the roster.
 /// 3. Each PQ signature verifies against `signable_bytes(event_hash, intention_scope)`.
 pub fn validate_certificate(
@@ -135,11 +135,11 @@ pub fn validate_certificate(
     k: usize,
     public_keys: &HashMap<PlayerId, indras_crypto::PQPublicIdentity>,
 ) -> Result<(), CertificateError> {
-    // Enforce that k matches the strict-majority threshold for this roster.
-    let expected_k = roster.len() / 2 + 1;
+    // Enforce that k matches the BFT threshold for this roster.
+    let (_f, expected_k) = super::witness::bft_quorum_threshold(roster.len());
     assert!(
         k == expected_k,
-        "quorum threshold k={k} does not match expected floor(roster.len()={}/2)+1={expected_k}",
+        "quorum threshold k={k} does not match expected BFT threshold k={expected_k} for roster.len()={}",
         roster.len(),
     );
 
@@ -330,8 +330,8 @@ mod tests {
             pubkeys.insert(players[i], id.verifying_key());
         }
 
-        // k=2 (quorum of 3)
-        let result = validate_certificate(&cert, &players, 2, &pubkeys);
+        // BFT: n=3, f=0, k=3 (all must sign)
+        let result = validate_certificate(&cert, &players, 3, &pubkeys);
         assert!(result.is_ok());
     }
 
@@ -349,13 +349,13 @@ mod tests {
         let mut pubkeys = HashMap::new();
         pubkeys.insert(witness, identity.verifying_key());
 
-        // Roster of 3 → k = floor(3/2)+1 = 2, but cert only has 1 signature
+        // BFT: roster of 3 → f=0, k=3, but cert only has 1 signature
         let roster = [witness, test_player(2), test_player(3)];
-        let k = roster.len() / 2 + 1; // k=2
+        let (_, k) = crate::attention::witness::bft_quorum_threshold(roster.len()); // k=3
         let result = validate_certificate(&cert, &roster, k, &pubkeys);
         assert!(matches!(
             result,
-            Err(CertificateError::InsufficientSignatures { have: 1, need: 2 })
+            Err(CertificateError::InsufficientSignatures { have: 1, need: 3 })
         ));
     }
 
