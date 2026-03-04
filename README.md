@@ -1,35 +1,35 @@
 # Indra's Network
 
-[![CI](https://github.com/truman/IndrasNetwork/actions/workflows/ci.yml/badge.svg)](https://github.com/truman/IndrasNetwork/actions/workflows/ci.yml)
+[![CI](https://github.com/trumanellis/IndrasNetwork/actions/workflows/ci.yml/badge.svg)](https://github.com/trumanellis/IndrasNetwork/actions/workflows/ci.yml)
 
-A fully-featured peer-to-peer networking SDK for building decentralized applications with end-to-end encryption, CRDT document sync, artifact sharing, and intelligent routing.
+A peer-to-peer SDK exploring what happens when you replace blockchain with conservation laws and local trust.
 
-## Overview
+The core idea: attention is scarce the way energy is scarce — you can move it, but you can't create or destroy it. Indra's Network tracks collective human focus using this conservation law, enforced locally between peers, with no global consensus and no blockchain. The total never changes. Nobody needs to agree on a single history. Trust flows through direct relationships, not mining pools.
 
-Indra's Network is a production-ready Rust SDK for building peer-to-peer applications. Built on top of [iroh](https://iroh.computer), it provides a high-level abstraction for distributed networking with support for:
+We're building this in the open as a research project — 25+ Rust crates, actively evolving, and available for collaboration. If the idea that *physics-style invariants can replace global consensus* interests you, start with the whitepaper:
 
-- **Realms**: Isolated peer groups for collaborative spaces, chat rooms, or shared workspaces
-- **Messaging**: Direct peer messaging with read tracking and delivery confirmation
-- **CRDT Documents**: Synchronized shared state across all peers in a realm using Automerge
-- **Artifact Sharing**: Efficient blob storage and sync with access control
-- **Identity System**: Cryptographic identity with post-quantum crypto support
-- **Peering & Sentiment**: Strategic peer selection and reputation tracking
-- **Encounters**: Temporary direct connections for offline/mobile scenarios
-- **Home Realm**: Persistent identity container that travels with you
+**[The Locally-Conservative Attention Ledger — Whitepaper](articles/WhitePaper.md)**
 
-See the [Developer's Guide](/articles/indras-network-developers-guide.md) for complete documentation.
+## What Makes This Different
 
-## Key Features
+- **Conservation over consensus.** The attention ledger enforces a conservation law — attention mass can move between intentions but the total never changes. Safety comes from local antisymmetric transitions, not global ordering. No blockchain required.
+- **Local trust over global ledger.** Peers witness each other's state transitions directly. Liveness depends on your local quorum, not the whole network. Byzantine faults are contained to the peers who made them.
+- **Sovereignty by default.** Your Home Realm is your persistent identity container — it travels with you. Your Pass Story is your authentication. Post-quantum cryptography protects everything. No platform owns your data.
+- **Active research, open for collaboration.** This is a working codebase, not a finished product. We're exploring how conservation laws, CRDTs, and local trust compose into something new. Contributions and conversations welcome.
 
-- **Realms & Presence**: Create isolated collaboration spaces with automatic member discovery and presence tracking
-- **Real-time Messaging**: Send and receive messages with automatic offline queuing and delivery confirmation
-- **Document Sync**: Build collaborative apps with CRDT-based document synchronization (powered by Automerge)
-- **Artifact Storage**: Share files, blobs, and large data structures with peer-to-peer sync and deduplication
-- **Post-Quantum Crypto**: Prepare for quantum-resistant encryption with hybrid post-quantum support
-- **Access Control**: Fine-grained permissions for realms, documents, and artifacts
-- **Offline-First**: Works reliably even when peers go offline; automatic reconnection and message queuing
-- **Smart Routing**: Encounters for temporary direct connections, intelligent peer selection via sentiment scoring
-- **Configuration Presets**: Pre-tuned profiles for Chat, Collaboration, IoT, and OfflineFirst use cases
+## How It Works
+
+The SDK provides the substrate the attention ledger builds on:
+
+- **Realms** — Isolated peer groups for collaboration, chat, or shared workspaces
+- **Messaging** — Direct peer messaging with delivery confirmation and offline queuing
+- **CRDT Documents** — Synchronized shared state across peers using Automerge
+- **Attention Ledger** — Hash-chained switch-events, witness certificates, quorum-based verification, and a gratitude bridge that converts sustained focus into transferable value
+- **Post-quantum crypto** — Hybrid Ed25519 + ML-DSA-65 signatures, ML-KEM-768 key exchange
+- **Store-and-forward routing** — Delay-tolerant networking for offline and mobile scenarios
+- **Artifact sharing** — Blob storage and sync with access control and deduplication
+
+See the [Developer's Guide](articles/indras-network-developers-guide.md) for complete API documentation.
 
 ## Quick Start
 
@@ -67,25 +67,6 @@ async fn main() -> Result<()> {
 ```
 
 `IndrasNetwork::new()` handles everything: generates your cryptographic identity, sets up local storage, starts the networking stack, connects to relay servers, and begins peer discovery.
-
-## Configuration & Presets
-
-Choose a preset tailored to your use case:
-
-| Preset | Max Peers | Max Realms | Best For |
-|--------|-----------|-----------|----------|
-| `Default` | 64 | 32 | General-purpose applications |
-| `Chat` | 128 | 64 | Messaging and social apps |
-| `Collaboration` | 32 | 16 | Document editing and real-time sync |
-| `IoT` | 8 | 4 | IoT device networks |
-| `OfflineFirst` | 64 | 32 | Offline-heavy mobile applications |
-
-```rust
-let network = IndrasNetwork::preset(Preset::Chat)
-    .data_dir("~/.myapp")
-    .build()
-    .await?;
-```
 
 ## Architecture
 
@@ -130,8 +111,6 @@ graph TD
     STORAGE --> CORE
     CRYPTO --> CORE
 ```
-
-Indra's Network is organized as a Rust workspace with specialized crates:
 
 | Crate | Purpose |
 |-------|---------|
@@ -188,70 +167,24 @@ flowchart LR
     G -->|new peers| C
 ```
 
-## Common Use Cases
+## Articles & Whitepaper
 
-### Building a Chat App
+**[The Locally-Conservative Attention Ledger](articles/WhitePaper.md)** — The whitepaper: a conservation-law approach to tracking collective cognitive focus without global consensus
 
-```rust
-use indras_network::prelude::*;
-
-let network = IndrasNetwork::preset(Preset::Chat)
-    .data_dir("~/.chat_app")
-    .display_name("A")
-    .build()
-    .await?;
-
-network.start().await?;
-
-let realm = network.create_realm("General").await?;
-realm.send("Hey everyone!").await?;
-
-// Listen for incoming messages
-let mut messages = realm.messages();
-while let Some(msg) = messages.next().await {
-    println!("{}: {}", msg.sender_name, msg.content.as_text().unwrap_or(""));
-}
-```
-
-### Collaborative Documents
-
-```rust
-use indras_network::prelude::*;
-
-let realm = network.create_realm("Team Project").await?;
-let doc: Document<TodoList> = realm.document("todos").await?;
-
-// Updates sync automatically across all peers
-doc.update(|todos| {
-    todos.items.push(TodoItem { text: "Ship v2".into(), done: false });
-}).await?;
-
-// React to remote changes
-let mut changes = doc.changes();
-while let Some(change) = changes.next().await {
-    println!("Updated (remote={}): {:?}", change.is_remote, change.new_state);
-}
-```
-
-### Direct Connect
-
-```rust
-// Knowing someone's identity code is enough to connect
-let (realm, peer_info) = network.connect_by_code("indra1qyz...k3m").await?;
-realm.send("Hello!").await?;
-```
+- **[The Attention Ledger (general audience)](articles/attention_ledger_general_audience_article.md)** — A non-technical introduction to the attention ledger
+- **[Formal Whitepaper](articles/locally_conservative_attention_ledger_whitepaper.md)** — Academic treatment with proofs: safety, liveness, and Byzantine fault tolerance
+- **[Implementation Guide](articles/iroh_implementation_guide_locally_conservative_attention_ledger.md)** — Mapping the attention ledger onto iroh and Indra's Network
+- **[Two Paths to Decentralization](articles/two-paths-to-decentralization.md)** — Why Indra's Network chose a different road than Logos
+- **[Shared Roots, Different Branches](articles/shared-roots-different-branches.md)** — How Indra's Network and Anytype diverge from common ground
+- **[Every Node a Mirror](articles/indras-network-every-node-a-mirror.md)** — Building the internet that an ancient philosophy imagined
+- **[Your Story Is Your Key](articles/your-story-is-your-key.md)** — How a hero's journey becomes unbreakable authentication
+- **[Your Files Live With You](articles/your-files-live-with-you.md)** — How a peer-to-peer filesystem turns sharing into a spectrum of trust
+- **[Nobody Owns the Conversation](articles/nobody-owns-the-conversation.md)** — How single stewardship and fractal composition solve the problem that group ownership never could
+- **[The Heartbeat of Community](articles/the-heartbeat-of-community.md)** — How subjective value, trust chains, and proof of life turn tokens into letters of introduction
+- **[Your Network Has an Immune System](articles/your-network-has-an-immune-system.md)** — How decentralized sentiment turns a communication mesh into a living, self-protecting organism
 
 ## Documentation
 
-- **[Developer's Guide](/articles/indras-network-developers-guide.md)** — Complete API reference, configuration, realms, messaging, documents, artifacts, peering, and more
+- **[Developer's Guide](articles/indras-network-developers-guide.md)** — Complete API reference, configuration, realms, messaging, documents, artifacts, peering
 - **[AGENTS.md](./AGENTS.md)** — Architecture documentation for each crate
 - **Examples** — See `examples/` directory for chat apps, sync demos, and note-taking applications
-
-### Articles
-
-- **[Every Node a Mirror](/articles/indras-network-every-node-a-mirror.md)** — Building the internet that an ancient philosophy imagined
-- **[Your Story Is Your Key](/articles/your-story-is-your-key.md)** — How a hero's journey becomes unbreakable authentication
-- **[Your Files Live With You](/articles/your-files-live-with-you.md)** — How a peer-to-peer filesystem turns sharing into a spectrum of trust
-- **[Nobody Owns the Conversation](/articles/nobody-owns-the-conversation.md)** — How single stewardship and fractal composition solve the problem that group ownership never could
-- **[The Heartbeat of Community](/articles/the-heartbeat-of-community.md)** — How subjective value, trust chains, and proof of life turn tokens into letters of introduction
-- **[Your Network Has an Immune System](/articles/your-network-has-an-immune-system.md)** — How decentralized sentiment turns a communication mesh into a living, self-protecting organism
