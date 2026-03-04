@@ -20,6 +20,14 @@ Thumbs.db
 # Sisyphus plugin
 .sisyphus/
 
+# OMC state
+.omc/
+
+# Logs
+*.log
+*.jsonl
+logs/
+
 # Local symlinks
 iroh-examples
 old-syncengine

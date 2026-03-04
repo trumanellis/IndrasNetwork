@@ -1,7 +1,5 @@
 # Indra's Network
 
-[![CI](https://github.com/trumanellis/IndrasNetwork/actions/workflows/ci.yml/badge.svg)](https://github.com/trumanellis/IndrasNetwork/actions/workflows/ci.yml)
-
 Energy cannot be created or destroyed — only moved from one place to another. Attention works the same way. You can only focus on one thing at a time. Shift your focus to something new, and the old thing loses exactly what the new thing gains. The total never changes.
 
 This project takes that observation seriously. Indra's Network is a peer-to-peer SDK that enforces a conservation law on human attention — the same kind of law that governs energy in physics. No blockchain, no global consensus. Just local peers witnessing each other's state transitions, and a mathematical guarantee that nothing is created from thin air.
