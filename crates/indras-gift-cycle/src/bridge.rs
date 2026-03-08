@@ -88,10 +88,10 @@ impl GiftCycleBridge {
 
         for peer_id in &audience {
             match self.network.connect(*peer_id).await {
-                Ok(dm_realm) => {
+                Ok((dm_realm, _peer_info)) => {
                     let doc = dm_realm.document::<IntentionDocument>("intentions").await?;
                     let i = intention.clone();
-                    doc.update(|d| {
+                    doc.update(|d: &mut IntentionDocument| {
                         d.add(i);
                     })
                     .await?;
@@ -104,10 +104,10 @@ impl GiftCycleBridge {
                     tokio::spawn(async move {
                         for delay_secs in [2, 5] {
                             tokio::time::sleep(std::time::Duration::from_secs(delay_secs)).await;
-                            if let Ok(r) = net.connect(peer).await {
+                            if let Ok((r, _)) = net.connect(peer).await {
                                 if let Ok(doc) = r.document::<IntentionDocument>("intentions").await {
                                     let i = i2.clone();
-                                    let _ = doc.update(|d| {
+                                    let _ = doc.update(|d: &mut IntentionDocument| {
                                         // add() is idempotent (keyed by intention.id)
                                         d.add(i);
                                     }).await;

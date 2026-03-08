@@ -2,7 +2,6 @@
 name = "indras-gift-cycle"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
 description = "Gift Cycle GUI — a single-purpose app centered on the 6-stage gift economy cycle"
 
 [[bin]]

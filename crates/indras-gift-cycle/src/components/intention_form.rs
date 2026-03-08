@@ -21,6 +21,7 @@ pub fn IntentionForm(
     let mut selected_peers = use_signal(Vec::<MemberId>::new);
     let mut submitting = use_signal(|| false);
     let mut error_msg = use_signal(|| None::<String>);
+    let mut selected_kind = use_signal(|| IntentionKind::Intention);
 
     let has_audience = !selected_peers.read().is_empty();
 
@@ -43,6 +44,27 @@ pub fn IntentionForm(
                     placeholder: "What do you need or offer?",
                     value: "{title}",
                     oninput: move |e| title.set(e.value()),
+                }
+            }
+
+            div { class: "gc-field",
+                label { class: "gc-label", "Kind" }
+                div { class: "kind-picker",
+                    for (kind, label) in [(IntentionKind::Need, "Need"), (IntentionKind::Offering, "Offering"), (IntentionKind::Intention, "Intention")] {
+                        {
+                            let k = kind.clone();
+                            let is_active = selected_kind() == kind;
+                            let class = if is_active { "kind-chip active" } else { "kind-chip" };
+                            rsx! {
+                                button {
+                                    class: "{class}",
+                                    r#type: "button",
+                                    onclick: move |_| selected_kind.set(k.clone()),
+                                    "{label}"
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -107,13 +129,14 @@ pub fn IntentionForm(
                         let t = title.read().clone();
                         let d = description.read().clone();
                         let audience = selected_peers.read().clone();
+                        let kind = selected_kind();
                         submitting.set(true);
                         error_msg.set(None);
                         spawn(async move {
                             let result = if audience.is_empty() {
-                                b.create_intention(&t, &d, IntentionKind::Intention).await
+                                b.create_intention(&t, &d, kind).await
                             } else {
-                                b.create_dm_intention(&t, &d, IntentionKind::Intention, audience).await
+                                b.create_dm_intention(&t, &d, kind, audience).await
                             };
                             match result {
                                 Ok(id) => on_created.call(id),

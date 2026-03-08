@@ -533,6 +533,7 @@ pub async fn build_member_tokens(
         Ok(d) => d,
         Err(_) => return Vec::new(),
     };
+    let attention_doc = home.document::<AttentionDocument>("attention").await.ok();
 
     let tokens: Vec<TokenOfGratitude> = {
         let data = token_doc.read().await;
@@ -553,58 +554,68 @@ pub async fn build_member_tokens(
         map
     };
 
-    tokens
-        .iter()
-        .enumerate()
-        .map(|(idx, t)| {
-            let id_hex: String = t.id.iter().map(|b| format!("{b:02x}")).collect();
-            let source_title = intention_titles
-                .get(&t.source_intention_id)
-                .cloned()
-                .unwrap_or_else(|| "Unknown intention".to_string());
-            let pledged_to = t
-                .pledged_to
-                .as_ref()
-                .and_then(|iid| intention_titles.get(iid).cloned());
+    let mut cards = Vec::new();
+    for (idx, t) in tokens.iter().enumerate() {
+        let id_hex: String = t.id.iter().map(|b| format!("{b:02x}")).collect();
+        let source_title = intention_titles
+            .get(&t.source_intention_id)
+            .cloned()
+            .unwrap_or_else(|| "Unknown intention".to_string());
+        let pledged_to = t
+            .pledged_to
+            .as_ref()
+            .and_then(|iid| intention_titles.get(iid).cloned());
 
-            let (blesser_name, blesser_letter, blesser_color_class) =
-                member_display(&t.blesser, &member_id, local_name, idx);
-            let (current_holder_name, current_holder_letter, current_holder_color_class) =
-                member_display(&t.steward, &member_id, local_name, idx + 1);
+        let (blesser_name, blesser_letter, blesser_color_class) =
+            member_display(&t.blesser, &member_id, local_name, idx);
+        let (current_holder_name, current_holder_letter, current_holder_color_class) =
+            member_display(&t.steward, &member_id, local_name, idx + 1);
 
-            let steward_chain: Vec<StewardChainDot> = t
-                .steward_chain
-                .iter()
-                .enumerate()
-                .map(|(i, mid)| {
-                    let (name, letter, color) = member_display(mid, &member_id, local_name, i);
-                    StewardChainDot {
-                        letter,
-                        color_class: color,
-                        name,
-                    }
-                })
-                .collect();
+        let steward_chain: Vec<StewardChainDot> = t
+            .steward_chain
+            .iter()
+            .enumerate()
+            .map(|(i, mid)| {
+                let (name, letter, color) = member_display(mid, &member_id, local_name, i);
+                StewardChainDot {
+                    letter,
+                    color_class: color,
+                    name,
+                }
+            })
+            .collect();
 
-            TokenCardData {
-                id: id_hex,
-                raw_id: t.id,
-                blessing_source: format!("from {} on '{}'", blesser_name, source_title),
-                attention_duration: "\u{2014}".to_string(),
-                pledged_to,
-                steward_chain_len: t.steward_chain.len(),
-                blesser_name,
-                blesser_letter,
-                blesser_color_class,
-                source_intention_title: source_title,
-                current_holder_name,
-                current_holder_letter,
-                current_holder_color_class,
-                created_ago: time_ago(t.created_at_millis),
-                steward_chain,
+        let attention_duration = if let Some(ref adoc) = attention_doc {
+            let adata = adoc.read().await;
+            let attn = adata.intention_attention(&t.source_intention_id, None);
+            if attn.total_attention_millis > 0 {
+                format_duration_secs(attn.total_attention_millis / 1000)
+            } else {
+                "\u{2014}".to_string()
             }
-        })
-        .collect()
+        } else {
+            "\u{2014}".to_string()
+        };
+
+        cards.push(TokenCardData {
+            id: id_hex,
+            raw_id: t.id,
+            blessing_source: format!("from {} on '{}'", blesser_name, source_title),
+            attention_duration,
+            pledged_to,
+            steward_chain_len: t.steward_chain.len(),
+            blesser_name,
+            blesser_letter,
+            blesser_color_class,
+            source_intention_title: source_title,
+            current_holder_name,
+            current_holder_letter,
+            current_holder_color_class,
+            created_ago: time_ago(t.created_at_millis),
+            steward_chain,
+        });
+    }
+    cards
 }
 
 /// Build intention cards from all DM realms (community intentions).

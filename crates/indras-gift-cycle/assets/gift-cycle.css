@@ -1969,3 +1969,44 @@ body::before {
     flex-wrap: wrap;
   }
 }
+
+/* Onboarding */
+.onboarding {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+}
+.onboarding-card {
+  background: var(--card);
+  border: 1px solid var(--bd);
+  border-radius: var(--radius);
+  padding: 48px;
+  max-width: 400px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.onboarding-card h1 { font-size: 24px; font-weight: 700; }
+.onboarding-card p { color: var(--t2); }
+
+/* Kind picker */
+.kind-picker { display: flex; gap: 8px; }
+.kind-chip {
+  padding: 6px 16px;
+  border-radius: 20px;
+  border: 1px solid var(--bd);
+  background: var(--card);
+  color: var(--t2);
+  cursor: pointer;
+  font-size: 13px;
+  font-family: var(--font);
+  transition: all 0.15s;
+}
+.kind-chip:hover { border-color: var(--ac); color: var(--tx); }
+.kind-chip.active {
+  background: rgba(129,140,248,0.15);
+  border-color: var(--ac);
+  color: var(--ac);
+}

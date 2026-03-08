@@ -18,15 +18,15 @@ use indras_network::member::MemberId;
 use indras_network::Realm;
 use std::collections::HashMap;
 
-/// Quest attention weighted by humanness freshness.
+/// Intention attention weighted by humanness freshness.
 ///
 /// Each member's attention contribution is multiplied by their humanness
 /// freshness (0.0–1.0). Fresh attestation = full weight, stale = reduced,
 /// absent = zero. This makes Sybil accounts' attention invisible.
 #[derive(Debug, Clone)]
 pub struct WeightedQuestAttention {
-    /// The quest.
-    pub quest_id: QuestId,
+    /// The intention.
+    pub intention_id: IntentionId,
     /// Raw total attention (unweighted, same as `QuestAttention`).
     pub raw_attention_millis: u64,
     /// Weighted total: sum of each member's (millis × freshness).
@@ -241,7 +241,7 @@ impl RealmAttention for Realm {
 
     async fn quests_by_weighted_attention(&self) -> Result<Vec<WeightedQuestAttention>> {
         let attention_doc = self.attention().await?;
-        let raw_rankings = attention_doc.read().await.quests_by_attention(None);
+        let raw_rankings = attention_doc.read().await.intentions_by_attention(None);
 
         let humanness_doc: Document<HumannessDocument> = self.document("_humanness").await?;
         let humanness_guard = humanness_doc.read().await;
@@ -261,7 +261,7 @@ impl RealmAttention for Realm {
                 }
 
                 WeightedQuestAttention {
-                    quest_id: qa.quest_id,
+                    intention_id: qa.intention_id,
                     raw_attention_millis: qa.total_attention_millis,
                     weighted_attention_millis: weighted_total,
                     by_member,

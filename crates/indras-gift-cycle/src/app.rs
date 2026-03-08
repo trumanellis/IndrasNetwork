@@ -70,7 +70,7 @@ async fn create_identity(name: &str) -> Result<Arc<IndrasNetwork>, String> {
         .build()
         .await
         .map_err(|e| format!("{e}"))?;
-    Ok(Arc::new(net))
+    Ok(net)
 }
 
 async fn load_identity() -> Result<Arc<IndrasNetwork>, String> {
@@ -78,7 +78,42 @@ async fn load_identity() -> Result<Arc<IndrasNetwork>, String> {
     let net = IndrasNetwork::new(&data_dir)
         .await
         .map_err(|e| format!("{e}"))?;
-    Ok(Arc::new(net))
+    Ok(net)
+}
+
+// ================================================================
+// Boot helper
+// ================================================================
+
+async fn boot_network(
+    net: Arc<IndrasNetwork>,
+    bridge: &mut Signal<Option<GiftCycleBridge>>,
+    boot_error: &mut Signal<Option<String>>,
+) {
+    let player_name = net.display_name().unwrap_or_else(|| "Unknown".to_string());
+    let player_id = net.id();
+    tracing::info!("Identity loaded: {}", player_name);
+    if let Err(e) = net.start().await {
+        tracing::warn!(error = %e, "Failed to start network (non-fatal)");
+    }
+    if let Err(e) = net.join_contacts_realm().await {
+        tracing::warn!(error = %e, "Failed to join contacts realm (non-fatal)");
+    }
+    let home = match net.home_realm().await {
+        Ok(hr) => hr,
+        Err(e) => {
+            boot_error.set(Some(format!("Failed to init home realm: {e}")));
+            return;
+        }
+    };
+    {
+        use indras_sync_engine::HomeRealmIntentions;
+        if let Err(e) = home.seed_welcome_intention_if_empty().await {
+            tracing::warn!(error = %e, "Failed to seed welcome intention");
+        }
+    }
+    let b = GiftCycleBridge::new(home, player_id, player_name, Arc::clone(&net));
+    bridge.set(Some(b));
 }
 
 // ================================================================
@@ -104,6 +139,8 @@ pub fn GiftCycleApp() -> Element {
     let mut peers = use_signal(Vec::<PeerDisplayInfo>::new);
     let mut p2p_log = use_signal(Vec::<P2pLogEntry>::new);
     let mut contact_invite_open = use_signal(|| false);
+    let mut needs_onboarding = use_signal(|| false);
+    let mut onboard_name = use_signal(String::new);
 
     // Boot sequence — runs once
     let _boot = use_resource(move || async move {
@@ -117,9 +154,7 @@ pub fn GiftCycleApp() -> Element {
                     }
                 }
             } else {
-                boot_error.set(Some(
-                    "No identity found. Set INDRAS_NAME env to auto-create.".to_string(),
-                ));
+                needs_onboarding.set(true);
                 return;
             }
         } else {
@@ -132,38 +167,7 @@ pub fn GiftCycleApp() -> Element {
             }
         };
 
-        let player_name = net.display_name().unwrap_or("Unknown").to_string();
-        let player_id = net.id();
-
-        tracing::info!("Identity loaded: {}", player_name);
-
-        // Start the network
-        if let Err(e) = net.start().await {
-            tracing::warn!(error = %e, "Failed to start network (non-fatal)");
-        }
-        if let Err(e) = net.join_contacts_realm().await {
-            tracing::warn!(error = %e, "Failed to join contacts realm (non-fatal)");
-        }
-
-        // Get home realm
-        let home = match net.home_realm().await {
-            Ok(hr) => hr,
-            Err(e) => {
-                boot_error.set(Some(format!("Failed to init home realm: {e}")));
-                return;
-            }
-        };
-
-        // Seed welcome intention
-        {
-            use indras_sync_engine::HomeRealmIntentions;
-            if let Err(e) = home.seed_welcome_intention_if_empty().await {
-                tracing::warn!(error = %e, "Failed to seed welcome intention");
-            }
-        }
-
-        let b = GiftCycleBridge::new(home, player_id, player_name, Arc::clone(&net));
-        bridge.set(Some(b));
+        boot_network(net, &mut bridge, &mut boot_error).await;
     });
 
     // SystemEvent stream — push P2P events from all realms into the log.
@@ -310,6 +314,43 @@ pub fn GiftCycleApp() -> Element {
             div { class: "boot-error",
                 div { class: "boot-error-title", "Boot Error" }
                 div { class: "boot-error-msg", "{err_msg}" }
+            }
+        };
+    }
+
+    if needs_onboarding() {
+        return rsx! {
+            div { class: "onboarding",
+                div { class: "onboarding-card",
+                    h1 { "Welcome to the Gift Cycle" }
+                    p { "Choose a name to get started." }
+                    input {
+                        class: "gc-input",
+                        r#type: "text",
+                        placeholder: "Your name",
+                        value: "{onboard_name}",
+                        oninput: move |e| onboard_name.set(e.value()),
+                    }
+                    button {
+                        class: "gc-btn gc-btn-primary",
+                        disabled: onboard_name.read().trim().is_empty(),
+                        onclick: move |_| {
+                            let name = onboard_name.read().trim().to_string();
+                            needs_onboarding.set(false);
+                            spawn(async move {
+                                match create_identity(&name).await {
+                                    Ok(net) => {
+                                        boot_network(net, &mut bridge, &mut boot_error).await;
+                                    }
+                                    Err(e) => {
+                                        boot_error.set(Some(e));
+                                    }
+                                }
+                            });
+                        },
+                        "Start"
+                    }
+                }
             }
         };
     }

@@ -109,8 +109,6 @@ indras_network::impl_document_schema!(
     BlessingDocument,
     TokenOfGratitudeDocument,
     HumannessDocument,
-    ProofFolderDocument,
-    SentimentRelayDocument,
 );
 
 // Custom CRDT merge implementations for attention-ledger documents.
