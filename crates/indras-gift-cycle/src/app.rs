@@ -246,6 +246,7 @@ pub fn GiftCycleApp() -> Element {
             // Refresh peers from contacts realm (matches workspace poll_contacts)
             if let Some(contacts_realm) = b.network.contacts_realm().await {
                 if let Ok(doc) = contacts_realm.contacts().await {
+                    let _ = doc.refresh().await;  // Ensure CRDT state is current
                     let contacts_data = doc.read().await;
                     let current_count = peers.read().len();
                     if contacts_data.contacts.len() != current_count {
@@ -264,6 +265,7 @@ pub fn GiftCycleApp() -> Element {
                                     letter,
                                     color_class,
                                     online: true,
+                                    member_id: *mid,
                                 }
                             })
                             .collect();
@@ -293,6 +295,12 @@ pub fn GiftCycleApp() -> Element {
                         }
                     }
                 }
+            }
+
+            // Proactive: connect to all known contacts to trigger re-notification
+            // Since connect() early-return now re-notifies, this ensures mutual discovery
+            for peer_info in peers.read().iter() {
+                let _ = b.network.connect(peer_info.member_id).await;
             }
 
             // Refresh detail view if showing one

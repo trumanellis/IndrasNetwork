@@ -195,6 +195,8 @@ pub struct PeerDisplayInfo {
     pub color_class: String,
     /// Whether the peer is currently online.
     pub online: bool,
+    /// The peer's MemberId for proactive reconnection.
+    pub member_id: MemberId,
 }
 
 /// A single entry in the P2P event log footer.

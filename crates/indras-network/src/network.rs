@@ -130,6 +130,9 @@ pub struct IndrasNetwork {
     poll_notify: Arc<Notify>,
     /// Guard against double-shutdown of peering tasks.
     shutdown_called: AtomicBool,
+    /// Time-throttled map of peers we've re-notified (avoids spam).
+    /// Value is the last re-notification attempt time.
+    re_notified_peers: Arc<DashMap<MemberId, std::time::Instant>>,
 }
 
 /// Internal realm state.
@@ -232,6 +235,7 @@ impl IndrasNetwork {
             peering_tasks: Mutex::new(Vec::new()),
             poll_notify: Arc::new(Notify::new()),
             shutdown_called: AtomicBool::new(false),
+            re_notified_peers: Arc::new(DashMap::new()),
         }))
     }
 
@@ -382,10 +386,115 @@ impl IndrasNetwork {
             self.peering_cancel.clone(),
         );
 
+        // Spawn inbox gossip listener: detect peers joining our inbox via gossip
+        // discovery and auto-connect (creates DM realm + adds contact).
+        // This is the primary connection discovery mechanism — it works through
+        // iroh relay even without QUIC transport connections, unlike send_message
+        // which requires established QUIC connections.
+        let h5 = if let Some(peer_events) = self.inner.subscribe_peer_events().await {
+            let my_id = self.id();
+            let inbox_id = inbox_realm_id(my_id);
+            let network_weak = Arc::downgrade(self);
+            let cancel = self.peering_cancel.clone();
+            Some(tokio::spawn(async move {
+                Self::inbox_gossip_listener(my_id, inbox_id, peer_events, network_weak, cancel).await;
+            }))
+        } else {
+            None
+        };
+
         let mut handles = self.peering_tasks.lock().await;
         handles.extend([h1, h2, h3, h4]);
+        if let Some(h5) = h5 {
+            handles.push(h5);
+        }
 
         Ok(())
+    }
+
+    /// Background task that detects peers joining our inbox via gossip discovery.
+    ///
+    /// When a peer joins our inbox gossip topic (by calling `create_interface_with_seed`
+    /// with our inbox ID), iroh's gossip layer detects them even without QUIC connections.
+    /// We then auto-call `connect()` to create the DM realm and add them as a contact.
+    ///
+    /// This is more reliable than the `send_message`-based notification because:
+    /// - Gossip discovery works through the iroh relay (no QUIC needed)
+    /// - `send_message` only delivers to peers with active QUIC connections
+    async fn inbox_gossip_listener(
+        my_id: MemberId,
+        inbox_id: RealmId,
+        mut peer_events: tokio::sync::broadcast::Receiver<indras_transport::PeerEvent>,
+        network_weak: std::sync::Weak<IndrasNetwork>,
+        cancel: CancellationToken,
+    ) {
+        use indras_core::identity::PeerIdentity;
+
+        loop {
+            tokio::select! {
+                _ = cancel.cancelled() => {
+                    tracing::debug!("Inbox gossip listener shutting down");
+                    break;
+                }
+                result = peer_events.recv() => {
+                    match result {
+                        Ok(indras_transport::PeerEvent::RealmPeerJoined { interface_id, peer_info }) => {
+                            // Only care about our inbox realm
+                            if interface_id != inbox_id {
+                                continue;
+                            }
+
+                            // Extract peer's MemberId from their IrohIdentity
+                            let peer_key_bytes = peer_info.peer_id.as_bytes();
+                            let mut peer_member_id = [0u8; 32];
+                            let len = peer_key_bytes.len().min(32);
+                            peer_member_id[..len].copy_from_slice(&peer_key_bytes[..len]);
+
+                            // Skip ourselves
+                            if peer_member_id == my_id {
+                                continue;
+                            }
+
+                            // Upgrade weak reference
+                            let Some(network) = network_weak.upgrade() else {
+                                tracing::debug!("Inbox gossip: network dropped, stopping");
+                                break;
+                            };
+
+                            tracing::info!(
+                                peer = %hex::encode(&peer_member_id[..8]),
+                                "Inbox: peer discovered via gossip, auto-connecting"
+                            );
+
+                            // Auto-connect: creates DM realm + adds to contacts
+                            match network.connect(peer_member_id).await {
+                                Ok(_) => {
+                                    tracing::info!(
+                                        peer = %hex::encode(&peer_member_id[..8]),
+                                        "Inbox: auto-connected via gossip discovery"
+                                    );
+                                }
+                                Err(e) => {
+                                    tracing::debug!(
+                                        peer = %hex::encode(&peer_member_id[..8]),
+                                        error = %e,
+                                        "Inbox: gossip-triggered auto-connect failed"
+                                    );
+                                }
+                            }
+                        }
+                        Ok(_) => {} // Ignore other peer events
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                            tracing::debug!(missed = n, "Inbox gossip listener lagged");
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                            tracing::debug!("Inbox gossip channel closed");
+                            break;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Populate `self.realms` and `self.peer_realms` from persisted node interfaces.
@@ -989,6 +1098,11 @@ impl IndrasNetwork {
         if let Some(state) = self.realms.get(&realm_id) {
             let realm = Realm::from_id_with_chat_doc(realm_id, state.name.clone(), state.artifact_id.clone(), Arc::clone(&self.inner), Arc::clone(&state.chat_doc));
             let peer_info = self.extract_peer(&realm).await?;
+
+            // Best-effort re-notify: if the peer hasn't reciprocated yet,
+            // re-send our inbox notification (single attempt, no retries).
+            self.re_notify_peer_inbox(peer_id, realm_id).await;
+
             return Ok((realm, peer_info));
         }
 
@@ -1077,8 +1191,9 @@ impl IndrasNetwork {
 
     /// Send a ConnectionNotify to the peer's inbox realm.
     ///
-    /// Best-effort: if this fails, the connection still works — the peer
-    /// just won't auto-discover it until they independently connect back.
+    /// Spawns a background task that aggressively retries delivery for up to
+    /// 60 seconds. Before each attempt, establishes a transport connection
+    /// to the peer (required for `send_message` to actually deliver).
     async fn notify_peer_inbox(&self, peer_id: MemberId, dm_realm_id: RealmId) {
         let my_id = self.id();
         let peer_inbox_id = inbox_realm_id(peer_id);
@@ -1124,53 +1239,158 @@ impl IndrasNetwork {
             }
         }
 
-        // Give gossip time to establish peer connectivity on this topic
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        let payload = match notify.to_bytes() {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::debug!(error = %e, "Failed to serialize inbox notification");
+                return;
+            }
+        };
 
-        // Serialize and send with retries (gossip may need time to propagate)
-        match notify.to_bytes() {
-            Ok(payload) => {
-                let mut sent = false;
-                for attempt in 0..3u32 {
-                    if attempt > 0 {
-                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                    }
-                    match self.inner.send_message(&peer_inbox_id, payload.clone()).await {
-                        Ok(_) => {
-                            tracing::info!(
-                                peer = %hex::encode(&peer_id[..8]),
-                                attempt,
-                                "Sent connection notification to peer inbox"
-                            );
-                            sent = true;
-                            break;
-                        }
-                        Err(e) => {
-                            tracing::debug!(
-                                peer = %hex::encode(&peer_id[..8]),
-                                attempt,
-                                error = %e,
-                                "Inbox notify attempt failed (retrying)"
-                            );
-                        }
-                    }
-                }
-                if !sent {
+        // Spawn background task: aggressively retry for 60s with connect_to_peer
+        // before each attempt. send_message only delivers to connected peers,
+        // so we must ensure the QUIC transport connection is established first.
+        let inner = Arc::clone(&self.inner);
+        tokio::spawn(async move {
+            let mut sent = false;
+            for attempt in 0..12u32 {
+                // Establish transport connection before each send attempt.
+                // This is critical: send_message only delivers to peers with
+                // an active QUIC connection (transport.is_connected).
+                if let Err(e) = inner.connect_to_peer(&peer_id).await {
                     tracing::debug!(
                         peer = %hex::encode(&peer_id[..8]),
-                        "All inbox notify attempts failed (non-fatal)"
+                        attempt,
+                        error = %e,
+                        "Inbox notify: transport connect failed, will retry"
                     );
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    continue;
                 }
+
+                // Small delay to let transport stabilize after connect
+                if attempt == 0 {
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                }
+
+                match inner.send_message(&peer_inbox_id, payload.clone()).await {
+                    Ok(_) => {
+                        tracing::info!(
+                            peer = %hex::encode(&peer_id[..8]),
+                            attempt,
+                            "Sent connection notification to peer inbox"
+                        );
+                        sent = true;
+                        break;
+                    }
+                    Err(e) => {
+                        tracing::debug!(
+                            peer = %hex::encode(&peer_id[..8]),
+                            attempt,
+                            error = %e,
+                            "Inbox notify attempt failed (retrying)"
+                        );
+                    }
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
             }
-            Err(e) => {
+
+            if !sent {
                 tracing::debug!(
-                    error = %e,
-                    "Failed to serialize inbox notification (non-fatal)"
+                    peer = %hex::encode(&peer_id[..8]),
+                    "All inbox notify attempts exhausted (non-fatal)"
                 );
+            }
+
+            // Leave peer's inbox after delivery or timeout
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            let _ = inner.leave_interface(&peer_inbox_id).await;
+        });
+    }
+
+    /// Re-notification for peers where the initial notify may have been lost.
+    ///
+    /// Called from `connect()` early-return path. Throttled to once per 30 seconds
+    /// per peer (not once-per-session) so the polling loop can keep retrying.
+    /// Establishes transport connection before sending.
+    async fn re_notify_peer_inbox(&self, peer_id: MemberId, dm_realm_id: RealmId) {
+        // Throttle: skip if we re-notified this peer within the last 30 seconds
+        let now = std::time::Instant::now();
+        if let Some(last) = self.re_notified_peers.get(&peer_id) {
+            if now.duration_since(*last) < std::time::Duration::from_secs(30) {
+                return;
+            }
+        }
+        self.re_notified_peers.insert(peer_id, now);
+
+        tracing::debug!(
+            peer = %hex::encode(&peer_id[..8]),
+            "Re-notifying peer inbox (with transport connect)"
+        );
+
+        // Establish transport connection first — critical for send_message delivery
+        if let Err(e) = self.inner.connect_to_peer(&peer_id).await {
+            tracing::debug!(
+                peer = %hex::encode(&peer_id[..8]),
+                error = %e,
+                "Re-notify: transport connect failed"
+            );
+            // Don't return — still try send_message in case connection exists from elsewhere
+        }
+
+        let my_id = self.id();
+        let peer_inbox_id = inbox_realm_id(peer_id);
+
+        let peer_public_key = match iroh::PublicKey::from_bytes(&peer_id) {
+            Ok(pk) => pk,
+            Err(_) => return,
+        };
+
+        // Join the peer's inbox realm
+        let peer_inbox_seed = inbox_key_seed(&peer_id);
+        if self
+            .inner
+            .create_interface_with_seed(peer_inbox_id, &peer_inbox_seed, Some("PeerInbox"), vec![peer_public_key])
+            .await
+            .is_err()
+        {
+            return;
+        }
+
+        let peer_identity = IrohIdentity::from(peer_public_key);
+        let _ = self.inner.add_member(&peer_inbox_id, peer_identity).await;
+
+        // Build notification
+        let mut notify = ConnectionNotify::new(my_id, dm_realm_id);
+        if let Some(name) = self.display_name() {
+            notify = notify.with_name(name);
+        }
+        if let Some(addr) = self.inner.endpoint_addr().await {
+            if let Ok(addr_bytes) = postcard::to_allocvec(&addr) {
+                notify = notify.with_endpoint_addr(addr_bytes);
             }
         }
 
-        // Schedule leaving the peer's inbox after a delay (allow retries to complete)
+        // Single send attempt (polling loop will call us again in 30s if needed)
+        if let Ok(payload) = notify.to_bytes() {
+            match self.inner.send_message(&peer_inbox_id, payload).await {
+                Ok(_) => {
+                    tracing::info!(
+                        peer = %hex::encode(&peer_id[..8]),
+                        "Re-notification sent to peer inbox"
+                    );
+                }
+                Err(e) => {
+                    tracing::debug!(
+                        peer = %hex::encode(&peer_id[..8]),
+                        error = %e,
+                        "Re-notification failed (non-fatal)"
+                    );
+                }
+            }
+        }
+
+        // Leave inbox after a short delay
         let inner = Arc::clone(&self.inner);
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_secs(10)).await;

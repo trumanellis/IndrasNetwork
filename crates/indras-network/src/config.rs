@@ -81,7 +81,8 @@ pub struct NetworkConfig {
     /// Local-only mode: disables DNS/pkarr discovery and relay servers.
     ///
     /// When true, peers can only connect via local network gossip.
-    /// Eliminates warnings about failed DNS resolution when offline.
+    /// Default is false: relay + DNS discovery are enabled, which is
+    /// required for peers to find each other by public key alone.
     pub local_only: bool,
     /// How often to poll contacts for peer changes (default 2s).
     pub poll_interval: Duration,
@@ -103,7 +104,7 @@ impl Default for NetworkConfig {
             enforce_pq_signatures: false,
             passphrase: None,
             pass_story: None,
-            local_only: true,
+            local_only: false,
             poll_interval: Duration::from_secs(2),
             save_interval: Duration::from_secs(30),
             node_config: None,
