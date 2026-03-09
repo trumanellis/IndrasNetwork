@@ -217,6 +217,68 @@ pub fn GiftCycleApp() -> Element {
         }
     });
 
+    // Network peer events — surface connection/peering activity in the P2P log.
+    // Unlike system_events() which are per-realm, these are network-level:
+    // new contacts, conversation openings, disconnections, etc.
+    let _peer_events = use_resource(move || async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            let Some(b) = bridge.read().clone() else {
+                continue;
+            };
+
+            let mut rx = b.network.peer_events();
+            loop {
+                match rx.recv().await {
+                    Ok(event) => {
+                        let message = match &event {
+                            indras_network::PeerEvent::PeerConnected { peer } => {
+                                Some(format!("{} connected", peer.display_name))
+                            }
+                            indras_network::PeerEvent::PeerDisconnected { member_id } => {
+                                let short: String = member_id.iter().take(4).map(|b| format!("{b:02x}")).collect();
+                                Some(format!("{short}… disconnected"))
+                            }
+                            indras_network::PeerEvent::ConversationOpened { peer, .. } => {
+                                Some(format!("DM opened with {}", peer.display_name))
+                            }
+                            indras_network::PeerEvent::PeerBlocked { member_id, .. } => {
+                                let short: String = member_id.iter().take(4).map(|b| format!("{b:02x}")).collect();
+                                Some(format!("{short}… blocked"))
+                            }
+                            indras_network::PeerEvent::SentimentChanged { member_id, sentiment } => {
+                                let short: String = member_id.iter().take(4).map(|b| format!("{b:02x}")).collect();
+                                let label = match sentiment {
+                                    1 => "recommended",
+                                    -1 => "not recommended",
+                                    _ => "neutral",
+                                };
+                                Some(format!("{short}… marked as {label}"))
+                            }
+                            _ => None, // PeersChanged, WorldViewSaved, NetworkEvent, Warning — skip
+                        };
+                        if let Some(msg) = message {
+                            let now_ms = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_millis() as u64;
+                            let mut log = p2p_log.write();
+                            log.push(P2pLogEntry {
+                                timestamp: now_ms,
+                                message: msg,
+                            });
+                            if log.len() > 50 {
+                                log.remove(0);
+                            }
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        }
+    });
+
     // Polling loop — refreshes data every 2 seconds
     let _poll = use_resource(move || async move {
         loop {
