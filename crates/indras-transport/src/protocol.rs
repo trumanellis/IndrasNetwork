@@ -132,6 +132,22 @@ pub enum WireMessage {
 
     /// Encounter code exchange for in-person peer discovery
     EncounterExchange(EncounterExchangeMessage),
+
+    // ========== Relay Protocol Messages ==========
+    /// Register interfaces with a relay for store-and-forward
+    RelayRegister(RelayRegisterMessage),
+
+    /// Acknowledge relay registration
+    RelayRegisterAck(RelayRegisterAckMessage),
+
+    /// Unregister interfaces from a relay
+    RelayUnregister(RelayUnregisterMessage),
+
+    /// Request stored events from relay (peer reconnecting)
+    RelayRetrieve(RelayRetrieveMessage),
+
+    /// Relay delivers stored events to peer
+    RelayDelivery(RelayDeliveryMessage),
 }
 
 /// Serialized packet for wire transmission
@@ -651,6 +667,169 @@ impl EncounterExchangeMessage {
     }
 }
 
+// ============================================================================
+// Relay Protocol Message Types
+// ============================================================================
+
+/// Register interfaces with a relay for blind store-and-forward
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RelayRegisterMessage {
+    /// Interfaces to register for caching
+    pub interfaces: Vec<InterfaceId>,
+    /// Optional display name for admin visibility
+    pub display_name: Option<String>,
+    /// Timestamp (Unix millis)
+    pub timestamp_millis: i64,
+}
+
+impl RelayRegisterMessage {
+    /// Create a new relay register message
+    pub fn new(interfaces: Vec<InterfaceId>) -> Self {
+        Self {
+            interfaces,
+            display_name: None,
+            timestamp_millis: chrono::Utc::now().timestamp_millis(),
+        }
+    }
+
+    /// Set the display name
+    pub fn with_name(mut self, name: impl Into<String>) -> Self {
+        self.display_name = Some(name.into());
+        self
+    }
+}
+
+/// Relay registration acknowledgment
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RelayRegisterAckMessage {
+    /// Successfully registered interfaces
+    pub accepted: Vec<InterfaceId>,
+    /// Rejected interfaces with reason
+    pub rejected: Vec<(InterfaceId, String)>,
+    /// Timestamp (Unix millis)
+    pub timestamp_millis: i64,
+}
+
+impl RelayRegisterAckMessage {
+    /// Create a new registration ack
+    pub fn new(accepted: Vec<InterfaceId>) -> Self {
+        Self {
+            accepted,
+            rejected: Vec::new(),
+            timestamp_millis: chrono::Utc::now().timestamp_millis(),
+        }
+    }
+
+    /// Add rejected interfaces
+    pub fn with_rejected(mut self, rejected: Vec<(InterfaceId, String)>) -> Self {
+        self.rejected = rejected;
+        self
+    }
+}
+
+/// Unregister interfaces from relay
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RelayUnregisterMessage {
+    /// Interfaces to unregister
+    pub interfaces: Vec<InterfaceId>,
+    /// Timestamp (Unix millis)
+    pub timestamp_millis: i64,
+}
+
+impl RelayUnregisterMessage {
+    /// Create a new unregister message
+    pub fn new(interfaces: Vec<InterfaceId>) -> Self {
+        Self {
+            interfaces,
+            timestamp_millis: chrono::Utc::now().timestamp_millis(),
+        }
+    }
+}
+
+/// Request stored events from relay after reconnection
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RelayRetrieveMessage {
+    /// Interface to retrieve events for
+    pub interface_id: InterfaceId,
+    /// Last event ID the peer has seen (relay sends everything after this)
+    pub after_event_id: Option<EventId>,
+    /// Timestamp (Unix millis)
+    pub timestamp_millis: i64,
+}
+
+impl RelayRetrieveMessage {
+    /// Create a new retrieve message
+    pub fn new(interface_id: InterfaceId) -> Self {
+        Self {
+            interface_id,
+            after_event_id: None,
+            timestamp_millis: chrono::Utc::now().timestamp_millis(),
+        }
+    }
+
+    /// Set the last event ID seen
+    pub fn after(mut self, event_id: EventId) -> Self {
+        self.after_event_id = Some(event_id);
+        self
+    }
+}
+
+/// Relay delivers stored encrypted events to a reconnecting peer
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RelayDeliveryMessage {
+    /// Interface these events belong to
+    pub interface_id: InterfaceId,
+    /// Stored encrypted events (opaque blobs)
+    pub events: Vec<StoredEvent>,
+    /// Whether there are more events available
+    pub has_more: bool,
+    /// Timestamp (Unix millis)
+    pub timestamp_millis: i64,
+}
+
+impl RelayDeliveryMessage {
+    /// Create a new delivery message
+    pub fn new(interface_id: InterfaceId, events: Vec<StoredEvent>) -> Self {
+        Self {
+            interface_id,
+            events,
+            has_more: false,
+            timestamp_millis: chrono::Utc::now().timestamp_millis(),
+        }
+    }
+
+    /// Indicate there are more events
+    pub fn with_more(mut self) -> Self {
+        self.has_more = true;
+        self
+    }
+}
+
+/// An encrypted event stored by the relay (opaque blob)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoredEvent {
+    /// Event ID for ordering
+    pub event_id: EventId,
+    /// The encrypted event payload (from InterfaceEventMessage)
+    pub encrypted_event: Vec<u8>,
+    /// Encryption nonce
+    pub nonce: [u8; 12],
+    /// When the relay received this event (Unix millis)
+    pub received_at_millis: i64,
+}
+
+impl StoredEvent {
+    /// Create a new stored event
+    pub fn new(event_id: EventId, encrypted_event: Vec<u8>, nonce: [u8; 12]) -> Self {
+        Self {
+            event_id,
+            encrypted_event,
+            nonce,
+            received_at_millis: chrono::Utc::now().timestamp_millis(),
+        }
+    }
+}
+
 /// Frame a message for wire transmission
 ///
 /// Returns the framed message as bytes (length-prefixed).
@@ -923,6 +1102,121 @@ mod tests {
         let data = [0x00, 0x00, 0x03, 0xE8, 0x01, 0x02, 0x03, 0x04];
         let result = parse_framed_message(&data);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_relay_register_roundtrip() {
+        use indras_core::InterfaceId;
+
+        let interfaces = vec![InterfaceId::new([0xAA; 32]), InterfaceId::new([0xBB; 32])];
+        let msg = WireMessage::RelayRegister(
+            RelayRegisterMessage::new(interfaces.clone()).with_name("TestRelay"),
+        );
+        let framed = frame_message(&msg).unwrap();
+        let parsed = parse_framed_message(&framed).unwrap();
+
+        match parsed {
+            WireMessage::RelayRegister(r) => {
+                assert_eq!(r.interfaces, interfaces);
+                assert_eq!(r.display_name, Some("TestRelay".to_string()));
+            }
+            _ => panic!("Expected RelayRegister"),
+        }
+    }
+
+    #[test]
+    fn test_relay_register_ack_roundtrip() {
+        use indras_core::InterfaceId;
+
+        let accepted = vec![InterfaceId::new([0xAA; 32])];
+        let rejected = vec![(InterfaceId::new([0xBB; 32]), "over quota".to_string())];
+        let msg = WireMessage::RelayRegisterAck(
+            RelayRegisterAckMessage::new(accepted.clone()).with_rejected(rejected.clone()),
+        );
+        let framed = frame_message(&msg).unwrap();
+        let parsed = parse_framed_message(&framed).unwrap();
+
+        match parsed {
+            WireMessage::RelayRegisterAck(r) => {
+                assert_eq!(r.accepted, accepted);
+                assert_eq!(r.rejected.len(), 1);
+                assert_eq!(r.rejected[0].1, "over quota");
+            }
+            _ => panic!("Expected RelayRegisterAck"),
+        }
+    }
+
+    #[test]
+    fn test_relay_unregister_roundtrip() {
+        use indras_core::InterfaceId;
+
+        let interfaces = vec![InterfaceId::new([0xCC; 32])];
+        let msg = WireMessage::RelayUnregister(RelayUnregisterMessage::new(interfaces.clone()));
+        let framed = frame_message(&msg).unwrap();
+        let parsed = parse_framed_message(&framed).unwrap();
+
+        match parsed {
+            WireMessage::RelayUnregister(r) => {
+                assert_eq!(r.interfaces, interfaces);
+            }
+            _ => panic!("Expected RelayUnregister"),
+        }
+    }
+
+    #[test]
+    fn test_relay_retrieve_roundtrip() {
+        use indras_core::InterfaceId;
+
+        let interface_id = InterfaceId::new([0xDD; 32]);
+        let event_id = indras_core::EventId::new(42, 7);
+        let msg = WireMessage::RelayRetrieve(
+            RelayRetrieveMessage::new(interface_id).after(event_id),
+        );
+        let framed = frame_message(&msg).unwrap();
+        let parsed = parse_framed_message(&framed).unwrap();
+
+        match parsed {
+            WireMessage::RelayRetrieve(r) => {
+                assert_eq!(r.interface_id, interface_id);
+                assert_eq!(r.after_event_id, Some(event_id));
+            }
+            _ => panic!("Expected RelayRetrieve"),
+        }
+    }
+
+    #[test]
+    fn test_relay_delivery_roundtrip() {
+        use indras_core::InterfaceId;
+
+        let interface_id = InterfaceId::new([0xEE; 32]);
+        let events = vec![
+            StoredEvent::new(
+                indras_core::EventId::new(1, 1),
+                vec![1, 2, 3, 4],
+                [0x11; 12],
+            ),
+            StoredEvent::new(
+                indras_core::EventId::new(1, 2),
+                vec![5, 6, 7, 8],
+                [0x22; 12],
+            ),
+        ];
+        let msg = WireMessage::RelayDelivery(
+            RelayDeliveryMessage::new(interface_id, events).with_more(),
+        );
+        let framed = frame_message(&msg).unwrap();
+        let parsed = parse_framed_message(&framed).unwrap();
+
+        match parsed {
+            WireMessage::RelayDelivery(d) => {
+                assert_eq!(d.interface_id, interface_id);
+                assert_eq!(d.events.len(), 2);
+                assert!(d.has_more);
+                assert_eq!(d.events[0].encrypted_event, vec![1, 2, 3, 4]);
+                assert_eq!(d.events[1].nonce, [0x22; 12]);
+            }
+            _ => panic!("Expected RelayDelivery"),
+        }
     }
 
     #[test]

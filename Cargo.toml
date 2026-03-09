@@ -30,6 +30,7 @@ members = [
     "examples/sync-demo",
     "examples/indras-notes",
     "crates/indras-gift-cycle",
+    "crates/indras-relay",
 ]
 
 [workspace.package]
@@ -54,6 +55,7 @@ indras-node = { path = "crates/indras-node" }
 indras-network = { path = "crates/indras-network" }
 indras-sync-engine = { path = "crates/indras-sync-engine" }
 indras-artifacts = { path = "crates/indras-artifacts" }
+indras-relay = { path = "crates/indras-relay" }
 
 # Core iroh stack
 iroh = "0.95"
