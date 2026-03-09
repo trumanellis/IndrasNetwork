@@ -461,14 +461,24 @@ impl IndrasNetwork {
                                 break;
                             };
 
+                            let peer_name = peer_info.display_name.clone();
                             tracing::info!(
                                 peer = %hex::encode(&peer_member_id[..8]),
+                                name = ?peer_name,
                                 "Inbox: peer discovered via gossip, auto-connecting"
                             );
 
                             // Auto-connect: creates DM realm + adds to contacts
                             match network.connect(peer_member_id).await {
                                 Ok(_) => {
+                                    // Store the display name from gossip discovery
+                                    if let Some(name) = peer_name {
+                                        if let Ok(contacts) = network.join_contacts_realm().await {
+                                            let _ = contacts.add_contact_with_name(
+                                                peer_member_id, Some(name)
+                                            ).await;
+                                        }
+                                    }
                                     tracing::info!(
                                         peer = %hex::encode(&peer_member_id[..8]),
                                         "Inbox: auto-connected via gossip discovery"
@@ -1147,9 +1157,16 @@ impl IndrasNetwork {
         );
 
         // 5. Add contact if not already present (auto-confirm for direct connect)
+        //    Look up the peer's display name from the node's peer registry
+        //    (populated by gossip discovery) so it appears in the UI.
         let contacts = self.join_contacts_realm().await?;
         if !contacts.is_contact(&peer_id).await {
-            let _ = contacts.add_contact(peer_id).await;
+            let peer_name = self.inner.storage().peer_registry()
+                .get(&IrohIdentity::from(peer_public_key))
+                .ok()
+                .flatten()
+                .and_then(|r| r.display_name.clone());
+            let _ = contacts.add_contact_with_name(peer_id, peer_name).await;
         }
         let _ = contacts.confirm_contact(&peer_id).await;
 
