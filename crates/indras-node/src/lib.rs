@@ -64,6 +64,7 @@ use indras_storage::CompositeStorage;
 use indras_sync::NInterface;
 use indras_transport::{IrohIdentity, IrohNetworkAdapter, PeerEvent};
 
+use indras_homepage::{HomepageServer, Profile};
 use message_handler::MessageHandler;
 use sync_task::SyncTask;
 
@@ -215,6 +216,8 @@ pub struct IndrasNode {
     background_tasks: RwLock<Vec<JoinHandle<()>>>,
     /// Whether the node has been started
     started: AtomicBool,
+    /// Homepage server profile handle (for live updates)
+    homepage_profile: Option<std::sync::Arc<tokio::sync::RwLock<indras_homepage::Profile>>>,
 }
 
 impl IndrasNode {
@@ -274,6 +277,7 @@ impl IndrasNode {
             shutdown_tx,
             background_tasks: RwLock::new(Vec::new()),
             started: AtomicBool::new(false),
+            homepage_profile: None,
         })
     }
 
@@ -332,6 +336,7 @@ impl IndrasNode {
             shutdown_tx,
             background_tasks: RwLock::new(Vec::new()),
             started: AtomicBool::new(false),
+            homepage_profile: None,
         })
     }
 
@@ -436,10 +441,39 @@ impl IndrasNode {
             tasks.push(handler_task);
             tasks.push(sync_task);
             tasks.push(realm_discovery_task);
+
+            // Start homepage server if configured
+            if let Some(port) = self.config.homepage_port {
+                let profile = Profile::new(
+                    self.config.display_name.as_deref().unwrap_or("Anonymous"),
+                    self.config.display_name.as_deref().unwrap_or("anonymous"),
+                    format!("{}", self.identity.short_id()),
+                );
+                let server = HomepageServer::new(profile);
+                let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
+                let homepage_task = tokio::spawn(async move {
+                    if let Err(e) = server.serve(addr).await {
+                        tracing::error!(error = %e, "Homepage server failed");
+                    }
+                });
+                tasks.push(homepage_task);
+                info!(port, "Homepage server started");
+            }
         }
 
         info!("Node started");
         Ok(())
+    }
+
+    /// Update the homepage profile data
+    ///
+    /// Changes take effect on the next HTTP request.
+    pub async fn update_homepage_profile(&self, display_name: String, bio: Option<String>) {
+        if let Some(ref profile_handle) = self.homepage_profile {
+            let mut profile = profile_handle.write().await;
+            profile.display_name = display_name;
+            profile.bio = bio;
+        }
     }
 
     /// Spawn the realm discovery event handler task

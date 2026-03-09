@@ -112,6 +112,25 @@ async fn boot_network(
             tracing::warn!(error = %e, "Failed to seed welcome intention");
         }
     }
+    // Start homepage server
+    let homepage_port: u16 = std::env::var("INDRAS_HOMEPAGE_PORT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(3000);
+    let profile = indras_homepage::Profile::new(
+        &player_name,
+        player_name.to_lowercase().replace(' ', "-"),
+        player_id.iter().map(|b| format!("{b:02x}")).collect::<String>(),
+    );
+    let server = indras_homepage::HomepageServer::new(profile);
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], homepage_port));
+    tokio::spawn(async move {
+        if let Err(e) = server.serve(addr).await {
+            tracing::error!(error = %e, "Homepage server failed");
+        }
+    });
+    tracing::info!(port = homepage_port, "Homepage server started at http://localhost:{}", homepage_port);
+
     let b = GiftCycleBridge::new(home, player_id, player_name, Arc::clone(&net));
     bridge.set(Some(b));
 }
