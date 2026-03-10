@@ -3768,8 +3768,11 @@ dependencies = [
  "chrono",
  "dioxus",
  "futures",
+ "indras-artifacts",
  "indras-crypto",
+ "indras-homepage",
  "indras-network",
+ "indras-profile",
  "indras-sync-engine",
  "serde",
  "serde_json",
@@ -3808,6 +3811,21 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "indras-homepage"
+version = "1.0.0"
+dependencies = [
+ "axum 0.8.8",
+ "indras-artifacts",
+ "indras-profile",
+ "serde",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-test",
+ "tower-http",
+ "tracing",
 ]
 
 [[package]]
@@ -3917,6 +3935,7 @@ dependencies = [
  "hex",
  "indras-core",
  "indras-crypto",
+ "indras-homepage",
  "indras-storage",
  "indras-sync",
  "indras-transport",
@@ -3961,6 +3980,13 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+]
+
+[[package]]
+name = "indras-profile"
+version = "1.0.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

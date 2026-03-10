@@ -84,9 +84,11 @@ for NAME in "${NAMES[@]}"; do
   LOWER_NAME=$(echo "$NAME" | tr '[:upper:]' '[:lower:]')
   DATA_DIR="/tmp/indras-${LOWER_NAME}"
   WIN_X=$((IDX * TILE_W))
-  echo "Launching $NAME at x=$WIN_X (data: $DATA_DIR)"
+  echo "Launching $NAME at x=$WIN_X (data: $DATA_DIR, homepage: http://localhost:$((3331 + IDX)))"
+  HOMEPAGE_PORT=$((3331 + IDX))
   INDRAS_NAME="$NAME" INDRAS_DATA_DIR="$DATA_DIR" \
     INDRAS_PEERS="$PEERS_LIST" \
+    INDRAS_HOMEPAGE_PORT="$HOMEPAGE_PORT" \
     INDRAS_WIN_X="$WIN_X" INDRAS_WIN_Y=25 \
     INDRAS_WIN_W="$TILE_W" INDRAS_WIN_H="$TILE_H" \
     cargo run -p "$APP" $FEATURES -- $CLEAN $SEED_SCRIPT 2>&1 | tee -a "$LOGFILE" &

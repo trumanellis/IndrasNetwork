@@ -31,6 +31,8 @@ members = [
     "examples/indras-notes",
     "crates/indras-gift-cycle",
     "crates/indras-relay",
+    "crates/indras-homepage",
+    "crates/indras-profile",
 ]
 
 [workspace.package]
@@ -56,6 +58,8 @@ indras-network = { path = "crates/indras-network" }
 indras-sync-engine = { path = "crates/indras-sync-engine" }
 indras-artifacts = { path = "crates/indras-artifacts" }
 indras-relay = { path = "crates/indras-relay" }
+indras-homepage = { path = "crates/indras-homepage" }
+indras-profile = { path = "crates/indras-profile" }
 
 # Core iroh stack
 iroh = "0.95"
@@ -87,6 +91,8 @@ dashmap = "6.0"
 chrono = { version = "0.4", features = ["serde"] }
 bytes = "1.0"
 async-trait = "0.1"
+axum = "0.8"
+tower-http = { version = "0.6", features = ["cors"] }
 
 # CLI
 clap = { version = "4.5", features = ["derive"] }

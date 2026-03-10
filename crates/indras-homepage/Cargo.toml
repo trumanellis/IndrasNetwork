@@ -1,0 +1,19 @@
+[package]
+name = "indras-homepage"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+description = "HTTP homepage server for indras nodes"
+
+[dependencies]
+indras-profile.workspace = true
+indras-artifacts.workspace = true
+axum.workspace = true
+tokio = { workspace = true, features = ["net"] }
+tower-http = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+tracing.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tokio-test.workspace = true

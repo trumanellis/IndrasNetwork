@@ -5,6 +5,7 @@
 //! for all 6 stages of the gift cycle.
 
 use std::sync::Arc;
+use tokio::sync::RwLock;
 
 use indras_network::error::{IndraError, Result};
 use indras_network::home_realm::HomeRealm;
@@ -30,6 +31,8 @@ pub struct GiftCycleBridge {
     pub player_name: String,
     /// The network instance for DM realm sharing.
     pub network: Arc<IndrasNetwork>,
+    /// Shared homepage profile handle for live updates.
+    pub homepage_profile: Option<Arc<RwLock<indras_profile::Profile>>>,
 }
 
 impl PartialEq for GiftCycleBridge {
@@ -51,7 +54,14 @@ impl GiftCycleBridge {
             member_id,
             player_name,
             network,
+            homepage_profile: None,
         }
+    }
+
+    /// Set the homepage profile handle for live updates.
+    pub fn with_homepage_profile(mut self, handle: Arc<RwLock<indras_profile::Profile>>) -> Self {
+        self.homepage_profile = Some(handle);
+        self
     }
 
     // ── Stage 1: Intention ─────────────────────────────────────────
@@ -152,7 +162,7 @@ impl GiftCycleBridge {
         let mut event_id = [0u8; 16];
         let doc = if let Some(ref rid) = source_realm_id {
             let realm = self.network.get_realm_by_id(rid)
-                .ok_or_else(|| IndraError::NotFound("realm".into()))?;
+                .ok_or_else(|| IndraError::RealmNotFound { id: "source realm".into() })?;
             realm.document::<AttentionDocument>("attention").await?
         } else {
             self.home.document::<AttentionDocument>("attention").await?
@@ -173,7 +183,7 @@ impl GiftCycleBridge {
         let mut event_id = [0u8; 16];
         let doc = if let Some(ref rid) = source_realm_id {
             let realm = self.network.get_realm_by_id(rid)
-                .ok_or_else(|| IndraError::NotFound("realm".into()))?;
+                .ok_or_else(|| IndraError::RealmNotFound { id: "source realm".into() })?;
             realm.document::<AttentionDocument>("attention").await?
         } else {
             self.home.document::<AttentionDocument>("attention").await?
@@ -377,5 +387,17 @@ impl GiftCycleBridge {
             }
         }
         peers
+    }
+
+    /// Grant a peer access to Connections-level profile fields.
+    pub async fn grant_profile_access(
+        &self,
+        grantee: MemberId,
+        mode: indras_artifacts::AccessMode,
+    ) -> Result<()> {
+        let artifact_id = indras_artifacts::ArtifactId::Blob(
+            indras_profile::profile_artifact_id(&self.member_id),
+        );
+        self.home.grant_access(&artifact_id, grantee, mode).await
     }
 }

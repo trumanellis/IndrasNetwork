@@ -14,8 +14,11 @@ dioxus = { version = "0.7", features = ["desktop"] }
 
 # Indras crates
 indras-network = { path = "../indras-network" }
+indras-artifacts.workspace = true
 indras-sync-engine = { path = "../indras-sync-engine" }
 indras-crypto = { path = "../indras-crypto" }
+indras-homepage = { path = "../indras-homepage" }
+indras-profile = { path = "../indras-profile" }
 
 # Async runtime
 tokio = { version = "1", features = ["full", "sync", "rt-multi-thread"] }

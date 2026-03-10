@@ -28,6 +28,11 @@ pub struct NodeConfig {
     /// When set, keys are encrypted at rest using Argon2id + ChaCha20-Poly1305.
     /// When None, keys are stored in plaintext (protected by file permissions).
     pub passphrase: Option<String>,
+    /// Optional port for the HTTP homepage server
+    ///
+    /// When set, the node will serve a profile page at `http://localhost:{port}/`.
+    /// Set to `None` to disable the homepage server.
+    pub homepage_port: Option<u16>,
 }
 
 impl Default for NodeConfig {
@@ -42,6 +47,7 @@ impl Default for NodeConfig {
             allow_legacy_unsigned: true,
             display_name: None,
             passphrase: None,
+            homepage_port: None,
         }
     }
 }
@@ -59,6 +65,7 @@ impl NodeConfig {
             allow_legacy_unsigned: true,
             display_name: None,
             passphrase: None,
+            homepage_port: None,
         }
     }
 
@@ -108,6 +115,14 @@ impl NodeConfig {
     /// Set the passphrase for encrypted keystore
     pub fn with_passphrase(mut self, passphrase: impl Into<String>) -> Self {
         self.passphrase = Some(passphrase.into());
+        self
+    }
+
+    /// Set the homepage server port
+    ///
+    /// When set, the node will serve a profile page on this port.
+    pub fn with_homepage_port(mut self, port: u16) -> Self {
+        self.homepage_port = Some(port);
         self
     }
 }
