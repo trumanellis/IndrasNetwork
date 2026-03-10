@@ -202,6 +202,24 @@ impl AttentionDocument {
             .collect()
     }
 
+    /// Insert a pre-formed event (for cross-realm mirroring).
+    ///
+    /// Skips if an event with the same ID already exists. This enables inserting
+    /// the exact same event into multiple docs without generating new IDs,
+    /// so CRDT dedup by `event_id` works correctly.
+    pub fn insert_event(&mut self, event: AttentionSwitchEvent) {
+        if self.events.iter().any(|e| e.event_id == event.event_id) {
+            return;
+        }
+        self.current_focus.insert(event.member, event.intention_id);
+        self.events.push(event);
+    }
+
+    /// Get the most recently appended event, if any.
+    pub fn last_event(&self) -> Option<&AttentionSwitchEvent> {
+        self.events.last()
+    }
+
     /// Get the number of attention events.
     pub fn event_count(&self) -> usize {
         self.events.len()

@@ -81,6 +81,8 @@ pub struct IntentionViewData {
     pub total_attention_duration: String,
     /// Tokens pledged to this intention.
     pub pledged_tokens: Vec<PledgedTokenData>,
+    /// Individual attention sessions (most recent first).
+    pub attention_sessions: Vec<AttentionSessionEntry>,
     /// Unblessed attention events for the local member.
     pub unblessed_event_indices: Vec<usize>,
     /// The CRDT intention ID.
@@ -127,6 +129,25 @@ pub struct AttentionPeerSummary {
     pub total_duration_secs: u64,
     /// Fraction of max peer's attention (for bar visualization).
     pub bar_fraction: f32,
+}
+
+/// A single attention session (one focus window by one peer on one intention).
+#[derive(Clone, Debug, PartialEq)]
+pub struct AttentionSessionEntry {
+    /// Peer display name.
+    pub member_name: String,
+    /// Peer letter avatar.
+    pub member_letter: String,
+    /// Peer color class.
+    pub member_color_class: String,
+    /// How long ago the session started.
+    pub started_ago: String,
+    /// Formatted duration.
+    pub duration: String,
+    /// Duration in seconds.
+    pub duration_secs: u64,
+    /// Whether this session is still active (member currently focused).
+    pub is_active: bool,
 }
 
 /// A token pledged to an intention.
@@ -260,6 +281,73 @@ pub fn format_duration_secs(secs: u64) -> String {
     let m = secs / 60;
     let s = secs % 60;
     format!("{m}m {s:02}s")
+}
+
+/// Extract individual attention sessions for a specific intention from the event log.
+///
+/// Replays the sorted event log, tracking per-member focus windows. When a member
+/// switches away from the target intention (or the log ends while still focused),
+/// a session entry is emitted. Results are sorted most-recent-first.
+fn extract_attention_sessions(
+    events: &[indras_sync_engine::AttentionSwitchEvent],
+    intention_id: &IntentionId,
+    member_id: &MemberId,
+    local_name: &str,
+    peer_names: &HashMap<MemberId, String>,
+) -> Vec<AttentionSessionEntry> {
+    use std::collections::HashMap as Map;
+
+    // Track open windows: member -> start_timestamp_millis
+    let mut open: Map<MemberId, i64> = Map::new();
+    let mut sessions = Vec::new();
+    let now_ms = chrono::Utc::now().timestamp_millis();
+
+    // Events are already in append order (chronological)
+    for event in events {
+        if event.intention_id.as_ref() == Some(intention_id) {
+            // Member focused on our intention — open a window if not already open
+            open.entry(event.member).or_insert(event.timestamp_millis);
+        } else if let Some(start) = open.remove(&event.member) {
+            // Member switched away — close the window
+            let duration_ms = (event.timestamp_millis - start).max(0) as u64;
+            let secs = duration_ms / 1000;
+            sessions.push((event.member, start, secs, false));
+        }
+    }
+
+    // Still-open windows (member is currently focused on this intention)
+    for (mid, start) in &open {
+        let duration_ms = (now_ms - start).max(0) as u64;
+        let secs = duration_ms / 1000;
+        sessions.push((*mid, *start, secs, true));
+    }
+
+    // Sort most-recent-first by start time
+    sessions.sort_by(|a, b| b.1.cmp(&a.1));
+
+    // Build display entries
+    let mut member_index: Map<MemberId, usize> = Map::new();
+    let mut next_idx = 0usize;
+    sessions
+        .into_iter()
+        .map(|(mid, start, secs, is_active)| {
+            let idx = *member_index.entry(mid).or_insert_with(|| {
+                let i = next_idx;
+                next_idx += 1;
+                i
+            });
+            let (name, letter, color) = member_display(&mid, member_id, local_name, idx, peer_names);
+            AttentionSessionEntry {
+                member_name: name,
+                member_letter: letter,
+                member_color_class: color,
+                started_ago: time_ago(start),
+                duration: format_duration_secs(secs),
+                duration_secs: secs,
+                is_active,
+            }
+        })
+        .collect()
 }
 
 // ================================================================
@@ -449,54 +537,98 @@ pub async fn build_intention_view(
         });
     }
 
-    // Attention data — read from DM realm for community intentions, home for local
-    let attention_doc = if let Some(ref rid) = source_realm_id {
-        if let Some(realm) = network.get_realm_by_id(rid) {
-            realm.document::<AttentionDocument>("attention").await.ok()
-        } else {
-            None
+    // Attention data — collect from ALL available attention docs (home + DM realms)
+    // so each peer sees everyone's attention, not just their own.
+    let mut all_attention_docs = Vec::new();
+    if let Ok(adoc) = home.document::<AttentionDocument>("attention").await {
+        all_attention_docs.push(adoc);
+    }
+    for rid in network.conversation_realms() {
+        if network.dm_peer_for_realm(&rid).is_none() {
+            continue;
         }
-    } else {
-        home.document::<AttentionDocument>("attention").await.ok()
-    };
-    let (attention_peers, total_attention_duration, heat) = if let Some(ref adoc) = attention_doc {
+        if let Some(realm) = network.get_realm_by_id(&rid) {
+            if let Ok(adoc) = realm.document::<AttentionDocument>("attention").await {
+                all_attention_docs.push(adoc);
+            }
+        }
+    }
+
+    // Collect all events from all docs, deduplicate by event_id to avoid
+    // double-counting when the creator mirrors events to DM realms.
+    let mut seen_ids = std::collections::HashSet::new();
+    let mut all_events: Vec<indras_sync_engine::AttentionSwitchEvent> = Vec::new();
+    for adoc in &all_attention_docs {
         let data = adoc.read().await;
-        let attn = data.intention_attention(&intention_id, None);
-        let total_ms = attn.total_attention_millis;
-        let heat = (total_ms as f32 / 1_800_000.0).min(1.0);
-        let total_dur = format_duration_secs(total_ms / 1000);
-
-        let max_ms = attn.attention_by_member.values().copied().max().unwrap_or(0);
-        let mut peer_entries: Vec<_> = attn.attention_by_member.iter().collect();
-        peer_entries.sort_by(|(_, a), (_, b)| b.cmp(a));
-
-        let mut peers = Vec::new();
-        for (idx, pair) in peer_entries.iter().enumerate() {
-            let mid = pair.0;
-            let ms = *pair.1;
-            let (name, letter, color) = member_display(mid, &member_id, local_name, idx, peer_names);
-            let secs = ms / 1000;
-            peers.push(AttentionPeerSummary {
-                peer_name: name,
-                peer_letter: letter,
-                peer_color_class: color,
-                total_duration: format_duration_secs(secs),
-                total_duration_secs: secs,
-                bar_fraction: if max_ms > 0 {
-                    ms as f32 / max_ms as f32
-                } else {
-                    0.0
-                },
-            });
+        for event in data.events() {
+            if seen_ids.insert(event.event_id) {
+                all_events.push(event.clone());
+            }
         }
-        (peers, total_dur, heat)
-    } else {
-        (Vec::new(), "0m 00s".to_string(), 0.0)
-    };
+    }
+    // Sort merged events chronologically for session extraction
+    all_events.sort_by_key(|e| e.timestamp_millis);
 
-    // Unblessed attention events for the local member
+    // Compute per-member aggregate attention from deduplicated events
+    let mut merged_by_member: HashMap<MemberId, u64> = HashMap::new();
+    {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        // Track each member's most recent focus-start on our intention
+        let mut open: HashMap<MemberId, i64> = HashMap::new();
+        for event in &all_events {
+            if event.intention_id.as_ref() == Some(&intention_id) {
+                open.entry(event.member).or_insert(event.timestamp_millis);
+            } else if let Some(start) = open.remove(&event.member) {
+                let ms = (event.timestamp_millis - start).max(0) as u64;
+                *merged_by_member.entry(event.member).or_default() += ms;
+            }
+        }
+        // Still-open windows count up to now
+        for (mid, start) in &open {
+            let ms = (now_ms - start).max(0) as u64;
+            *merged_by_member.entry(*mid).or_default() += ms;
+        }
+    }
+
+    let total_ms: u64 = merged_by_member.values().sum();
+    let heat = (total_ms as f32 / 1_800_000.0).min(1.0);
+    let total_attention_duration = format_duration_secs(total_ms / 1000);
+
+    let max_ms = merged_by_member.values().copied().max().unwrap_or(0);
+    let mut peer_entries: Vec<_> = merged_by_member.iter().collect();
+    peer_entries.sort_by(|(_, a), (_, b)| b.cmp(a));
+
+    let mut attention_peers = Vec::new();
+    for (idx, (&mid, &ms)) in peer_entries.into_iter().enumerate() {
+        let (name, letter, color) = member_display(&mid, &member_id, local_name, idx, peer_names);
+        let secs = ms / 1000;
+        attention_peers.push(AttentionPeerSummary {
+            peer_name: name,
+            peer_letter: letter,
+            peer_color_class: color,
+            total_duration: format_duration_secs(secs),
+            total_duration_secs: secs,
+            bar_fraction: if max_ms > 0 {
+                ms as f32 / max_ms as f32
+            } else {
+                0.0
+            },
+        });
+    }
+
+    // Extract individual attention sessions from merged events
+    let attention_sessions = extract_attention_sessions(
+        &all_events,
+        &intention_id,
+        &member_id,
+        local_name,
+        peer_names,
+    );
+
+    // Unblessed attention events for the local member (from home realm doc only)
+    let home_attention_doc = all_attention_docs.first();
     let unblessed_event_indices: Vec<usize> =
-        if let (Some(adoc), Some(bdoc)) = (&attention_doc, &blessing_doc) {
+        if let (Some(adoc), Some(bdoc)) = (home_attention_doc, &blessing_doc) {
             let adata = adoc.read().await;
             let bdata = bdoc.read().await;
             let events = adata.events();
@@ -548,6 +680,7 @@ pub async fn build_intention_view(
         attention_peers,
         total_attention_duration,
         pledged_tokens,
+        attention_sessions,
         unblessed_event_indices,
         intention_id,
         creator: intention.creator,

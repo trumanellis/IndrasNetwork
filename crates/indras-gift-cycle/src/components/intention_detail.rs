@@ -121,6 +121,29 @@ pub fn IntentionDetail(
                 }
             }
 
+            // Attention history (individual sessions)
+            if !data.attention_sessions.is_empty() {
+                div { class: "detail-section",
+                    div { class: "section-header",
+                        span { class: "section-title", "Attention History" }
+                        span { class: "section-count", "{data.attention_sessions.len()} sessions" }
+                    }
+                    for session in &data.attention_sessions {
+                        div { class: "attn-peer-row",
+                            div { class: "creator-avatar {session.member_color_class}",
+                                "{session.member_letter}"
+                            }
+                            span { class: "attn-peer-name", "{session.member_name}" }
+                            span { class: "attn-peer-dur", "{session.duration}" }
+                            span { class: "attn-session-ago", "{session.started_ago}" }
+                            if session.is_active {
+                                span { class: "attn-active-dot", "\u{25cf}" }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Tagged tokens
             if !data.pledged_tokens.is_empty() {
                 div { class: "detail-section",
