@@ -33,15 +33,17 @@ use indras_core::InterfaceId;
 use indras_core::identity::PeerIdentity;
 use indras_transport::identity::IrohIdentity;
 use indras_transport::protocol::{
-    RelayDeliveryMessage, RelayRegisterAckMessage, StoredEvent, WireMessage, frame_message,
-    parse_framed_message, ALPN_INDRAS, MAX_MESSAGE_SIZE,
+    RelayAuthAckMessage, RelayDeliveryMessage, RelayRegisterAckMessage, RelayStoreAckMessage,
+    StoredEvent, TierQuotaInfo, WireMessage, frame_message, parse_framed_message,
+    ALPN_INDRAS, MAX_MESSAGE_SIZE,
 };
 
 use crate::admin::{self, AdminState};
+use crate::auth::AuthService;
 use crate::blob_store::BlobStore;
 use crate::config::RelayConfig;
 use crate::error::{RelayError, RelayResult};
-use crate::quota::QuotaManager;
+use crate::quota::{QuotaManager, TieredQuotaManager};
 use crate::registration::RegistrationState;
 
 /// Core relay server
@@ -50,6 +52,8 @@ pub struct RelayNode {
     blob_store: Arc<BlobStore>,
     registrations: Arc<RegistrationState>,
     quota: Arc<QuotaManager>,
+    auth: Arc<AuthService>,
+    tiered_quota: Arc<TieredQuotaManager>,
     shutdown: CancellationToken,
 }
 
@@ -73,6 +77,12 @@ impl RelayNode {
         // Initialize quota manager
         let quota = Arc::new(QuotaManager::new(config.quota.clone()));
 
+        // Initialize auth service
+        let auth = Arc::new(AuthService::new(&config));
+
+        // Initialize tiered quota manager
+        let tiered_quota = Arc::new(TieredQuotaManager::new(config.tiers.clone()));
+
         let shutdown = CancellationToken::new();
 
         Ok(Self {
@@ -80,6 +90,8 @@ impl RelayNode {
             blob_store,
             registrations,
             quota,
+            auth,
+            tiered_quota,
             shutdown,
         })
     }
@@ -146,6 +158,7 @@ impl RelayNode {
             config: self.config.clone(),
             blob_store: self.blob_store.clone(),
             registrations: self.registrations.clone(),
+            auth: self.auth.clone(),
             started_at: std::time::Instant::now(),
         });
         let admin_router = admin::admin_router(admin_state);
@@ -164,11 +177,11 @@ impl RelayNode {
 
         // Spawn cleanup task
         let cleanup_store = self.blob_store.clone();
-        let cleanup_ttl_days = self.config.storage.default_event_ttl_days;
+        let cleanup_tier_config = self.config.tiers.clone();
         let cleanup_interval = self.config.storage.cleanup_interval_secs;
         let cleanup_shutdown = self.shutdown.clone();
         tokio::spawn(async move {
-            run_cleanup(cleanup_store, cleanup_ttl_days, cleanup_interval, cleanup_shutdown).await;
+            run_cleanup(cleanup_store, cleanup_tier_config, cleanup_interval, cleanup_shutdown).await;
         });
 
         // Main connection handling loop
@@ -180,6 +193,8 @@ impl RelayNode {
                     let registrations = self.registrations.clone();
                     let quota = self.quota.clone();
                     let gossip_clone = gossip.clone();
+                    let auth = self.auth.clone();
+                    let tiered_quota = self.tiered_quota.clone();
                     tokio::spawn(async move {
                         if let Err(e) = handle_connection(
                             conn,
@@ -187,6 +202,8 @@ impl RelayNode {
                             registrations,
                             quota,
                             gossip_clone,
+                            auth,
+                            tiered_quota,
                         ).await {
                             warn!(error = %e, "Connection handling error");
                         }
@@ -249,10 +266,14 @@ async fn handle_connection(
     registrations: Arc<RegistrationState>,
     quota: Arc<QuotaManager>,
     gossip: Gossip,
+    auth: Arc<AuthService>,
+    tiered_quota: Arc<TieredQuotaManager>,
 ) -> RelayResult<()> {
     let peer_key = conn.remote_id();
     let peer_id = IrohIdentity::new(peer_key);
     debug!(peer = %peer_key.fmt_short(), "Peer connected");
+
+    let mut authenticated = false;
 
     // Accept a bidirectional stream for the relay protocol exchange
     let (mut send_stream, mut recv_stream) = conn.accept_bi().await.map_err(|e| {
@@ -297,7 +318,56 @@ async fn handle_connection(
         };
 
         match msg {
+            WireMessage::RelayAuth(auth_msg) => {
+                let result = auth.authenticate(
+                    &peer_id,
+                    &auth_msg.credential,
+                    &auth_msg.player_id,
+                );
+
+                let response = match result {
+                    Ok(session) => {
+                        authenticated = true;
+                        let tier_quotas: Vec<TierQuotaInfo> = session.granted_tiers.iter().map(|t| {
+                            TierQuotaInfo {
+                                tier: *t,
+                                max_bytes: crate::tier::tier_max_bytes(*t, tiered_quota.tier_config()),
+                                used_bytes: tiered_quota.peer_tier_bytes(&peer_id, *t),
+                                max_interfaces: crate::tier::tier_max_interfaces(*t, tiered_quota.tier_config()),
+                            }
+                        }).collect();
+
+                        RelayAuthAckMessage {
+                            authenticated: true,
+                            granted_tiers: session.granted_tiers,
+                            tier_quotas,
+                            timestamp_millis: chrono::Utc::now().timestamp_millis(),
+                        }
+                    }
+                    Err(e) => {
+                        warn!(peer = %peer_key.fmt_short(), error = %e, "Authentication failed");
+                        RelayAuthAckMessage {
+                            authenticated: false,
+                            granted_tiers: vec![],
+                            tier_quotas: vec![],
+                            timestamp_millis: chrono::Utc::now().timestamp_millis(),
+                        }
+                    }
+                };
+
+                let framed = frame_message(&WireMessage::RelayAuthAck(response))
+                    .map_err(|e| RelayError::Serialization(e.to_string()))?;
+                send_stream.write_all(&framed).await.map_err(|e| {
+                    RelayError::Transport(format!("Failed to send auth ack: {e}"))
+                })?;
+            }
+
             WireMessage::RelayRegister(register) => {
+                if !authenticated {
+                    warn!(peer = %peer_key.fmt_short(), "Unauthenticated peer attempted operation");
+                    continue;
+                }
+
                 registrations.touch(&peer_id);
                 let response = handle_register(
                     &peer_id,
@@ -327,6 +397,11 @@ async fn handle_connection(
             }
 
             WireMessage::RelayRetrieve(retrieve) => {
+                if !authenticated {
+                    warn!(peer = %peer_key.fmt_short(), "Unauthenticated peer attempted operation");
+                    continue;
+                }
+
                 registrations.touch(&peer_id);
                 let events = blob_store
                     .events_after(retrieve.interface_id, retrieve.after_event_id)?;
@@ -343,6 +418,77 @@ async fn handle_connection(
                     interface = %short_hex(retrieve.interface_id.as_bytes()),
                     "Delivered stored events"
                 );
+            }
+
+            WireMessage::RelayStore(store_msg) => {
+                if !authenticated {
+                    warn!(peer = %peer_key.fmt_short(), "Unauthenticated store attempt");
+                    continue;
+                }
+
+                // Check tier access
+                let has_access = auth.has_tier_access(&peer_id, store_msg.tier);
+                if !has_access {
+                    let ack = RelayStoreAckMessage {
+                        accepted: false,
+                        reason: Some(format!("No access to {:?} tier", store_msg.tier)),
+                        timestamp_millis: chrono::Utc::now().timestamp_millis(),
+                    };
+                    let framed = frame_message(&WireMessage::RelayStoreAck(ack))
+                        .map_err(|e| RelayError::Serialization(e.to_string()))?;
+                    send_stream.write_all(&framed).await.map_err(|e| {
+                        RelayError::Transport(format!("Failed to send store ack: {e}"))
+                    })?;
+                    continue;
+                }
+
+                // Check tier quota
+                let data_len = store_msg.data.len() as u64;
+                if let Err(e) = tiered_quota.can_store_tiered(&peer_id, store_msg.tier, data_len) {
+                    let ack = RelayStoreAckMessage {
+                        accepted: false,
+                        reason: Some(e.to_string()),
+                        timestamp_millis: chrono::Utc::now().timestamp_millis(),
+                    };
+                    let framed = frame_message(&WireMessage::RelayStoreAck(ack))
+                        .map_err(|e| RelayError::Serialization(e.to_string()))?;
+                    send_stream.write_all(&framed).await.map_err(|e| {
+                        RelayError::Transport(format!("Failed to send store ack: {e}"))
+                    })?;
+                    continue;
+                }
+
+                // Store the data as a StoredEvent
+                let event_id = indras_core::EventId::new(0, chrono::Utc::now().timestamp_millis() as u64);
+                let stored = StoredEvent::new(event_id, store_msg.data, [0u8; 12]);
+                match blob_store.store_event_tiered(store_msg.tier, store_msg.interface_id, &stored) {
+                    Ok(()) => {
+                        tiered_quota.record_storage_tiered(peer_id, store_msg.tier, data_len);
+                        let ack = RelayStoreAckMessage {
+                            accepted: true,
+                            reason: None,
+                            timestamp_millis: chrono::Utc::now().timestamp_millis(),
+                        };
+                        let framed = frame_message(&WireMessage::RelayStoreAck(ack))
+                            .map_err(|e| RelayError::Serialization(e.to_string()))?;
+                        send_stream.write_all(&framed).await.map_err(|e| {
+                            RelayError::Transport(format!("Failed to send store ack: {e}"))
+                        })?;
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "Failed to store tiered data");
+                        let ack = RelayStoreAckMessage {
+                            accepted: false,
+                            reason: Some(e.to_string()),
+                            timestamp_millis: chrono::Utc::now().timestamp_millis(),
+                        };
+                        let framed = frame_message(&WireMessage::RelayStoreAck(ack))
+                            .map_err(|e| RelayError::Serialization(e.to_string()))?;
+                        send_stream.write_all(&framed).await.map_err(|e| {
+                            RelayError::Transport(format!("Failed to send store ack: {e}"))
+                        })?;
+                    }
+                }
             }
 
             WireMessage::Ping(n) => {
@@ -362,6 +508,8 @@ async fn handle_connection(
             }
         }
     }
+
+    auth.remove_session(&peer_id);
 
     Ok(())
 }
@@ -514,20 +662,31 @@ fn store_gossip_event(interface_id: &InterfaceId, data: &Bytes, blob_store: &Blo
 /// Run periodic cleanup of expired events
 async fn run_cleanup(
     store: Arc<BlobStore>,
-    ttl_days: u64,
+    tier_config: crate::config::TierConfig,
     interval_secs: u64,
     shutdown: CancellationToken,
 ) {
-    let max_age = Duration::from_secs(ttl_days * 86_400);
+    use indras_transport::protocol::StorageTier;
+
     let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
 
     loop {
         tokio::select! {
             _ = interval.tick() => {
-                match store.cleanup_expired(max_age) {
-                    Ok(count) if count > 0 => info!(count, "Cleanup removed expired events"),
-                    Ok(_) => {}
-                    Err(e) => warn!(error = %e, "Cleanup failed"),
+                // Clean each tier with its own TTL
+                for (tier, ttl_days) in [
+                    (StorageTier::Self_, tier_config.self_ttl_days),
+                    (StorageTier::Connections, tier_config.connections_ttl_days),
+                    (StorageTier::Public, tier_config.public_ttl_days),
+                ] {
+                    let max_age = Duration::from_secs(ttl_days * 86_400);
+                    match store.cleanup_expired_tiered(tier, max_age) {
+                        Ok(count) if count > 0 => {
+                            info!(count, ?tier, "Cleanup removed expired events");
+                        }
+                        Ok(_) => {}
+                        Err(e) => warn!(error = %e, ?tier, "Cleanup failed"),
+                    }
                 }
             }
             _ = shutdown.cancelled() => {

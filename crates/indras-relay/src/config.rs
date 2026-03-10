@@ -26,13 +26,27 @@ pub struct RelayConfig {
     #[serde(default = "default_admin_token")]
     pub admin_token: String,
 
-    /// Quota configuration
+    /// Quota configuration (legacy flat quota — used as fallback)
     #[serde(default)]
     pub quota: QuotaConfig,
 
     /// Storage configuration
     #[serde(default)]
     pub storage: StorageConfig,
+
+    /// Owner's PlayerId (32 bytes, hex-encoded in TOML).
+    /// When set, this relay acts as a personal server for the owner.
+    /// When None with community_mode=true, acts as a community server.
+    #[serde(default)]
+    pub owner_player_id: Option<String>,
+
+    /// Whether this relay runs in community mode (allowlist-based tier grants)
+    #[serde(default)]
+    pub community_mode: bool,
+
+    /// Per-tier configuration
+    #[serde(default)]
+    pub tiers: TierConfig,
 }
 
 impl Default for RelayConfig {
@@ -44,6 +58,9 @@ impl Default for RelayConfig {
             admin_token: default_admin_token(),
             quota: QuotaConfig::default(),
             storage: StorageConfig::default(),
+            owner_player_id: None,
+            community_mode: false,
+            tiers: TierConfig::default(),
         }
     }
 }
@@ -110,6 +127,98 @@ impl Default for StorageConfig {
             cleanup_interval_secs: default_cleanup_interval_secs(),
         }
     }
+}
+
+/// Per-tier quota and TTL configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TierConfig {
+    /// Self tier: max bytes (default: 1 GB)
+    #[serde(default = "default_self_max_bytes")]
+    pub self_max_bytes: u64,
+
+    /// Self tier: TTL in days (default: 365)
+    #[serde(default = "default_self_ttl_days")]
+    pub self_ttl_days: u64,
+
+    /// Self tier: max interfaces (default: 100)
+    #[serde(default = "default_self_max_interfaces")]
+    pub self_max_interfaces: usize,
+
+    /// Connections tier: max bytes (default: 500 MB)
+    #[serde(default = "default_connections_max_bytes")]
+    pub connections_max_bytes: u64,
+
+    /// Connections tier: TTL in days (default: 90)
+    #[serde(default = "default_connections_ttl_days")]
+    pub connections_ttl_days: u64,
+
+    /// Connections tier: max interfaces (default: 200)
+    #[serde(default = "default_connections_max_interfaces")]
+    pub connections_max_interfaces: usize,
+
+    /// Public tier: max bytes (default: 50 MB)
+    #[serde(default = "default_public_max_bytes")]
+    pub public_max_bytes: u64,
+
+    /// Public tier: TTL in days (default: 7)
+    #[serde(default = "default_public_ttl_days")]
+    pub public_ttl_days: u64,
+
+    /// Public tier: max interfaces (default: 50)
+    #[serde(default = "default_public_max_interfaces")]
+    pub public_max_interfaces: usize,
+}
+
+impl Default for TierConfig {
+    fn default() -> Self {
+        Self {
+            self_max_bytes: default_self_max_bytes(),
+            self_ttl_days: default_self_ttl_days(),
+            self_max_interfaces: default_self_max_interfaces(),
+            connections_max_bytes: default_connections_max_bytes(),
+            connections_ttl_days: default_connections_ttl_days(),
+            connections_max_interfaces: default_connections_max_interfaces(),
+            public_max_bytes: default_public_max_bytes(),
+            public_ttl_days: default_public_ttl_days(),
+            public_max_interfaces: default_public_max_interfaces(),
+        }
+    }
+}
+
+fn default_self_max_bytes() -> u64 {
+    1024 * 1024 * 1024 // 1 GB
+}
+
+fn default_self_ttl_days() -> u64 {
+    365
+}
+
+fn default_self_max_interfaces() -> usize {
+    100
+}
+
+fn default_connections_max_bytes() -> u64 {
+    500 * 1024 * 1024 // 500 MB
+}
+
+fn default_connections_ttl_days() -> u64 {
+    90
+}
+
+fn default_connections_max_interfaces() -> usize {
+    200
+}
+
+fn default_public_max_bytes() -> u64 {
+    50 * 1024 * 1024 // 50 MB
+}
+
+fn default_public_ttl_days() -> u64 {
+    7
+}
+
+fn default_public_max_interfaces() -> usize {
+    50
 }
 
 fn default_data_dir() -> PathBuf {
@@ -185,5 +294,42 @@ mod tests {
         assert_eq!(config.quota.default_max_bytes_per_peer, 50 * 1024 * 1024);
         assert_eq!(config.quota.default_max_interfaces_per_peer, 25);
         assert_eq!(config.storage.default_event_ttl_days, 30);
+    }
+
+    #[test]
+    fn test_tier_config_defaults() {
+        let config = TierConfig::default();
+        assert_eq!(config.self_max_bytes, 1024 * 1024 * 1024);
+        assert_eq!(config.self_ttl_days, 365);
+        assert_eq!(config.self_max_interfaces, 100);
+        assert_eq!(config.connections_max_bytes, 500 * 1024 * 1024);
+        assert_eq!(config.connections_ttl_days, 90);
+        assert_eq!(config.public_max_bytes, 50 * 1024 * 1024);
+        assert_eq!(config.public_ttl_days, 7);
+    }
+
+    #[test]
+    fn test_config_with_tiers_from_toml() {
+        let toml_str = r#"
+            display_name = "tier-relay"
+            owner_player_id = "abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234"
+            community_mode = false
+
+            [tiers]
+            self_max_bytes = 2147483648
+            connections_max_bytes = 1073741824
+            public_max_bytes = 104857600
+        "#;
+
+        let config: RelayConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.display_name, "tier-relay");
+        assert!(config.owner_player_id.is_some());
+        assert!(!config.community_mode);
+        assert_eq!(config.tiers.self_max_bytes, 2 * 1024 * 1024 * 1024);
+        assert_eq!(config.tiers.connections_max_bytes, 1024 * 1024 * 1024);
+        assert_eq!(config.tiers.public_max_bytes, 100 * 1024 * 1024);
+        // Defaults for unset fields
+        assert_eq!(config.tiers.self_ttl_days, 365);
+        assert_eq!(config.tiers.public_ttl_days, 7);
     }
 }

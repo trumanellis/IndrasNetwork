@@ -35,6 +35,18 @@ pub enum RelayError {
     #[error("Admin API error: {0}")]
     Admin(String),
 
+    /// Authentication failed
+    #[error("Authentication failed: {0}")]
+    AuthenticationFailed(String),
+
+    /// Tier access denied
+    #[error("Tier access denied: {0}")]
+    TierAccessDenied(String),
+
+    /// Invalid credential
+    #[error("Invalid credential: {0}")]
+    InvalidCredential(String),
+
     /// Database error
     #[error("Database error: {0}")]
     Database(#[from] redb::DatabaseError),

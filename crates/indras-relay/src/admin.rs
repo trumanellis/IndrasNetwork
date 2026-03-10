@@ -15,6 +15,7 @@ use serde::Serialize;
 
 use indras_core::identity::PeerIdentity;
 
+use crate::auth::AuthService;
 use crate::blob_store::BlobStore;
 use crate::config::RelayConfig;
 use crate::registration::RegistrationState;
@@ -24,6 +25,7 @@ pub struct AdminState {
     pub config: RelayConfig,
     pub blob_store: Arc<BlobStore>,
     pub registrations: Arc<RegistrationState>,
+    pub auth: Arc<AuthService>,
     pub started_at: Instant,
 }
 
@@ -42,6 +44,10 @@ pub struct StatsResponse {
     pub interface_count: usize,
     pub total_events: usize,
     pub total_storage_bytes: u64,
+    /// Per-tier storage usage
+    pub self_bytes: u64,
+    pub connections_bytes: u64,
+    pub public_bytes: u64,
 }
 
 /// Peer info for admin API
@@ -52,6 +58,8 @@ pub struct PeerInfo {
     pub interface_count: usize,
     pub registered_at: String,
     pub last_seen: String,
+    /// Storage tiers this peer has access to
+    pub granted_tiers: Vec<String>,
 }
 
 /// Interface info for admin API
@@ -110,11 +118,19 @@ async fn stats_handler(
     let total_events = state.blob_store.event_count().unwrap_or(0);
     let total_storage = state.blob_store.total_usage_bytes().unwrap_or(0);
 
+    use indras_transport::protocol::StorageTier;
+    let self_bytes = state.blob_store.tier_usage_bytes(StorageTier::Self_).unwrap_or(0);
+    let connections_bytes = state.blob_store.tier_usage_bytes(StorageTier::Connections).unwrap_or(0);
+    let public_bytes = state.blob_store.tier_usage_bytes(StorageTier::Public).unwrap_or(0);
+
     Ok(Json(StatsResponse {
         peer_count: state.registrations.peer_count(),
         interface_count: state.registrations.interface_count(),
         total_events,
         total_storage_bytes: total_storage,
+        self_bytes,
+        connections_bytes,
+        public_bytes,
     }))
 }
 
@@ -129,12 +145,20 @@ async fn peers_handler(
         .registrations
         .registered_peers()
         .into_iter()
-        .map(|p| PeerInfo {
-            peer_id: hex::encode(&p.peer_id.as_bytes()),
-            display_name: p.display_name,
-            interface_count: p.interfaces.len(),
-            registered_at: p.registered_at.to_rfc3339(),
-            last_seen: p.last_seen.to_rfc3339(),
+        .map(|p| {
+            let granted_tiers = state
+                .auth
+                .get_session(&p.peer_id)
+                .map(|s| s.granted_tiers.iter().map(|t| format!("{t:?}")).collect())
+                .unwrap_or_default();
+            PeerInfo {
+                peer_id: hex::encode(&p.peer_id.as_bytes()),
+                display_name: p.display_name,
+                interface_count: p.interfaces.len(),
+                registered_at: p.registered_at.to_rfc3339(),
+                last_seen: p.last_seen.to_rfc3339(),
+                granted_tiers,
+            }
         })
         .collect();
 

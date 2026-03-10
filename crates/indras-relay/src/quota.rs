@@ -6,9 +6,11 @@
 use dashmap::DashMap;
 
 use indras_transport::identity::IrohIdentity;
+use indras_transport::protocol::StorageTier;
 
-use crate::config::QuotaConfig;
+use crate::config::{QuotaConfig, TierConfig};
 use crate::error::{RelayError, RelayResult};
+use crate::tier;
 
 /// Per-peer quota tracking
 #[derive(Debug, Clone)]
@@ -142,6 +144,138 @@ impl QuotaManager {
     }
 }
 
+/// Per-tier quota tracking for a single peer
+#[derive(Debug, Clone, Default)]
+pub struct TieredPeerQuota {
+    /// Bytes used per tier
+    pub tier_bytes: std::collections::HashMap<StorageTier, u64>,
+    /// Interface count per tier
+    pub tier_interfaces: std::collections::HashMap<StorageTier, usize>,
+}
+
+/// Manages per-tier storage quotas
+pub struct TieredQuotaManager {
+    tier_config: TierConfig,
+    /// Per-peer, per-tier quota tracking
+    peer_quotas: DashMap<IrohIdentity, TieredPeerQuota>,
+}
+
+impl TieredQuotaManager {
+    /// Create a new tiered quota manager
+    pub fn new(tier_config: TierConfig) -> Self {
+        Self {
+            tier_config,
+            peer_quotas: DashMap::new(),
+        }
+    }
+
+    /// Check if storing additional bytes in a tier would exceed quota
+    pub fn can_store_tiered(
+        &self,
+        peer_id: &IrohIdentity,
+        tier: StorageTier,
+        additional_bytes: u64,
+    ) -> RelayResult<()> {
+        let max_bytes = tier::tier_max_bytes(tier, &self.tier_config);
+        let current = self
+            .peer_quotas
+            .get(peer_id)
+            .and_then(|q| q.tier_bytes.get(&tier).copied())
+            .unwrap_or(0);
+
+        if current + additional_bytes > max_bytes {
+            return Err(RelayError::QuotaExceeded {
+                reason: format!(
+                    "Would exceed {:?} tier byte limit: {} + {} > {}",
+                    tier, current, additional_bytes, max_bytes
+                ),
+            });
+        }
+
+        Ok(())
+    }
+
+    /// Check if a peer can register interfaces in a tier
+    pub fn can_register_tiered(
+        &self,
+        peer_id: &IrohIdentity,
+        tier: StorageTier,
+        additional_interfaces: usize,
+    ) -> RelayResult<()> {
+        let max_interfaces = tier::tier_max_interfaces(tier, &self.tier_config);
+        let current = self
+            .peer_quotas
+            .get(peer_id)
+            .and_then(|q| q.tier_interfaces.get(&tier).copied())
+            .unwrap_or(0);
+
+        if current + additional_interfaces > max_interfaces {
+            return Err(RelayError::QuotaExceeded {
+                reason: format!(
+                    "Would exceed {:?} tier interface limit: {} + {} > {}",
+                    tier, current, additional_interfaces, max_interfaces
+                ),
+            });
+        }
+
+        Ok(())
+    }
+
+    /// Record bytes stored in a tier
+    pub fn record_storage_tiered(&self, peer_id: IrohIdentity, tier: StorageTier, bytes: u64) {
+        self.peer_quotas
+            .entry(peer_id)
+            .or_default()
+            .tier_bytes
+            .entry(tier)
+            .and_modify(|b| *b += bytes)
+            .or_insert(bytes);
+    }
+
+    /// Record interfaces registered in a tier
+    pub fn record_registration_tiered(
+        &self,
+        peer_id: IrohIdentity,
+        tier: StorageTier,
+        interface_count: usize,
+    ) {
+        self.peer_quotas
+            .entry(peer_id)
+            .or_default()
+            .tier_interfaces
+            .entry(tier)
+            .and_modify(|c| *c += interface_count)
+            .or_insert(interface_count);
+    }
+
+    /// Record interfaces unregistered from a tier
+    pub fn record_unregistration_tiered(
+        &self,
+        peer_id: &IrohIdentity,
+        tier: StorageTier,
+        interface_count: usize,
+    ) {
+        if let Some(mut quota) = self.peer_quotas.get_mut(peer_id) {
+            if let Some(count) = quota.tier_interfaces.get_mut(&tier) {
+                *count = count.saturating_sub(interface_count);
+            }
+        }
+    }
+
+    /// Get the tier config
+    pub fn tier_config(&self) -> &TierConfig {
+        &self.tier_config
+    }
+
+    /// Get tier-specific usage for a peer
+    pub fn peer_tier_bytes(&self, peer_id: &IrohIdentity, tier: StorageTier) -> u64 {
+        self.peer_quotas
+            .get(peer_id)
+            .and_then(|q| q.tier_bytes.get(&tier).copied())
+            .unwrap_or(0)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -211,5 +345,59 @@ mod tests {
         mgr.record_unregistration(&peer, 2);
         assert!(mgr.can_register(&peer, 1).is_ok());
         assert!(mgr.can_register(&peer, 3).is_err());
+    }
+
+    #[test]
+    fn test_tiered_can_store() {
+        let tier_config = TierConfig {
+            self_max_bytes: 1024,
+            connections_max_bytes: 512,
+            public_max_bytes: 256,
+            ..Default::default()
+        };
+        let mgr = TieredQuotaManager::new(tier_config);
+        let peer = test_peer();
+
+        // Within limits
+        assert!(mgr.can_store_tiered(&peer, StorageTier::Self_, 500).is_ok());
+        assert!(mgr.can_store_tiered(&peer, StorageTier::Connections, 500).is_ok());
+        assert!(mgr.can_store_tiered(&peer, StorageTier::Public, 200).is_ok());
+
+        // Exceeds tier limits
+        assert!(mgr.can_store_tiered(&peer, StorageTier::Self_, 1025).is_err());
+        assert!(mgr.can_store_tiered(&peer, StorageTier::Connections, 513).is_err());
+        assert!(mgr.can_store_tiered(&peer, StorageTier::Public, 257).is_err());
+    }
+
+    #[test]
+    fn test_tiered_record_storage() {
+        let tier_config = TierConfig {
+            self_max_bytes: 1024,
+            ..Default::default()
+        };
+        let mgr = TieredQuotaManager::new(tier_config);
+        let peer = test_peer();
+
+        mgr.record_storage_tiered(peer, StorageTier::Self_, 500);
+        assert!(mgr.can_store_tiered(&peer, StorageTier::Self_, 500).is_ok());
+        assert!(mgr.can_store_tiered(&peer, StorageTier::Self_, 525).is_err());
+        assert_eq!(mgr.peer_tier_bytes(&peer, StorageTier::Self_), 500);
+    }
+
+    #[test]
+    fn test_tiered_can_register() {
+        let tier_config = TierConfig {
+            self_max_interfaces: 3,
+            connections_max_interfaces: 5,
+            public_max_interfaces: 2,
+            ..Default::default()
+        };
+        let mgr = TieredQuotaManager::new(tier_config);
+        let peer = test_peer();
+
+        assert!(mgr.can_register_tiered(&peer, StorageTier::Self_, 3).is_ok());
+        assert!(mgr.can_register_tiered(&peer, StorageTier::Self_, 4).is_err());
+        assert!(mgr.can_register_tiered(&peer, StorageTier::Public, 2).is_ok());
+        assert!(mgr.can_register_tiered(&peer, StorageTier::Public, 3).is_err());
     }
 }

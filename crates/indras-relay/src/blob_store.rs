@@ -2,7 +2,7 @@
 //!
 //! Stores `InterfaceEventMessage` data as opaque encrypted bytes,
 //! indexed by `(interface_id, event_id)` for efficient retrieval.
-//! Uses redb as the storage backend.
+//! Uses redb as the storage backend with separate tables per storage tier.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -12,15 +12,48 @@ use redb::{Database, ReadableTable, ReadableTableMetadata, TableDefinition};
 use tracing::{debug, info};
 
 use indras_core::{EventId, InterfaceId};
-use indras_transport::protocol::StoredEvent;
+use indras_transport::protocol::{StorageTier, StoredEvent};
 
 use crate::error::{RelayError, RelayResult};
 
-/// Table: interface_id bytes (32) ++ event sender_hash (8) ++ event sequence (8) → serialized StoredEvent
-const EVENTS_TABLE: TableDefinition<&[u8], &[u8]> = TableDefinition::new("events");
+/// Table: interface_id bytes (32) ++ event sender_hash (8) ++ event sequence (8) → serialized StoredEvent (Self tier)
+const SELF_EVENTS_TABLE: TableDefinition<&[u8], &[u8]> = TableDefinition::new("self_events");
 
-/// Table: interface_id bytes (32) → total bytes stored for that interface
-const USAGE_TABLE: TableDefinition<&[u8], u64> = TableDefinition::new("usage");
+/// Table: interface_id bytes (32) → total bytes stored for that interface (Self tier)
+const SELF_USAGE_TABLE: TableDefinition<&[u8], u64> = TableDefinition::new("self_usage");
+
+/// Table: interface_id bytes (32) ++ event sender_hash (8) ++ event sequence (8) → serialized StoredEvent (Connections tier)
+const CONN_EVENTS_TABLE: TableDefinition<&[u8], &[u8]> = TableDefinition::new("conn_events");
+
+/// Table: interface_id bytes (32) → total bytes stored for that interface (Connections tier)
+const CONN_USAGE_TABLE: TableDefinition<&[u8], u64> = TableDefinition::new("conn_usage");
+
+/// Table: interface_id bytes (32) ++ event sender_hash (8) ++ event sequence (8) → serialized StoredEvent (Public tier)
+const PUBLIC_EVENTS_TABLE: TableDefinition<&[u8], &[u8]> = TableDefinition::new("pub_events");
+
+/// Table: interface_id bytes (32) → total bytes stored for that interface (Public tier)
+const PUBLIC_USAGE_TABLE: TableDefinition<&[u8], u64> = TableDefinition::new("pub_usage");
+
+/// All storage tiers for iteration
+const ALL_TIERS: [StorageTier; 3] = [StorageTier::Self_, StorageTier::Connections, StorageTier::Public];
+
+/// Map a storage tier to its events table definition
+fn events_table_for(tier: StorageTier) -> TableDefinition<'static, &'static [u8], &'static [u8]> {
+    match tier {
+        StorageTier::Self_ => SELF_EVENTS_TABLE,
+        StorageTier::Connections => CONN_EVENTS_TABLE,
+        StorageTier::Public => PUBLIC_EVENTS_TABLE,
+    }
+}
+
+/// Map a storage tier to its usage table definition
+fn usage_table_for(tier: StorageTier) -> TableDefinition<'static, &'static [u8], u64> {
+    match tier {
+        StorageTier::Self_ => SELF_USAGE_TABLE,
+        StorageTier::Connections => CONN_USAGE_TABLE,
+        StorageTier::Public => PUBLIC_USAGE_TABLE,
+    }
+}
 
 /// Persistent storage for encrypted event blobs
 pub struct BlobStore {
@@ -38,16 +71,28 @@ impl BlobStore {
             RelayError::Storage(format!("Failed to open database: {e}"))
         })?;
 
-        // Initialize tables
+        // Initialize all 6 tables (3 event + 3 usage, one pair per tier)
         let write_txn = db.begin_write().map_err(|e| {
             RelayError::Storage(format!("Failed to begin write transaction: {e}"))
         })?;
         {
-            let _ = write_txn.open_table(EVENTS_TABLE).map_err(|e| {
-                RelayError::Storage(format!("Failed to create events table: {e}"))
+            let _ = write_txn.open_table(SELF_EVENTS_TABLE).map_err(|e| {
+                RelayError::Storage(format!("Failed to create self_events table: {e}"))
             })?;
-            let _ = write_txn.open_table(USAGE_TABLE).map_err(|e| {
-                RelayError::Storage(format!("Failed to create usage table: {e}"))
+            let _ = write_txn.open_table(SELF_USAGE_TABLE).map_err(|e| {
+                RelayError::Storage(format!("Failed to create self_usage table: {e}"))
+            })?;
+            let _ = write_txn.open_table(CONN_EVENTS_TABLE).map_err(|e| {
+                RelayError::Storage(format!("Failed to create conn_events table: {e}"))
+            })?;
+            let _ = write_txn.open_table(CONN_USAGE_TABLE).map_err(|e| {
+                RelayError::Storage(format!("Failed to create conn_usage table: {e}"))
+            })?;
+            let _ = write_txn.open_table(PUBLIC_EVENTS_TABLE).map_err(|e| {
+                RelayError::Storage(format!("Failed to create pub_events table: {e}"))
+            })?;
+            let _ = write_txn.open_table(PUBLIC_USAGE_TABLE).map_err(|e| {
+                RelayError::Storage(format!("Failed to create pub_usage table: {e}"))
             })?;
         }
         write_txn.commit().map_err(|e| {
@@ -57,9 +102,19 @@ impl BlobStore {
         Ok(Self { db: Arc::new(db) })
     }
 
-    /// Store an encrypted event blob
+    /// Store an encrypted event blob (defaults to Connections tier)
     pub fn store_event(
         &self,
+        interface_id: InterfaceId,
+        event: &StoredEvent,
+    ) -> RelayResult<()> {
+        self.store_event_tiered(StorageTier::Connections, interface_id, event)
+    }
+
+    /// Store an encrypted event blob in a specific tier
+    pub fn store_event_tiered(
+        &self,
+        tier: StorageTier,
         interface_id: InterfaceId,
         event: &StoredEvent,
     ) -> RelayResult<()> {
@@ -74,7 +129,7 @@ impl BlobStore {
             RelayError::Storage(format!("Failed to begin write: {e}"))
         })?;
         {
-            let mut table = write_txn.open_table(EVENTS_TABLE).map_err(|e| {
+            let mut table = write_txn.open_table(events_table_for(tier)).map_err(|e| {
                 RelayError::Storage(format!("Failed to open events table: {e}"))
             })?;
             table.insert(key.as_slice(), value.as_slice()).map_err(|e| {
@@ -82,7 +137,7 @@ impl BlobStore {
             })?;
 
             // Update usage
-            let mut usage_table = write_txn.open_table(USAGE_TABLE).map_err(|e| {
+            let mut usage_table = write_txn.open_table(usage_table_for(tier)).map_err(|e| {
                 RelayError::Storage(format!("Failed to open usage table: {e}"))
             })?;
             let iface_key = interface_id.0.as_slice();
@@ -102,12 +157,13 @@ impl BlobStore {
         debug!(
             interface = ?hex::short(&interface_id.0),
             event_id = ?event.event_id,
+            ?tier,
             "Stored event"
         );
         Ok(())
     }
 
-    /// Retrieve events after a given event_id for an interface
+    /// Retrieve events after a given event_id for an interface (defaults to Connections tier)
     ///
     /// If `after` is None, returns all events for the interface.
     pub fn events_after(
@@ -115,10 +171,22 @@ impl BlobStore {
         interface_id: InterfaceId,
         after: Option<EventId>,
     ) -> RelayResult<Vec<StoredEvent>> {
+        self.events_after_tiered(StorageTier::Connections, interface_id, after)
+    }
+
+    /// Retrieve events after a given event_id for an interface in a specific tier
+    ///
+    /// If `after` is None, returns all events for the interface.
+    pub fn events_after_tiered(
+        &self,
+        tier: StorageTier,
+        interface_id: InterfaceId,
+        after: Option<EventId>,
+    ) -> RelayResult<Vec<StoredEvent>> {
         let read_txn = self.db.begin_read().map_err(|e| {
             RelayError::Storage(format!("Failed to begin read: {e}"))
         })?;
-        let table = read_txn.open_table(EVENTS_TABLE).map_err(|e| {
+        let table = read_txn.open_table(events_table_for(tier)).map_err(|e| {
             RelayError::Storage(format!("Failed to open events table: {e}"))
         })?;
 
@@ -161,30 +229,40 @@ impl BlobStore {
         Ok(results)
     }
 
-    /// Get total storage usage for an interface in bytes
+    /// Get total storage usage for an interface in bytes (across all tiers)
     pub fn interface_usage_bytes(&self, interface_id: &InterfaceId) -> RelayResult<u64> {
-        let read_txn = self.db.begin_read().map_err(|e| {
-            RelayError::Storage(format!("Failed to begin read: {e}"))
-        })?;
-        let table = read_txn.open_table(USAGE_TABLE).map_err(|e| {
-            RelayError::Storage(format!("Failed to open usage table: {e}"))
-        })?;
-
-        let usage = table
-            .get(interface_id.0.as_slice())
-            .map_err(|e| RelayError::Storage(format!("Failed to get usage: {e}")))?
-            .map(|v| v.value())
-            .unwrap_or(0);
-
-        Ok(usage)
+        let mut total = 0u64;
+        for tier in ALL_TIERS {
+            let read_txn = self.db.begin_read().map_err(|e| {
+                RelayError::Storage(format!("Failed to begin read: {e}"))
+            })?;
+            let table = read_txn.open_table(usage_table_for(tier)).map_err(|e| {
+                RelayError::Storage(format!("Failed to open usage table: {e}"))
+            })?;
+            total += table
+                .get(interface_id.0.as_slice())
+                .map_err(|e| RelayError::Storage(format!("Failed to get usage: {e}")))?
+                .map(|v| v.value())
+                .unwrap_or(0);
+        }
+        Ok(total)
     }
 
-    /// Get total storage usage across all interfaces
+    /// Get total storage usage across all interfaces and all tiers
     pub fn total_usage_bytes(&self) -> RelayResult<u64> {
+        let mut total = 0u64;
+        for tier in ALL_TIERS {
+            total += self.tier_usage_bytes(tier)?;
+        }
+        Ok(total)
+    }
+
+    /// Get total storage usage for a specific tier across all interfaces
+    pub fn tier_usage_bytes(&self, tier: StorageTier) -> RelayResult<u64> {
         let read_txn = self.db.begin_read().map_err(|e| {
             RelayError::Storage(format!("Failed to begin read: {e}"))
         })?;
-        let table = read_txn.open_table(USAGE_TABLE).map_err(|e| {
+        let table = read_txn.open_table(usage_table_for(tier)).map_err(|e| {
             RelayError::Storage(format!("Failed to open usage table: {e}"))
         })?;
 
@@ -202,7 +280,7 @@ impl BlobStore {
         Ok(total)
     }
 
-    /// Evict all events for an interface
+    /// Evict all events for an interface across all tiers
     pub fn evict_interface(&self, interface_id: &InterfaceId) -> RelayResult<usize> {
         let prefix = interface_id.0.to_vec();
         let mut count = 0;
@@ -210,8 +288,9 @@ impl BlobStore {
         let write_txn = self.db.begin_write().map_err(|e| {
             RelayError::Storage(format!("Failed to begin write: {e}"))
         })?;
-        {
-            let mut table = write_txn.open_table(EVENTS_TABLE).map_err(|e| {
+
+        for tier in ALL_TIERS {
+            let mut table = write_txn.open_table(events_table_for(tier)).map_err(|e| {
                 RelayError::Storage(format!("Failed to open events table: {e}"))
             })?;
 
@@ -240,14 +319,15 @@ impl BlobStore {
                 count += 1;
             }
 
-            // Reset usage
-            let mut usage_table = write_txn.open_table(USAGE_TABLE).map_err(|e| {
+            // Reset usage for this tier
+            let mut usage_table = write_txn.open_table(usage_table_for(tier)).map_err(|e| {
                 RelayError::Storage(format!("Failed to open usage table: {e}"))
             })?;
             usage_table.remove(interface_id.0.as_slice()).map_err(|e| {
                 RelayError::Storage(format!("Failed to remove usage: {e}"))
             })?;
         }
+
         write_txn.commit().map_err(|e| {
             RelayError::Storage(format!("Failed to commit eviction: {e}"))
         })?;
@@ -256,8 +336,17 @@ impl BlobStore {
         Ok(count)
     }
 
-    /// Clean up events older than the given duration
+    /// Clean up events older than the given duration across all tiers
     pub fn cleanup_expired(&self, max_age: Duration) -> RelayResult<usize> {
+        let mut total = 0;
+        for tier in ALL_TIERS {
+            total += self.cleanup_expired_tiered(tier, max_age)?;
+        }
+        Ok(total)
+    }
+
+    /// Clean up expired events in a specific tier
+    pub fn cleanup_expired_tiered(&self, tier: StorageTier, max_age: Duration) -> RelayResult<usize> {
         let cutoff = chrono::Utc::now().timestamp_millis() - max_age.as_millis() as i64;
         let mut count = 0;
 
@@ -265,7 +354,7 @@ impl BlobStore {
             RelayError::Storage(format!("Failed to begin write: {e}"))
         })?;
         {
-            let mut table = write_txn.open_table(EVENTS_TABLE).map_err(|e| {
+            let mut table = write_txn.open_table(events_table_for(tier)).map_err(|e| {
                 RelayError::Storage(format!("Failed to open events table: {e}"))
             })?;
 
@@ -301,51 +390,54 @@ impl BlobStore {
         })?;
 
         if count > 0 {
-            info!(count, "Cleaned up expired events");
+            info!(count, ?tier, "Cleaned up expired events");
         }
         Ok(count)
     }
 
-    /// Count total events stored
+    /// Count total events stored across all tiers
     pub fn event_count(&self) -> RelayResult<usize> {
-        let read_txn = self.db.begin_read().map_err(|e| {
-            RelayError::Storage(format!("Failed to begin read: {e}"))
-        })?;
-        let table = read_txn.open_table(EVENTS_TABLE).map_err(|e| {
-            RelayError::Storage(format!("Failed to open events table: {e}"))
-        })?;
-        let count = table.len().map_err(|e| {
-            RelayError::Storage(format!("Failed to count events: {e}"))
-        })?;
-        Ok(count as usize)
+        let mut total = 0usize;
+        for tier in ALL_TIERS {
+            let read_txn = self.db.begin_read().map_err(|e| {
+                RelayError::Storage(format!("Failed to begin read: {e}"))
+            })?;
+            let table = read_txn.open_table(events_table_for(tier)).map_err(|e| {
+                RelayError::Storage(format!("Failed to open events table: {e}"))
+            })?;
+            total += table.len().map_err(|e| {
+                RelayError::Storage(format!("Failed to count events: {e}"))
+            })? as usize;
+        }
+        Ok(total)
     }
 
-    /// Count events for a specific interface
+    /// Count events for a specific interface across all tiers
     pub fn interface_event_count(&self, interface_id: &InterfaceId) -> RelayResult<usize> {
-        let read_txn = self.db.begin_read().map_err(|e| {
-            RelayError::Storage(format!("Failed to begin read: {e}"))
-        })?;
-        let table = read_txn.open_table(EVENTS_TABLE).map_err(|e| {
-            RelayError::Storage(format!("Failed to open events table: {e}"))
-        })?;
-
-        let prefix = interface_id.0.to_vec();
-        let mut count = 0;
-
-        let range = table.range(prefix.as_slice()..).map_err(|e| {
-            RelayError::Storage(format!("Failed to range scan: {e}"))
-        })?;
-        for entry in range {
-            let (key, _) = entry.map_err(|e| {
-                RelayError::Storage(format!("Failed to read entry: {e}"))
+        let mut total = 0usize;
+        for tier in ALL_TIERS {
+            let read_txn = self.db.begin_read().map_err(|e| {
+                RelayError::Storage(format!("Failed to begin read: {e}"))
             })?;
-            if key.value().len() < 32 || &key.value()[..32] != interface_id.0.as_slice() {
-                break;
-            }
-            count += 1;
-        }
+            let table = read_txn.open_table(events_table_for(tier)).map_err(|e| {
+                RelayError::Storage(format!("Failed to open events table: {e}"))
+            })?;
 
-        Ok(count)
+            let prefix = interface_id.0.to_vec();
+            let range = table.range(prefix.as_slice()..).map_err(|e| {
+                RelayError::Storage(format!("Failed to range scan: {e}"))
+            })?;
+            for entry in range {
+                let (key, _) = entry.map_err(|e| {
+                    RelayError::Storage(format!("Failed to read entry: {e}"))
+                })?;
+                if key.value().len() < 32 || &key.value()[..32] != interface_id.0.as_slice() {
+                    break;
+                }
+                total += 1;
+            }
+        }
+        Ok(total)
     }
 }
 
@@ -497,5 +589,45 @@ mod tests {
         let cleaned = store.cleanup_expired(Duration::from_secs(86400)).unwrap();
         assert_eq!(cleaned, 1);
         assert_eq!(store.event_count().unwrap(), 1);
+    }
+
+    #[test]
+    fn test_tiered_store_and_retrieve() {
+        let (store, _dir) = test_store();
+        let iface = InterfaceId::new([0x42; 32]);
+
+        let event1 = StoredEvent::new(EventId::new(1, 1), vec![10, 20, 30], [0x11; 12]);
+        let event2 = StoredEvent::new(EventId::new(1, 2), vec![40, 50, 60], [0x22; 12]);
+
+        store.store_event_tiered(StorageTier::Self_, iface, &event1).unwrap();
+        store.store_event_tiered(StorageTier::Public, iface, &event2).unwrap();
+
+        // Each tier has its own events
+        let self_events = store.events_after_tiered(StorageTier::Self_, iface, None).unwrap();
+        assert_eq!(self_events.len(), 1);
+        assert_eq!(self_events[0].encrypted_event, vec![10, 20, 30]);
+
+        let public_events = store.events_after_tiered(StorageTier::Public, iface, None).unwrap();
+        assert_eq!(public_events.len(), 1);
+        assert_eq!(public_events[0].encrypted_event, vec![40, 50, 60]);
+
+        // Connections tier is empty
+        let conn_events = store.events_after_tiered(StorageTier::Connections, iface, None).unwrap();
+        assert_eq!(conn_events.len(), 0);
+    }
+
+    #[test]
+    fn test_tier_usage_bytes() {
+        let (store, _dir) = test_store();
+        let iface = InterfaceId::new([0x42; 32]);
+
+        store.store_event_tiered(StorageTier::Self_, iface,
+            &StoredEvent::new(EventId::new(1, 1), vec![0; 100], [0; 12])).unwrap();
+        store.store_event_tiered(StorageTier::Public, iface,
+            &StoredEvent::new(EventId::new(1, 2), vec![0; 50], [0; 12])).unwrap();
+
+        assert!(store.tier_usage_bytes(StorageTier::Self_).unwrap() > 0);
+        assert!(store.tier_usage_bytes(StorageTier::Public).unwrap() > 0);
+        assert_eq!(store.tier_usage_bytes(StorageTier::Connections).unwrap(), 0);
     }
 }
