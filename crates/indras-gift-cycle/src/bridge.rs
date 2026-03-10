@@ -9,7 +9,7 @@ use std::sync::Arc;
 use indras_network::error::{IndraError, Result};
 use indras_network::home_realm::HomeRealm;
 use indras_network::member::MemberId;
-use indras_network::IndrasNetwork;
+use indras_network::{IndrasNetwork, RealmId};
 use indras_sync_engine::{
     AttentionDocument, AttentionEventId, BlessingDocument, BlessingId, ClaimId, Intention,
     IntentionDocument, IntentionId, IntentionKind, TokenOfGratitudeDocument, TokenOfGratitudeId,
@@ -141,12 +141,22 @@ impl GiftCycleBridge {
     // ── Stage 2: Attention ─────────────────────────────────────────
 
     /// Focus attention on an intention.
+    ///
+    /// When `source_realm_id` is `Some`, writes to the DM realm's attention document
+    /// so both peers can see each other's attention. When `None`, writes to home realm.
     pub async fn focus_attention(
         &self,
         intention_id: IntentionId,
+        source_realm_id: Option<RealmId>,
     ) -> Result<AttentionEventId> {
         let mut event_id = [0u8; 16];
-        let doc = self.home.document::<AttentionDocument>("attention").await?;
+        let doc = if let Some(ref rid) = source_realm_id {
+            let realm = self.network.get_realm_by_id(rid)
+                .ok_or_else(|| IndraError::NotFound("realm".into()))?;
+            realm.document::<AttentionDocument>("attention").await?
+        } else {
+            self.home.document::<AttentionDocument>("attention").await?
+        };
         let member = self.member_id;
         doc.update(|d| {
             event_id = d.focus_on_intention(member, intention_id);
@@ -156,9 +166,18 @@ impl GiftCycleBridge {
     }
 
     /// Clear attention focus (idle).
-    pub async fn clear_attention(&self) -> Result<AttentionEventId> {
+    ///
+    /// When `source_realm_id` is `Some`, writes to the DM realm's attention document.
+    /// When `None`, writes to home realm.
+    pub async fn clear_attention(&self, source_realm_id: Option<RealmId>) -> Result<AttentionEventId> {
         let mut event_id = [0u8; 16];
-        let doc = self.home.document::<AttentionDocument>("attention").await?;
+        let doc = if let Some(ref rid) = source_realm_id {
+            let realm = self.network.get_realm_by_id(rid)
+                .ok_or_else(|| IndraError::NotFound("realm".into()))?;
+            realm.document::<AttentionDocument>("attention").await?
+        } else {
+            self.home.document::<AttentionDocument>("attention").await?
+        };
         let member = self.member_id;
         doc.update(|d| {
             event_id = d.clear_attention(member);
