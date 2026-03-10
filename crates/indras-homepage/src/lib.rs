@@ -16,8 +16,8 @@
 //! server.serve("127.0.0.1:3000".parse().unwrap()).await?;
 //! ```
 
+pub mod auth;
 pub mod grants;
-pub mod profile;
 pub mod server;
 pub mod templates;
 

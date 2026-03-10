@@ -124,6 +124,7 @@ async fn boot_network(
     );
     let server = indras_homepage::HomepageServer::new(profile, player_id);
     let profile_handle = server.profile_handle();
+    let grants_handle = server.grants_handle();
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], homepage_port));
     tokio::spawn(async move {
         if let Err(e) = server.serve(addr).await {
@@ -160,7 +161,8 @@ async fn boot_network(
     }
 
     let b = GiftCycleBridge::new(home, player_id, player_name, Arc::clone(&net))
-        .with_homepage_profile(profile_handle);
+        .with_homepage_profile(profile_handle)
+        .with_homepage_grants(grants_handle);
     bridge.set(Some(b));
 }
 
@@ -509,9 +511,9 @@ pub fn GiftCycleApp() -> Element {
                         indras_profile::profile_artifact_id(&b.member_id),
                     );
                     if let Some(entry) = index.get(&profile_aid) {
-                        // Store grants on the homepage server for future auth-based ViewLevel resolution
-                        let _grants = entry.grants.clone();
-                        // TODO: pass grants to HomepageServer when auth is added
+                        if let Some(ref grants_handle) = b.homepage_grants {
+                            *grants_handle.write().await = entry.grants.clone();
+                        }
                     }
                 }
             }

@@ -9,11 +9,10 @@ use tower_http::cors::CorsLayer;
 use tracing::info;
 
 use indras_artifacts::AccessGrant;
+use indras_profile::{Profile, ViewLevel};
 use crate::HomepageError;
-// grants module is available for ViewLevel resolution when auth is added
-#[allow(unused_imports)]
+use crate::auth::OptionalViewer;
 use crate::grants;
-use crate::profile::{Profile, ViewLevel};
 use crate::templates;
 
 /// Shared state for the axum server.
@@ -33,12 +32,27 @@ pub fn router(state: AppState) -> Router {
         .with_state(state)
 }
 
+impl AsRef<[u8; 32]> for AppState {
+    fn as_ref(&self) -> &[u8; 32] {
+        &self.steward
+    }
+}
+
 /// GET / — render the profile homepage
-async fn homepage(State(state): State<AppState>) -> Html<String> {
+async fn homepage(
+    State(state): State<AppState>,
+    viewer: OptionalViewer,
+) -> Html<String> {
     let profile = state.profile.read().await;
-    // TODO: derive viewer identity from auth headers when auth is added
-    // For now, all viewers see the public view
-    let view_level = ViewLevel::Public;
+    let grants = state.grants.read().await;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    let view_level = match viewer.0 {
+        Some(viewer_id) => grants::resolve_view_level(&viewer_id, &state.steward, &grants, now),
+        None => ViewLevel::Public,
+    };
     Html(templates::render_profile(&profile, view_level))
 }
 

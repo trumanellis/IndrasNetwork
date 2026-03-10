@@ -10,7 +10,7 @@ use tokio::sync::RwLock;
 use indras_network::error::{IndraError, Result};
 use indras_network::home_realm::HomeRealm;
 use indras_network::member::MemberId;
-use indras_network::{IndrasNetwork, RealmId};
+use indras_network::IndrasNetwork;
 use indras_sync_engine::{
     AttentionDocument, AttentionEventId, BlessingDocument, BlessingId, ClaimId, Intention,
     IntentionDocument, IntentionId, IntentionKind, TokenOfGratitudeDocument, TokenOfGratitudeId,
@@ -33,6 +33,8 @@ pub struct GiftCycleBridge {
     pub network: Arc<IndrasNetwork>,
     /// Shared homepage profile handle for live updates.
     pub homepage_profile: Option<Arc<RwLock<indras_profile::Profile>>>,
+    /// Shared homepage grants handle for live grant updates.
+    pub homepage_grants: Option<Arc<RwLock<Vec<indras_artifacts::AccessGrant>>>>,
 }
 
 impl PartialEq for GiftCycleBridge {
@@ -55,12 +57,19 @@ impl GiftCycleBridge {
             player_name,
             network,
             homepage_profile: None,
+            homepage_grants: None,
         }
     }
 
     /// Set the homepage profile handle for live updates.
     pub fn with_homepage_profile(mut self, handle: Arc<RwLock<indras_profile::Profile>>) -> Self {
         self.homepage_profile = Some(handle);
+        self
+    }
+
+    /// Set the homepage grants handle for live updates.
+    pub fn with_homepage_grants(mut self, handle: Arc<RwLock<Vec<indras_artifacts::AccessGrant>>>) -> Self {
+        self.homepage_grants = Some(handle);
         self
     }
 
@@ -151,22 +160,12 @@ impl GiftCycleBridge {
     // ── Stage 2: Attention ─────────────────────────────────────────
 
     /// Focus attention on an intention.
-    ///
-    /// When `source_realm_id` is `Some`, writes to the DM realm's attention document
-    /// so both peers can see each other's attention. When `None`, writes to home realm.
     pub async fn focus_attention(
         &self,
         intention_id: IntentionId,
-        source_realm_id: Option<RealmId>,
     ) -> Result<AttentionEventId> {
         let mut event_id = [0u8; 16];
-        let doc = if let Some(ref rid) = source_realm_id {
-            let realm = self.network.get_realm_by_id(rid)
-                .ok_or_else(|| IndraError::RealmNotFound { id: "source realm".into() })?;
-            realm.document::<AttentionDocument>("attention").await?
-        } else {
-            self.home.document::<AttentionDocument>("attention").await?
-        };
+        let doc = self.home.document::<AttentionDocument>("attention").await?;
         let member = self.member_id;
         doc.update(|d| {
             event_id = d.focus_on_intention(member, intention_id);
@@ -176,18 +175,9 @@ impl GiftCycleBridge {
     }
 
     /// Clear attention focus (idle).
-    ///
-    /// When `source_realm_id` is `Some`, writes to the DM realm's attention document.
-    /// When `None`, writes to home realm.
-    pub async fn clear_attention(&self, source_realm_id: Option<RealmId>) -> Result<AttentionEventId> {
+    pub async fn clear_attention(&self) -> Result<AttentionEventId> {
         let mut event_id = [0u8; 16];
-        let doc = if let Some(ref rid) = source_realm_id {
-            let realm = self.network.get_realm_by_id(rid)
-                .ok_or_else(|| IndraError::RealmNotFound { id: "source realm".into() })?;
-            realm.document::<AttentionDocument>("attention").await?
-        } else {
-            self.home.document::<AttentionDocument>("attention").await?
-        };
+        let doc = self.home.document::<AttentionDocument>("attention").await?;
         let member = self.member_id;
         doc.update(|d| {
             event_id = d.clear_attention(member);

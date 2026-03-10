@@ -30,7 +30,6 @@ members = [
     "examples/sync-demo",
     "examples/indras-notes",
     "crates/indras-gift-cycle",
-    "crates/indras-relay",
     "crates/indras-homepage",
     "crates/indras-profile",
 ]
@@ -57,7 +56,6 @@ indras-node = { path = "crates/indras-node" }
 indras-network = { path = "crates/indras-network" }
 indras-sync-engine = { path = "crates/indras-sync-engine" }
 indras-artifacts = { path = "crates/indras-artifacts" }
-indras-relay = { path = "crates/indras-relay" }
 indras-homepage = { path = "crates/indras-homepage" }
 indras-profile = { path = "crates/indras-profile" }
 
@@ -78,6 +76,7 @@ postcard = { version = "1.0", features = ["alloc"] }
 
 # Crypto
 x25519-dalek = "2.0"
+ed25519-dalek = { version = "2.1", features = ["rand_core"] }
 chacha20poly1305 = "0.10"
 
 # Utilities

@@ -1,6 +1,6 @@
 //! HTML template rendering for the homepage
 
-use crate::profile::{Profile, ViewLevel};
+use indras_profile::{Profile, ViewLevel};
 
 /// Render the profile homepage as HTML with visibility-gated sections.
 pub fn render_profile(profile: &Profile, viewer: ViewLevel) -> String {
@@ -390,8 +390,8 @@ fn html_escape(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::profile::Profile;
-    use crate::profile::ViewLevel;
+    use indras_profile::Profile;
+    use indras_profile::ViewLevel;
 
     #[test]
     fn render_profile_contains_name() {

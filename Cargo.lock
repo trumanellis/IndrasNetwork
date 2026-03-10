@@ -3818,6 +3818,8 @@ name = "indras-homepage"
 version = "1.0.0"
 dependencies = [
  "axum 0.8.8",
+ "base64",
+ "ed25519-dalek 2.2.0",
  "indras-artifacts",
  "indras-profile",
  "serde",
@@ -3933,6 +3935,7 @@ dependencies = [
  "dashmap",
  "futures",
  "hex",
+ "indras-artifacts",
  "indras-core",
  "indras-crypto",
  "indras-homepage",
@@ -4001,38 +4004,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "indras-relay"
-version = "1.0.0"
-dependencies = [
- "anyhow",
- "axum 0.8.8",
- "bytes",
- "chrono",
- "clap",
- "dashmap",
- "ed25519-dalek 2.2.0",
- "futures-lite",
- "indras-core",
- "indras-transport",
- "iroh",
- "iroh-gossip",
- "postcard",
- "rand 0.9.2",
- "redb",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tokio-test",
- "tokio-util",
- "toml",
- "tower-http",
  "tracing",
  "tracing-subscriber",
 ]
