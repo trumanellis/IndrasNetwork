@@ -33,9 +33,9 @@ use indras_core::InterfaceId;
 use indras_core::identity::PeerIdentity;
 use indras_transport::identity::IrohIdentity;
 use indras_transport::protocol::{
-    RelayAuthAckMessage, RelayDeliveryMessage, RelayRegisterAckMessage, RelayStoreAckMessage,
-    StoredEvent, TierQuotaInfo, WireMessage, frame_message, parse_framed_message,
-    ALPN_INDRAS, MAX_MESSAGE_SIZE,
+    RelayAuthAckMessage, RelayContactsSyncAckMessage, RelayDeliveryMessage,
+    RelayRegisterAckMessage, RelayStoreAckMessage, StorageTier, StoredEvent, TierQuotaInfo,
+    WireMessage, frame_message, parse_framed_message, ALPN_INDRAS, MAX_MESSAGE_SIZE,
 };
 
 use crate::admin::{self, AdminState};
@@ -79,6 +79,12 @@ impl RelayNode {
 
         // Initialize auth service
         let auth = Arc::new(AuthService::new(&config));
+
+        // Load persisted contacts
+        let contacts_path = config.data_dir.join("contacts.json");
+        if let Err(e) = auth.load_contacts(&contacts_path) {
+            tracing::warn!(error = %e, "Failed to load contacts, starting with empty list");
+        }
 
         // Initialize tiered quota manager
         let tiered_quota = Arc::new(TieredQuotaManager::new(config.tiers.clone()));
@@ -195,6 +201,7 @@ impl RelayNode {
                     let gossip_clone = gossip.clone();
                     let auth = self.auth.clone();
                     let tiered_quota = self.tiered_quota.clone();
+                    let data_dir = self.config.data_dir.clone();
                     tokio::spawn(async move {
                         if let Err(e) = handle_connection(
                             conn,
@@ -204,6 +211,7 @@ impl RelayNode {
                             gossip_clone,
                             auth,
                             tiered_quota,
+                            data_dir,
                         ).await {
                             warn!(error = %e, "Connection handling error");
                         }
@@ -268,6 +276,7 @@ async fn handle_connection(
     gossip: Gossip,
     auth: Arc<AuthService>,
     tiered_quota: Arc<TieredQuotaManager>,
+    data_dir: std::path::PathBuf,
 ) -> RelayResult<()> {
     let peer_key = conn.remote_id();
     let peer_id = IrohIdentity::new(peer_key);
@@ -496,6 +505,44 @@ async fn handle_connection(
                     .map_err(|e| RelayError::Serialization(e.to_string()))?;
                 send_stream.write_all(&pong).await.map_err(|e| {
                     RelayError::Transport(format!("Failed to send pong: {e}"))
+                })?;
+            }
+
+            WireMessage::RelayContactsSync(sync_msg) => {
+                if !authenticated {
+                    warn!(peer = %peer_key.fmt_short(), "Unauthenticated contacts sync attempt");
+                    continue;
+                }
+
+                // Only accept from owner (Self_ tier)
+                let is_owner = auth.has_tier_access(&peer_id, StorageTier::Self_);
+                let response = if is_owner {
+                    auth.sync_contacts(sync_msg.contacts);
+                    let contacts_path = data_dir.join("contacts.json");
+                    if let Err(e) = auth.save_contacts(&contacts_path) {
+                        warn!(error = %e, "Failed to persist contacts");
+                    }
+                    info!(
+                        peer = %peer_key.fmt_short(),
+                        count = auth.contact_count(),
+                        "Contacts synced from owner"
+                    );
+                    RelayContactsSyncAckMessage {
+                        accepted: true,
+                        contact_count: auth.contact_count() as u32,
+                    }
+                } else {
+                    warn!(peer = %peer_key.fmt_short(), "Non-owner attempted contacts sync");
+                    RelayContactsSyncAckMessage {
+                        accepted: false,
+                        contact_count: 0,
+                    }
+                };
+
+                let framed = frame_message(&WireMessage::RelayContactsSyncAck(response))
+                    .map_err(|e| RelayError::Serialization(e.to_string()))?;
+                send_stream.write_all(&framed).await.map_err(|e| {
+                    RelayError::Transport(format!("Failed to send contacts sync ack: {e}"))
                 })?;
             }
 

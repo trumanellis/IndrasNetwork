@@ -11,6 +11,7 @@ path = "src/main.rs"
 [dependencies]
 indras-core.workspace = true
 indras-transport.workspace = true
+indras-crypto.workspace = true
 
 # Iroh transport stack
 iroh.workspace = true

@@ -16,37 +16,16 @@
 //! the connecting peer's iroh identity.
 
 use dashmap::DashMap;
-use ed25519_dalek::{Signature, VerifyingKey, Verifier};
-use serde::{Deserialize, Serialize};
 use tracing::debug;
 
 use indras_core::identity::PeerIdentity;
+use indras_crypto::credential;
 use indras_transport::identity::IrohIdentity;
 use indras_transport::protocol::StorageTier;
 
 use crate::config::RelayConfig;
 use crate::error::{RelayError, RelayResult};
 use crate::tier;
-
-/// A signed credential blob (v1 format)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CredentialV1 {
-    /// The player's identity (32-byte public key)
-    pub player_id: [u8; 32],
-    /// The transport public key this credential authorizes
-    pub transport_pubkey: [u8; 32],
-    /// When this credential expires (Unix millis)
-    pub expires_at_millis: i64,
-}
-
-/// Parsed credential with its signature
-#[derive(Debug, Clone)]
-pub struct SignedCredential {
-    /// The credential payload
-    pub credential: CredentialV1,
-    /// Ed25519 signature over the serialized credential
-    pub signature: [u8; 64],
-}
 
 /// An authenticated session for a connected peer
 #[derive(Debug, Clone)]
@@ -95,7 +74,8 @@ impl AuthService {
         player_id: &[u8; 32],
     ) -> RelayResult<AuthSession> {
         // Parse the signed credential
-        let signed = self.parse_credential(credential_bytes)?;
+        let signed = credential::parse_credential(credential_bytes)
+            .map_err(|e| RelayError::InvalidCredential(e.to_string()))?;
 
         // Verify player_id matches
         if &signed.credential.player_id != player_id {
@@ -121,7 +101,8 @@ impl AuthService {
         }
 
         // Verify Ed25519 signature
-        self.verify_signature(&signed)?;
+        credential::verify_credential(&signed)
+            .map_err(|e| RelayError::AuthenticationFailed(e.to_string()))?;
 
         // Determine tier access
         let contacts: Vec<[u8; 32]> = self.contacts.iter().map(|e| *e.key()).collect();
@@ -189,51 +170,52 @@ impl AuthService {
         self.owner_player_id.as_ref()
     }
 
-    /// Parse a credential blob into a SignedCredential.
+    /// Replace the contacts list with a new set of player IDs.
     ///
-    /// Format: postcard-serialized CredentialV1 ++ 64-byte Ed25519 signature
-    fn parse_credential(&self, bytes: &[u8]) -> RelayResult<SignedCredential> {
-        if bytes.len() < 64 {
-            return Err(RelayError::InvalidCredential(
-                "credential too short".into(),
-            ));
+    /// Called when the owner syncs their profile artifact grants.
+    pub fn sync_contacts(&self, contacts: Vec<[u8; 32]>) {
+        self.contacts.clear();
+        for id in contacts {
+            self.contacts.insert(id, ());
         }
-
-        let sig_offset = bytes.len() - 64;
-        let credential_bytes = &bytes[..sig_offset];
-        let sig_bytes = &bytes[sig_offset..];
-
-        let credential: CredentialV1 = postcard::from_bytes(credential_bytes).map_err(|e| {
-            RelayError::InvalidCredential(format!("failed to parse credential: {e}"))
-        })?;
-
-        let mut signature = [0u8; 64];
-        signature.copy_from_slice(sig_bytes);
-
-        Ok(SignedCredential {
-            credential,
-            signature,
-        })
     }
 
-    /// Verify the Ed25519 signature on a credential.
+    /// Get the current number of contacts.
+    pub fn contact_count(&self) -> usize {
+        self.contacts.len()
+    }
+
+    /// Load contacts from a JSON file.
     ///
-    /// The signing key is the player_id itself (their Ed25519 public key).
-    fn verify_signature(&self, signed: &SignedCredential) -> RelayResult<()> {
-        let verifying_key = VerifyingKey::from_bytes(&signed.credential.player_id)
-            .map_err(|e| RelayError::InvalidCredential(format!("invalid player_id key: {e}")))?;
-
-        // Reconstruct the signed payload
-        let payload = postcard::to_allocvec(&signed.credential).map_err(|e| {
-            RelayError::InvalidCredential(format!("failed to re-serialize credential: {e}"))
+    /// The file contains a JSON array of hex-encoded 32-byte player IDs.
+    pub fn load_contacts(&self, path: &std::path::Path) -> Result<(), RelayError> {
+        if !path.exists() {
+            return Ok(());
+        }
+        let data = std::fs::read_to_string(path)?;
+        let hex_ids: Vec<String> = serde_json::from_str(&data).map_err(|e| {
+            RelayError::Config(format!("Failed to parse contacts file: {e}"))
         })?;
 
-        let signature = Signature::from_bytes(&signed.signature);
+        self.contacts.clear();
+        for hex in hex_ids {
+            if let Some(id) = parse_hex_32(&hex) {
+                self.contacts.insert(id, ());
+            }
+        }
+        Ok(())
+    }
 
-        verifying_key.verify(&payload, &signature).map_err(|e| {
-            RelayError::AuthenticationFailed(format!("signature verification failed: {e}"))
+    /// Save contacts to a JSON file.
+    pub fn save_contacts(&self, path: &std::path::Path) -> Result<(), RelayError> {
+        let hex_ids: Vec<String> = self.contacts
+            .iter()
+            .map(|e| e.key().iter().map(|b| format!("{b:02x}")).collect())
+            .collect();
+        let data = serde_json::to_string_pretty(&hex_ids).map_err(|e| {
+            RelayError::Config(format!("Failed to serialize contacts: {e}"))
         })?;
-
+        std::fs::write(path, data)?;
         Ok(())
     }
 }
@@ -266,7 +248,7 @@ fn short_hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ed25519_dalek::{Signer, SigningKey};
+    use ed25519_dalek::SigningKey;
     use iroh::SecretKey;
     use rand::Rng;
 
@@ -282,18 +264,7 @@ mod tests {
         transport_pubkey: [u8; 32],
         expires_at_millis: i64,
     ) -> Vec<u8> {
-        let credential = CredentialV1 {
-            player_id: signing_key.verifying_key().to_bytes(),
-            transport_pubkey,
-            expires_at_millis,
-        };
-
-        let payload = postcard::to_allocvec(&credential).unwrap();
-        let signature: Signature = signing_key.sign(&payload);
-
-        let mut blob = payload;
-        blob.extend_from_slice(&signature.to_bytes());
-        blob
+        indras_crypto::credential::create_credential(signing_key, transport_pubkey, expires_at_millis)
     }
 
     fn test_config() -> RelayConfig {
@@ -458,5 +429,44 @@ mod tests {
         assert_eq!(result[31], 0x34);
 
         assert!(parse_hex_32("too_short").is_none());
+    }
+
+    #[test]
+    fn test_sync_contacts() {
+        let auth = AuthService::new(&test_config());
+        assert_eq!(auth.contact_count(), 0);
+
+        let contacts = vec![[0x01u8; 32], [0x02u8; 32], [0x03u8; 32]];
+        auth.sync_contacts(contacts);
+        assert_eq!(auth.contact_count(), 3);
+
+        // Sync with fewer contacts replaces the list
+        auth.sync_contacts(vec![[0x04u8; 32]]);
+        assert_eq!(auth.contact_count(), 1);
+    }
+
+    #[test]
+    fn test_save_and_load_contacts() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("contacts.json");
+
+        let auth = AuthService::new(&test_config());
+        auth.add_contact([0xAAu8; 32]);
+        auth.add_contact([0xBBu8; 32]);
+
+        auth.save_contacts(&path).unwrap();
+
+        let auth2 = AuthService::new(&test_config());
+        auth2.load_contacts(&path).unwrap();
+        assert_eq!(auth2.contact_count(), 2);
+    }
+
+    #[test]
+    fn test_load_contacts_missing_file() {
+        let auth = AuthService::new(&test_config());
+        let path = std::path::Path::new("/tmp/nonexistent_contacts_file.json");
+        // Should succeed silently when file doesn't exist
+        assert!(auth.load_contacts(path).is_ok());
+        assert_eq!(auth.contact_count(), 0);
     }
 }

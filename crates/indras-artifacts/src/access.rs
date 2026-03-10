@@ -109,6 +109,22 @@ impl ArtifactStatus {
     }
 }
 
+/// Extract non-expired grantee player IDs from a list of access grants.
+///
+/// Filters out `Timed` grants that have expired according to `now`, then
+/// returns the unique set of grantee IDs. This is used to derive the
+/// relay's contacts list from the profile artifact's grant list.
+pub fn extract_contact_ids(grants: &[AccessGrant], now: i64) -> Vec<[u8; 32]> {
+    let mut ids: Vec<[u8; 32]> = grants
+        .iter()
+        .filter(|g| !g.mode.is_expired(now))
+        .map(|g| g.grantee)
+        .collect();
+    ids.sort_unstable();
+    ids.dedup();
+    ids
+}
+
 /// How the current holder received the artifact.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArtifactProvenance {
@@ -195,5 +211,66 @@ mod tests {
     #[test]
     fn test_access_mode_default_is_revocable() {
         assert_eq!(AccessMode::default(), AccessMode::Revocable);
+    }
+
+    #[test]
+    fn test_extract_contact_ids_filters_expired() {
+        let grants = vec![
+            AccessGrant {
+                grantee: [1u8; 32],
+                mode: AccessMode::Revocable,
+                granted_at: 0,
+                granted_by: [0u8; 32],
+            },
+            AccessGrant {
+                grantee: [2u8; 32],
+                mode: AccessMode::Timed { expires_at: 500 },
+                granted_at: 0,
+                granted_by: [0u8; 32],
+            },
+            AccessGrant {
+                grantee: [3u8; 32],
+                mode: AccessMode::Permanent,
+                granted_at: 0,
+                granted_by: [0u8; 32],
+            },
+        ];
+
+        // At tick 499, timed grant is still valid
+        let ids = extract_contact_ids(&grants, 499);
+        assert_eq!(ids.len(), 3);
+
+        // At tick 500, timed grant expired
+        let ids = extract_contact_ids(&grants, 500);
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains(&[1u8; 32]));
+        assert!(ids.contains(&[3u8; 32]));
+    }
+
+    #[test]
+    fn test_extract_contact_ids_deduplicates() {
+        let grants = vec![
+            AccessGrant {
+                grantee: [1u8; 32],
+                mode: AccessMode::Revocable,
+                granted_at: 0,
+                granted_by: [0u8; 32],
+            },
+            AccessGrant {
+                grantee: [1u8; 32],
+                mode: AccessMode::Permanent,
+                granted_at: 10,
+                granted_by: [0u8; 32],
+            },
+        ];
+
+        let ids = extract_contact_ids(&grants, 0);
+        assert_eq!(ids.len(), 1);
+    }
+
+    #[test]
+    fn test_extract_contact_ids_empty() {
+        let ids = extract_contact_ids(&[], 0);
+        assert!(ids.is_empty());
     }
 }

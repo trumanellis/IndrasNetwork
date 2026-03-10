@@ -54,6 +54,7 @@ pub mod interface_key;
 pub mod key_distribution;
 pub mod pq_identity;
 pub mod pq_kem;
+pub mod credential;
 pub mod entropy;
 pub mod pass_story;
 pub mod story_template;
@@ -83,6 +84,9 @@ pub use pq_kem::{
 // Pass story re-exports
 pub use pass_story::StorySubkeys;
 pub use story_template::{PassStory, StoryStage, StoryTemplate};
+
+// Credential re-exports
+pub use credential::{CredentialV1, SignedCredential, create_credential, parse_credential, verify_credential};
 
 // Re-export x25519 types for legacy code (deprecated)
 #[deprecated(since = "0.2.0", note = "Use ML-KEM via PQKemKeyPair instead")]

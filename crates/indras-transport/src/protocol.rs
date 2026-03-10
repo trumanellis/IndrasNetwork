@@ -157,6 +157,10 @@ pub enum WireMessage {
     RelayStore(RelayStoreMessage),
     /// Store acknowledgment
     RelayStoreAck(RelayStoreAckMessage),
+    /// Sync contacts list (owner only)
+    RelayContactsSync(RelayContactsSyncMessage),
+    /// Contacts sync acknowledgment
+    RelayContactsSyncAck(RelayContactsSyncAckMessage),
 }
 
 /// Serialized packet for wire transmission
@@ -907,6 +911,24 @@ pub struct RelayStoreAckMessage {
     pub reason: Option<String>,
     /// Timestamp
     pub timestamp_millis: i64,
+}
+
+/// Sync the relay's contacts list from the owner's profile artifact grants.
+///
+/// Only accepted from peers with `Self_` tier (the relay owner).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RelayContactsSyncMessage {
+    /// Grantee player IDs extracted from profile artifact grants
+    pub contacts: Vec<[u8; 32]>,
+}
+
+/// Acknowledgment for a contacts sync request.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RelayContactsSyncAckMessage {
+    /// Whether the sync was accepted
+    pub accepted: bool,
+    /// Number of contacts now stored
+    pub contact_count: u32,
 }
 
 /// Metadata for a store request.
@@ -1673,6 +1695,27 @@ mod tests {
             accepted: false,
             reason: Some("quota exceeded".to_string()),
             timestamp_millis: 1700000000000,
+        });
+        let bytes = postcard::to_allocvec(&msg).unwrap();
+        let decoded: WireMessage = postcard::from_bytes(&bytes).unwrap();
+        assert_eq!(msg, decoded);
+    }
+
+    #[test]
+    fn test_contacts_sync_roundtrip() {
+        let msg = WireMessage::RelayContactsSync(RelayContactsSyncMessage {
+            contacts: vec![[1u8; 32], [2u8; 32], [3u8; 32]],
+        });
+        let bytes = postcard::to_allocvec(&msg).unwrap();
+        let decoded: WireMessage = postcard::from_bytes(&bytes).unwrap();
+        assert_eq!(msg, decoded);
+    }
+
+    #[test]
+    fn test_contacts_sync_ack_roundtrip() {
+        let msg = WireMessage::RelayContactsSyncAck(RelayContactsSyncAckMessage {
+            accepted: true,
+            contact_count: 42,
         });
         let bytes = postcard::to_allocvec(&msg).unwrap();
         let decoded: WireMessage = postcard::from_bytes(&bytes).unwrap();
