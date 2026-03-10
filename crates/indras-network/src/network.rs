@@ -1160,13 +1160,19 @@ impl IndrasNetwork {
         //    Look up the peer's display name from the node's peer registry
         //    (populated by gossip discovery) so it appears in the UI.
         let contacts = self.join_contacts_realm().await?;
+        let peer_name = self.inner.storage().peer_registry()
+            .get(&IrohIdentity::from(peer_public_key))
+            .ok()
+            .flatten()
+            .and_then(|r| r.display_name.clone());
         if !contacts.is_contact(&peer_id).await {
-            let peer_name = self.inner.storage().peer_registry()
-                .get(&IrohIdentity::from(peer_public_key))
-                .ok()
-                .flatten()
-                .and_then(|r| r.display_name.clone());
             let _ = contacts.add_contact_with_name(peer_id, peer_name).await;
+        } else if peer_name.is_some() {
+            // Existing contact missing a display name — fill it in from peer registry
+            let entry = contacts.get_contact_entry(&peer_id).await;
+            if entry.map_or(true, |e| e.display_name.is_none()) {
+                let _ = contacts.add_contact_with_name(peer_id, peer_name).await;
+            }
         }
         let _ = contacts.confirm_contact(&peer_id).await;
 

@@ -62,6 +62,10 @@ pub(crate) fn spawn_contact_poller(
                 if let Some(existing) = known.get(cid) {
                     let entry = contacts_realm.get_contact_entry(cid).await;
                     let mut updated = existing.clone();
+                    // Update display_name if CRDT now has one (e.g. received via gossip after restart)
+                    if let Some(name) = entry.as_ref().and_then(|e| e.display_name.clone()) {
+                        updated.display_name = name;
+                    }
                     updated.sentiment = entry.as_ref().map(|e| e.sentiment).unwrap_or(0);
                     updated.status = entry.as_ref().map(|e| e.status).unwrap_or_default();
                     current.insert(*cid, updated);
