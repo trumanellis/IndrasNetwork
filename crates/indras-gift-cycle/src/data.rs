@@ -377,18 +377,26 @@ pub async fn build_intention_cards(
 /// Build the complete view data for a single intention.
 pub async fn build_intention_view(
     home: &HomeRealm,
+    network: &IndrasNetwork,
     intention_id: IntentionId,
     member_id: MemberId,
     local_name: &str,
     peer_names: &HashMap<MemberId, String>,
 ) -> Option<IntentionViewData> {
+    // Try home realm first
     let intention = {
         let doc = home.intentions().await.ok()?;
         let data = doc.read().await;
         data.intentions
             .iter()
-            .find(|i| i.id == intention_id && !i.deleted)?
-            .clone()
+            .find(|i| i.id == intention_id && !i.deleted)
+            .cloned()
+    };
+
+    // Fall back to DM realms for community intentions
+    let intention = match intention {
+        Some(i) => i,
+        None => find_intention_in_dm_realms(network, intention_id).await?,
     };
 
     let (creator_name, creator_letter, creator_color_class) =
@@ -627,6 +635,28 @@ pub async fn build_member_tokens(
         });
     }
     cards
+}
+
+/// Search DM realms for an intention by ID (for community intentions not in the home realm).
+async fn find_intention_in_dm_realms(
+    network: &IndrasNetwork,
+    intention_id: IntentionId,
+) -> Option<indras_sync_engine::Intention> {
+    for realm_id in network.conversation_realms() {
+        if network.dm_peer_for_realm(&realm_id).is_none() {
+            continue;
+        }
+        let realm = network.get_realm_by_id(&realm_id)?;
+        let doc = match realm.document::<IntentionDocument>("intentions").await {
+            Ok(d) => d,
+            Err(_) => continue,
+        };
+        let data = doc.read().await;
+        if let Some(i) = data.intentions.iter().find(|i| i.id == intention_id && !i.deleted) {
+            return Some(i.clone());
+        }
+    }
+    None
 }
 
 /// Build intention cards from all DM realms (community intentions).

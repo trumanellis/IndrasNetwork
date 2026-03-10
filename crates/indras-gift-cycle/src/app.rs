@@ -380,7 +380,7 @@ pub fn GiftCycleApp() -> Element {
             let view = current_view.read().clone();
             if let AppView::Detail(id) = view {
                 let detail =
-                    data::build_intention_view(&b.home, id, b.member_id, &b.player_name, &peer_names).await;
+                    data::build_intention_view(&b.home, &b.network, id, b.member_id, &b.player_name, &peer_names).await;
                 detail_data.set(detail);
             }
         }
