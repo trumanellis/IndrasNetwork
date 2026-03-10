@@ -122,7 +122,8 @@ async fn boot_network(
         player_name.to_lowercase().replace(' ', "-"),
         player_id.iter().map(|b| format!("{b:02x}")).collect::<String>(),
     );
-    let server = indras_homepage::HomepageServer::new(profile);
+    let server = indras_homepage::HomepageServer::new(profile, player_id);
+    let profile_handle = server.profile_handle();
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], homepage_port));
     tokio::spawn(async move {
         if let Err(e) = server.serve(addr).await {
@@ -131,7 +132,35 @@ async fn boot_network(
     });
     tracing::info!(port = homepage_port, "Homepage server started at http://localhost:{}", homepage_port);
 
-    let b = GiftCycleBridge::new(home, player_id, player_name, Arc::clone(&net));
+    // Register profile as artifact for grant-based visibility
+    let profile_aid = indras_artifacts::ArtifactId::Blob(
+        indras_profile::profile_artifact_id(&player_id),
+    );
+    if let Ok(doc) = home.artifact_index().await {
+        let aid = profile_aid.clone();
+        let _ = doc
+            .update(|index| {
+                if index.get(&aid).is_none() {
+                    let entry = indras_network::artifact_index::HomeArtifactEntry {
+                        id: aid.clone(),
+                        name: indras_profile::PROFILE_ARTIFACT_NAME.to_string(),
+                        mime_type: Some("application/x-indras-profile".to_string()),
+                        size: 0,
+                        created_at: 0,
+                        encrypted_key: None,
+                        status: indras_artifacts::ArtifactStatus::Active,
+                        grants: Vec::new(),
+                        provenance: None,
+                        location: None,
+                    };
+                    index.store(entry);
+                }
+            })
+            .await;
+    }
+
+    let b = GiftCycleBridge::new(home, player_id, player_name, Arc::clone(&net))
+        .with_homepage_profile(profile_handle);
     bridge.set(Some(b));
 }
 
@@ -393,6 +422,98 @@ pub fn GiftCycleApp() -> Element {
             // Since connect() early-return now re-notifies, this ensures mutual discovery
             for peer_info in peers.read().iter() {
                 let _ = b.network.connect(peer_info.member_id).await;
+            }
+
+            // Refresh homepage profile with live stats
+            if let Some(ref profile_handle) = b.homepage_profile {
+                let mut profile = profile_handle.write().await;
+
+                // Intention count + active quests/offerings
+                if let Ok(doc) = b.home.document::<indras_sync_engine::IntentionDocument>("intentions").await {
+                    let intentions = doc.read().await;
+                    profile.set_intention_count(intentions.intentions.len() as u32);
+
+                    let quests: Vec<indras_profile::IntentionSummary> = intentions.intentions.iter()
+                        .filter(|i| matches!(i.kind, indras_sync_engine::IntentionKind::Quest) && i.completed_at_millis.is_none() && !i.deleted)
+                        .map(|i| indras_profile::IntentionSummary {
+                            title: i.title.clone(),
+                            kind: format!("{:?}", i.kind),
+                            status: "active".to_string(),
+                        })
+                        .collect();
+                    profile.set_active_quests(quests);
+
+                    let offerings: Vec<indras_profile::IntentionSummary> = intentions.intentions.iter()
+                        .filter(|i| matches!(i.kind, indras_sync_engine::IntentionKind::Offering) && i.completed_at_millis.is_none() && !i.deleted)
+                        .map(|i| indras_profile::IntentionSummary {
+                            title: i.title.clone(),
+                            kind: format!("{:?}", i.kind),
+                            status: "active".to_string(),
+                        })
+                        .collect();
+                    profile.set_active_offerings(offerings);
+                }
+
+                // Token count
+                if let Ok(doc) = b.home.document::<indras_sync_engine::TokenOfGratitudeDocument>("_tokens").await {
+                    let tokens = doc.read().await;
+                    let count = tokens.tokens_for_steward(&b.member_id).len() as u32;
+                    profile.set_token_count(count);
+                }
+
+                // Blessings given
+                if let Ok(doc) = b.home.document::<indras_sync_engine::BlessingDocument>("blessings").await {
+                    let blessings = doc.read().await;
+                    let count = blessings.blessings_by_member(&b.member_id).len() as u32;
+                    profile.set_blessings_given(count);
+                }
+
+                // Attention contributed
+                if let Ok(doc) = b.home.document::<indras_sync_engine::AttentionDocument>("attention").await {
+                    let attention = doc.read().await;
+                    let my_events: Vec<_> = attention.events().iter()
+                        .filter(|e| e.member == b.member_id)
+                        .collect();
+                    let total_secs = my_events.len() as u64 * 2; // rough estimate: each event ~2s polling interval
+                    let hours = total_secs / 3600;
+                    let mins = (total_secs % 3600) / 60;
+                    let time_str = if hours > 0 {
+                        format!("{hours}h {mins}m")
+                    } else {
+                        format!("{mins}m")
+                    };
+                    profile.set_attention_contributed(time_str);
+                }
+
+                // Contact count
+                if let Some(contacts_realm) = b.network.contacts_realm().await {
+                    let count = contacts_realm.contact_count().await as u32;
+                    profile.set_contact_count(count);
+                }
+
+                // Humanness freshness
+                if let Ok(doc) = b.home.document::<indras_sync_engine::HumannessDocument>("humanness").await {
+                    let humanness = doc.read().await;
+                    let now_millis = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as i64;
+                    let freshness = humanness.freshness_at(&b.member_id, now_millis);
+                    profile.set_humanness_freshness(freshness);
+                }
+
+                // Sync profile artifact grants
+                if let Ok(artifact_doc) = b.home.artifact_index().await {
+                    let index = artifact_doc.read().await;
+                    let profile_aid = indras_artifacts::ArtifactId::Blob(
+                        indras_profile::profile_artifact_id(&b.member_id),
+                    );
+                    if let Some(entry) = index.get(&profile_aid) {
+                        // Store grants on the homepage server for future auth-based ViewLevel resolution
+                        let _grants = entry.grants.clone();
+                        // TODO: pass grants to HomepageServer when auth is added
+                    }
+                }
             }
 
             // Refresh detail view if showing one

@@ -6,6 +6,8 @@ repository.workspace = true
 description = "HTTP homepage server for indras nodes"
 
 [dependencies]
+indras-profile.workspace = true
+indras-artifacts.workspace = true
 axum.workspace = true
 tokio = { workspace = true, features = ["net"] }
 tower-http = { workspace = true }

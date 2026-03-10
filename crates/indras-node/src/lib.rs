@@ -449,7 +449,8 @@ impl IndrasNode {
                     self.config.display_name.as_deref().unwrap_or("anonymous"),
                     format!("{}", self.identity.short_id()),
                 );
-                let server = HomepageServer::new(profile);
+                let steward_id = *self.identity.public_key().as_bytes();
+                let server = HomepageServer::new(profile, steward_id);
                 let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
                 let homepage_task = tokio::spawn(async move {
                     if let Err(e) = server.serve(addr).await {
@@ -471,8 +472,8 @@ impl IndrasNode {
     pub async fn update_homepage_profile(&self, display_name: String, bio: Option<String>) {
         if let Some(ref profile_handle) = self.homepage_profile {
             let mut profile = profile_handle.write().await;
-            profile.display_name = display_name;
-            profile.bio = bio;
+            profile.display_name = indras_homepage::Visible::new(display_name);
+            profile.bio = indras_homepage::Visible::new(bio);
         }
     }
 

@@ -31,6 +31,7 @@ members = [
     "examples/indras-notes",
     "crates/indras-gift-cycle",
     "crates/indras-homepage",
+    "crates/indras-profile",
 ]
 
 [workspace.package]
@@ -56,6 +57,7 @@ indras-network = { path = "crates/indras-network" }
 indras-sync-engine = { path = "crates/indras-sync-engine" }
 indras-artifacts = { path = "crates/indras-artifacts" }
 indras-homepage = { path = "crates/indras-homepage" }
+indras-profile = { path = "crates/indras-profile" }
 
 # Core iroh stack
 iroh = "0.95"
