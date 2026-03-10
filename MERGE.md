@@ -1,5 +1,64 @@
 # Merge Queue
 
+## Pending
+
+### Branch `worktree-homepage-feature`
+
+**Connect profile visibility to the artifact grant system.**
+
+Two commits on top of main:
+1. `Add indras-homepage crate with axum HTTP profile server` — homepage server, templates, profile rendering
+2. `Connect profile visibility to artifact grant system` — wire profile into ArtifactIndex grants
+
+#### Files changed (15 files, +1015 -76 lines)
+
+| File | Change |
+|------|--------|
+| `crates/indras-profile/` | **New crate**: Profile types, Visible<T>, ViewLevel, artifact ID helper |
+| `crates/indras-profile/AGENTS.md` | Architectural docs |
+| `crates/indras-homepage/src/grants.rs` | **New**: `resolve_view_level()` mapping grants to ViewLevel |
+| `crates/indras-homepage/src/lib.rs` | Added grants module, grants/steward fields on HomepageServer |
+| `crates/indras-homepage/src/server.rs` | AppState struct with profile + grants + steward |
+| `crates/indras-homepage/src/templates.rs` | Rich profile page rendering with visibility controls |
+| `crates/indras-homepage/src/profile.rs` | Profile re-exports |
+| `crates/indras-homepage/Cargo.toml` | Added indras-artifacts dependency |
+| `crates/indras-gift-cycle/src/app.rs` | Register profile artifact at boot, sync grants in poll loop |
+| `crates/indras-gift-cycle/src/bridge.rs` | Added `grant_profile_access()` convenience method |
+| `crates/indras-gift-cycle/Cargo.toml` | Added indras-artifacts dependency |
+| `crates/indras-node/src/lib.rs` | Pass steward ID to HomepageServer::new() |
+| `Cargo.toml` | Workspace member + dependency entries |
+| `Cargo.lock` | Updated lockfile |
+
+#### Merge steps
+
+```bash
+cd /Users/truman/Code/IndrasNetwork
+
+# 1. Merge
+git merge worktree-homepage-feature
+
+# 2. Verify build
+cargo build -p indras-profile -p indras-homepage -p indras-node -p indras-gift-cycle
+
+# 3. Run tests
+cargo test -p indras-profile -p indras-homepage
+
+# 4. Clean up worktree
+git worktree remove .claude/worktrees/homepage-feature
+
+# 5. Delete the branch
+git branch -d worktree-homepage-feature
+```
+
+#### Test summary
+
+- `cargo build -p indras-profile -p indras-homepage -p indras-node -p indras-gift-cycle` — zero errors
+- `cargo test -p indras-profile` — 8/8 pass
+- `cargo test -p indras-homepage` — 14/14 pass (6 new grant resolution tests)
+- Pre-existing: `indras-workspace` and `indras-simulation` have unrelated build errors (missing `QuestId` etc.)
+
+---
+
 ## Completed
 
 - **feature/artifact-browser** — merged into main (2026-02-22). 3-column artifact browser UI, artifact detail modal, navigation sidebar, audience popup. Worktree removed, branch deleted.
