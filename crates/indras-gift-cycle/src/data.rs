@@ -216,17 +216,23 @@ pub struct P2pLogEntry {
 pub const PEER_COLORS: &[&str] = &["peer-dot-sage", "peer-dot-zeph", "peer-dot-rose"];
 
 /// Resolve a MemberId to (name, letter, CSS class).
+///
+/// `peer_names` maps known contacts to their display names so we avoid
+/// falling back to the raw hex MemberId prefix.
 pub fn member_display(
     id: &MemberId,
     local_id: &MemberId,
     local_name: &str,
     index: usize,
+    peer_names: &std::collections::HashMap<MemberId, String>,
 ) -> (String, String, String) {
     if id == local_id {
         let letter = local_name.chars().next().unwrap_or('Y').to_string();
         return (local_name.to_string(), letter, "peer-dot-self".to_string());
     }
-    let name: String = id.iter().take(4).map(|b| format!("{b:02x}")).collect();
+    let name = peer_names.get(id).cloned().unwrap_or_else(|| {
+        id.iter().take(4).map(|b| format!("{b:02x}")).collect()
+    });
     let letter = name.chars().next().unwrap_or('?').to_string();
     let color = PEER_COLORS[index % PEER_COLORS.len()].to_string();
     (name, letter, color)
@@ -263,6 +269,7 @@ pub async fn build_intention_cards(
     home: &HomeRealm,
     member_id: MemberId,
     local_name: &str,
+    peer_names: &HashMap<MemberId, String>,
 ) -> Vec<IntentionCardData> {
     let intention_data: Vec<_> = {
         let doc = match home.intentions().await {
@@ -327,7 +334,7 @@ pub async fn build_intention_cards(
 
         let id_hex: String = id.iter().map(|b| format!("{b:02x}")).collect();
         let (creator_name, creator_letter, creator_color_class) =
-            member_display(&creator, &member_id, local_name, idx);
+            member_display(&creator, &member_id, local_name, idx, peer_names);
 
         let status = if complete {
             "Fulfilled"
@@ -373,6 +380,7 @@ pub async fn build_intention_view(
     intention_id: IntentionId,
     member_id: MemberId,
     local_name: &str,
+    peer_names: &HashMap<MemberId, String>,
 ) -> Option<IntentionViewData> {
     let intention = {
         let doc = home.intentions().await.ok()?;
@@ -384,7 +392,7 @@ pub async fn build_intention_view(
     };
 
     let (creator_name, creator_letter, creator_color_class) =
-        member_display(&intention.creator, &member_id, local_name, 0);
+        member_display(&intention.creator, &member_id, local_name, 0, peer_names);
 
     let status = if intention.is_complete() {
         "Fulfilled"
@@ -401,7 +409,7 @@ pub async fn build_intention_view(
     let blessing_doc = home.document::<BlessingDocument>("blessings").await.ok();
     let mut proofs = Vec::new();
     for (idx, claim) in intention.claims.iter().enumerate() {
-        let (name, letter, color) = member_display(&claim.claimant, &member_id, local_name, idx);
+        let (name, letter, color) = member_display(&claim.claimant, &member_id, local_name, idx, peer_names);
         let blessing_count = if let Some(ref bdoc) = blessing_doc {
             let data = bdoc.read().await;
             let claim_id = ClaimId::new(intention_id, claim.claimant);
@@ -445,7 +453,7 @@ pub async fn build_intention_view(
         for (idx, pair) in peer_entries.iter().enumerate() {
             let mid = pair.0;
             let ms = *pair.1;
-            let (name, letter, color) = member_display(mid, &member_id, local_name, idx);
+            let (name, letter, color) = member_display(mid, &member_id, local_name, idx, peer_names);
             let secs = ms / 1000;
             peers.push(AttentionPeerSummary {
                 peer_name: name,
@@ -493,7 +501,7 @@ pub async fn build_intention_view(
             .iter()
             .enumerate()
             .map(|(idx, t)| {
-                let (name, _, _) = member_display(&t.steward, &member_id, local_name, idx);
+                let (name, _, _) = member_display(&t.steward, &member_id, local_name, idx, peer_names);
                 PledgedTokenData {
                     token_label: format!("Token #{}", idx + 1),
                     duration: String::new(),
@@ -530,6 +538,7 @@ pub async fn build_member_tokens(
     home: &HomeRealm,
     member_id: MemberId,
     local_name: &str,
+    peer_names: &HashMap<MemberId, String>,
 ) -> Vec<TokenCardData> {
     let token_doc = match home.document::<TokenOfGratitudeDocument>("_tokens").await {
         Ok(d) => d,
@@ -569,16 +578,16 @@ pub async fn build_member_tokens(
             .and_then(|iid| intention_titles.get(iid).cloned());
 
         let (blesser_name, blesser_letter, blesser_color_class) =
-            member_display(&t.blesser, &member_id, local_name, idx);
+            member_display(&t.blesser, &member_id, local_name, idx, peer_names);
         let (current_holder_name, current_holder_letter, current_holder_color_class) =
-            member_display(&t.steward, &member_id, local_name, idx + 1);
+            member_display(&t.steward, &member_id, local_name, idx + 1, peer_names);
 
         let steward_chain: Vec<StewardChainDot> = t
             .steward_chain
             .iter()
             .enumerate()
             .map(|(i, mid)| {
-                let (name, letter, color) = member_display(mid, &member_id, local_name, i);
+                let (name, letter, color) = member_display(mid, &member_id, local_name, i, peer_names);
                 StewardChainDot {
                     letter,
                     color_class: color,
@@ -625,6 +634,7 @@ pub async fn build_community_intention_cards(
     network: &IndrasNetwork,
     member_id: MemberId,
     local_name: &str,
+    peer_names: &HashMap<MemberId, String>,
 ) -> Vec<IntentionCardData> {
     let mut cards = Vec::new();
     let realm_ids = network.conversation_realms();
@@ -648,7 +658,7 @@ pub async fn build_community_intention_cards(
             }
             let id_hex: String = intention.id.iter().map(|b| format!("{b:02x}")).collect();
             let (creator_name, creator_letter, creator_color_class) =
-                member_display(&intention.creator, &member_id, local_name, idx);
+                member_display(&intention.creator, &member_id, local_name, idx, peer_names);
 
             let status = if intention.is_complete() {
                 "Fulfilled"

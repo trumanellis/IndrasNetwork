@@ -1,5 +1,6 @@
 //! Review a claim and bless flow — creator blesses a claimant's service.
 
+use std::collections::HashMap;
 use dioxus::prelude::*;
 use indras_network::member::MemberId;
 use indras_sync_engine::IntentionId;
@@ -14,6 +15,7 @@ pub fn BlessingView(
     claimant: MemberId,
     view_data: Option<IntentionViewData>,
     bridge: GiftCycleBridge,
+    peer_names: HashMap<MemberId, String>,
     on_blessed: EventHandler<()>,
     on_cancel: EventHandler<()>,
 ) -> Element {
@@ -27,7 +29,7 @@ pub fn BlessingView(
     };
 
     let (claimant_name, claimant_letter, _claimant_color) =
-        member_display(&claimant, &bridge.member_id, &bridge.player_name, 1);
+        member_display(&claimant, &bridge.member_id, &bridge.player_name, 1, &peer_names);
 
     // Find the proof entry for this claimant
     let proof = data

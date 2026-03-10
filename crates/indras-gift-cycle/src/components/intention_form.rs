@@ -1,5 +1,6 @@
 //! Create/edit intention form with audience picker and token tag picker.
 
+use std::collections::HashMap;
 use dioxus::prelude::*;
 use indras_network::member::MemberId;
 use indras_sync_engine::{IntentionId, IntentionKind};
@@ -13,6 +14,7 @@ pub fn IntentionForm(
     bridge: GiftCycleBridge,
     available_tokens: Vec<TokenCardData>,
     connected_peers: Vec<MemberId>,
+    peer_names: HashMap<MemberId, String>,
     on_created: EventHandler<IntentionId>,
     on_cancel: EventHandler<()>,
 ) -> Element {
@@ -86,7 +88,9 @@ pub fn IntentionForm(
                         for peer in &connected_peers {
                             {
                                 let peer_id = *peer;
-                                let peer_hex: String = peer_id.iter().take(4).map(|b| format!("{b:02x}")).collect();
+                                let peer_hex: String = peer_names.get(&peer_id).cloned().unwrap_or_else(|| {
+                                    peer_id.iter().take(4).map(|b| format!("{b:02x}")).collect()
+                                });
                                 let letter = peer_hex.chars().next().unwrap_or('?').to_string();
                                 let is_selected = selected_peers.read().contains(&peer_id);
                                 let class = if is_selected { "peer-chip selected" } else { "peer-chip" };

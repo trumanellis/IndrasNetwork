@@ -1,0 +1,1542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IndrasNetwork · Design System</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;0,9..144,900;1,9..144,400&family=Inter:wght@300;400;500;600;700&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@300;400;500&family=Outfit:wght@300;400;500;600&family=Playfair+Display:wght@700;900&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=Raleway:ital,wght@0,200;0,300;0,400;0,500;0,600;1,300;1,400&display=swap" rel="stylesheet">
+<style>
+/* ========================================================================
+   INDRASNETWORK UNIFIED DESIGN SYSTEM
+   Four skins: Technical · Organic · Botanical · Jewels
+   Five biomes: Quiet Protocol · Mystic · Neon · Light · Minimal Terminal
+   ======================================================================== */
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+/* ========================================================================
+   DESIGN TOKENS (shared across all skins)
+   ======================================================================== */
+:root {
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-8: 48px;
+  --font-mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+  --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px;
+  --radius-xl: 16px; --radius-pill: 100px;
+  --transition-fast: 100ms ease; --transition-base: 150ms ease; --transition-slow: 200ms ease;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.1);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.15);
+  --shadow-lg: 0 4px 24px rgba(0,0,0,0.3);
+  --shadow-glow: 0 0 12px rgba(0,212,170,0.3);
+  --glass-blur: blur(20px) saturate(180%);
+
+  /* Member colors (constant across all themes) */
+  --color-love: #ff6b9d; --color-joy: #ffd93d; --color-peace: #6bcfff;
+  --color-grace: #b19cd9; --color-hope: #98d8aa; --color-faith: #ffb347;
+}
+
+/* ========================================================================
+   BIOME THEMES (the actual Indras themes from shared.css)
+   ======================================================================== */
+[data-theme="quiet-protocol"] {
+  --t-bg: #0a0a0a; --t-sf: #141414; --t-cd: #1e1e1e; --t-hv: #252525;
+  --t-tx: #F7F3E9; --t-t2: #a0a0a0; --t-mt: #666; --t-dm: #444;
+  --t-bd: #2a2a2a; --t-b2: #1f1f1f; --t-bc: rgba(255,255,255,0.1);
+  --t-ac: #00d4aa; --t-a2: #00b894;
+  --t-ok: #22c55e; --t-wn: #ffd93d; --t-er: #ff6b6b;
+  --t-glass: rgba(30,30,30,0.85); --t-glass-bd: rgba(255,255,255,0.1);
+}
+[data-theme="mystic"] {
+  --t-bg: #0a0a0a; --t-sf: #161616; --t-cd: rgba(26,26,26,0.8); --t-hv: #1f1f2e;
+  --t-tx: #F7F3E9; --t-t2: #c4a7d7; --t-mt: #8b7a9e; --t-dm: #5a4d68;
+  --t-bd: rgba(196,167,215,0.2); --t-b2: rgba(196,167,215,0.1); --t-bc: rgba(196,167,215,0.2);
+  --t-ac: #c4a7d7; --t-a2: #7c3aed;
+  --t-ok: #39ff14; --t-wn: #f59e0b; --t-er: #ff6b6b;
+  --t-glass: rgba(15,15,26,0.85); --t-glass-bd: rgba(196,167,215,0.2);
+}
+[data-theme="neon"] {
+  --t-bg: #0a0e0f; --t-sf: #0f1415; --t-cd: rgba(15,20,21,0.9); --t-hv: #141a1c;
+  --t-tx: #00FFD1; --t-t2: #00d4aa; --t-mt: #00806a; --t-dm: #005548;
+  --t-bd: rgba(0,255,209,0.3); --t-b2: rgba(0,255,209,0.1); --t-bc: rgba(0,255,209,0.3);
+  --t-ac: #00FFD1; --t-a2: #ff00ff;
+  --t-ok: #00ff88; --t-wn: #ffaa00; --t-er: #ff0055;
+  --t-glass: rgba(10,14,15,0.85); --t-glass-bd: rgba(0,255,209,0.3);
+}
+[data-theme="light"] {
+  --t-bg: #fafafa; --t-sf: #f0f0f0; --t-cd: #ffffff; --t-hv: #e0e0e0;
+  --t-tx: #1a1a1a; --t-t2: #4a5568; --t-mt: #888; --t-dm: #c0c0c0;
+  --t-bd: #ddd; --t-b2: #eee; --t-bc: rgba(0,0,0,0.1);
+  --t-ac: #0a8a6f; --t-a2: #008b7a;
+  --t-ok: #16a34a; --t-wn: #d97706; --t-er: #dc2626;
+  --t-glass: rgba(255,255,255,0.9); --t-glass-bd: rgba(0,0,0,0.1);
+}
+[data-theme="minimal-terminal"] {
+  --t-bg: #0a0a0a; --t-sf: #0a0e0f; --t-cd: #1a1a1a; --t-hv: #141414;
+  --t-tx: #f0f0f0; --t-t2: #a0a0a0; --t-mt: #606060; --t-dm: #444;
+  --t-bd: #1a1a1a; --t-b2: #141414; --t-bc: rgba(212,175,55,0.15);
+  --t-ac: #d4af37; --t-a2: #a08028;
+  --t-ok: #5a7a5a; --t-wn: #d4af37; --t-er: #ff3366;
+  --t-glass: rgba(10,10,10,0.9); --t-glass-bd: rgba(212,175,55,0.15);
+}
+
+/* ========================================================================
+   SKIN VARIABLES — each skin sets its own guide chrome
+   ======================================================================== */
+
+/* TECHNICAL */
+[data-skin="technical"] {
+  --s-bg: #0d0d0d; --s-bg2: #141414; --s-card: #1a1a1a; --s-hover: #222;
+  --s-tx: #eee; --s-t2: #999; --s-mt: #666; --s-gh: #444;
+  --s-bd: #2a2a2a; --s-b2: #1f1f1f;
+  --s-ac: #00d4aa;
+  --s-font: 'DM Sans', -apple-system, sans-serif;
+  --s-display: 'Playfair Display', Georgia, serif;
+  --s-radius: 12px;
+}
+/* ORGANIC */
+[data-skin="organic"] {
+  --s-bg: #1a1814; --s-bg2: #2c2820; --s-card: #2c2820; --s-hover: #3d3628;
+  --s-tx: #f4efe6; --s-t2: #8faa7e; --s-mt: #6b5744; --s-gh: #3d3628;
+  --s-bd: #3d3628; --s-b2: #2c2820;
+  --s-ac: #4a7c59;
+  --s-font: 'Instrument Sans', -apple-system, sans-serif;
+  --s-display: 'Fraunces', Georgia, serif;
+  --s-radius: 16px;
+}
+/* BOTANICAL */
+[data-skin="botanical"] {
+  --s-bg: #faf6ef; --s-bg2: #f5ede0; --s-card: #ffffff; --s-hover: #ede4d3;
+  --s-tx: #2c2416; --s-t2: #7a6e5d; --s-mt: #a69e8e; --s-gh: #c8c0b2;
+  --s-bd: #e2d7c4; --s-b2: #ede4d3;
+  --s-ac: #4a7a4e;
+  --s-font: 'Outfit', -apple-system, sans-serif;
+  --s-display: 'Cormorant Garamond', Georgia, serif;
+  --s-radius: 16px;
+}
+/* JEWELS */
+[data-skin="jewels"] {
+  --s-bg: #06060e; --s-bg2: #0b0b18; --s-card: #0b0b18; --s-hover: #18183a;
+  --s-tx: rgba(255,255,255,0.9); --s-t2: #6a6580; --s-mt: #3d3855; --s-gh: #2a2644;
+  --s-bd: rgba(180,170,220,0.12); --s-b2: rgba(180,170,220,0.06);
+  --s-ac: #6bcfff;
+  --s-font: 'Raleway', sans-serif;
+  --s-display: 'Cinzel', serif;
+  --s-radius: 14px;
+}
+/* CLEAN MODERN */
+[data-skin="modern"] {
+  --s-bg: #09090b; --s-bg2: #111114; --s-card: #151518; --s-hover: #1c1c20;
+  --s-tx: #fafafa; --s-t2: #a0a0ab; --s-mt: #52525b; --s-gh: #3f3f46;
+  --s-bd: #27272a; --s-b2: #1c1c20;
+  --s-ac: #818cf8;
+  --s-font: 'Inter', -apple-system, system-ui, sans-serif;
+  --s-display: 'Inter', -apple-system, system-ui, sans-serif;
+  --s-radius: 10px;
+}
+/* CONTEMPLATIVE */
+[data-skin="contemplative"] {
+  --s-bg: #f4f0e6; --s-bg2: #ece7da; --s-card: #f4f0e6; --s-hover: #e5dfd0;
+  --s-tx: #2a2420; --s-t2: #6b6358; --s-mt: #a09888; --s-gh: #c8c0b2;
+  --s-bd: #d6cebe; --s-b2: #e5dfd0;
+  --s-ac: #c4392a;
+  --s-font: 'Cormorant Garamond', Georgia, serif;
+  --s-display: 'Cormorant Garamond', Georgia, serif;
+  --s-radius: 2px;
+}
+/* SOLARPUNK */
+[data-skin="solarpunk"] {
+  --s-bg: #f6faf2; --s-bg2: #ebf3e4; --s-card: #ffffff; --s-hover: #ddebd2;
+  --s-tx: #1a2e1a; --s-t2: #4a6a3a; --s-mt: #88a878; --s-gh: #b8d0a8;
+  --s-bd: #cce0bc; --s-b2: #ddebd2;
+  --s-ac: #2d8a4e;
+  --s-font: 'Plus Jakarta Sans', -apple-system, sans-serif;
+  --s-display: 'Plus Jakarta Sans', -apple-system, sans-serif;
+  --s-radius: 16px;
+}
+
+/* ========================================================================
+   BASE LAYOUT (all skins)
+   ======================================================================== */
+
+body {
+  font-family: var(--s-font);
+  font-size: 15px;
+  line-height: 1.7;
+  background: var(--s-bg);
+  color: var(--s-tx);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+  transition: background 0.5s ease, color 0.5s ease;
+}
+
+/* Texture overlays — only visible on specific skins */
+.texture-grain, .texture-vignette, .texture-linen, .texture-inkwash, .texture-solarglow, .texture-dotgrid { position: fixed; inset: 0; pointer-events: none; z-index: 9998; opacity: 0; transition: opacity 0.5s; }
+[data-skin="organic"] .texture-grain { opacity: 0.4; }
+[data-skin="botanical"] .texture-linen { opacity: 1; }
+[data-skin="botanical"] .texture-vignette { opacity: 1; }
+[data-skin="contemplative"] .texture-inkwash { opacity: 1; }
+[data-skin="solarpunk"] .texture-solarglow { opacity: 1; }
+[data-skin="modern"] .texture-dotgrid { opacity: 1; }
+.texture-grain {
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+}
+.texture-linen {
+  background-image: url("data:image/svg+xml,%3Csvg width='40' height='40' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='0.65' numOctaves='3' type='fractalNoise'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.025'/%3E%3C/svg%3E");
+}
+.texture-vignette {
+  background: radial-gradient(ellipse at center, transparent 60%, rgba(195,180,155,0.15) 100%);
+}
+.texture-inkwash {
+  background:
+    radial-gradient(ellipse at 15% 20%, rgba(196,57,42,0.03) 0%, transparent 50%),
+    radial-gradient(ellipse at 85% 80%, rgba(42,36,32,0.04) 0%, transparent 40%),
+    radial-gradient(ellipse at 50% 50%, transparent 40%, rgba(214,206,190,0.08) 100%);
+}
+.texture-solarglow {
+  background:
+    radial-gradient(ellipse at 30% 0%, rgba(45,138,78,0.04) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 100%, rgba(255,183,60,0.03) 0%, transparent 40%);
+}
+.texture-dotgrid {
+  background-image: radial-gradient(circle, rgba(129,140,248,0.07) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* Starfield + Net — only visible on jewels skin */
+.starfield, .net-bg { position: fixed; inset: 0; pointer-events: none; z-index: 0; opacity: 0; transition: opacity 0.8s; }
+[data-skin="jewels"] .starfield { opacity: 1; }
+[data-skin="jewels"] .net-bg { opacity: 0.5; }
+
+/* Mycelium line — only organic skin */
+.mycelium-line {
+  position: fixed; left: calc(50% - 440px); top: 200px; bottom: 200px;
+  width: 1px;
+  background: linear-gradient(to bottom, transparent, rgba(74,122,78,0.3) 15%, rgba(143,170,126,0.3) 50%, rgba(74,122,78,0.3) 85%, transparent);
+  opacity: 0; transition: opacity 0.5s; pointer-events: none; z-index: 1;
+}
+[data-skin="organic"] .mycelium-line { opacity: 1; }
+
+/* ===== Top Control Bar ===== */
+.control-bar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 200;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 24px; height: 48px;
+  background: var(--s-bg); border-bottom: 1px solid var(--s-bd);
+  transition: all 0.5s ease;
+}
+[data-skin="technical"] .control-bar { background: rgba(13,13,13,0.9); backdrop-filter: var(--glass-blur); }
+[data-skin="jewels"] .control-bar { background: rgba(6,6,14,0.85); backdrop-filter: var(--glass-blur); }
+
+.control-section { display: flex; align-items: center; gap: 16px; }
+.control-label {
+  font-family: var(--font-mono);
+  font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase;
+  color: var(--s-mt); flex-shrink: 0;
+}
+.control-pills { display: flex; gap: 6px; }
+.pill {
+  padding: 3px 12px;
+  font-family: var(--font-mono);
+  font-size: 10px; letter-spacing: 0.03em;
+  border: 1px solid var(--s-bd);
+  border-radius: var(--radius-pill);
+  background: transparent; color: var(--s-t2);
+  cursor: pointer; transition: all 0.2s; white-space: nowrap;
+}
+.pill:hover { border-color: var(--s-ac); color: var(--s-ac); }
+.pill.active { background: var(--s-ac); color: var(--s-bg); border-color: var(--s-ac); }
+/* Botanical override for pills */
+[data-skin="botanical"] .pill.active { color: #fff; }
+
+/* ===== Scroll container ===== */
+.scroll {
+  position: relative; z-index: 10;
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 0 32px;
+}
+
+/* ========================================================================
+   HERO — adapts to skin
+   ======================================================================== */
+
+.hero {
+  padding: 100px 0 64px;
+  border-bottom: 1px solid var(--s-bd);
+  margin-bottom: 72px;
+  position: relative;
+  transition: all 0.5s;
+}
+/* Mandala glow — jewels only */
+.hero::before {
+  content: '';
+  position: absolute; top: 40px; left: 50%; transform: translateX(-50%);
+  width: 400px; height: 400px;
+  background: radial-gradient(circle, rgba(0,212,170,0.05) 0%, rgba(177,156,217,0.03) 30%, transparent 70%);
+  border-radius: 50%; pointer-events: none;
+  opacity: 0; transition: opacity 0.5s;
+}
+[data-skin="jewels"] .hero::before { opacity: 1; animation: mandala 8s ease-in-out infinite; }
+@keyframes mandala { 0%,100% { transform: translateX(-50%) scale(1); } 50% { transform: translateX(-50%) scale(1.08); opacity: 0.6; } }
+
+[data-skin="jewels"] .hero { text-align: center; border-bottom-color: transparent; }
+[data-skin="botanical"] .hero { border-bottom-color: var(--s-bd); }
+
+.hero-eyebrow {
+  font-size: 10px; letter-spacing: 0.25em; text-transform: uppercase;
+  color: var(--s-ac); margin-bottom: 20px;
+  transition: all 0.5s;
+}
+[data-skin="technical"] .hero-eyebrow { font-family: var(--font-mono); font-size: 11px; }
+[data-skin="organic"] .hero-eyebrow { font-family: var(--font-mono); font-size: 10px; color: #8faa7e; }
+[data-skin="botanical"] .hero-eyebrow { font-family: var(--s-display); font-size: 13px; font-style: italic; color: #4a7a4e; letter-spacing: 0.1em; }
+[data-skin="jewels"] .hero-eyebrow { font-family: var(--s-display); font-size: 9px; letter-spacing: 0.5em; color: #6a6580; }
+
+.hero-title {
+  font-family: var(--s-display);
+  font-size: clamp(36px, 5.5vw, 64px);
+  font-weight: 700; line-height: 1.1;
+  color: var(--s-tx); margin-bottom: 24px;
+  letter-spacing: -0.5px;
+  transition: all 0.5s;
+}
+[data-skin="organic"] .hero-title { font-weight: 300; }
+[data-skin="botanical"] .hero-title { font-weight: 300; color: #2c2416; }
+[data-skin="jewels"] .hero-title { font-weight: 400; letter-spacing: 0.04em; }
+.hero-title em {
+  font-style: normal;
+  transition: all 0.5s;
+}
+[data-skin="technical"] .hero-title em { color: var(--s-ac); }
+[data-skin="organic"] .hero-title em { font-weight: 700; font-style: italic; color: #6b9e6b; }
+[data-skin="botanical"] .hero-title em { font-weight: 600; color: #4a7a4e; }
+[data-skin="jewels"] .hero-title em {
+  background: linear-gradient(135deg, #6bcfff, #98d8aa, #b19cd9);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
+
+.hero-body {
+  font-size: 16px; color: var(--s-t2);
+  max-width: 520px; line-height: 1.85;
+  transition: all 0.5s;
+}
+[data-skin="jewels"] .hero-body { max-width: 460px; margin: 0 auto; font-weight: 300; font-style: italic; }
+[data-skin="botanical"] .hero-body { color: #7a6e5d; }
+
+.hero-meta {
+  display: flex; gap: 40px; margin-top: 40px;
+  padding-top: 24px; border-top: 1px solid var(--s-bd);
+  transition: all 0.5s;
+}
+[data-skin="jewels"] .hero-meta { justify-content: center; border-top-color: transparent; }
+.meta-item { display: flex; flex-direction: column; gap: 2px; }
+[data-skin="jewels"] .meta-item { align-items: center; }
+.meta-label {
+  font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--s-mt); transition: all 0.5s;
+}
+[data-skin="botanical"] .meta-label { font-family: var(--s-display); font-style: italic; color: #a69e8e; }
+[data-skin="jewels"] .meta-label { font-family: var(--s-display); letter-spacing: 0.4em; color: #3d3855; }
+.meta-value {
+  font-family: var(--s-display);
+  font-size: 14px; font-weight: 500; color: var(--s-tx);
+  transition: all 0.5s;
+}
+[data-skin="jewels"] .meta-value { font-family: var(--s-font); letter-spacing: 0.05em; color: #c8c4d8; }
+
+/* ========================================================================
+   SECTION DIVIDERS — each skin styles differently
+   ======================================================================== */
+
+.divider {
+  display: flex; align-items: center; gap: 14px;
+  margin: 72px 0 40px;
+  scroll-margin-top: 60px;
+  transition: all 0.5s;
+}
+.divider-line { flex: 1; height: 1px; background: linear-gradient(to right, var(--s-bd), transparent); transition: background 0.5s; }
+.divider-line-r { flex: 1; height: 1px; background: linear-gradient(to left, var(--s-bd), transparent); transition: background 0.5s; }
+.divider-node {
+  width: 8px; height: 8px; flex-shrink: 0;
+  transition: all 0.5s;
+}
+/* Technical: just a gap */
+[data-skin="technical"] .divider-node { display: none; }
+[data-skin="technical"] .divider-line-r { display: none; }
+/* Organic: dot */
+[data-skin="organic"] .divider-node { background: #6b5744; border-radius: 50%; opacity: 0.4; }
+/* Botanical: dot */
+[data-skin="botanical"] .divider-node { background: #c8c0b2; border-radius: 50%; opacity: 0.5; }
+/* Jewels: diamond */
+[data-skin="jewels"] .divider-node { clip-path: polygon(50% 0%,100% 50%,50% 100%,0% 50%); background: #6a6580; }
+
+.divider-num {
+  font-family: var(--font-mono);
+  font-size: 10px; color: var(--s-mt); flex-shrink: 0;
+  transition: all 0.5s;
+}
+[data-skin="technical"] .divider-num { color: var(--s-ac); }
+[data-skin="jewels"] .divider-num { font-family: var(--s-display); font-size: 11px; letter-spacing: 0.3em; color: #3d3855; }
+.divider-name {
+  font-size: 11px; color: var(--s-t2); flex-shrink: 0;
+  transition: all 0.5s;
+}
+[data-skin="technical"] .divider-name { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
+[data-skin="organic"] .divider-name { font-family: var(--s-display); font-style: italic; color: #8faa7e; }
+[data-skin="botanical"] .divider-name { font-family: var(--s-display); font-style: italic; color: #87a07a; }
+[data-skin="jewels"] .divider-name { font-family: var(--s-display); font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: #6a6580; }
+
+/* Leaf break — botanical only */
+.leaf-break {
+  text-align: center; margin: 56px 0;
+  color: var(--s-gh); font-size: 18px; opacity: 0;
+  letter-spacing: 12px; transition: opacity 0.5s;
+}
+[data-skin="botanical"] .leaf-break { opacity: 0.4; }
+
+/* Section header */
+.sec-head { margin-bottom: 40px; transition: all 0.5s; }
+[data-skin="jewels"] .sec-head { text-align: center; }
+.sec-title {
+  font-family: var(--s-display);
+  font-size: clamp(26px, 3.5vw, 38px); font-weight: 600;
+  color: var(--s-tx); margin-bottom: 10px; line-height: 1.2;
+  transition: all 0.5s;
+}
+[data-skin="organic"] .sec-title { font-weight: 400; }
+[data-skin="botanical"] .sec-title { font-weight: 400; color: #2c2416; }
+[data-skin="jewels"] .sec-title { font-weight: 400; letter-spacing: 0.06em; }
+.sec-title em {
+  font-style: italic; transition: all 0.5s;
+}
+[data-skin="technical"] .sec-title em { font-style: normal; color: var(--s-ac); }
+[data-skin="organic"] .sec-title em { color: #6b9e6b; font-weight: 700; }
+[data-skin="botanical"] .sec-title em { color: #4a7a4e; font-weight: 500; }
+[data-skin="jewels"] .sec-title em {
+  font-style: normal;
+  background: linear-gradient(135deg, #6bcfff, #b19cd9);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
+.sec-about {
+  font-size: 15px; color: var(--s-t2); max-width: 520px; line-height: 1.8;
+  transition: all 0.5s;
+}
+[data-skin="jewels"] .sec-about { max-width: 480px; margin: 0 auto; font-weight: 300; }
+.sec-about code {
+  font-family: var(--font-mono); font-size: 11px;
+  background: var(--s-bg2); padding: 2px 6px; border-radius: 3px;
+  color: var(--s-ac); border: 1px solid var(--s-bd);
+}
+
+/* ========================================================================
+   COLOR SWATCHES
+   ======================================================================== */
+
+.swatch-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 14px;
+}
+.swatch {
+  border-radius: var(--s-radius);
+  overflow: hidden;
+  background: var(--s-bg2);
+  border: 1px solid var(--s-bd);
+  transition: all 0.3s;
+}
+.swatch:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+[data-skin="jewels"] .swatch:hover { box-shadow: 0 8px 30px rgba(0,0,0,0.3), 0 0 15px rgba(180,170,220,0.06); }
+.swatch-face {
+  height: 64px; position: relative;
+}
+/* Jewels faceted highlight */
+[data-skin="jewels"] .swatch-face {
+  background-image: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, transparent 50%, rgba(0,0,0,0.08) 100%);
+  background-blend-mode: overlay;
+}
+.swatch-face::after {
+  content: attr(data-hex);
+  position: absolute; bottom: 6px; left: 10px;
+  font-family: var(--font-mono); font-size: 9px;
+  color: rgba(255,255,255,0.65); text-shadow: 0 1px 3px rgba(0,0,0,0.4);
+}
+.swatch-info { padding: 8px 11px; }
+.swatch-name { font-size: 12px; font-weight: 500; color: var(--s-tx); }
+.swatch-token { font-family: var(--font-mono); font-size: 9px; color: var(--s-mt); margin-top: 1px; }
+
+/* Member colors */
+.member-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 14px;
+}
+.member-cell {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 18px;
+  background: var(--s-bg2);
+  border: 1px solid var(--s-bd);
+  border-radius: var(--s-radius);
+  transition: all 0.3s;
+}
+.member-cell:hover { border-color: var(--s-ac); }
+.member-nucleus {
+  width: 38px; height: 38px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--s-display); font-size: 15px; font-weight: 600;
+  color: rgba(255,255,255,0.85);
+  position: relative; flex-shrink: 0;
+}
+/* Botanical: dashed ring */
+[data-skin="botanical"] .member-nucleus::before {
+  content: ''; position: absolute; inset: -5px;
+  border-radius: 50%; border: 1.5px dashed currentColor; opacity: 0.25;
+}
+/* Organic: breathing membrane */
+[data-skin="organic"] .member-nucleus::before {
+  content: ''; position: absolute; inset: -4px;
+  border-radius: 50%; border: 2px solid currentColor; opacity: 0.3;
+  animation: membrane 6s ease-in-out infinite;
+}
+/* Jewels: diamond clip-path */
+[data-skin="jewels"] .member-nucleus {
+  border-radius: 0;
+  clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+}
+[data-skin="jewels"] .member-nucleus::before { display: none; }
+[data-skin="jewels"] .member-cell::after {
+  content: ''; position: absolute; inset: -1px;
+}
+@keyframes membrane {
+  0%,100% { transform: scale(1); opacity: 0.3; }
+  50% { transform: scale(1.08); opacity: 0.15; }
+}
+.member-info { display: flex; flex-direction: column; gap: 1px; }
+.member-name-label {
+  font-family: var(--s-display);
+  font-size: 13px; font-weight: 500; font-style: italic;
+  color: var(--s-tx);
+}
+[data-skin="jewels"] .member-name-label { font-style: normal; letter-spacing: 0.06em; }
+.member-hex-label { font-family: var(--font-mono); font-size: 10px; color: var(--s-mt); }
+
+/* ========================================================================
+   BIOME COMPARISON TABLE
+   ======================================================================== */
+
+.biome-table {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 2px; border-radius: var(--s-radius);
+  overflow: hidden; border: 1px solid var(--s-bd);
+}
+.bt-col { display: flex; flex-direction: column; }
+.bt-header {
+  padding: 10px 8px; text-align: center;
+  font-family: var(--s-display); font-size: 10px; font-weight: 500;
+  border-bottom: 1px solid var(--s-bd);
+}
+[data-skin="jewels"] .bt-header { letter-spacing: 0.08em; }
+[data-skin="botanical"] .bt-header { font-style: italic; }
+.bt-cell {
+  height: 38px; display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-mono); font-size: 9px;
+  transition: all 0.2s; cursor: default;
+}
+.bt-cell:hover { transform: scale(1.06); z-index: 2; border-radius: 4px; }
+
+/* ========================================================================
+   TYPOGRAPHY SCALE
+   ======================================================================== */
+
+.type-scale { display: flex; flex-direction: column; }
+.type-row {
+  display: grid; grid-template-columns: 90px 1fr;
+  gap: 20px; align-items: baseline;
+  padding: 18px 0; border-bottom: 1px solid var(--s-bd);
+}
+.type-row:last-child { border-bottom: none; }
+.type-meta { display: flex; flex-direction: column; gap: 2px; }
+.type-label {
+  font-size: 9px; text-transform: uppercase; letter-spacing: 0.15em;
+  color: var(--s-ac); transition: all 0.5s;
+}
+[data-skin="organic"] .type-label { color: #4a7c59; }
+[data-skin="botanical"] .type-label { font-family: var(--s-display); font-style: italic; color: #4a7a4e; letter-spacing: 0.05em; }
+[data-skin="jewels"] .type-label { font-family: var(--s-display); letter-spacing: 0.3em; color: #6a6580; }
+.type-spec { font-family: var(--font-mono); font-size: 9px; color: var(--s-mt); }
+
+/* ========================================================================
+   SPACING
+   ======================================================================== */
+
+.spacing-chart {
+  display: flex; flex-direction: column; gap: 6px;
+  transition: all 0.5s;
+}
+[data-skin="botanical"] .spacing-chart {
+  background: white; border: 1px solid var(--s-bd); border-radius: 16px; padding: 24px;
+  background-image:
+    linear-gradient(to right, rgba(74,122,78,0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(74,122,78,0.04) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+.spacing-row {
+  display: grid; grid-template-columns: 70px 40px 1fr;
+  align-items: center; gap: 10px;
+}
+.spacing-name { font-family: var(--font-mono); font-size: 11px; color: var(--s-t2); }
+.spacing-px { font-family: var(--font-mono); font-size: 10px; color: var(--s-mt); text-align: right; }
+.spacing-bar { height: 6px; border-radius: 3px; overflow: hidden; }
+[data-skin="jewels"] .spacing-bar { height: 4px; border-radius: 2px; }
+.spacing-fill {
+  height: 100%; border-radius: inherit;
+  opacity: 0.3; transition: opacity 0.3s;
+}
+[data-skin="technical"] .spacing-fill { background: var(--s-ac); }
+[data-skin="organic"] .spacing-fill { background: linear-gradient(90deg, #4a7c59, #8faa7e); }
+[data-skin="botanical"] .spacing-fill { background: linear-gradient(90deg, #8ab87e, #4a7a4e); }
+[data-skin="jewels"] .spacing-fill { background: linear-gradient(90deg, #6bcfff, #b19cd9); }
+.spacing-row:hover .spacing-fill { opacity: 0.6; }
+
+/* Radius + Shadow side by side */
+.twin { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; margin-top: 48px; }
+.twin-title {
+  font-family: var(--s-display);
+  font-size: 18px; font-weight: 400; color: var(--s-tx);
+  margin-bottom: 20px; transition: all 0.5s;
+}
+[data-skin="botanical"] .twin-title { font-style: italic; color: #4a3f2f; }
+[data-skin="jewels"] .twin-title { letter-spacing: 0.08em; color: #c8c4d8; }
+
+.radii-row { display: flex; gap: 24px; flex-wrap: wrap; align-items: end; }
+.radii-item { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.radii-shape { width: 52px; height: 52px; border: 1.5px solid var(--s-t2); opacity: 0.4; transition: all 0.3s; }
+.radii-item:hover .radii-shape { opacity: 0.8; border-color: var(--s-ac); }
+.radii-label { font-family: var(--font-mono); font-size: 9px; color: var(--s-mt); }
+
+.shadow-row { display: flex; gap: 20px; flex-wrap: wrap; }
+.shadow-item { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.shadow-plane {
+  width: 72px; height: 72px;
+  background: var(--s-card); border-radius: 12px;
+  border: 1px solid var(--s-bd); transition: all 0.3s;
+}
+.shadow-item:hover .shadow-plane { transform: translateY(-2px); }
+.shadow-label { font-family: var(--font-mono); font-size: 9px; color: var(--s-mt); }
+
+/* ========================================================================
+   GREENHOUSE — themed component preview
+   ======================================================================== */
+
+.greenhouse {
+  border-radius: var(--s-radius);
+  padding: 32px; margin-bottom: 20px;
+  position: relative; overflow: hidden;
+  border: 1px solid var(--s-bd);
+  transition: border-radius 0.5s, border-color 0.5s;
+}
+.greenhouse::before {
+  content: ''; position: absolute; inset: 0;
+  background: var(--t-bg); border-radius: inherit; z-index: 0;
+}
+/* Jewels: prismatic top edge */
+[data-skin="jewels"] .greenhouse::after {
+  content: ''; position: absolute; top: 0; left: 0; right: 0;
+  height: 1px; z-index: 1;
+  background: linear-gradient(90deg, transparent, rgba(180,170,220,0.25), transparent);
+}
+.greenhouse > * { position: relative; z-index: 2; }
+.greenhouse-tag {
+  font-size: 10px; letter-spacing: 0.15em; text-transform: uppercase;
+  color: var(--t-mt); margin-bottom: 18px; transition: all 0.5s;
+}
+[data-skin="botanical"] .greenhouse-tag { font-family: var(--s-display); font-style: italic; text-transform: none; letter-spacing: 0.04em; }
+[data-skin="jewels"] .greenhouse-tag { font-family: var(--s-display); letter-spacing: 0.25em; }
+.sg { margin-bottom: 24px; }
+.sg:last-child { margin-bottom: 0; }
+.sl {
+  font-family: var(--font-mono); font-size: 9px;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--t-mt); margin-bottom: 10px;
+}
+
+/* Greenhouse component styles (use --t-* tokens) */
+.gr { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.gb {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 20px;
+  font-family: var(--s-font); font-size: 14px; font-weight: 500;
+  border: none; border-radius: 8px;
+  cursor: pointer; transition: all 0.15s; outline: none;
+}
+.gb:active { transform: scale(0.97); }
+.gb:focus-visible { outline: 2px solid var(--t-ac); outline-offset: 2px; }
+.gbp { background: var(--t-ac); color: var(--t-bg); }
+.gbp:hover { filter: brightness(1.1); box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+.gbo { background: transparent; color: var(--t-ac); border: 1px solid var(--t-ac); }
+.gbo:hover { background: var(--t-ac); color: var(--t-bg); }
+.gbg { background: transparent; color: var(--t-t2); }
+.gbg:hover { background: var(--t-hv); color: var(--t-tx); }
+.gbd { background: var(--t-er); color: #fff; }
+.gbs { background: var(--t-ok); color: #fff; }
+.gbsm { padding: 4px 12px; font-size: 12px; }
+.gblg { padding: 12px 28px; font-size: 16px; }
+.gb[disabled] { opacity: 0.3; cursor: not-allowed; }
+
+/* Inputs */
+.gf { display: flex; flex-direction: column; gap: 4px; }
+.gl { font-size: 12px; font-weight: 500; color: var(--t-t2); }
+.gi {
+  height: 36px; padding: 0 12px;
+  background: var(--t-cd); border: 1px solid var(--t-bd);
+  border-radius: 8px; color: var(--t-tx);
+  font-family: var(--s-font); font-size: 14px;
+  transition: all 0.15s; outline: none;
+}
+.gi::placeholder { color: var(--t-mt); }
+.gi:focus { border-color: var(--t-ac); box-shadow: 0 0 12px rgba(0,212,170,0.1); }
+.gi.ge { border-color: var(--t-er); }
+.gh { font-size: 11px; color: var(--t-mt); }
+.get { font-size: 11px; color: var(--t-er); }
+
+/* Toggle */
+.gto { width: 44px; height: 24px; border-radius: 100px; background: var(--t-sf); border: 1px solid var(--t-bd); position: relative; cursor: pointer; transition: all 0.2s; }
+.gto.on { background: var(--t-ac); border-color: var(--t-ac); }
+.gtt { position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: var(--t-tx); transition: all 0.2s; }
+.gto.on .gtt { left: 22px; background: var(--t-bg); }
+
+/* Checkbox */
+.gc { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; color: var(--t-tx); }
+.gcb { width: 18px; height: 18px; border: 2px solid var(--t-bd); border-radius: 4px; display: flex; align-items: center; justify-content: center; transition: all 0.15s; flex-shrink: 0; }
+.gcb.on { background: var(--t-ac); border-color: var(--t-ac); }
+.gcb.on::after { content: '✓'; font-size: 11px; color: var(--t-bg); font-weight: 700; }
+
+/* Cards */
+.gcard { background: var(--t-cd); border: 1px solid var(--t-bd); border-radius: 8px; overflow: hidden; transition: all 0.15s; }
+.gcard:hover { border-color: var(--t-ac); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+.gcard-img { aspect-ratio: 16/9; background: var(--t-sf); display: flex; align-items: center; justify-content: center; font-size: 26px; opacity: 0.5; }
+.gcard-bd { padding: 12px 16px; }
+.gcard-t { font-size: 14px; font-weight: 600; color: var(--t-tx); margin-bottom: 3px; }
+.gcard-m { font-size: 11px; color: var(--t-mt); }
+.gcard-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; }
+
+/* Alerts */
+.gal { display: flex; align-items: flex-start; gap: 10px; padding: 12px 16px; border-radius: 8px; border-left: 3px solid; font-size: 13px; color: var(--t-tx); }
+.gal-i { border-color: var(--color-peace); background: rgba(107,207,255,0.04); }
+.gal-s { border-color: var(--t-ok); background: rgba(34,197,94,0.04); }
+.gal-w { border-color: var(--t-wn); background: rgba(255,217,61,0.04); }
+.gal-e { border-color: var(--t-er); background: rgba(255,107,107,0.04); }
+
+/* Badges */
+.gbdg { display: inline-flex; padding: 2px 10px; font-size: 10px; font-weight: 500; border-radius: 100px; }
+.gbdg-s { background: rgba(34,197,94,0.12); color: var(--t-ok); }
+.gbdg-w { background: rgba(255,217,61,0.12); color: var(--t-wn); }
+.gbdg-e { background: rgba(255,107,107,0.12); color: var(--t-er); }
+
+/* Skeleton */
+.gsk { background: var(--t-sf); border-radius: 8px; position: relative; overflow: hidden; }
+.gsk::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, var(--t-hv), transparent); animation: shimmer 1.5s infinite; }
+@keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+
+/* Avatars & Heat (rendered by JS) */
+.avatar-row { display: flex; gap: 18px; align-items: end; flex-wrap: wrap; }
+.heat-row { display: flex; gap: 20px; align-items: end; flex-wrap: wrap; }
+
+/* ========================================================================
+   PRINCIPLES
+   ======================================================================== */
+
+.principle-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 18px;
+}
+.principle-card {
+  background: var(--s-bg2);
+  border: 1px solid var(--s-bd);
+  border-radius: var(--s-radius);
+  padding: 28px; transition: all 0.3s;
+  position: relative; overflow: hidden;
+}
+.principle-card::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  transition: background 0.5s;
+}
+[data-skin="technical"] .principle-card::before { background: var(--s-ac); }
+[data-skin="organic"] .principle-card::before { background: #4a7c59; }
+[data-skin="botanical"] .principle-card::before { background: linear-gradient(90deg, #8ab87e, #4a7a4e); opacity: 0.6; }
+[data-skin="jewels"] .principle-card::before { background: linear-gradient(90deg, #6bcfff, #b19cd9, #ff6b9d); opacity: 0.5; height: 2px; }
+[data-skin="botanical"] .principle-card { background: white; }
+.principle-card:hover { border-color: var(--s-ac); transform: translateY(-2px); }
+[data-skin="jewels"] .principle-card:hover { box-shadow: 0 8px 32px rgba(0,0,0,0.2), 0 0 20px rgba(180,170,220,0.06); }
+.principle-num {
+  font-family: var(--s-display);
+  font-size: 36px; font-weight: 700; font-style: italic;
+  color: var(--s-ac); opacity: 0.15;
+  line-height: 1; margin-bottom: 6px;
+}
+[data-skin="jewels"] .principle-num {
+  background: linear-gradient(135deg, #6bcfff, #b19cd9);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
+.principle-name {
+  font-family: var(--s-display);
+  font-size: 17px; font-weight: 500; font-style: italic;
+  color: var(--s-tx); margin-bottom: 10px;
+}
+[data-skin="jewels"] .principle-name { font-style: normal; letter-spacing: 0.04em; }
+.principle-text { font-size: 13px; color: var(--s-t2); line-height: 1.7; }
+[data-skin="jewels"] .principle-text { font-weight: 300; }
+
+/* ========================================================================
+   DO / DON'T
+   ======================================================================== */
+
+.rules-list { display: flex; flex-direction: column; gap: 10px; }
+.rule-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.rule-do, .rule-dont {
+  padding: 14px 18px; border-radius: var(--s-radius);
+  font-size: 13px; line-height: 1.6; border-left: 3px solid;
+  color: var(--s-tx); transition: all 0.5s;
+}
+.rule-do { background: rgba(34,197,94,0.03); border-color: var(--s-ac); }
+.rule-dont { background: rgba(255,107,107,0.03); border-color: #ff6b6b; }
+[data-skin="botanical"] .rule-do { background: rgba(74,122,78,0.04); border-color: #4a7a4e; }
+[data-skin="botanical"] .rule-dont { background: rgba(179,90,90,0.03); border-color: #b35a5a; }
+.rule-tag {
+  font-family: var(--s-display);
+  font-size: 10px; font-weight: 600; font-style: italic;
+  letter-spacing: 0.08em; margin-bottom: 3px;
+}
+.rule-do .rule-tag { color: var(--s-ac); }
+.rule-dont .rule-tag { color: #ff6b6b; }
+[data-skin="botanical"] .rule-dont .rule-tag { color: #b35a5a; }
+[data-skin="jewels"] .rule-do .rule-tag,
+[data-skin="jewels"] .rule-dont .rule-tag { font-style: normal; letter-spacing: 0.25em; font-size: 8px; text-transform: uppercase; }
+[data-skin="jewels"] .rule-do .rule-tag { color: #98d8aa; }
+[data-skin="jewels"] .rule-dont .rule-tag { color: #ff6b9d; }
+.rule-do code, .rule-dont code {
+  font-family: var(--font-mono); font-size: 11px;
+  background: rgba(128,128,128,0.08); padding: 1px 5px; border-radius: 3px;
+}
+
+/* ========================================================================
+   CODE BLOCK
+   ======================================================================== */
+
+.code-block {
+  background: var(--s-bg2); border: 1px solid var(--s-bd);
+  border-radius: var(--s-radius); padding: 24px;
+  font-family: var(--font-mono); font-size: 12px;
+  color: var(--s-t2); line-height: 1.8;
+  overflow-x: auto; white-space: pre;
+  position: relative; transition: all 0.5s;
+}
+[data-skin="botanical"] .code-block {
+  background: white;
+  background-image: linear-gradient(to bottom, transparent 23px, var(--s-b2) 23px);
+  background-size: 100% 24px;
+}
+[data-skin="jewels"] .code-block::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(180,170,220,0.25), transparent);
+}
+.ck { color: var(--s-ac); }
+[data-skin="botanical"] .ck { color: #4a7a4e; }
+[data-skin="jewels"] .ck { color: #6bcfff; }
+.cs { color: #c49a4a; }
+[data-skin="technical"] .cs { color: #00d4aa; }
+[data-skin="jewels"] .cs { color: #ffb347; }
+.cc { color: var(--s-mt); font-style: italic; }
+
+/* ========================================================================
+   FOOTER
+   ======================================================================== */
+
+.footer {
+  margin-top: 72px; padding: 36px 0 56px;
+  border-top: 1px solid var(--s-bd);
+  text-align: center; transition: all 0.5s;
+}
+[data-skin="jewels"] .footer { border-top-color: transparent; position: relative; }
+[data-skin="jewels"] .footer::before {
+  content: ''; position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+  width: 120px; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(180,170,220,0.25), transparent);
+}
+.footer-line {
+  font-family: var(--s-display);
+  font-size: 15px; font-style: italic; color: var(--s-t2);
+  margin-bottom: 8px;
+}
+.footer-sub {
+  font-family: var(--font-mono); font-size: 9px;
+  color: var(--s-mt); letter-spacing: 0.15em; text-transform: uppercase;
+}
+
+/* ========================================================================
+   MODERN SKIN OVERRIDES — dark futuristic, gradient accents, glass
+   ======================================================================== */
+
+[data-skin="modern"] .control-bar { background: rgba(9,9,11,0.85); backdrop-filter: var(--glass-blur); border-bottom-color: #27272a; }
+[data-skin="modern"] .pill.active { background: linear-gradient(135deg, #818cf8, #c084fc); border-color: transparent; color: #fff; }
+[data-skin="modern"] .hero-eyebrow { font-family: var(--font-mono); font-size: 11px; font-weight: 400; letter-spacing: 0.1em; color: #818cf8; }
+[data-skin="modern"] .hero-title { font-weight: 700; letter-spacing: -0.04em; line-height: 1.05; }
+[data-skin="modern"] .hero-title em {
+  font-style: normal;
+  background: linear-gradient(135deg, #818cf8, #c084fc, #f472b6);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
+[data-skin="modern"] .hero-body { color: #a0a0ab; }
+[data-skin="modern"] .meta-label { font-family: var(--font-mono); font-weight: 400; font-size: 9px; color: #52525b; }
+[data-skin="modern"] .meta-value { font-weight: 600; color: #fafafa; }
+[data-skin="modern"] .divider-node { display: none; }
+[data-skin="modern"] .divider-line-r { display: none; }
+[data-skin="modern"] .divider-line { background: linear-gradient(to right, #27272a, transparent); }
+[data-skin="modern"] .divider-num { font-family: var(--font-mono); font-weight: 500; color: #818cf8; }
+[data-skin="modern"] .divider-name { font-family: var(--font-mono); font-weight: 400; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: #52525b; }
+[data-skin="modern"] .sec-title { font-weight: 700; letter-spacing: -0.03em; }
+[data-skin="modern"] .sec-title em {
+  font-style: normal;
+  background: linear-gradient(135deg, #818cf8, #c084fc);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
+[data-skin="modern"] .sec-about { color: #a0a0ab; }
+[data-skin="modern"] .sec-about code { background: #1c1c20; border-color: #27272a; color: #818cf8; }
+[data-skin="modern"] .swatch { background: #111114; border-color: #27272a; }
+[data-skin="modern"] .swatch:hover { border-color: #818cf8; box-shadow: 0 4px 20px rgba(129,140,248,0.1); }
+[data-skin="modern"] .member-cell { background: #111114; border-color: #27272a; }
+[data-skin="modern"] .member-cell:hover { border-color: #818cf8; box-shadow: 0 0 20px rgba(129,140,248,0.08); }
+[data-skin="modern"] .member-name-label { font-family: var(--s-font); font-style: normal; font-weight: 600; }
+[data-skin="modern"] .spacing-fill { background: linear-gradient(90deg, #818cf8, #c084fc); }
+[data-skin="modern"] .radii-shape { border-color: #52525b; }
+[data-skin="modern"] .radii-item:hover .radii-shape { border-color: #818cf8; }
+[data-skin="modern"] .shadow-plane { background: #151518; border-color: #27272a; }
+[data-skin="modern"] .twin-title { font-weight: 600; color: #fafafa; }
+[data-skin="modern"] .greenhouse { border-color: #27272a; }
+[data-skin="modern"] .greenhouse::after {
+  content: ''; position: absolute; top: 0; left: 0; right: 0;
+  height: 1px; z-index: 1;
+  background: linear-gradient(90deg, transparent, rgba(129,140,248,0.2), transparent);
+}
+[data-skin="modern"] .greenhouse-tag { font-family: var(--font-mono); font-weight: 400; font-size: 10px; letter-spacing: 0.1em; }
+[data-skin="modern"] .principle-card { background: #111114; border-color: #27272a; }
+[data-skin="modern"] .principle-card::before { background: linear-gradient(90deg, #818cf8, #c084fc, #f472b6); height: 2px; }
+[data-skin="modern"] .principle-card:hover { border-color: #818cf8; box-shadow: 0 8px 30px rgba(129,140,248,0.08); }
+[data-skin="modern"] .principle-num { font-style: normal; background: linear-gradient(135deg, #818cf8, #c084fc); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; opacity: 0.2; }
+[data-skin="modern"] .principle-name { font-style: normal; font-weight: 600; color: #fafafa; }
+[data-skin="modern"] .principle-text { color: #a0a0ab; }
+[data-skin="modern"] .code-block { background: #111114; border-color: #27272a; }
+[data-skin="modern"] .code-block::after {
+  content: ''; position: absolute; top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(129,140,248,0.15), transparent);
+}
+[data-skin="modern"] .type-label { font-family: var(--font-mono); font-weight: 400; font-size: 9px; color: #818cf8; letter-spacing: 0.12em; }
+[data-skin="modern"] .footer-line { font-style: normal; font-weight: 500; color: #a0a0ab; }
+[data-skin="modern"] .footer-sub { color: #52525b; }
+[data-skin="modern"] .ck { color: #818cf8; }
+[data-skin="modern"] .cs { color: #34d399; }
+[data-skin="modern"] .cc { color: #3f3f46; }
+[data-skin="modern"] .rule-tag { font-family: var(--font-mono); font-style: normal; font-weight: 500; font-size: 10px; letter-spacing: 0.06em; }
+[data-skin="modern"] .rule-do .rule-tag { color: #34d399; }
+[data-skin="modern"] .rule-dont .rule-tag { color: #f472b6; }
+[data-skin="modern"] .rule-do { border-color: #34d399; background: rgba(52,211,153,0.03); }
+[data-skin="modern"] .rule-dont { border-color: #f472b6; background: rgba(244,114,182,0.03); }
+[data-skin="modern"] .rule-do code, [data-skin="modern"] .rule-dont code { background: #1c1c20; }
+[data-skin="modern"] .bt-header { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.06em; }
+
+/* ========================================================================
+   CONTEMPLATIVE SKIN OVERRIDES (wabi-sabi, ink-wash, stillness)
+   ======================================================================== */
+
+[data-skin="contemplative"] .control-bar { background: rgba(244,240,230,0.92); backdrop-filter: var(--glass-blur); }
+[data-skin="contemplative"] .pill.active { color: #fff; }
+[data-skin="contemplative"] .hero { text-align: center; padding-top: 140px; padding-bottom: 80px; }
+[data-skin="contemplative"] .hero-eyebrow { font-size: 13px; font-style: italic; font-weight: 300; letter-spacing: 0.2em; color: var(--s-mt); }
+[data-skin="contemplative"] .hero-title { font-weight: 300; font-size: clamp(34px, 5vw, 56px); letter-spacing: 0.02em; }
+[data-skin="contemplative"] .hero-title em { font-weight: 600; font-style: italic; color: var(--s-ac); }
+[data-skin="contemplative"] .hero-body { max-width: 440px; margin: 0 auto; font-weight: 300; font-size: 16px; line-height: 2; color: var(--s-t2); }
+[data-skin="contemplative"] .hero-meta { justify-content: center; }
+[data-skin="contemplative"] .meta-item { align-items: center; }
+[data-skin="contemplative"] .meta-label { font-weight: 300; font-style: italic; letter-spacing: 0.15em; }
+[data-skin="contemplative"] .meta-value { font-weight: 500; }
+[data-skin="contemplative"] .sec-head { text-align: center; }
+[data-skin="contemplative"] .sec-title { font-weight: 300; letter-spacing: 0.02em; }
+[data-skin="contemplative"] .sec-title em { color: var(--s-ac); font-weight: 600; }
+[data-skin="contemplative"] .sec-about { max-width: 460px; margin: 0 auto; font-weight: 300; line-height: 2; }
+[data-skin="contemplative"] .divider { margin: 96px 0 52px; }
+[data-skin="contemplative"] .divider-node { width: 6px; height: 6px; border-radius: 50%; background: var(--s-ac); opacity: 0.35; }
+[data-skin="contemplative"] .divider-num { font-style: italic; color: var(--s-mt); }
+[data-skin="contemplative"] .divider-name { font-style: italic; font-weight: 300; color: var(--s-mt); letter-spacing: 0.12em; }
+[data-skin="contemplative"] .spacing-fill { background: linear-gradient(90deg, #c4392a, #d4816a); }
+[data-skin="contemplative"] .spacing-chart {
+  background: var(--s-card); border: 1px solid var(--s-bd); border-radius: 2px; padding: 24px;
+}
+[data-skin="contemplative"] .principle-card { border-radius: 2px; }
+[data-skin="contemplative"] .principle-card::before { background: var(--s-ac); height: 1px; opacity: 0.4; }
+[data-skin="contemplative"] .principle-num { font-style: italic; color: var(--s-ac); opacity: 0.12; }
+[data-skin="contemplative"] .principle-name { font-weight: 500; font-style: italic; letter-spacing: 0.04em; }
+[data-skin="contemplative"] .principle-text { font-weight: 300; line-height: 1.9; }
+[data-skin="contemplative"] .code-block { border-radius: 2px; }
+[data-skin="contemplative"] .type-label { font-style: italic; font-weight: 400; color: var(--s-ac); letter-spacing: 0.08em; }
+[data-skin="contemplative"] .twin-title { font-weight: 300; font-style: italic; }
+[data-skin="contemplative"] .greenhouse { border-radius: 2px; }
+[data-skin="contemplative"] .greenhouse-tag { font-style: italic; font-weight: 400; letter-spacing: 0.1em; }
+[data-skin="contemplative"] .swatch { border-radius: 2px; }
+[data-skin="contemplative"] .member-cell { border-radius: 2px; }
+[data-skin="contemplative"] .member-name-label { font-weight: 500; }
+[data-skin="contemplative"] .member-nucleus::before {
+  content: ''; position: absolute; inset: -6px;
+  border-radius: 50%; border: 1px solid currentColor; opacity: 0.15;
+}
+[data-skin="contemplative"] .footer-line { font-weight: 300; letter-spacing: 0.06em; }
+[data-skin="contemplative"] .ck { color: #c4392a; }
+[data-skin="contemplative"] .cs { color: #7a6848; }
+[data-skin="contemplative"] .rule-tag { font-weight: 400; font-style: italic; letter-spacing: 0.12em; }
+[data-skin="contemplative"] .rule-do .rule-tag { color: #5a8a5a; }
+[data-skin="contemplative"] .rule-do { border-color: #5a8a5a; background: rgba(90,138,90,0.03); }
+[data-skin="contemplative"] .rule-dont .rule-tag { color: var(--s-ac); }
+[data-skin="contemplative"] .rule-dont { border-color: var(--s-ac); background: rgba(196,57,42,0.02); }
+[data-skin="contemplative"] .bt-header { font-style: italic; }
+[data-skin="contemplative"] .leaf-break { opacity: 0.3; }
+
+/* ========================================================================
+   SOLARPUNK SKIN OVERRIDES (regenerative future, bright, optimistic)
+   ======================================================================== */
+
+[data-skin="solarpunk"] .control-bar { background: rgba(246,250,242,0.92); backdrop-filter: var(--glass-blur); }
+[data-skin="solarpunk"] .pill.active { color: #fff; }
+[data-skin="solarpunk"] .hero-eyebrow { font-family: var(--s-font); font-size: 12px; font-weight: 600; letter-spacing: 0.12em; color: var(--s-ac); }
+[data-skin="solarpunk"] .hero-title { font-weight: 700; letter-spacing: -0.01em; }
+[data-skin="solarpunk"] .hero-title em { font-style: normal; font-weight: 800; color: var(--s-ac); }
+[data-skin="solarpunk"] .hero-body { color: #4a6a3a; }
+[data-skin="solarpunk"] .divider-node { width: 10px; height: 10px; border-radius: 50%; background: var(--s-ac); opacity: 0.25; }
+[data-skin="solarpunk"] .divider-num { font-family: var(--s-font); font-weight: 700; color: var(--s-ac); }
+[data-skin="solarpunk"] .divider-name { font-family: var(--s-font); font-weight: 600; font-size: 11px; color: #4a6a3a; }
+[data-skin="solarpunk"] .sec-title { font-weight: 700; }
+[data-skin="solarpunk"] .sec-title em { font-style: normal; color: var(--s-ac); }
+[data-skin="solarpunk"] .spacing-fill { background: linear-gradient(90deg, #2d8a4e, #60c47a); }
+[data-skin="solarpunk"] .spacing-chart {
+  background: white; border: 1px solid var(--s-bd); border-radius: 16px; padding: 24px;
+}
+[data-skin="solarpunk"] .principle-card { background: white; border-radius: 20px; }
+[data-skin="solarpunk"] .principle-card::before { background: linear-gradient(90deg, #2d8a4e, #60c47a, #f5c542); border-radius: 20px 20px 0 0; }
+[data-skin="solarpunk"] .principle-num { font-style: normal; font-weight: 800; color: var(--s-ac); opacity: 0.12; }
+[data-skin="solarpunk"] .principle-name { font-style: normal; font-weight: 700; }
+[data-skin="solarpunk"] .code-block { background: white; border-radius: 16px; }
+[data-skin="solarpunk"] .type-label { font-family: var(--s-font); font-weight: 700; font-size: 10px; color: var(--s-ac); }
+[data-skin="solarpunk"] .twin-title { font-weight: 700; }
+[data-skin="solarpunk"] .greenhouse { border-radius: 20px; }
+[data-skin="solarpunk"] .greenhouse-tag { font-family: var(--s-font); font-weight: 700; font-size: 11px; }
+[data-skin="solarpunk"] .swatch { border-radius: 16px; }
+[data-skin="solarpunk"] .member-cell { border-radius: 20px; }
+[data-skin="solarpunk"] .member-name-label { font-family: var(--s-font); font-style: normal; font-weight: 600; }
+[data-skin="solarpunk"] .member-nucleus::before {
+  content: ''; position: absolute; inset: -5px;
+  border-radius: 50%; border: 2px solid currentColor; opacity: 0.25;
+}
+[data-skin="solarpunk"] .ck { color: #2d8a4e; }
+[data-skin="solarpunk"] .cs { color: #c48a20; }
+[data-skin="solarpunk"] .rule-tag { font-family: var(--s-font); font-style: normal; font-weight: 700; font-size: 11px; }
+[data-skin="solarpunk"] .rule-do .rule-tag { color: #2d8a4e; }
+[data-skin="solarpunk"] .rule-do { border-color: #2d8a4e; background: rgba(45,138,78,0.04); }
+[data-skin="solarpunk"] .rule-dont .rule-tag { color: #c44a20; }
+[data-skin="solarpunk"] .rule-dont { border-color: #c44a20; background: rgba(196,74,32,0.03); }
+[data-skin="solarpunk"] .bt-header { font-weight: 600; }
+[data-skin="solarpunk"] .meta-label { font-family: var(--s-font); font-weight: 600; font-size: 10px; }
+[data-skin="solarpunk"] .meta-value { font-weight: 700; }
+[data-skin="solarpunk"] .footer-line { font-style: normal; font-weight: 600; }
+[data-skin="solarpunk"] .leaf-break { opacity: 0.3; color: #2d8a4e; }
+
+/* ===== Responsive ===== */
+@media (max-width: 900px) {
+  .scroll { padding: 0 20px; }
+  .hero-meta { flex-direction: column; gap: 12px; }
+  .twin { grid-template-columns: 1fr; }
+  .rule-pair { grid-template-columns: 1fr; }
+  .type-row { grid-template-columns: 1fr; gap: 6px; }
+  .greenhouse { padding: 24px; }
+  .biome-table { grid-template-columns: 1fr; }
+  .control-bar { padding: 0 12px; }
+  .control-label { display: none; }
+  .mycelium-line { display: none; }
+}
+@media (max-width: 640px) {
+  .hero-title { font-size: 32px !important; }
+  .swatch-grid { grid-template-columns: repeat(2, 1fr); }
+  .gcard-grid { grid-template-columns: 1fr; }
+  .principle-grid { grid-template-columns: 1fr; }
+  .pill { font-size: 9px; padding: 3px 8px; }
+}
+</style>
+</head>
+<body data-skin="technical" data-theme="quiet-protocol" id="root">
+
+<!-- Background layers -->
+<div class="texture-grain"></div>
+<div class="texture-linen"></div>
+<div class="texture-vignette"></div>
+<div class="texture-inkwash"></div>
+<div class="texture-solarglow"></div>
+<div class="texture-dotgrid"></div>
+<div class="starfield"><canvas id="stars"></canvas></div>
+<svg class="net-bg" id="netSvg"></svg>
+<div class="mycelium-line"></div>
+
+  <!-- ===== Control Bar ===== -->
+  <header class="control-bar">
+    <div class="control-section">
+      <span class="control-label">Skin</span>
+      <div class="control-pills" id="skinPills">
+        <button class="pill active" data-skin="technical">Technical</button>
+        <button class="pill" data-skin="organic">Organic</button>
+        <button class="pill" data-skin="botanical">Botanical</button>
+        <button class="pill" data-skin="jewels">Jewels</button>
+        <button class="pill" data-skin="modern">Modern</button>
+        <button class="pill" data-skin="contemplative">Contemplative</button>
+        <button class="pill" data-skin="solarpunk">Solarpunk</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ===== Scroll Content ===== -->
+  <main class="scroll">
+
+    <!-- HERO -->
+    <header class="hero">
+      <div class="hero-eyebrow" id="heroEyebrow">Design System v1.0</div>
+      <h1 class="hero-title">Every Jewel<br>Reflects <em>All Others</em></h1>
+      <p class="hero-body" id="heroBody">IndrasNetwork grows like a living organism — no central authority, just peers discovering each other through gossip, forming connections like threads on an infinite net. This guide documents the visual language of that system.</p>
+      <div class="hero-meta">
+        <div class="meta-item"><span class="meta-label">Version</span><span class="meta-value">1.0</span></div>
+        <div class="meta-item"><span class="meta-label">Biomes</span><span class="meta-value">5 Themes</span></div>
+        <div class="meta-item"><span class="meta-label">Substrate</span><span class="meta-value">Dioxus · Rust</span></div>
+        <div class="meta-item"><span class="meta-label">Tokens</span><span class="meta-value">CSS Properties</span></div>
+      </div>
+    </header>
+
+    <!-- ===== COLORS ===== -->
+    <div class="divider" id="colors"><span class="divider-num" data-t="01" data-j="I">01</span><div class="divider-line"></div><div class="divider-node"></div><div class="divider-line-r"></div><span class="divider-name" data-t="Foundations" data-o="Soil" data-b="Pigments" data-j="Facets">Foundations</span></div>
+    <div class="sec-head"><h2 class="sec-title">Color <em>Palette</em></h2><p class="sec-about">Colors live as CSS custom properties, shifting when the biome changes. These swatches reflect the currently active theme.</p></div>
+    <div class="swatch-grid" id="corePalette"></div>
+    <div style="margin-top:40px">
+      <h3 class="sec-title" style="font-size:20px;margin-bottom:8px">Semantic <em>Status</em></h3>
+      <p class="sec-about" style="margin-bottom:16px">Always pair with a text label or icon — never color alone.</p>
+      <div class="swatch-grid" id="statusPalette"></div>
+    </div>
+
+    <!-- ===== MEMBERS ===== -->
+    <div class="divider" id="members"><span class="divider-num" data-t="02" data-j="II">02</span><div class="divider-line"></div><div class="divider-node"></div><div class="divider-line-r"></div><span class="divider-name" data-t="Identity" data-o="Cells" data-b="Pressed Flowers" data-j="The Six Gems">Identity</span></div>
+    <div class="sec-head"><h2 class="sec-title">Member <em>Colors</em></h2><p class="sec-about">Six archetypal colors assigned deterministically to peers. Used only for identity attribution — avatar rings, sender names, attention visualization.</p></div>
+    <div class="member-grid" id="memberGrid"></div>
+
+    <!-- ===== BIOMES ===== -->
+    <div class="divider" id="themes"><span class="divider-num" data-t="03" data-j="III">03</span><div class="divider-line"></div><div class="divider-node"></div><div class="divider-line-r"></div><span class="divider-name" data-t="Themes" data-o="Biomes" data-b="Herbarium" data-j="Refractions">Themes</span></div>
+    <div class="sec-head"><h2 class="sec-title">Five <em>Biomes</em></h2><p class="sec-about">Each theme is a complete color ecosystem. Set <code>data-theme</code> on the root element and every token adapts simultaneously.</p></div>
+    <div class="biome-table">
+      <div class="bt-col"><div class="bt-header" style="background:#141414;color:#F7F3E9">Quiet Protocol</div><div class="bt-cell" style="background:#00d4aa;color:#0a0a0a">#00d4aa</div><div class="bt-cell" style="background:#0a0a0a;color:#F7F3E9">#0a0a0a</div><div class="bt-cell" style="background:#F7F3E9;color:#0a0a0a">#F7F3E9</div></div>
+      <div class="bt-col"><div class="bt-header" style="background:#161616;color:#c4a7d7">Mystic</div><div class="bt-cell" style="background:#c4a7d7;color:#0a0a0a">#c4a7d7</div><div class="bt-cell" style="background:#0a0a0a;color:#c4a7d7">#0a0a0a</div><div class="bt-cell" style="background:#F7F3E9;color:#0a0a0a">#F7F3E9</div></div>
+      <div class="bt-col"><div class="bt-header" style="background:#0f1415;color:#00FFD1">Neon</div><div class="bt-cell" style="background:#00FFD1;color:#0a0e0f">#00FFD1</div><div class="bt-cell" style="background:#0a0e0f;color:#00FFD1">#0a0e0f</div><div class="bt-cell" style="background:#00FFD1;color:#0a0e0f">#00FFD1</div></div>
+      <div class="bt-col"><div class="bt-header" style="background:#f0f0f0;color:#1a1a1a">Light</div><div class="bt-cell" style="background:#0a8a6f;color:#fff">#0a8a6f</div><div class="bt-cell" style="background:#fafafa;color:#1a1a1a">#fafafa</div><div class="bt-cell" style="background:#1a1a1a;color:#fafafa">#1a1a1a</div></div>
+      <div class="bt-col"><div class="bt-header" style="background:#0a0e0f;color:#d4af37">Minimal</div><div class="bt-cell" style="background:#d4af37;color:#0a0a0a">#d4af37</div><div class="bt-cell" style="background:#0a0a0a;color:#f0f0f0">#0a0a0a</div><div class="bt-cell" style="background:#f0f0f0;color:#0a0a0a">#f0f0f0</div></div>
+    </div>
+
+    <!-- ===== TYPOGRAPHY ===== -->
+    <div class="divider" id="typography"><span class="divider-num" data-t="04" data-j="IV">04</span><div class="divider-line"></div><div class="divider-node"></div><div class="divider-line-r"></div><span class="divider-name" data-t="Typography" data-o="Rings" data-b="Lettering" data-j="Inscriptions">Typography</span></div>
+    <div class="sec-head"><h2 class="sec-title">Type <em>Scale</em></h2><p class="sec-about">System font stack for native rendering. Monospace reserved for hashes, IDs, and terminal atmospherics.</p></div>
+    <div class="type-scale">
+      <div class="type-row"><div class="type-meta"><span class="type-label">Display</span><span class="type-spec">32px · 700</span></div><div style="font-size:32px;font-weight:700;line-height:1.2;color:var(--s-tx)">The fractal artifact tree</div></div>
+      <div class="type-row"><div class="type-meta"><span class="type-label">Headline</span><span class="type-spec">24px · 600</span></div><div style="font-size:24px;font-weight:600;line-height:1.3;color:var(--s-tx)">Navigation is attention</div></div>
+      <div class="type-row"><div class="type-meta"><span class="type-label">Title</span><span class="type-spec">20px · 600</span></div><div style="font-size:20px;font-weight:600;line-height:1.35;color:var(--s-tx)">Every jewel reflects all others</div></div>
+      <div class="type-row"><div class="type-meta"><span class="type-label">Body</span><span class="type-spec">14px · 400</span></div><div style="font-size:14px;line-height:1.6;color:var(--s-t2)">Attention switch events are first-class artifacts representing dwell time. The gift economy emerges naturally when nutrients arise as byproducts.</div></div>
+      <div class="type-row"><div class="type-meta"><span class="type-label">Caption</span><span class="type-spec">11px · 400</span></div><div style="font-size:11px;color:var(--s-mt)">Created by Zephyr · 2 peers · 4.2kb</div></div>
+      <div class="type-row"><div class="type-meta"><span class="type-label">Mono</span><span class="type-spec">12px · 400</span></div><div style="font-family:var(--font-mono);font-size:12px;color:var(--s-ac)">ArtifactId::Blob(7f3a..c91e)</div></div>
+    </div>
+
+    <!-- ===== SPACING ===== -->
+    <div class="divider" id="spacing"><span class="divider-num" data-t="05" data-j="V">05</span><div class="divider-line"></div><div class="divider-node"></div><div class="divider-line-r"></div><span class="divider-name" data-t="Spacing" data-o="Growth" data-b="Measured Growth" data-j="Distances">Spacing</span></div>
+    <div class="sec-head"><h2 class="sec-title">Spacing <em>Scale</em></h2><p class="sec-about">4px base unit. Growth in measured steps.</p></div>
+    <div class="spacing-chart">
+      <div class="spacing-row"><span class="spacing-name">--space-1</span><span class="spacing-px">4px</span><div class="spacing-bar"><div class="spacing-fill" style="width:8%"></div></div></div>
+      <div class="spacing-row"><span class="spacing-name">--space-2</span><span class="spacing-px">8px</span><div class="spacing-bar"><div class="spacing-fill" style="width:17%"></div></div></div>
+      <div class="spacing-row"><span class="spacing-name">--space-3</span><span class="spacing-px">12px</span><div class="spacing-bar"><div class="spacing-fill" style="width:25%"></div></div></div>
+      <div class="spacing-row"><span class="spacing-name">--space-4</span><span class="spacing-px">16px</span><div class="spacing-bar"><div class="spacing-fill" style="width:33%"></div></div></div>
+      <div class="spacing-row"><span class="spacing-name">--space-5</span><span class="spacing-px">24px</span><div class="spacing-bar"><div class="spacing-fill" style="width:50%"></div></div></div>
+      <div class="spacing-row"><span class="spacing-name">--space-6</span><span class="spacing-px">32px</span><div class="spacing-bar"><div class="spacing-fill" style="width:67%"></div></div></div>
+      <div class="spacing-row"><span class="spacing-name">--space-8</span><span class="spacing-px">48px</span><div class="spacing-bar"><div class="spacing-fill" style="width:100%"></div></div></div>
+    </div>
+
+    <div class="twin">
+      <div><div class="twin-title">Border Radii</div><div class="radii-row">
+        <div class="radii-item"><div class="radii-shape" style="border-radius:4px"></div><span class="radii-label">sm·4</span></div>
+        <div class="radii-item"><div class="radii-shape" style="border-radius:8px"></div><span class="radii-label">md·8</span></div>
+        <div class="radii-item"><div class="radii-shape" style="border-radius:12px"></div><span class="radii-label">lg·12</span></div>
+        <div class="radii-item"><div class="radii-shape" style="border-radius:16px"></div><span class="radii-label">xl·16</span></div>
+        <div class="radii-item"><div class="radii-shape" style="border-radius:100px"></div><span class="radii-label">pill</span></div>
+      </div></div>
+      <div><div class="twin-title">Elevation</div><div class="shadow-row">
+        <div class="shadow-item"><div class="shadow-plane" style="box-shadow:0 1px 2px rgba(0,0,0,0.15)"></div><span class="shadow-label">sm</span></div>
+        <div class="shadow-item"><div class="shadow-plane" style="box-shadow:0 4px 12px rgba(0,0,0,0.15)"></div><span class="shadow-label">md</span></div>
+        <div class="shadow-item"><div class="shadow-plane" style="box-shadow:0 4px 24px rgba(0,0,0,0.3)"></div><span class="shadow-label">lg</span></div>
+        <div class="shadow-item"><div class="shadow-plane" style="box-shadow:0 0 12px rgba(0,212,170,0.2)"></div><span class="shadow-label">glow</span></div>
+      </div></div>
+    </div>
+
+    <!-- ===== COMPONENTS ===== -->
+    <div class="leaf-break">❧ ❧ ❧</div>
+    <div class="divider" id="components"><span class="divider-num" data-t="06" data-j="VI">06</span><div class="divider-line"></div><div class="divider-node"></div><div class="divider-line-r"></div><span class="divider-name" data-t="Components" data-o="Specimens" data-b="Specimens" data-j="Mirrors">Components</span></div>
+    <div class="sec-head"><h2 class="sec-title">Living <em>Components</em></h2><p class="sec-about">Each component reflects the active biome. Switch themes above — every specimen adapts to its environment.</p></div>
+
+    <!-- Buttons -->
+    <div class="greenhouse"><div class="greenhouse-tag">Buttons</div>
+      <div class="sg"><div class="sl">Variants</div><div class="gr"><button class="gb gbp">Create Quest</button><button class="gb gbo">View Details</button><button class="gb gbg">Options</button><button class="gb gbd">Revoke</button><button class="gb gbs">Accept</button></div></div>
+      <div class="sg"><div class="sl">Sizes</div><div class="gr"><button class="gb gbp gbsm">Small</button><button class="gb gbp">Default</button><button class="gb gbp gblg">Large</button><button class="gb gbp" disabled>Disabled</button></div></div>
+    </div>
+
+    <!-- Inputs -->
+    <div class="greenhouse"><div class="greenhouse-tag">Text Inputs</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px"><div class="gf"><label class="gl">Realm Name</label><input class="gi" placeholder="Enter realm name..."><span class="gh">Visible to all realm members</span></div><div class="gf"><label class="gl">Invite Code</label><input class="gi ge" value="indras://invalid"><span class="get">Invalid invite code format</span></div></div>
+    </div>
+
+    <!-- Toggles -->
+    <div class="greenhouse"><div class="greenhouse-tag">Toggles &amp; Checkboxes</div>
+      <div style="display:flex;gap:36px;flex-wrap:wrap">
+        <div><div class="sl">Toggles</div><div style="display:flex;gap:14px;align-items:center"><div style="display:flex;align-items:center;gap:8px"><div class="gto" onclick="this.classList.toggle('on')"><div class="gtt"></div></div><span style="font-size:13px;color:var(--t-t2)">Offline</span></div><div style="display:flex;align-items:center;gap:8px"><div class="gto on" onclick="this.classList.toggle('on')"><div class="gtt"></div></div><span style="font-size:13px;color:var(--t-t2)">Share attention</span></div></div></div>
+        <div><div class="sl">Checkboxes</div><div style="display:flex;flex-direction:column;gap:6px"><div class="gc" onclick="this.querySelector('.gcb').classList.toggle('on')"><div class="gcb on"></div>Auto-sync</div><div class="gc" onclick="this.querySelector('.gcb').classList.toggle('on')"><div class="gcb"></div>Show heat</div></div></div>
+      </div>
+    </div>
+
+    <!-- Cards -->
+    <div class="greenhouse"><div class="greenhouse-tag">Cards</div>
+      <div class="gcard-grid">
+        <div class="gcard"><div class="gcard-img">🌀</div><div class="gcard-bd"><div class="gcard-t">Project Nexus</div><div class="gcard-m">5 peers · <span class="gbdg gbdg-s">Active</span></div></div></div>
+        <div class="gcard"><div class="gcard-img">⚡</div><div class="gcard-bd"><div class="gcard-t">Design Review</div><div class="gcard-m">3 claims · <span class="gbdg gbdg-w">Pending</span></div></div></div>
+        <div class="gcard"><div class="gcard-img"><div class="gsk" style="width:100%;height:100%"></div></div><div class="gcard-bd"><div class="gsk" style="height:14px;width:65%;margin-bottom:8px"></div><div class="gsk" style="height:11px;width:45%"></div></div></div>
+      </div>
+    </div>
+
+    <!-- Alerts -->
+    <div class="greenhouse"><div class="greenhouse-tag">Alerts &amp; Badges</div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:18px">
+        <div class="gal gal-i">ℹ️ New peer discovered — Zephyr wants to connect.</div>
+        <div class="gal gal-s">✓ Quest verified. Token minted.</div>
+        <div class="gal gal-w">⚠ Ember offline 7 days. Messages queued.</div>
+        <div class="gal gal-e">✕ Log diverged at index 42.</div>
+      </div>
+      <div class="sl">Badges</div>
+      <div class="gr"><span class="gbdg gbdg-s">Active</span><span class="gbdg gbdg-w">Recalled</span><span class="gbdg gbdg-e">Expired</span></div>
+    </div>
+
+    <!-- Avatars & Heat -->
+    <div class="greenhouse"><div class="greenhouse-tag">Avatars &amp; Heat</div>
+      <div class="sg"><div class="sl">Member Avatars</div><div class="avatar-row" id="avatarRow"></div></div>
+      <div class="sg"><div class="sl">Heat Visualization (0.0 — 1.0)</div><div class="heat-row" id="heatRow"></div></div>
+    </div>
+
+    <!-- ===== PRINCIPLES ===== -->
+    <div class="divider" id="principles"><span class="divider-num" data-t="07" data-j="VII">07</span><div class="divider-line"></div><div class="divider-node"></div><div class="divider-line-r"></div><span class="divider-name" data-t="Guidelines" data-o="Roots" data-b="Root Wisdom" data-j="Reflections">Guidelines</span></div>
+    <div class="sec-head"><h2 class="sec-title">Design <em>Principles</em></h2></div>
+    <div class="principle-grid">
+      <div class="principle-card"><div class="principle-num">01</div><div class="principle-name">Attention Is the Interface</div><div class="principle-text">Every interaction is an attention event. Navigating, hovering, dwelling — these are the system's heartbeat. Heat indicators make collective attention visible. Using the system generates value.</div></div>
+      <div class="principle-card"><div class="principle-num">02</div><div class="principle-name">Fractal Depth, Never Flat</div><div class="principle-text">The artifact tree nests infinitely. Navigation feels like zooming — deeper into sub-spaces. The same component renders at every level. Nothing is a "special page."</div></div>
+      <div class="principle-card"><div class="principle-num">03</div><div class="principle-name">Quiet Until Relevant</div><div class="principle-text">The interface defaults to stillness. Information surfaces when it matters — a peer joins, a quest gets claimed, an exchange completes. Content speaks; chrome listens.</div></div>
+    </div>
+
+    <!-- ===== DO / DON'T ===== -->
+    <div class="divider" id="rules"><span class="divider-num" data-t="08" data-j="VIII">08</span><div class="divider-line"></div><div class="divider-node"></div><div class="divider-line-r"></div><span class="divider-name" data-t="Do's & Don'ts" data-o="Boundaries" data-b="Gardener's Notes" data-j="The Weaver's Code">Do's &amp; Don'ts</span></div>
+    <div class="sec-head"><h2 class="sec-title" id="ruleTitle">Cultivate &amp; <em>Compost</em></h2></div>
+    <div class="rules-list">
+      <div class="rule-pair"><div class="rule-do"><div class="rule-tag" data-do="✓ Do" data-cult="Cultivate" data-weave="Weave">✓ Do</div>Use <code>var(--accent-primary)</code> for interactive elements</div><div class="rule-dont"><div class="rule-tag" data-dont="✕ Don't" data-comp="Compost" data-unravel="Unravel">✕ Don't</div>Hard-code hex values that break across biomes</div></div>
+      <div class="rule-pair"><div class="rule-do"><div class="rule-tag" data-do="✓ Do" data-cult="Cultivate" data-weave="Weave">✓ Do</div>Member colors for identity — avatar rings, sender names</div><div class="rule-dont"><div class="rule-tag" data-dont="✕ Don't" data-comp="Compost" data-unravel="Unravel">✕ Don't</div>Member colors as decoration or status indicators</div></div>
+      <div class="rule-pair"><div class="rule-do"><div class="rule-tag" data-do="✓ Do" data-cult="Cultivate" data-weave="Weave">✓ Do</div>Respect the spacing scale — <code>--space-*</code> tokens</div><div class="rule-dont"><div class="rule-tag" data-dont="✕ Don't" data-comp="Compost" data-unravel="Unravel">✕ Don't</div>Arbitrary pixel values for margins and padding</div></div>
+      <div class="rule-pair"><div class="rule-do"><div class="rule-tag" data-do="✓ Do" data-cult="Cultivate" data-weave="Weave">✓ Do</div>Let heat drive warmth via <code>--heat</code></div><div class="rule-dont"><div class="rule-tag" data-dont="✕ Don't" data-comp="Compost" data-unravel="Unravel">✕ Don't</div>Animate elements with no attention data behind them</div></div>
+      <div class="rule-pair"><div class="rule-do"><div class="rule-tag" data-do="✓ Do" data-cult="Cultivate" data-weave="Weave">✓ Do</div>Design offline-first — stale data with sync indicators</div><div class="rule-dont"><div class="rule-tag" data-dont="✕ Don't" data-comp="Compost" data-unravel="Unravel">✕ Don't</div>Blank screens when connectivity drops</div></div>
+      <div class="rule-pair"><div class="rule-do"><div class="rule-tag" data-do="✓ Do" data-cult="Cultivate" data-weave="Weave">✓ Do</div>Test every component across all five biomes</div><div class="rule-dont"><div class="rule-tag" data-dont="✕ Don't" data-comp="Compost" data-unravel="Unravel">✕ Don't</div>Design for one theme, assume the rest adapt</div></div>
+    </div>
+
+    <!-- ===== TOKENS ===== -->
+    <div class="divider" id="tokens"><span class="divider-num" data-t="09" data-j="IX">09</span><div class="divider-line"></div><div class="divider-node"></div><div class="divider-line-r"></div><span class="divider-name" data-t="Developer" data-o="Seeds" data-b="Seeds" data-j="The Genome">Developer</span></div>
+    <div class="sec-head"><h2 class="sec-title">Design <em>Tokens</em></h2><p class="sec-about">The genetic material. Set <code>data-theme</code> on the root and the whole organism adapts.</p></div>
+
+    <div class="code-block"><span class="cc">// Dioxus (Rust) — planting the root</span>
+<span class="ck">use</span> indras_ui::{ThemedRoot, ThemeSwitcher, SHARED_CSS};
+
+<span class="ck">fn</span> App() -> Element {
+    rsx! {
+        style { {SHARED_CSS} }
+        ThemedRoot {
+            ThemeSwitcher {}
+            <span class="cc">// All children inherit the biome</span>
+        }
+    }
+}
+
+<span class="cc">// Heat — mapping attention to warmth</span>
+<span class="ck">let</span> heat = vault.heat(&artifact_id, now)?;
+rsx! {
+    div {
+        style: <span class="cs">"--heat: {heat}; box-shadow: 0 0 calc(var(--heat) * 20px) var(--accent-primary);"</span>,
+    }
+}</div>
+
+    <div style="margin-top:20px">
+      <div class="code-block"><span class="cc">/* Token genome */</span>
+{
+  <span class="ck">"spacing"</span>: { <span class="cs">"1":"4px"</span>, <span class="cs">"2":"8px"</span>, <span class="cs">"3":"12px"</span>, <span class="cs">"4":"16px"</span>, <span class="cs">"5":"24px"</span>, <span class="cs">"6":"32px"</span>, <span class="cs">"8":"48px"</span> },
+  <span class="ck">"radius"</span>:  { <span class="cs">"sm":"4px"</span>, <span class="cs">"md":"8px"</span>, <span class="cs">"lg":"12px"</span>, <span class="cs">"xl":"16px"</span>, <span class="cs">"pill":"100px"</span> },
+  <span class="ck">"member"</span>:  { <span class="cs">"love":"#FF6B9D"</span>, <span class="cs">"joy":"#FFD93D"</span>, <span class="cs">"peace":"#6BCFFF"</span>,
+               <span class="cs">"grace":"#B19CD9"</span>, <span class="cs">"hope":"#98D8AA"</span>, <span class="cs">"faith":"#FFB347"</span> }
+}</div>
+    </div>
+
+    <!-- FOOTER -->
+    <footer class="footer">
+      <div class="footer-line">Every jewel reflects all others.</div>
+      <div class="footer-sub">Dioxus · Rust · Iroh · Automerge · BLAKE3</div>
+    </footer>
+
+  </main>
+
+<script>
+const root = document.getElementById('root');
+
+// ====== Skin Switching ======
+const skinPills = document.querySelectorAll('#skinPills .pill');
+
+const skinConfig = {
+  technical:     { eyebrow: 'Design System v1.0', ruleTitle: "Do's &amp; <em>Don'ts</em>", doTag: '✓ Do', dontTag: "✕ Don't", roman: false },
+  organic:       { eyebrow: 'A living design system', ruleTitle: 'Cultivate &amp; <em>Compost</em>', doTag: 'Cultivate', dontTag: 'Compost', roman: false },
+  botanical:     { eyebrow: 'A botanical design system', ruleTitle: 'Cultivate &amp; <em>Compost</em>', doTag: 'Cultivate', dontTag: 'Compost', roman: false },
+  jewels:        { eyebrow: 'A Design System Woven from Light', ruleTitle: 'Weave &amp; <em>Unravel</em>', doTag: 'Weave', dontTag: 'Unravel', roman: true },
+  modern:        { eyebrow: 'INDRAS / DESIGN / SYSTEM', ruleTitle: 'Ship &amp; <em>Avoid</em>', doTag: 'Ship', dontTag: 'Avoid', roman: false },
+  contemplative: { eyebrow: 'A quiet design system', ruleTitle: 'Embrace &amp; <em>Release</em>', doTag: 'Embrace', dontTag: 'Release', roman: true },
+  solarpunk:     { eyebrow: 'A regenerative design system', ruleTitle: 'Grow &amp; <em>Prune</em>', doTag: 'Grow', dontTag: 'Prune', roman: false },
+};
+
+const sectionLabels = {
+  technical:     { colors:'Foundations', members:'Identity', themes:'Themes', typography:'Typography', spacing:'Spacing', components:'Components', principles:'Guidelines', rules:"Do's & Don'ts", tokens:'Developer' },
+  organic:       { colors:'Soil', members:'Cells', themes:'Biomes', typography:'Rings', spacing:'Growth', components:'Specimens', principles:'Roots', rules:'Boundaries', tokens:'Seeds' },
+  botanical:     { colors:'Pigments', members:'Pressed Flowers', themes:'Herbarium', typography:'Lettering', spacing:'Measured Growth', components:'Specimens', principles:'Root Wisdom', rules:"Gardener's Notes", tokens:'Seeds' },
+  jewels:        { colors:'Facets', members:'The Six Gems', themes:'Refractions', typography:'Inscriptions', spacing:'Distances', components:'Mirrors', principles:'Reflections', rules:"The Weaver's Code", tokens:'The Genome' },
+  modern:        { colors:'Primitives', members:'Identity', themes:'Modes', typography:'Type', spacing:'Scale', components:'Components', principles:'Principles', rules:'Standards', tokens:'API' },
+  contemplative: { colors:'Essence', members:'Spirit', themes:'Seasons', typography:'Brush', spacing:'Ma', components:'Vessels', principles:'The Way', rules:'Practice', tokens:'Source' },
+  solarpunk:     { colors:'Roots', members:'Spectrum', themes:'Seasons', typography:'Voice', spacing:'Rhythm', components:'Toolkit', principles:'Values', rules:'Compass', tokens:'Blueprint' },
+};
+
+const nums_roman  = ['I','II','III','IV','V','VI','VII','VIII','IX'];
+const nums_arabic = ['01','02','03','04','05','06','07','08','09'];
+
+skinPills.forEach(p => {
+  p.addEventListener('click', () => {
+    const skin = p.dataset.skin;
+    root.setAttribute('data-skin', skin);
+    skinPills.forEach(s => s.classList.remove('active'));
+    p.classList.add('active');
+
+    const cfg = skinConfig[skin];
+    document.getElementById('heroEyebrow').textContent = cfg.eyebrow;
+    document.getElementById('ruleTitle').innerHTML = cfg.ruleTitle;
+
+    // Update divider labels via lookup table
+    const dividers = document.querySelectorAll('.divider');
+    const labels = sectionLabels[skin] || sectionLabels.technical;
+    const nums = cfg.roman ? nums_roman : nums_arabic;
+    dividers.forEach((el, i) => {
+      const nameEl = el.querySelector('.divider-name');
+      const numEl = el.querySelector('.divider-num');
+      if (nameEl && labels[el.id]) nameEl.textContent = labels[el.id];
+      if (numEl) numEl.textContent = nums[i] || nums_arabic[i];
+    });
+
+    // Update do/dont tags
+    document.querySelectorAll('.rule-do .rule-tag').forEach(el => el.textContent = cfg.doTag);
+    document.querySelectorAll('.rule-dont .rule-tag').forEach(el => el.textContent = cfg.dontTag);
+
+    // Toggle starfield animation
+    if (skin === 'jewels') { startStarfield(); startNet(); }
+
+    render();
+  });
+});
+
+// ====== Dynamic Rendering ======
+function gv(n) { return getComputedStyle(root).getPropertyValue(n).trim(); }
+
+function render() {
+  const core = [
+    {n:'Accent Primary',t:'--t-ac'},{n:'Accent Secondary',t:'--t-a2'},
+    {n:'Background',t:'--t-bg'},{n:'Surface',t:'--t-sf'},
+    {n:'Card',t:'--t-cd'},{n:'Text Primary',t:'--t-tx'},
+    {n:'Text Secondary',t:'--t-t2'},{n:'Border',t:'--t-bd'},
+  ];
+  document.getElementById('corePalette').innerHTML = core.map(c => {
+    const v = gv(c.t);
+    return `<div class="swatch"><div class="swatch-face" style="background:${v}" data-hex="${v}"></div><div class="swatch-info"><div class="swatch-name">${c.n}</div><div class="swatch-token">${c.t.replace('--t-','--')}</div></div></div>`;
+  }).join('');
+
+  const stat = [{n:'Success',t:'--t-ok'},{n:'Warning',t:'--t-wn'},{n:'Error',t:'--t-er'}];
+  document.getElementById('statusPalette').innerHTML = stat.map(s => {
+    const v = gv(s.t);
+    return `<div class="swatch"><div class="swatch-face" style="background:${v}" data-hex="${v}"></div><div class="swatch-info"><div class="swatch-name">${s.n}</div><div class="swatch-token">--accent-${s.n.toLowerCase()}</div></div></div>`;
+  }).join('');
+
+  const mem = [
+    {n:'Love',t:'--color-love',i:'L'},{n:'Joy',t:'--color-joy',i:'J'},
+    {n:'Peace',t:'--color-peace',i:'P'},{n:'Grace',t:'--color-grace',i:'G'},
+    {n:'Hope',t:'--color-hope',i:'H'},{n:'Faith',t:'--color-faith',i:'F'},
+  ];
+  document.getElementById('memberGrid').innerHTML = mem.map(m => {
+    const c = gv(m.t);
+    return `<div class="member-cell"><div class="member-nucleus" style="background:${c};color:${c}">${m.i}</div><div class="member-info"><div class="member-name-label">${m.n}</div><div class="member-hex-label">${c}</div></div></div>`;
+  }).join('');
+
+  // Avatars
+  const szs = [{w:24,f:10},{w:32,f:12},{w:40,f:14},{w:56,f:20},{w:80,f:28}];
+  const labels = ['XS','SM','MD','LG','XL'];
+  const ac = [gv('--color-love'),gv('--color-peace'),gv('--color-joy'),gv('--color-grace'),gv('--color-hope')];
+  const an = ['Z','N','E','S','O'];
+  document.getElementById('avatarRow').innerHTML = szs.map((s,i) => {
+    const c = ac[i];
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:6px"><div style="width:${s.w}px;height:${s.w}px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:${c}20;color:${c};font-size:${s.f}px;font-weight:600;position:relative"><div style="position:absolute;inset:-3px;border-radius:50%;border:2px solid ${c};opacity:0.4"></div>${an[i]}</div><span style="font-family:var(--font-mono);font-size:9px;color:var(--t-mt)">${labels[i]}·${s.w}</span></div>`;
+  }).join('');
+
+  // Heat
+  const heats = [0,0.15,0.35,0.6,0.85,1.0];
+  const accent = gv('--t-ac');
+  const skin = root.getAttribute('data-skin');
+  const heatLabelMap = {
+    botanical:     ['Dormant','Budding','Growing','Blooming','Radiant','Radiant'],
+    jewels:        ['Dark','Dim','Warm','Bright','Radiant','Radiant'],
+    contemplative: ['Still','Stirring','Warming','Glowing','Alive','Alive'],
+    solarpunk:     ['Dormant','Sprouting','Growing','Thriving','Radiant','Radiant'],
+    modern:        ['Idle','Low','Active','Peak','Max','Max'],
+    _default:      ['Cold','Tepid','Warm','Active','Hot','Hot'],
+  };
+  const heatLabels = heatLabelMap[skin] || heatLabelMap._default;
+
+  document.getElementById('heatRow').innerHTML = heats.map((h,i) => {
+    const gl = h>0?`0 0 ${h*18}px ${accent}`:'none';
+    const op = 0.2+h*0.8;
+    const bw = 1.5+h*1.5;
+    const lb = heatLabels[Math.min(i, heatLabels.length-1)];
+    const shape = skin === 'jewels'
+      ? `clip-path:polygon(50% 0%,93% 25%,93% 75%,50% 100%,7% 75%,7% 25%);`
+      : skin === 'contemplative'
+      ? `border-radius:2px;`
+      : skin === 'modern'
+      ? `border-radius:12px;`
+      : `border-radius:50%;`;
+    const labelFont = (skin === 'modern') ? `font-family:var(--font-mono);font-size:9px;letter-spacing:0.05em;` : `font-family:var(--s-display);font-size:10px;font-style:italic;`;
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:8px"><div style="width:52px;height:52px;${shape}border:${bw}px solid ${accent};display:flex;align-items:center;justify-content:center;opacity:${op};box-shadow:${gl};transition:all 0.5s"><span style="font-family:var(--font-mono);font-size:10px;color:${accent}">${h.toFixed(2)}</span></div><span style="${labelFont}color:var(--s-mt)">${lb}</span></div>`;
+  }).join('');
+}
+
+// ====== Starfield (jewels skin only) ======
+const canvas = document.getElementById('stars');
+const ctx = canvas.getContext('2d');
+let stars = [], starAnimId = null;
+
+function initStars() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  stars = [];
+  const count = Math.floor((canvas.width * canvas.height) / 10000);
+  for (let i = 0; i < count; i++) {
+    stars.push({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      r: Math.random() * 1.2 + 0.2,
+      a: Math.random() * 0.4 + 0.1,
+      speed: Math.random() * 0.0008 + 0.0002,
+      phase: Math.random() * Math.PI * 2
+    });
+  }
+}
+
+function drawStars(t) {
+  if (root.getAttribute('data-skin') !== 'jewels') { starAnimId = null; return; }
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  stars.forEach(s => {
+    const flicker = 0.5 + 0.5 * Math.sin(t * s.speed * 1000 + s.phase);
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(180,170,220,${s.a * flicker})`;
+    ctx.fill();
+  });
+  starAnimId = requestAnimationFrame(drawStars);
+}
+
+function startStarfield() {
+  if (starAnimId) return;
+  initStars();
+  starAnimId = requestAnimationFrame(drawStars);
+}
+window.addEventListener('resize', () => { if (root.getAttribute('data-skin') === 'jewels') initStars(); });
+
+// ====== Net Animation (jewels skin only) ======
+const svg = document.getElementById('netSvg');
+let nodes = [], netAnimId = null;
+
+function initNet() {
+  svg.setAttribute('width', window.innerWidth);
+  svg.setAttribute('height', window.innerHeight);
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+  nodes = [];
+  const count = Math.floor((window.innerWidth * window.innerHeight) / 50000);
+  for (let i = 0; i < count; i++) {
+    nodes.push({
+      x: Math.random() * window.innerWidth,
+      y: Math.random() * window.innerHeight,
+      vx: (Math.random() - 0.5) * 0.12,
+      vy: (Math.random() - 0.5) * 0.12
+    });
+  }
+}
+
+function drawNet() {
+  if (root.getAttribute('data-skin') !== 'jewels') { netAnimId = null; return; }
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+  const w = window.innerWidth, h = window.innerHeight;
+  nodes.forEach(n => {
+    n.x += n.vx; n.y += n.vy;
+    if (n.x < 0 || n.x > w) n.vx *= -1;
+    if (n.y < 0 || n.y > h) n.vy *= -1;
+  });
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      const dx = nodes[i].x - nodes[j].x, dy = nodes[i].y - nodes[j].y;
+      const d = Math.sqrt(dx*dx + dy*dy);
+      if (d < 180) {
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', nodes[i].x); line.setAttribute('y1', nodes[i].y);
+        line.setAttribute('x2', nodes[j].x); line.setAttribute('y2', nodes[j].y);
+        line.setAttribute('stroke', `rgba(180,170,220,${(1 - d / 180) * 0.1})`);
+        line.setAttribute('stroke-width', '0.5');
+        svg.appendChild(line);
+      }
+    }
+    const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    c.setAttribute('cx', nodes[i].x); c.setAttribute('cy', nodes[i].y);
+    c.setAttribute('r', '1.5');
+    c.setAttribute('fill', 'rgba(180,170,220,0.15)');
+    svg.appendChild(c);
+  }
+  netAnimId = requestAnimationFrame(drawNet);
+}
+
+function startNet() {
+  if (netAnimId) return;
+  initNet();
+  netAnimId = requestAnimationFrame(drawNet);
+}
+window.addEventListener('resize', () => { if (root.getAttribute('data-skin') === 'jewels') initNet(); });
+
+// ====== Init ======
+render();
+</script>
+</body>
+</html>

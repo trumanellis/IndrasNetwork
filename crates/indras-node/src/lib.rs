@@ -617,6 +617,27 @@ impl IndrasNode {
             };
             self.interfaces.insert(interface_id, state);
 
+            // Re-subscribe to gossip topic for this interface
+            if let Some(transport) = self.transport.read().await.as_ref() {
+                let discovery = transport.discovery_service();
+                let bootstrap_peers: Vec<iroh::PublicKey> = {
+                    let state = self.interfaces.get(&interface_id).unwrap();
+                    let iface = state.interface.read().await;
+                    iface
+                        .members()
+                        .iter()
+                        .filter(|m| **m != self.identity)
+                        .map(|m| *m.public_key())
+                        .collect()
+                };
+                if let Err(e) = discovery
+                    .join_realm_topic(interface_id, bootstrap_peers)
+                    .await
+                {
+                    warn!(error = %e, "Failed to rejoin realm gossip topic on startup");
+                }
+            }
+
             debug!(
                 interface = %hex::encode(interface_id.as_bytes()),
                 name = ?record.name,

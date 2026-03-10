@@ -1,0 +1,1487 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SyncEngine · Your Identity, Unbreakable</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800&family=JetBrains+Mono:wght@300;400;500;600&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: #08080a; --bg2: #0f0f13; --bg3: #141419;
+  --card: #16161c; --hover: #1c1c24;
+  --tx: #ededf0; --t2: #9d9daa; --t3: #6b6b7a; --mt: #4a4a58;
+  --bd: #222230; --b2: #1a1a26;
+  --ac: #818cf8; --ac2: #a78bfa; --ac3: #c084fc;
+  --pulse: #34d399; --pulse2: #6ee7b7;
+  --shield: #60a5fa; --shield2: #93c5fd;
+  --warm: #fbbf24; --warm2: #fcd34d;
+  --rose: #f472b6; --rose2: #f9a8d4;
+  --danger: #ef4444;
+  --serif: 'Instrument Serif', Georgia, serif;
+  --sans: 'DM Sans', -apple-system, system-ui, sans-serif;
+  --mono: 'JetBrains Mono', monospace;
+  --radius: 12px;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+body {
+  font-family: var(--sans);
+  font-size: 16px; line-height: 1.7;
+  background: var(--bg);
+  color: var(--tx);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* ========================================================================
+   BACKGROUND EFFECTS
+   ======================================================================== */
+
+body::before {
+  content: ''; position: fixed; inset: 0;
+  background-image: radial-gradient(circle, rgba(129,140,248,0.03) 1px, transparent 1px);
+  background-size: 28px 28px;
+  pointer-events: none; z-index: 0;
+}
+
+.glow-orb {
+  position: fixed; border-radius: 50%;
+  pointer-events: none; z-index: 0;
+  filter: blur(120px); opacity: 0.4;
+}
+.glow-orb-1 {
+  width: 500px; height: 500px;
+  top: -100px; left: -100px;
+  background: radial-gradient(circle, rgba(129,140,248,0.15), transparent 70%);
+  animation: drift1 20s ease-in-out infinite;
+}
+.glow-orb-2 {
+  width: 400px; height: 400px;
+  bottom: 20%; right: -80px;
+  background: radial-gradient(circle, rgba(52,211,153,0.1), transparent 70%);
+  animation: drift2 25s ease-in-out infinite;
+}
+.glow-orb-3 {
+  width: 350px; height: 350px;
+  top: 40%; left: 30%;
+  background: radial-gradient(circle, rgba(192,132,252,0.08), transparent 70%);
+  animation: drift3 18s ease-in-out infinite;
+}
+@keyframes drift1 { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(40px, 30px); } }
+@keyframes drift2 { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(-30px, -20px); } }
+@keyframes drift3 { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(20px, -40px); } }
+
+/* ========================================================================
+   LAYOUT
+   ======================================================================== */
+
+.page { position: relative; z-index: 10; }
+.container { max-width: 860px; margin: 0 auto; padding: 0 28px; }
+
+section { padding: 100px 0; }
+section + section { border-top: 1px solid var(--bd); }
+
+/* ========================================================================
+   NAVIGATION
+   ======================================================================== */
+
+nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  padding: 16px 28px;
+  background: rgba(8,8,10,0.8);
+  backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(34,34,48,0.5);
+}
+.nav-inner {
+  max-width: 860px; margin: 0 auto;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.nav-logo {
+  font-family: var(--mono); font-size: 13px; font-weight: 600;
+  letter-spacing: 0.04em; color: var(--tx);
+}
+.nav-logo span { color: var(--ac); }
+.nav-links { display: flex; gap: 28px; align-items: center; }
+.nav-links a {
+  font-size: 13px; color: var(--t3); text-decoration: none;
+  transition: color 0.3s;
+}
+.nav-links a:hover { color: var(--tx); }
+.nav-cta {
+  font-size: 12px !important; font-weight: 600 !important;
+  color: var(--ac) !important;
+  padding: 6px 16px;
+  border: 1px solid rgba(129,140,248,0.3);
+  border-radius: 8px;
+  transition: all 0.3s !important;
+}
+.nav-cta:hover {
+  background: rgba(129,140,248,0.1) !important;
+  border-color: rgba(129,140,248,0.5) !important;
+  color: var(--tx) !important;
+}
+
+/* ========================================================================
+   HERO
+   ======================================================================== */
+
+.hero {
+  padding: 160px 0 120px;
+  text-align: center;
+  position: relative;
+}
+
+.hero-badge {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 16px 6px 10px;
+  border: 1px solid rgba(52,211,153,0.2);
+  border-radius: 100px;
+  font-family: var(--mono); font-size: 11px;
+  color: var(--pulse);
+  margin-bottom: 32px;
+  animation: badge-glow 3s ease-in-out infinite;
+}
+@keyframes badge-glow {
+  0%, 100% { border-color: rgba(52,211,153,0.2); box-shadow: none; }
+  50% { border-color: rgba(52,211,153,0.35); box-shadow: 0 0 20px rgba(52,211,153,0.06); }
+}
+.badge-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--pulse);
+  animation: dot-pulse 2s ease-in-out infinite;
+}
+@keyframes dot-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+.hero h1 {
+  font-family: var(--serif);
+  font-size: clamp(42px, 6vw, 72px);
+  font-weight: 400; font-style: italic;
+  letter-spacing: -0.03em; line-height: 1.05;
+  margin-bottom: 28px;
+  color: var(--tx);
+}
+.hero h1 em {
+  font-style: italic;
+  background: linear-gradient(135deg, var(--ac), var(--ac2), var(--ac3));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
+
+.hero-sub {
+  font-size: 18px; color: var(--t2); max-width: 520px;
+  margin: 0 auto 48px; line-height: 1.8; font-weight: 300;
+}
+
+.hero-actions { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+
+.btn-primary {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 14px 32px;
+  background: linear-gradient(135deg, var(--ac), var(--ac2));
+  color: #fff; font-weight: 600; font-size: 14px;
+  border: none; border-radius: 10px;
+  cursor: pointer; text-decoration: none;
+  transition: all 0.3s var(--ease);
+  box-shadow: 0 4px 24px rgba(129,140,248,0.2);
+}
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px rgba(129,140,248,0.3);
+}
+
+.btn-ghost {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 14px 32px;
+  background: transparent;
+  color: var(--t2); font-weight: 500; font-size: 14px;
+  border: 1px solid var(--bd); border-radius: 10px;
+  cursor: pointer; text-decoration: none;
+  transition: all 0.3s;
+}
+.btn-ghost:hover { border-color: var(--t3); color: var(--tx); }
+
+/* ========================================================================
+   THREAT LANDSCAPE — the problem
+   ======================================================================== */
+
+.threat-grid {
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px;
+  margin-top: 48px;
+}
+
+.threat-card {
+  padding: 28px 24px;
+  background: var(--bg2);
+  border: 1px solid var(--bd);
+  border-radius: var(--radius);
+  transition: all 0.3s;
+}
+.threat-card:hover { border-color: var(--danger); background: var(--bg3); }
+
+.threat-icon {
+  width: 40px; height: 40px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px; margin-bottom: 16px;
+  background: rgba(239,68,68,0.06);
+  border: 1px solid rgba(239,68,68,0.12);
+}
+.threat-card h3 {
+  font-size: 14px; font-weight: 600; margin-bottom: 8px;
+  color: var(--tx);
+}
+.threat-card p {
+  font-size: 13px; color: var(--t3); line-height: 1.7;
+}
+
+/* ========================================================================
+   FEATURE SECTIONS — the solution
+   ======================================================================== */
+
+.feature-section {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 64px;
+  align-items: center;
+}
+.feature-section.reverse { direction: rtl; }
+.feature-section.reverse > * { direction: ltr; }
+
+.feature-text .feature-label {
+  font-family: var(--mono); font-size: 11px; font-weight: 500;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  margin-bottom: 16px;
+}
+.feature-text h2 {
+  font-family: var(--serif); font-style: italic;
+  font-size: 32px; font-weight: 400;
+  letter-spacing: -0.02em; line-height: 1.2;
+  margin-bottom: 20px;
+}
+.feature-text p {
+  font-size: 15px; color: var(--t2); line-height: 1.8;
+  margin-bottom: 16px;
+}
+.feature-text p strong { color: var(--tx); font-weight: 500; }
+
+/* Technical detail aside */
+.tech-aside {
+  padding: 16px 20px;
+  background: var(--bg2); border: 1px solid var(--bd);
+  border-left: 3px solid;
+  border-radius: var(--radius);
+  font-family: var(--mono); font-size: 11px;
+  color: var(--t3); line-height: 1.8;
+}
+.tech-aside code {
+  color: var(--ac); font-weight: 500;
+  background: rgba(129,140,248,0.08);
+  padding: 1px 5px; border-radius: 3px;
+}
+
+/* Visual panels */
+.feature-visual {
+  position: relative;
+  padding: 32px;
+  background: var(--bg2);
+  border: 1px solid var(--bd);
+  border-radius: 16px;
+  overflow: hidden;
+}
+.feature-visual::before {
+  content: ''; position: absolute; inset: 0;
+  background-image: radial-gradient(circle, rgba(129,140,248,0.03) 1px, transparent 1px);
+  background-size: 20px 20px;
+  pointer-events: none;
+}
+
+/* ========================================================================
+   QUANTUM SHIELD VISUAL
+   ======================================================================== */
+
+.shield-visual {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 24px; position: relative; z-index: 1;
+}
+
+.shield-ring {
+  width: 180px; height: 180px;
+  border-radius: 50%;
+  border: 2px solid rgba(96,165,250,0.3);
+  display: flex; align-items: center; justify-content: center;
+  position: relative;
+  animation: shield-rotate 30s linear infinite;
+}
+@keyframes shield-rotate { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+.shield-ring::before {
+  content: ''; position: absolute; inset: -8px;
+  border-radius: 50%;
+  border: 1px solid rgba(96,165,250,0.1);
+  border-top-color: rgba(96,165,250,0.4);
+  animation: shield-rotate 20s linear infinite reverse;
+}
+.shield-ring::after {
+  content: ''; position: absolute; inset: -18px;
+  border-radius: 50%;
+  border: 1px dashed rgba(192,132,252,0.12);
+  animation: shield-rotate 40s linear infinite;
+}
+
+.shield-core {
+  font-size: 48px;
+  animation: shield-pulse 3s ease-in-out infinite;
+  filter: drop-shadow(0 0 20px rgba(96,165,250,0.3));
+}
+@keyframes shield-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+
+.shield-label {
+  font-family: var(--mono); font-size: 10px;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--shield);
+  text-align: center;
+}
+
+.shield-layers {
+  display: flex; flex-direction: column; gap: 8px;
+  width: 100%;
+}
+.shield-layer {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px;
+  background: rgba(96,165,250,0.04);
+  border: 1px solid rgba(96,165,250,0.1);
+  border-radius: 8px;
+  font-family: var(--mono); font-size: 10px; color: var(--t3);
+}
+.shield-layer-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  flex-shrink: 0;
+}
+.shield-layer-name { flex: 1; color: var(--t2); font-weight: 500; }
+.shield-layer-status { color: var(--pulse); }
+
+/* ========================================================================
+   IMMUNE SYSTEM VISUAL
+   ======================================================================== */
+
+.immune-visual {
+  display: flex; flex-direction: column; gap: 20px;
+  position: relative; z-index: 1;
+}
+
+.heartbeat-display {
+  text-align: center;
+  padding: 24px;
+  border: 1px solid rgba(52,211,153,0.15);
+  border-radius: 12px;
+  background: rgba(52,211,153,0.02);
+}
+
+.heartbeat-line {
+  display: flex; align-items: center; justify-content: center;
+  gap: 2px; height: 48px; margin-bottom: 12px;
+}
+.hb-bar {
+  width: 3px; border-radius: 2px;
+  background: var(--pulse);
+  animation: hb-wave 1.5s ease-in-out infinite;
+}
+.hb-bar:nth-child(1) { height: 12px; animation-delay: 0s; }
+.hb-bar:nth-child(2) { height: 20px; animation-delay: 0.1s; }
+.hb-bar:nth-child(3) { height: 36px; animation-delay: 0.2s; }
+.hb-bar:nth-child(4) { height: 48px; animation-delay: 0.3s; }
+.hb-bar:nth-child(5) { height: 36px; animation-delay: 0.4s; }
+.hb-bar:nth-child(6) { height: 20px; animation-delay: 0.5s; }
+.hb-bar:nth-child(7) { height: 12px; animation-delay: 0.6s; }
+.hb-bar:nth-child(8) { height: 6px; animation-delay: 0.7s; }
+.hb-bar:nth-child(9) { height: 20px; animation-delay: 0.8s; }
+.hb-bar:nth-child(10) { height: 36px; animation-delay: 0.9s; }
+.hb-bar:nth-child(11) { height: 24px; animation-delay: 1.0s; }
+.hb-bar:nth-child(12) { height: 10px; animation-delay: 1.1s; }
+
+@keyframes hb-wave {
+  0%, 100% { opacity: 0.3; transform: scaleY(0.6); }
+  50% { opacity: 1; transform: scaleY(1); }
+}
+
+.heartbeat-value {
+  font-family: var(--mono); font-size: 28px; font-weight: 600;
+  color: var(--pulse);
+}
+.heartbeat-unit {
+  font-family: var(--mono); font-size: 11px;
+  color: var(--t3); margin-top: 4px;
+}
+
+.decay-graph {
+  padding: 20px;
+  border: 1px solid var(--bd);
+  border-radius: 12px;
+  background: var(--bg3);
+}
+.decay-graph-label {
+  font-family: var(--mono); font-size: 10px;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--mt); margin-bottom: 12px;
+}
+.decay-bars { display: flex; align-items: flex-end; gap: 4px; height: 64px; }
+.decay-bar {
+  flex: 1; border-radius: 2px 2px 0 0;
+  transition: all 0.3s;
+}
+.decay-labels {
+  display: flex; gap: 4px; margin-top: 6px;
+}
+.decay-labels span {
+  flex: 1; text-align: center;
+  font-family: var(--mono); font-size: 8px; color: var(--mt);
+}
+
+.bot-compare {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+}
+.bot-card {
+  padding: 16px;
+  border-radius: 10px;
+  border: 1px solid;
+  font-family: var(--mono); font-size: 11px;
+  text-align: center;
+}
+.bot-card-human {
+  border-color: rgba(52,211,153,0.2);
+  background: rgba(52,211,153,0.03);
+}
+.bot-card-bot {
+  border-color: rgba(239,68,68,0.2);
+  background: rgba(239,68,68,0.03);
+}
+.bot-card-label {
+  font-size: 10px; letter-spacing: 0.08em;
+  text-transform: uppercase; margin-bottom: 8px;
+}
+.bot-card-score {
+  font-size: 24px; font-weight: 600;
+  margin-bottom: 4px;
+}
+.bot-card-status { font-size: 10px; }
+
+/* ========================================================================
+   COMPARISON TABLE
+   ======================================================================== */
+
+.compare-table {
+  width: 100%; border-collapse: collapse;
+  margin-top: 40px;
+}
+.compare-table th {
+  font-family: var(--mono); font-size: 10px;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--mt); padding: 12px 16px;
+  text-align: left;
+  border-bottom: 1px solid var(--bd);
+}
+.compare-table th:last-child { color: var(--ac); }
+.compare-table td {
+  padding: 14px 16px; font-size: 13px;
+  border-bottom: 1px solid rgba(34,34,48,0.5);
+  color: var(--t2);
+}
+.compare-table td:last-child { color: var(--tx); font-weight: 500; }
+.compare-table tr:hover td { background: var(--bg2); }
+
+.check { color: var(--pulse); font-weight: 600; }
+.cross { color: var(--danger); opacity: 0.5; }
+
+/* ========================================================================
+   NO SERVERS SECTION
+   ======================================================================== */
+
+.topology-visual {
+  position: relative; z-index: 1;
+  display: flex; flex-direction: column; align-items: center; gap: 20px;
+}
+
+.topology-ring {
+  position: relative;
+  width: 200px; height: 200px;
+}
+
+.topo-node {
+  position: absolute;
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px;
+  border: 2px solid;
+  background: var(--bg2);
+  z-index: 2;
+}
+.topo-node:nth-child(1) { top: 0; left: 50%; transform: translateX(-50%); border-color: var(--ac); }
+.topo-node:nth-child(2) { top: 25%; right: 0; border-color: var(--rose); }
+.topo-node:nth-child(3) { bottom: 10%; right: 10%; border-color: var(--pulse); }
+.topo-node:nth-child(4) { bottom: 10%; left: 10%; border-color: var(--warm); }
+.topo-node:nth-child(5) { top: 25%; left: 0; border-color: var(--ac2); }
+
+.topo-lines {
+  position: absolute; inset: 0;
+}
+.topo-lines line {
+  stroke: rgba(129,140,248,0.12);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+}
+
+.topology-caption {
+  font-family: var(--mono); font-size: 11px;
+  color: var(--t3); text-align: center; line-height: 1.7;
+}
+.topology-caption strong { color: var(--t2); font-weight: 500; }
+
+/* ========================================================================
+   PASS STORY SECTION
+   ======================================================================== */
+
+#story-section { border-top: none; }
+
+.story-intro {
+  text-align: center; max-width: 560px; margin: 0 auto 60px;
+}
+.story-intro h2 {
+  font-family: var(--serif); font-style: italic;
+  font-size: 36px; font-weight: 400;
+  letter-spacing: -0.02em; margin-bottom: 16px;
+}
+.story-intro p {
+  font-size: 15px; color: var(--t2); line-height: 1.8;
+}
+
+/* Story form */
+.story-form {
+  max-width: 620px; margin: 0 auto;
+  position: relative;
+}
+
+.story-progress {
+  display: flex; gap: 3px; margin-bottom: 40px;
+}
+.story-progress-dot {
+  flex: 1; height: 3px;
+  background: var(--bd); border-radius: 2px;
+  transition: all 0.4s var(--ease);
+}
+.story-progress-dot.done { background: var(--ac); }
+.story-progress-dot.active { background: var(--ac2); box-shadow: 0 0 8px rgba(167,139,250,0.4); }
+
+.story-stage {
+  display: none;
+  animation: stage-in 0.5s var(--ease);
+}
+.story-stage.active { display: block; }
+@keyframes stage-in {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.stage-meta {
+  display: flex; align-items: center; gap: 12px;
+  margin-bottom: 24px;
+}
+.stage-act {
+  font-family: var(--mono); font-size: 10px;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid;
+}
+.act-departure { color: var(--ac); border-color: rgba(129,140,248,0.3); background: rgba(129,140,248,0.06); }
+.act-initiation { color: var(--warm); border-color: rgba(251,191,36,0.3); background: rgba(251,191,36,0.06); }
+.act-return { color: var(--pulse); border-color: rgba(52,211,153,0.3); background: rgba(52,211,153,0.06); }
+
+.stage-name {
+  font-family: var(--mono); font-size: 11px;
+  color: var(--t3);
+}
+
+.stage-prompt {
+  font-family: var(--serif); font-style: italic;
+  font-size: 22px; color: var(--t2); line-height: 1.6;
+  margin-bottom: 28px;
+}
+.stage-prompt .slot {
+  display: inline-block;
+  min-width: 120px;
+  border-bottom: 2px solid var(--ac);
+  color: var(--ac);
+  font-family: var(--sans); font-style: normal;
+  font-size: 20px; font-weight: 500;
+  padding: 0 4px;
+  transition: all 0.3s;
+}
+.stage-prompt .slot.filled {
+  border-color: var(--pulse);
+  color: var(--pulse);
+}
+.stage-prompt .slot.empty {
+  color: transparent;
+}
+
+.slot-inputs {
+  display: flex; flex-direction: column; gap: 16px;
+  margin-bottom: 32px;
+}
+.slot-input-group {
+  position: relative;
+}
+.slot-label {
+  font-family: var(--mono); font-size: 10px;
+  letter-spacing: 0.06em; color: var(--mt);
+  margin-bottom: 6px;
+}
+.slot-input {
+  width: 100%; padding: 14px 18px;
+  background: var(--bg2);
+  border: 1px solid var(--bd);
+  border-radius: 10px;
+  color: var(--tx); font-size: 16px;
+  font-family: var(--sans);
+  transition: all 0.3s;
+  outline: none;
+}
+.slot-input:focus {
+  border-color: var(--ac);
+  box-shadow: 0 0 0 3px rgba(129,140,248,0.1);
+}
+.slot-input::placeholder { color: var(--mt); font-style: italic; }
+
+.stage-nav {
+  display: flex; justify-content: space-between; align-items: center;
+}
+.stage-counter {
+  font-family: var(--mono); font-size: 11px; color: var(--mt);
+}
+
+.btn-next, .btn-back {
+  padding: 10px 24px;
+  font-family: var(--sans); font-size: 13px; font-weight: 600;
+  border-radius: 8px; border: none;
+  cursor: pointer; transition: all 0.3s var(--ease);
+}
+.btn-next {
+  background: linear-gradient(135deg, var(--ac), var(--ac2));
+  color: #fff;
+}
+.btn-next:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(129,140,248,0.25); }
+.btn-next:disabled { opacity: 0.3; pointer-events: none; }
+.btn-back {
+  background: transparent;
+  color: var(--t3); border: 1px solid var(--bd);
+}
+.btn-back:hover { border-color: var(--t3); color: var(--t2); }
+
+/* Insight whisper */
+.insight {
+  margin-top: 20px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: rgba(129,140,248,0.04);
+  border: 1px solid rgba(129,140,248,0.08);
+  font-size: 12px; color: var(--t3);
+  font-style: italic; line-height: 1.7;
+  opacity: 0;
+  animation: insight-fade 0.8s 0.6s forwards;
+}
+@keyframes insight-fade { to { opacity: 1; } }
+.insight .insight-icon { font-style: normal; margin-right: 4px; }
+
+/* Story review / completion */
+.story-review {
+  display: none;
+  animation: stage-in 0.5s var(--ease);
+}
+.story-review.active { display: block; }
+
+.review-card {
+  padding: 32px;
+  background: var(--bg2);
+  border: 1px solid var(--bd);
+  border-radius: 16px;
+  margin-bottom: 32px;
+}
+.review-card h3 {
+  font-family: var(--serif); font-style: italic;
+  font-size: 24px; margin-bottom: 8px;
+}
+.review-card .review-sub {
+  font-size: 13px; color: var(--t3); margin-bottom: 28px;
+}
+
+.review-story {
+  font-family: var(--serif); font-style: italic;
+  font-size: 17px; color: var(--t2); line-height: 2;
+}
+.review-story .review-word {
+  font-family: var(--sans); font-style: normal;
+  font-weight: 600; color: var(--ac);
+  border-bottom: 1px solid rgba(129,140,248,0.3);
+  padding-bottom: 1px;
+}
+
+.review-actions {
+  display: flex; gap: 12px; justify-content: center;
+}
+
+.derivation-status {
+  text-align: center; padding: 24px;
+  display: none;
+}
+.derivation-status.active { display: block; }
+
+.deriv-spinner {
+  width: 48px; height: 48px;
+  border: 2px solid var(--bd);
+  border-top-color: var(--ac);
+  border-radius: 50%;
+  margin: 0 auto 16px;
+  animation: spin 1s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.deriv-text {
+  font-family: var(--mono); font-size: 12px;
+  color: var(--t3); line-height: 1.8;
+}
+
+.deriv-complete {
+  text-align: center; padding: 40px 24px;
+  display: none;
+  animation: stage-in 0.5s var(--ease);
+}
+.deriv-complete.active { display: block; }
+.deriv-complete-icon {
+  font-size: 48px; margin-bottom: 16px;
+  filter: drop-shadow(0 0 24px rgba(52,211,153,0.4));
+}
+.deriv-complete h3 {
+  font-family: var(--serif); font-style: italic;
+  font-size: 28px; margin-bottom: 12px;
+}
+.deriv-complete p {
+  font-size: 14px; color: var(--t2); line-height: 1.8;
+  max-width: 420px; margin: 0 auto 8px;
+}
+.deriv-complete .insight {
+  max-width: 480px; margin: 20px auto 28px;
+  opacity: 1;
+}
+
+/* ========================================================================
+   FOOTER
+   ======================================================================== */
+
+footer {
+  padding: 60px 0;
+  text-align: center;
+  border-top: 1px solid var(--bd);
+}
+footer p {
+  font-size: 14px; color: var(--t2); margin-bottom: 6px;
+}
+footer .footer-sub {
+  font-family: var(--mono); font-size: 9px;
+  letter-spacing: 0.15em; text-transform: uppercase;
+  color: var(--mt);
+}
+
+/* ========================================================================
+   RESPONSIVE
+   ======================================================================== */
+
+@media (max-width: 768px) {
+  .feature-section, .feature-section.reverse { grid-template-columns: 1fr; gap: 32px; direction: ltr; }
+  .threat-grid { grid-template-columns: 1fr; }
+  .bot-compare { grid-template-columns: 1fr; }
+  .nav-links a:not(.nav-cta) { display: none; }
+  section { padding: 64px 0; }
+  .hero { padding: 120px 0 80px; }
+}
+</style>
+</head>
+<body>
+
+<div class="glow-orb glow-orb-1"></div>
+<div class="glow-orb glow-orb-2"></div>
+<div class="glow-orb glow-orb-3"></div>
+
+<!-- ===== NAV ===== -->
+<nav>
+  <div class="nav-inner">
+    <div class="nav-logo"><span>sync</span>engine</div>
+    <div class="nav-links">
+      <a href="#quantum">Security</a>
+      <a href="#immune">Immune System</a>
+      <a href="#network">Network</a>
+      <a href="#story-section" class="nav-cta" onclick="scrollToStory(event)">Create Identity</a>
+    </div>
+  </div>
+</nav>
+
+<div class="page">
+
+<!-- ===== HERO ===== -->
+<header class="hero container">
+  <div class="hero-badge">
+    <div class="badge-dot"></div>
+    Post-quantum · Peer-to-peer · No servers
+  </div>
+
+  <h1>Your identity is<br>a story <em>only you know</em></h1>
+
+  <p class="hero-sub">
+    A network where your identity is quantum-resistant, bots can't impersonate real people, and no server ever holds your data.
+  </p>
+
+  <div class="hero-actions">
+    <a href="#story-section" class="btn-primary" onclick="scrollToStory(event)">
+      Create Your Identity
+      <span style="font-size:16px">→</span>
+    </a>
+    <a href="#quantum" class="btn-ghost">How it works</a>
+  </div>
+</header>
+
+<!-- ===== THREAT LANDSCAPE ===== -->
+<section>
+  <div class="container">
+    <div style="text-align:center;margin-bottom:12px">
+      <span style="font-family:var(--mono);font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--danger)">The Problem</span>
+    </div>
+    <h2 style="font-family:var(--serif);font-style:italic;font-size:32px;text-align:center;margin-bottom:12px">
+      Your digital identity was never designed to survive what's coming
+    </h2>
+    <p style="text-align:center;color:var(--t2);max-width:520px;margin:0 auto;font-size:15px;line-height:1.8">
+      Quantum computers will crack today's encryption. AI can impersonate anyone. Centralized platforms hold your identity hostage. These aren't hypothetical — they're arriving.
+    </p>
+
+    <div class="threat-grid">
+      <div class="threat-card">
+        <div class="threat-icon">⚛️</div>
+        <h3>Quantum Threat</h3>
+        <p>Shor's algorithm will break RSA and ECC — the encryption protecting every password, every key, every wallet you own today.</p>
+      </div>
+      <div class="threat-card">
+        <div class="threat-icon">🤖</div>
+        <h3>AI Impersonation</h3>
+        <p>Language models generate convincing text. Deepfakes clone faces and voices. A one-time CAPTCHA can't tell human from machine anymore.</p>
+      </div>
+      <div class="threat-card">
+        <div class="threat-icon">🏢</div>
+        <h3>Platform Lock-in</h3>
+        <p>Your identity lives on someone else's server. They can lock you out, sell your data, or disappear — and your identity goes with them.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== QUANTUM SECURE IDENTITY ===== -->
+<section id="quantum">
+  <div class="container">
+    <div class="feature-section">
+      <div class="feature-text">
+        <div class="feature-label" style="color:var(--shield)">Quantum-Secure Identity</div>
+        <h2>Your life story becomes an unbreakable key</h2>
+        <p>
+          Your identity isn't a password you invented or a seed phrase you memorized. It's a <strong>pass story</strong> — 23 moments from your own life, structured as a hero's journey. The system derives a cryptographic key from your autobiography.
+        </p>
+        <p>
+          Because the 23 slots are non-decomposable — an attacker must guess your <strong>entire story at once</strong> — even conservative entropy estimates yield a search space of 2<sup>230</sup>. That's more than the number of atoms in the observable universe.
+        </p>
+        <div class="tech-aside" style="border-color:var(--shield)">
+          <strong style="color:var(--shield)">Three pillars of quantum resistance:</strong><br>
+          <code>Argon2id</code> memory-hard key derivation →
+          <code>ML-KEM-768</code> lattice key encapsulation →
+          <code>ML-DSA-65</code> post-quantum signatures.<br>
+          NIST FIPS 203 & 204. Resistant to Shor's algorithm from day one.
+        </div>
+      </div>
+
+      <div class="feature-visual">
+        <div class="shield-visual">
+          <div class="shield-ring">
+            <div class="shield-core">🛡️</div>
+          </div>
+          <div class="shield-label">Post-Quantum Identity Shield</div>
+          <div class="shield-layers">
+            <div class="shield-layer">
+              <div class="shield-layer-dot" style="background:var(--warm)"></div>
+              <span class="shield-layer-name">Narrative entropy (2²³⁰ search space)</span>
+              <span class="shield-layer-status">● Active</span>
+            </div>
+            <div class="shield-layer">
+              <div class="shield-layer-dot" style="background:var(--shield)"></div>
+              <span class="shield-layer-name">Lattice-based cryptography (ML-KEM / ML-DSA)</span>
+              <span class="shield-layer-status">● Active</span>
+            </div>
+            <div class="shield-layer">
+              <div class="shield-layer-dot" style="background:var(--ac3)"></div>
+              <span class="shield-layer-name">Memory-hard KDF (256 MB per guess)</span>
+              <span class="shield-layer-status">● Active</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Comparison table -->
+    <table class="compare-table">
+      <thead>
+        <tr>
+          <th>Property</th>
+          <th>Passwords</th>
+          <th>Seed Phrases</th>
+          <th>Pass Story</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Quantum resistant</td>
+          <td><span class="cross">✕</span></td>
+          <td><span class="cross">✕ Partial</span></td>
+          <td><span class="check">✓ Three pillars</span></td>
+        </tr>
+        <tr>
+          <td>Memorable</td>
+          <td><span class="cross">✕ Forgotten & reused</span></td>
+          <td><span class="cross">✕ Written down</span></td>
+          <td><span class="check">✓ Autobiographical</span></td>
+        </tr>
+        <tr>
+          <td>Phishing resistant</td>
+          <td><span class="cross">✕ Transmitted</span></td>
+          <td>Rarely entered</td>
+          <td><span class="check">✓ Never leaves device</span></td>
+        </tr>
+        <tr>
+          <td>Personal meaning</td>
+          <td><span class="cross">✕ None</span></td>
+          <td><span class="cross">✕ Random words</span></td>
+          <td><span class="check">✓ Your life story</span></td>
+        </tr>
+        <tr>
+          <td>Entropy floor</td>
+          <td>~30 bits typical</td>
+          <td>128–256 bits</td>
+          <td><span class="check">256+ bits enforced</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ===== IMMUNE SYSTEM ===== -->
+<section id="immune">
+  <div class="container">
+    <div class="feature-section reverse">
+      <div class="feature-text">
+        <div class="feature-label" style="color:var(--pulse)">Network Immune System</div>
+        <h2>Humanness is a heartbeat, not a credential</h2>
+        <p>
+          Other platforms verify you're human once and hope for the best. A bot farm that gets past the gate once has verified accounts forever. Here, <strong>humanness decays</strong>. It's a pulse that must keep beating.
+        </p>
+        <p>
+          Your liveness score starts at 1.0 and decays exponentially. It renews every time you're physically present with other people — a shared meal, a co-working session, a walk in the park. <strong>An AI can generate text. It can't show up.</strong>
+        </p>
+        <p>
+          Bot accounts aren't banned — they're simply invisible. Without liveness, their tokens carry zero weight and their contributions vanish from community rankings. The network's immune system doesn't attack intruders. It starves them.
+        </p>
+        <div class="tech-aside" style="border-color:var(--pulse)">
+          <strong style="color:var(--pulse)">Freshness decay:</strong><br>
+          <code>f(t) = e^(-0.1 × max(days - 7, 0))</code><br>
+          Full strength for 7 days. Half-life at ~14 days. Effectively zero by day 37. Renewed by in-person shared Memories.
+        </div>
+      </div>
+
+      <div class="feature-visual">
+        <div class="immune-visual">
+          <div class="heartbeat-display">
+            <div class="heartbeat-line">
+              <div class="hb-bar"></div><div class="hb-bar"></div><div class="hb-bar"></div>
+              <div class="hb-bar"></div><div class="hb-bar"></div><div class="hb-bar"></div>
+              <div class="hb-bar"></div><div class="hb-bar"></div><div class="hb-bar"></div>
+              <div class="hb-bar"></div><div class="hb-bar"></div><div class="hb-bar"></div>
+            </div>
+            <div class="heartbeat-value">1.00</div>
+            <div class="heartbeat-unit">Liveness Freshness</div>
+          </div>
+
+          <div class="decay-graph">
+            <div class="decay-graph-label">Freshness over time (days since encounter)</div>
+            <div class="decay-bars">
+              <div class="decay-bar" style="height:100%;background:var(--pulse)"></div>
+              <div class="decay-bar" style="height:100%;background:var(--pulse)"></div>
+              <div class="decay-bar" style="height:100%;background:var(--pulse)"></div>
+              <div class="decay-bar" style="height:100%;background:var(--pulse)"></div>
+              <div class="decay-bar" style="height:100%;background:var(--pulse)"></div>
+              <div class="decay-bar" style="height:100%;background:var(--pulse)"></div>
+              <div class="decay-bar" style="height:100%;background:var(--pulse)"></div>
+              <div class="decay-bar" style="height:95%;background:var(--pulse);opacity:0.9"></div>
+              <div class="decay-bar" style="height:82%;background:var(--pulse);opacity:0.8"></div>
+              <div class="decay-bar" style="height:67%;background:var(--warm);opacity:0.7"></div>
+              <div class="decay-bar" style="height:55%;background:var(--warm);opacity:0.6"></div>
+              <div class="decay-bar" style="height:45%;background:var(--warm);opacity:0.5"></div>
+              <div class="decay-bar" style="height:37%;background:rgba(239,68,68,0.6)"></div>
+              <div class="decay-bar" style="height:22%;background:rgba(239,68,68,0.4)"></div>
+              <div class="decay-bar" style="height:10%;background:rgba(239,68,68,0.3)"></div>
+              <div class="decay-bar" style="height:5%;background:rgba(239,68,68,0.2)"></div>
+            </div>
+            <div class="decay-labels">
+              <span>0</span><span></span><span></span><span></span><span></span><span></span>
+              <span>7d</span><span></span><span>10</span><span></span><span>14</span><span></span>
+              <span>21</span><span></span><span>30</span><span>37</span>
+            </div>
+          </div>
+
+          <div class="bot-compare">
+            <div class="bot-card bot-card-human">
+              <div class="bot-card-label" style="color:var(--pulse)">Active Human</div>
+              <div class="bot-card-score" style="color:var(--pulse)">1.00</div>
+              <div class="bot-card-status" style="color:var(--pulse2)">Visible · Trusted · Contributing</div>
+            </div>
+            <div class="bot-card bot-card-bot">
+              <div class="bot-card-label" style="color:var(--danger)">Bot / Inactive</div>
+              <div class="bot-card-score" style="color:var(--danger)">0.00</div>
+              <div class="bot-card-status" style="color:rgba(239,68,68,0.6)">Invisible · Zero-weight · Starved</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== NO SERVERS ===== -->
+<section id="network">
+  <div class="container">
+    <div class="feature-section">
+      <div class="feature-text">
+        <div class="feature-label" style="color:var(--ac2)">Peer-to-Peer Architecture</div>
+        <h2>No servers. The participants are the infrastructure.</h2>
+        <p>
+          Your Home Realm — your personal space — is derived deterministically from your identity. It exists on your device, not on anyone's cloud. When you connect with a peer, the connection is <strong>direct and encrypted</strong>. No server relays it.
+        </p>
+        <p>
+          If a peer is offline, mutual contacts hold sealed packets they cannot read and deliver them when the recipient returns. The network routes through relationships, not data centers. If the company that built this SDK disappeared tomorrow, the network would continue to exist as long as peers kept running.
+        </p>
+        <div class="tech-aside" style="border-color:var(--ac2)">
+          <strong style="color:var(--ac2)">Built with:</strong>
+          Rust · Iroh (QUIC P2P) · Automerge CRDTs · BLAKE3 · redb ·
+          Dioxus UI. No JavaScript. No blockchain. No cloud dependency.
+        </div>
+      </div>
+
+      <div class="feature-visual">
+        <div class="topology-visual">
+          <div class="topology-ring">
+            <svg class="topo-lines" viewBox="0 0 200 200">
+              <line x1="100" y1="20" x2="180" y2="60" />
+              <line x1="180" y1="60" x2="165" y2="160" />
+              <line x1="165" y1="160" x2="35" y2="160" />
+              <line x1="35" y1="160" x2="20" y2="60" />
+              <line x1="20" y1="60" x2="100" y2="20" />
+              <line x1="100" y1="20" x2="165" y2="160" />
+              <line x1="100" y1="20" x2="35" y2="160" />
+              <line x1="180" y1="60" x2="35" y2="160" />
+              <line x1="20" y1="60" x2="165" y2="160" />
+            </svg>
+            <div class="topo-node">👤</div>
+            <div class="topo-node">👤</div>
+            <div class="topo-node">👤</div>
+            <div class="topo-node">👤</div>
+            <div class="topo-node">👤</div>
+          </div>
+
+          <div class="topology-caption">
+            Every jewel reflects all others.<br>
+            <strong>No center. No hierarchy. Just peers.</strong>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== PASS STORY REGISTRATION ===== -->
+<section id="story-section" style="padding-bottom:120px">
+  <div class="container">
+    <div class="story-intro">
+      <h2>Tell your story. Become unbreakable.</h2>
+      <p>Your identity is derived from 23 moments of your life, organized by the oldest narrative structure humans know — the hero's journey. No passwords. No seed phrases. Just a story you lived.</p>
+    </div>
+
+    <div class="story-form" id="storyForm">
+      <div class="story-progress" id="progressBar"></div>
+
+      <!-- Stages will be rendered by JS -->
+      <div id="stagesContainer"></div>
+
+      <!-- Review screen -->
+      <div class="story-review" id="reviewScreen">
+        <div class="review-card">
+          <h3>Your Story</h3>
+          <p class="review-sub">Read through your journey. These words become your key — make sure they feel like you.</p>
+          <div class="review-story" id="reviewStory"></div>
+        </div>
+        <div class="review-actions">
+          <button class="btn-back" onclick="editStory()">Edit Story</button>
+          <button class="btn-primary" onclick="deriveKey()">
+            Forge My Identity
+            <span style="font-size:16px">→</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Derivation animation -->
+      <div class="derivation-status" id="derivationScreen">
+        <div class="deriv-spinner"></div>
+        <div class="deriv-text" id="derivText">Normalizing story...</div>
+      </div>
+
+      <!-- Completion -->
+      <div class="deriv-complete" id="completeScreen">
+        <div class="deriv-complete-icon">✦</div>
+        <h3>Your identity is forged</h3>
+        <p>You just performed 256-bit quantum-resistant authentication by remembering your own life.</p>
+        <p style="color:var(--t3);font-size:13px">Your story was never stored. Only the derived key exists — on your device, nowhere else.</p>
+        <div class="insight">
+          <span class="insight-icon">🛡️</span>
+          Your Home Realm is ready — a personal space derived from your identity via BLAKE3. Open SyncEngine to step into the network.
+        </div>
+        <a href="#" class="btn-primary" style="margin-top:8px">
+          Open SyncEngine
+          <span style="font-size:16px">→</span>
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== FOOTER ===== -->
+<footer>
+  <div class="container">
+    <p style="font-family:var(--serif);font-style:italic;font-size:16px">Every jewel reflects all others.</p>
+    <p class="footer-sub" style="margin-top:8px">SyncEngine · Indra's Network · Rust · Iroh · Automerge · BLAKE3</p>
+  </div>
+</footer>
+
+</div><!-- .page -->
+
+<script>
+// ========================================================================
+// PASS STORY DATA & STATE
+// ========================================================================
+
+const stages = [
+  {
+    act: 'departure', actLabel: 'Act I · Departure', name: 'The Ordinary World',
+    prompt: (w) => `"I grew up in <span class="slot ${w[0]?'filled':'empty'}">${w[0]||'_____'}</span>, where I was a <span class="slot ${w[1]?'filled':'empty'}">${w[1]||'_____'}</span>."`,
+    slots: [
+      { label: 'A place, a feeling, a sound — where you came from', placeholder: 'e.g. amaranth, static, silence' },
+      { label: 'Who you were then', placeholder: 'e.g. horologist, collector, listener' }
+    ],
+    insight: '<span class="insight-icon">🔐</span> Each word you type is a secret only you know. Together, 23 words create a search space larger than the number of atoms in the universe.'
+  },
+  {
+    act: 'departure', actLabel: 'Act I · Departure', name: 'The Call',
+    prompt: (w) => `"Everything changed when <span class="slot ${w[0]?'filled':'empty'}">${w[0]||'_____'}</span> brought me <span class="slot ${w[1]?'filled':'empty'}">${w[1]||'_____'}</span>."`,
+    slots: [
+      { label: 'What disrupted your world', placeholder: 'e.g. thunder, a letter, curiosity' },
+      { label: 'What it brought', placeholder: 'e.g. vertigo, possibility, a map' }
+    ],
+    insight: '<span class="insight-icon">🧬</span> Your story follows the hero\'s journey — the same narrative arc humans have used for ten thousand years. You\'re not memorizing a key. You\'re remembering your life.'
+  },
+  {
+    act: 'departure', actLabel: 'Act I · Departure', name: 'Refusal of the Call',
+    prompt: (w) => `"I almost didn't go because of my <span class="slot ${w[0]?'filled':'empty'}">${w[0]||'_____'}</span> and my <span class="slot ${w[1]?'filled':'empty'}">${w[1]||'_____'}</span>."`,
+    slots: [
+      { label: 'What almost held you back', placeholder: 'e.g. vertigo, loyalty, debt' },
+      { label: 'The other thing', placeholder: 'e.g. stubbornness, comfort, roots' }
+    ],
+    insight: null
+  },
+  {
+    act: 'initiation', actLabel: 'Act II · Initiation', name: 'Crossing the Threshold',
+    prompt: (w) => `"I left through the <span class="slot ${w[0]?'filled':'empty'}">${w[0]||'_____'}</span> and arrived in <span class="slot ${w[1]?'filled':'empty'}">${w[1]||'_____'}</span>."`,
+    slots: [
+      { label: 'The door, the gate, the moment of departure', placeholder: 'e.g. fog, a red door, the airport' },
+      { label: 'Where you arrived', placeholder: 'e.g. fluorescence, a desert, stillness' }
+    ],
+    insight: '<span class="insight-icon">⚛️</span> No server ever sees your story. The key is derived on your device using memory-hard cryptography that resists even quantum computers.'
+  },
+  {
+    act: 'initiation', actLabel: 'Act II · Initiation', name: 'The Mentor',
+    prompt: (w) => `"A <span class="slot ${w[0]?'filled':'empty'}">${w[0]||'_____'}</span> showed me the <span class="slot ${w[1]?'filled':'empty'}">${w[1]||'_____'}</span> I couldn't see."`,
+    slots: [
+      { label: 'Who or what taught you', placeholder: 'e.g. stranger, river, grandmother' },
+      { label: 'What they revealed', placeholder: 'e.g. patience, the pattern, my own face' }
+    ],
+    insight: null
+  },
+  {
+    act: 'initiation', actLabel: 'Act II · Initiation', name: 'Tests and Allies',
+    prompt: (w) => `"I learned to make <span class="slot ${w[0]?'filled':'empty'}">${w[0]||'_____'}</span> from <span class="slot ${w[1]?'filled':'empty'}">${w[1]||'_____'}</span> and <span class="slot ${w[2]?'filled':'empty'}">${w[2]||'_____'}</span>."`,
+    slots: [
+      { label: 'What you learned to make', placeholder: 'e.g. bread, sense, fire' },
+      { label: 'From what or whom', placeholder: 'e.g. failure, sawdust, a librarian' },
+      { label: 'And from', placeholder: 'e.g. repetition, salt, the dark' }
+    ],
+    insight: '<span class="insight-icon">🔗</span> Each slot is independent — guessing one correctly reveals nothing about the others. An attacker must crack your entire life story at once.'
+  },
+  {
+    act: 'initiation', actLabel: 'Act II · Initiation', name: 'The Ordeal',
+    prompt: (w) => `"The hardest part was when my <span class="slot ${w[0]?'filled':'empty'}">${w[0]||'_____'}</span> broke against <span class="slot ${w[1]?'filled':'empty'}">${w[1]||'_____'}</span>."`,
+    slots: [
+      { label: 'What broke', placeholder: 'e.g. certainty, compass, voice' },
+      { label: 'What it broke against', placeholder: 'e.g. silence, the truth, bureaucracy' }
+    ],
+    insight: null
+  },
+  {
+    act: 'return', actLabel: 'Act III · Return', name: 'The Reward',
+    prompt: (w) => `"From that silence I found a <span class="slot ${w[0]?'filled':'empty'}">${w[0]||'_____'}</span> that sang of <span class="slot ${w[1]?'filled':'empty'}">${w[1]||'_____'}</span>."`,
+    slots: [
+      { label: 'What you found', placeholder: 'e.g. frequency, seed, compass' },
+      { label: 'What it sang of', placeholder: 'e.g. becoming, the sea, forgiveness' }
+    ],
+    insight: '<span class="insight-icon">💓</span> Inside the network, your humanness is verified not by a CAPTCHA but by being alive with other people. Bots can create accounts — but they can\'t show up.'
+  },
+  {
+    act: 'return', actLabel: 'Act III · Return', name: 'The Road Back',
+    prompt: (w) => `"I carried the <span class="slot ${w[0]?'filled':'empty'}">${w[0]||'_____'}</span> through the <span class="slot ${w[1]?'filled':'empty'}">${w[1]||'_____'}</span> and home."`,
+    slots: [
+      { label: 'What you carried', placeholder: 'e.g. ember, question, scar' },
+      { label: 'Through what', placeholder: 'e.g. winter, noise, doubt' }
+    ],
+    insight: null
+  },
+  {
+    act: 'return', actLabel: 'Act III · Return', name: 'Resurrection',
+    prompt: (w) => `"Where I had been a <span class="slot ${w[0]?'filled':'empty'}">${w[0]||'_____'}</span>, I became a <span class="slot ${w[1]?'filled':'empty'}">${w[1]||'_____'}</span>."`,
+    slots: [
+      { label: 'Who you were', placeholder: 'e.g. echo, observer, afraid' },
+      { label: 'Who you became', placeholder: 'e.g. voice, builder, awake' }
+    ],
+    insight: '<span class="insight-icon">🌐</span> Your identity derives your Home Realm — a personal space that exists on your device. No cloud. No server. Yours alone.'
+  },
+  {
+    act: 'return', actLabel: 'Act III · Return', name: 'Return with the Elixir',
+    prompt: (w) => `"Now I carry <span class="slot ${w[0]?'filled':'empty'}">${w[0]||'_____'}</span>."`,
+    slots: [
+      { label: 'What you carry now', placeholder: 'e.g. phosphorescence, a steady hand, gratitude' }
+    ],
+    insight: '<span class="insight-icon">✦</span> Your story ignores capitalization and extra spaces. Only your words matter.'
+  }
+];
+
+let currentStage = 0;
+let slotValues = stages.map(s => s.slots.map(() => ''));
+
+// ========================================================================
+// RENDER
+// ========================================================================
+
+function init() {
+  renderProgress();
+  renderStages();
+  showStage(0);
+}
+
+function renderProgress() {
+  const bar = document.getElementById('progressBar');
+  bar.innerHTML = stages.map((_, i) =>
+    `<div class="story-progress-dot" data-idx="${i}"></div>`
+  ).join('');
+}
+
+function updateProgress() {
+  document.querySelectorAll('.story-progress-dot').forEach((dot, i) => {
+    dot.className = 'story-progress-dot';
+    if (i < currentStage) dot.classList.add('done');
+    if (i === currentStage) dot.classList.add('active');
+  });
+}
+
+function renderStages() {
+  const container = document.getElementById('stagesContainer');
+  container.innerHTML = stages.map((stage, si) => {
+    const actClass = stage.act === 'departure' ? 'act-departure' :
+                     stage.act === 'initiation' ? 'act-initiation' : 'act-return';
+    return `
+      <div class="story-stage" data-stage="${si}">
+        <div class="stage-meta">
+          <span class="stage-act ${actClass}">${stage.actLabel}</span>
+          <span class="stage-name">${stage.name}</span>
+        </div>
+        <div class="stage-prompt" id="prompt-${si}">${stage.prompt(slotValues[si])}</div>
+        <div class="slot-inputs">
+          ${stage.slots.map((slot, sli) => `
+            <div class="slot-input-group">
+              <div class="slot-label">${slot.label}</div>
+              <input class="slot-input" type="text"
+                placeholder="${slot.placeholder}"
+                data-stage="${si}" data-slot="${sli}"
+                value="${slotValues[si][sli]}"
+                oninput="onSlotInput(this)"
+                onkeydown="onSlotKey(event, ${si}, ${sli})"
+                autocomplete="off" spellcheck="false">
+            </div>
+          `).join('')}
+        </div>
+        <div class="stage-nav">
+          ${si > 0 ? `<button class="btn-back" onclick="prevStage()">← Back</button>` : '<div></div>'}
+          <span class="stage-counter">${si + 1} of ${stages.length}</span>
+          ${si < stages.length - 1
+            ? `<button class="btn-next" id="next-${si}" onclick="nextStage()" ${stageComplete(si)?'':'disabled'}>Continue →</button>`
+            : `<button class="btn-next" id="next-${si}" onclick="showReview()" ${stageComplete(si)?'':'disabled'}>Review Story →</button>`
+          }
+        </div>
+        ${stage.insight ? `<div class="insight">${stage.insight}</div>` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+function showStage(idx) {
+  currentStage = idx;
+  document.querySelectorAll('.story-stage').forEach(el => el.classList.remove('active'));
+  const stage = document.querySelector(`.story-stage[data-stage="${idx}"]`);
+  if (stage) {
+    stage.classList.add('active');
+    // Focus first empty input
+    setTimeout(() => {
+      const inputs = stage.querySelectorAll('.slot-input');
+      for (const inp of inputs) {
+        if (!inp.value.trim()) { inp.focus(); return; }
+      }
+      if (inputs.length) inputs[0].focus();
+    }, 100);
+  }
+  updateProgress();
+}
+
+function stageComplete(si) {
+  return slotValues[si].every(v => v.trim().length > 0);
+}
+
+function onSlotInput(el) {
+  const si = parseInt(el.dataset.stage);
+  const sli = parseInt(el.dataset.slot);
+  slotValues[si][sli] = el.value;
+  // Update prompt preview
+  const promptEl = document.getElementById(`prompt-${si}`);
+  if (promptEl) promptEl.innerHTML = stages[si].prompt(slotValues[si]);
+  // Update next button
+  const btn = document.getElementById(`next-${si}`);
+  if (btn) btn.disabled = !stageComplete(si);
+}
+
+function onSlotKey(e, si, sli) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const nextInput = document.querySelector(`.slot-input[data-stage="${si}"][data-slot="${sli + 1}"]`);
+    if (nextInput) {
+      nextInput.focus();
+    } else if (stageComplete(si)) {
+      if (si < stages.length - 1) nextStage();
+      else showReview();
+    }
+  }
+}
+
+function nextStage() {
+  if (currentStage < stages.length - 1) showStage(currentStage + 1);
+}
+
+function prevStage() {
+  if (currentStage > 0) showStage(currentStage - 1);
+}
+
+// ========================================================================
+// REVIEW
+// ========================================================================
+
+function showReview() {
+  document.querySelectorAll('.story-stage').forEach(el => el.classList.remove('active'));
+  document.getElementById('progressBar').style.display = 'none';
+
+  const reviewEl = document.getElementById('reviewStory');
+  let html = '';
+  stages.forEach((stage, si) => {
+    const words = slotValues[si];
+    // Build the sentence with highlighted words
+    let sentence = stage.prompt(words);
+    // Replace slot spans with review-word spans
+    sentence = sentence.replace(/<span class="slot[^"]*">/g, '<span class="review-word">');
+    html += `<p style="margin-bottom:8px">${sentence}</p>`;
+  });
+  reviewEl.innerHTML = html;
+  document.getElementById('reviewScreen').classList.add('active');
+}
+
+function editStory() {
+  document.getElementById('reviewScreen').classList.remove('active');
+  document.getElementById('progressBar').style.display = 'flex';
+  showStage(currentStage);
+}
+
+// ========================================================================
+// KEY DERIVATION SIMULATION
+// ========================================================================
+
+function deriveKey() {
+  document.getElementById('reviewScreen').classList.remove('active');
+  const derivScreen = document.getElementById('derivationScreen');
+  derivScreen.style.display = 'block';
+  const derivText = document.getElementById('derivText');
+
+  const steps = [
+    { text: 'Normalizing story (Unicode NFC, lowercase)...', delay: 800 },
+    { text: 'Concatenating 23 slots with fixed delimiter...', delay: 600 },
+    { text: 'Deriving key via Argon2id (256 MB memory-hard)...', delay: 1800 },
+    { text: 'Expanding subkeys via HKDF-SHA512...', delay: 700 },
+    { text: 'Generating ML-KEM-768 encapsulation keypair...', delay: 600 },
+    { text: 'Generating ML-DSA-65 signing keypair...', delay: 600 },
+    { text: 'Deriving Home Realm via BLAKE3...', delay: 500 },
+    { text: 'Identity forged. ✓', delay: 400 },
+  ];
+
+  let i = 0;
+  function runStep() {
+    if (i < steps.length) {
+      derivText.textContent = steps[i].text;
+      const delay = steps[i].delay;
+      i++;
+      setTimeout(runStep, delay);
+    } else {
+      setTimeout(() => {
+        derivScreen.style.display = 'none';
+        document.getElementById('completeScreen').classList.add('active');
+      }, 500);
+    }
+  }
+  runStep();
+}
+
+// ========================================================================
+// NAVIGATION HELPERS
+// ========================================================================
+
+function scrollToStory(e) {
+  e.preventDefault();
+  document.getElementById('story-section').scrollIntoView({ behavior: 'smooth' });
+}
+
+// Init
+init();
+</script>
+
+</body>
+</html>

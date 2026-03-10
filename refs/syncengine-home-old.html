@@ -1,0 +1,1226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SyncEngine — What If Creating Value Was the Currency?</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Source+Serif+4:ital,opsz,wght@0,8..60,300;0,8..60,400;0,8..60,500;0,8..60,600;1,8..60,300;1,8..60,400&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: #080a08; --bg2: #0f120f; --card: #131813; --surface: #1a1f1a;
+  --tx: #eaede8; --t2: #b0b8a8; --t3: #8a9480; --dim: #5e6858;
+  --bd: #242e22; --bd2: #2e3a2c;
+  /* warm bioluminescent palette with moss green */
+  --glow-blue: #7eb8f0; --glow-violet: #b48efa; --glow-rose: #f07eb8;
+  --glow-amber: #f0c87e; --glow-green: #7ef0b8; --glow-teal: #7edcf0;
+  --moss: #8aad6e; --moss-light: #a4c48a; --moss-dim: #5c7a48;
+  /* stage accents */
+  --s1: #7eb8f0; --s2: #f0c87e; --s3: #8aad6e; --s4: #b48efa; --s5: #f07eb8; --s6: #7edcf0;
+  --display: 'Outfit', sans-serif;
+  --body: 'Source Serif 4', Georgia, serif;
+  --mono: 'IBM Plex Mono', monospace;
+  --radius: 16px;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: var(--body); font-optical-sizing: auto;
+  font-size: 17px; line-height: 1.75;
+  background: var(--bg); color: var(--tx);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* ═══ Atmosphere ═══ */
+.atmosphere {
+  position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  overflow: hidden;
+}
+.atmo-grain {
+  position: absolute; inset: -50%; width: 200%; height: 200%;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  opacity: 0.5;
+}
+.atmo-orb {
+  position: absolute; border-radius: 50%; filter: blur(100px);
+  animation: drift 20s ease-in-out infinite alternate;
+}
+.atmo-orb-1 { width: 600px; height: 600px; top: -200px; left: -150px; background: rgba(138,173,110,0.07); }
+.atmo-orb-2 { width: 500px; height: 500px; bottom: -200px; right: -150px; background: rgba(240,126,184,0.05); animation-delay: -10s; }
+.atmo-orb-3 { width: 400px; height: 400px; top: 40%; left: 50%; transform: translateX(-50%); background: rgba(126,184,240,0.04); animation-delay: -5s; }
+@keyframes drift {
+  0% { transform: translate(0, 0) scale(1); }
+  100% { transform: translate(30px, -20px) scale(1.1); }
+}
+
+/* ═══ Progress ═══ */
+.progress-track {
+  position: fixed; top: 0; left: 0; right: 0;
+  height: 2px; z-index: 1000; background: rgba(255,255,255,0.03);
+}
+.progress-fill {
+  height: 100%; width: 0%;
+  background: linear-gradient(90deg, var(--moss), var(--s1), var(--s2), var(--s4), var(--s5), var(--s6));
+  background-size: 400% 100%;
+  animation: grad-shift 8s linear infinite;
+  transition: width 0.2s;
+}
+@keyframes grad-shift { 0% { background-position: 0% 0; } 100% { background-position: 400% 0; } }
+
+/* ═══ Nav dots ═══ */
+.nav-dots {
+  position: fixed; right: 20px; top: 50%; transform: translateY(-50%);
+  display: flex; flex-direction: column; gap: 16px; z-index: 100;
+}
+.nav-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  border: 1.5px solid var(--dim); background: transparent;
+  cursor: pointer; transition: all 0.5s cubic-bezier(0.16,1,0.3,1);
+  position: relative;
+}
+.nav-dot-label {
+  position: absolute; right: 22px; top: 50%; transform: translateY(-50%);
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em;
+  color: var(--dim); white-space: nowrap;
+  opacity: 0; transition: opacity 0.3s; pointer-events: none;
+}
+.nav-dot:hover .nav-dot-label { opacity: 1; }
+.nav-dot.on {
+  transform: scale(1.6);
+  border-color: var(--moss); background: var(--moss);
+  box-shadow: 0 0 14px rgba(138,173,110,0.5);
+}
+
+/* ═══ Layout ═══ */
+.page { position: relative; z-index: 10; }
+.wrap { max-width: 780px; margin: 0 auto; padding: 0 24px; }
+
+/* ═══ Reveal ═══ */
+.r {
+  opacity: 0; transform: translateY(36px);
+  transition: opacity 0.9s cubic-bezier(0.16,1,0.3,1), transform 0.9s cubic-bezier(0.16,1,0.3,1);
+}
+.r.v { opacity: 1; transform: translateY(0); }
+.r-d1 { transition-delay: 0.1s; }
+.r-d2 { transition-delay: 0.22s; }
+.r-d3 { transition-delay: 0.34s; }
+
+/* ═══ Section ═══ */
+.sect {
+  min-height: 100vh; display: flex; flex-direction: column;
+  justify-content: center; padding: 100px 0;
+}
+
+/* ═══ HERO ═══ */
+.hero {
+  min-height: 100vh; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; text-align: center;
+  padding: 60px 24px; position: relative;
+}
+.hero-over {
+  font-family: var(--mono); font-size: 11px;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--moss-light); margin-bottom: 32px;
+  opacity: 0; animation: riseIn 1s 0.3s forwards;
+}
+.hero-h {
+  font-family: var(--display); font-weight: 900;
+  font-size: clamp(36px, 7vw, 78px);
+  letter-spacing: -0.04em; line-height: 1.0;
+  margin-bottom: 32px;
+  opacity: 0; animation: riseIn 1s 0.5s forwards;
+}
+.hero-h em {
+  font-style: normal;
+  background: linear-gradient(135deg, var(--moss-light), var(--glow-blue), var(--glow-violet));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
+.hero-p {
+  font-size: 18px; color: var(--t2); max-width: 500px;
+  line-height: 1.9; font-weight: 300;
+  margin-bottom: 52px;
+  opacity: 0; animation: riseIn 1s 0.7s forwards;
+}
+.hero-p strong { color: var(--tx); font-weight: 500; }
+.hero-btn {
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 16px 40px; border: none; border-radius: 100px;
+  background: linear-gradient(135deg, var(--moss), var(--glow-blue));
+  color: white; font-family: var(--display);
+  font-size: 16px; font-weight: 600;
+  cursor: pointer; transition: all 0.35s;
+  box-shadow: 0 6px 36px rgba(138,173,110,0.2);
+  text-decoration: none;
+  opacity: 0; animation: riseIn 1s 0.9s forwards;
+}
+.hero-btn:hover { transform: translateY(-3px); box-shadow: 0 10px 48px rgba(138,173,110,0.3); }
+
+.hero-hint {
+  position: absolute; bottom: 36px;
+  font-family: var(--mono); font-size: 10px;
+  color: var(--dim); letter-spacing: 0.1em;
+  opacity: 0; animation: riseIn 1s 1.2s forwards, bob 3s 2.5s ease-in-out infinite;
+}
+@keyframes riseIn { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+
+/* ═══ Stage label ═══ */
+.stage-num {
+  font-family: var(--mono); font-size: 10px;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  margin-bottom: 10px;
+}
+.stage-h {
+  font-family: var(--display); font-weight: 800;
+  font-size: clamp(26px, 4vw, 46px);
+  letter-spacing: -0.03em; line-height: 1.1;
+  margin-bottom: 18px;
+}
+.stage-p {
+  font-size: 16px; color: var(--t2); max-width: 500px;
+  line-height: 1.9; font-weight: 300; margin-bottom: 40px;
+}
+.stage-p strong { color: var(--tx); font-weight: 500; }
+
+/* ═══ 2-col ═══ */
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; align-items: start; }
+
+/* ═══ Form panel ═══ */
+.panel {
+  background: var(--card); border: 1px solid var(--bd);
+  border-radius: var(--radius); padding: 32px;
+  position: relative; overflow: hidden;
+}
+.panel-accent {
+  position: absolute; top: 0; left: 0; right: 0; height: 2px;
+}
+
+.fg { margin-bottom: 22px; }
+.fl {
+  display: block; font-family: var(--display);
+  font-size: 12px; font-weight: 600;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--t3); margin-bottom: 8px;
+}
+.fi, .ft, .fs {
+  width: 100%; padding: 14px 18px;
+  background: var(--bg2); border: 1px solid var(--bd);
+  border-radius: 12px; color: var(--tx);
+  font-family: var(--body); font-size: 16px;
+  outline: none; transition: border-color 0.3s, box-shadow 0.3s;
+}
+.fi:focus, .ft:focus, .fs:focus {
+  border-color: var(--moss);
+  box-shadow: 0 0 0 3px rgba(138,173,110,0.1);
+}
+.fi::placeholder, .ft::placeholder { color: var(--dim); }
+.ft { min-height: 110px; resize: vertical; line-height: 1.65; }
+.fs {
+  appearance: none; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236e6e80' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 16px center;
+}
+.fs option { background: var(--bg); color: var(--tx); }
+
+/* Chips */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  padding: 8px 18px; border: 1px solid var(--bd); border-radius: 100px;
+  font-family: var(--display); font-size: 13px; font-weight: 500;
+  color: var(--t3); cursor: pointer; transition: all 0.25s; user-select: none;
+}
+.chip:hover { border-color: var(--bd2); color: var(--t2); }
+.chip.on { border-color: var(--moss); color: var(--moss-light); background: rgba(138,173,110,0.08); }
+
+/* Buttons */
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 13px 30px; border: none; border-radius: 12px;
+  font-family: var(--display); font-size: 14px; font-weight: 600;
+  cursor: pointer; transition: all 0.3s;
+}
+.btn-1 { background: var(--s1); color: var(--bg); }
+.btn-2 { background: var(--s2); color: var(--bg); }
+.btn-3 { background: var(--s3); color: var(--bg); }
+.btn-4 { background: linear-gradient(135deg, var(--s4), var(--glow-blue)); color: white; box-shadow: 0 4px 24px rgba(180,142,250,0.2); }
+.btn-5 { background: linear-gradient(135deg, var(--s5), var(--s4)); color: white; box-shadow: 0 4px 24px rgba(240,126,184,0.2); }
+.btn-6 { background: linear-gradient(135deg, var(--moss), var(--glow-blue), var(--glow-violet)); color: white; box-shadow: 0 4px 24px rgba(138,173,110,0.2); }
+.btn:hover { transform: translateY(-2px); }
+
+/* ═══ Sidebar note ═══ */
+.note {
+  padding: 24px; background: var(--bg2);
+  border: 1px solid var(--bd); border-radius: var(--radius);
+}
+.note-head {
+  font-family: var(--display); font-size: 11px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--dim); margin-bottom: 10px;
+}
+.note p { font-size: 15px; color: var(--t2); line-height: 1.85; }
+.note p strong { color: var(--tx); font-weight: 500; }
+
+/* Expandable technical panels */
+.hood {
+  margin-top: 16px; border: 1px solid var(--bd);
+  border-radius: var(--radius); overflow: hidden;
+}
+.hood summary {
+  padding: 14px 20px;
+  font-family: var(--mono); font-size: 11px;
+  letter-spacing: 0.06em; color: var(--t3);
+  cursor: pointer; list-style: none;
+  transition: color 0.3s, background 0.3s;
+  display: flex; align-items: center; gap: 8px;
+}
+.hood summary::before { content: '▸'; transition: transform 0.3s; display: inline-block; }
+.hood[open] summary::before { transform: rotate(90deg); }
+.hood summary:hover { color: var(--t2); background: var(--bg2); }
+.hood-body {
+  padding: 20px;
+  background: var(--bg2);
+  border-top: 1px solid var(--bd);
+  font-family: var(--mono); font-size: 12px;
+  color: var(--t2); line-height: 1.7;
+}
+
+/* Struct card */
+.hstruct {
+  background: rgba(0,0,0,0.2); border: 1px solid var(--bd);
+  border-radius: 10px; padding: 16px; margin-bottom: 14px;
+}
+.hstruct-name {
+  font-size: 13px; font-weight: 600; color: var(--moss-light);
+  margin-bottom: 10px;
+  display: flex; align-items: center; gap: 8px;
+}
+.hstruct-name::before {
+  content: ''; width: 6px; height: 6px; border-radius: 2px;
+  background: var(--moss); display: inline-block;
+}
+.hfield {
+  display: flex; align-items: baseline;
+  padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,0.025);
+}
+.hfield:last-child { border-bottom: none; }
+.hfn { color: var(--tx); min-width: 110px; }
+.hft { color: var(--glow-amber); min-width: 130px; font-size: 11px; }
+.hfc { color: var(--t3); font-size: 10px; }
+
+/* Formula highlight */
+.hformula {
+  background: rgba(138,173,110,0.06);
+  border: 1px solid rgba(138,173,110,0.12);
+  border-radius: 10px; padding: 16px; margin: 14px 0;
+  text-align: center;
+}
+.hformula code {
+  font-size: 15px; font-weight: 600; color: var(--tx);
+}
+.hformula code em { font-style: normal; color: var(--t3); font-weight: 400; font-size: 13px; }
+.hformula .hf-sub {
+  font-size: 10px; color: var(--t3); margin-top: 6px; letter-spacing: 0.04em;
+}
+
+/* Step sequence */
+.hsteps { display: flex; flex-direction: column; gap: 6px; margin: 14px 0; }
+.hstep {
+  display: flex; align-items: baseline; gap: 10px; font-size: 12px;
+}
+.hstep-n {
+  font-weight: 600; color: var(--moss-light); min-width: 16px; text-align: right;
+}
+.hstep-t { color: var(--t2); }
+.hstep-t strong { color: var(--tx); font-weight: 500; }
+
+/* Decay table */
+.hdecay {
+  display: grid; grid-template-columns: auto 1fr auto; gap: 4px 14px;
+  margin: 14px 0; font-size: 11px;
+}
+.hdecay-day { color: var(--t3); text-align: right; }
+.hdecay-bar { height: 6px; border-radius: 3px; align-self: center; }
+.hdecay-val { color: var(--tx); font-weight: 500; }
+
+/* Inline annotation */
+.hnote {
+  color: var(--t2); font-size: 12px; line-height: 1.8; margin-top: 12px;
+  padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.03);
+}
+.hnote strong { color: var(--tx); font-weight: 500; }
+
+/* ═══ Timer ═══ */
+.timer-box {
+  display: flex; align-items: center; gap: 14px;
+  padding: 18px 22px; margin-bottom: 28px;
+  background: rgba(240,200,126,0.04);
+  border: 1px solid rgba(240,200,126,0.12);
+  border-radius: 14px;
+}
+.timer-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--glow-amber);
+  animation: beat 2s ease-in-out infinite;
+}
+@keyframes beat {
+  0%,100% { box-shadow: 0 0 0 0 rgba(240,200,126,0.3); }
+  50% { box-shadow: 0 0 0 8px rgba(240,200,126,0); }
+}
+.timer-text { font-family: var(--mono); font-size: 12px; color: var(--glow-amber); flex: 1; }
+.timer-val { font-family: var(--mono); font-size: 26px; font-weight: 700; color: var(--glow-amber); }
+
+/* ═══ Profile card ═══ */
+.prof {
+  background: var(--card); border: 1px solid var(--bd);
+  border-radius: 20px; padding: 36px;
+  position: relative; overflow: hidden;
+  transition: box-shadow 0.6s;
+}
+.prof-glow {
+  position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: linear-gradient(90deg, var(--moss), var(--s1), var(--s4), var(--s5));
+}
+.prof-avatar {
+  width: 80px; height: 80px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--moss), var(--glow-blue));
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--display); font-size: 32px; font-weight: 800; color: white;
+  margin-bottom: 20px; position: relative;
+}
+.prof-avatar::after {
+  content: ''; position: absolute; inset: -5px;
+  border-radius: 50%; border: 2px solid rgba(138,173,110,0.25);
+}
+.prof-name {
+  font-family: var(--display); font-size: 24px; font-weight: 700;
+  letter-spacing: -0.02em; margin-bottom: 4px;
+}
+.prof-sub {
+  font-family: var(--mono); font-size: 12px; color: var(--dim);
+  margin-bottom: 24px;
+}
+.prof-row {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: 9px 0; border-bottom: 1px solid rgba(255,255,255,0.03);
+}
+.prof-row:last-child { border-bottom: none; }
+.prof-k { font-size: 14px; color: var(--dim); }
+.prof-v { font-family: var(--mono); font-size: 13px; color: var(--t2); max-width: 260px; text-align: right; }
+.prof-v em {
+  font-style: normal; font-weight: 600;
+  background: linear-gradient(135deg, var(--moss-light), var(--glow-blue));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
+.prof-badges { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+.prof-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 5px 14px; border-radius: 100px;
+  font-family: var(--mono); font-size: 10px;
+}
+
+/* ═══ Encounter code ═══ */
+.enc {
+  text-align: center; padding: 28px;
+  background: rgba(180,142,250,0.04);
+  border: 1px solid rgba(180,142,250,0.12);
+  border-radius: 16px; margin-bottom: 24px;
+}
+.enc-code {
+  font-family: var(--mono); font-size: 36px; font-weight: 700;
+  letter-spacing: 0.18em; color: var(--glow-violet);
+  margin: 10px 0;
+}
+.enc-sub { font-family: var(--mono); font-size: 10px; color: var(--dim); letter-spacing: 0.08em; }
+
+/* ═══ Divider ═══ */
+.div-line {
+  display: flex; align-items: center; gap: 12px; margin: 20px 0;
+}
+.div-line span { flex: 1; height: 1px; background: var(--bd); }
+.div-line em {
+  font-style: normal; font-family: var(--mono); font-size: 9px;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim);
+}
+
+/* ═══ Metabolism ═══ */
+.meta-card {
+  padding: 22px; background: var(--bg2);
+  border: 1px solid var(--bd); border-radius: var(--radius);
+  border-top: 2px solid;
+}
+.meta-tag {
+  font-family: var(--mono); font-size: 9px;
+  letter-spacing: 0.12em; margin-bottom: 8px;
+}
+.meta-h { font-family: var(--display); font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+.meta-card p { font-size: 13px; color: var(--t2); line-height: 1.75; }
+.meta-card p strong { color: var(--tx); font-weight: 500; }
+
+/* ═══ Token of Gratitude ═══ */
+.token-reveal {
+  max-height: 0; opacity: 0; overflow: hidden;
+  transition: max-height 1s cubic-bezier(0.16,1,0.3,1),
+              opacity 0.8s cubic-bezier(0.16,1,0.3,1),
+              margin 0.6s;
+  margin-top: 0;
+}
+.token-reveal.minted {
+  max-height: 800px; opacity: 1; margin-top: 40px;
+}
+
+.token {
+  background: var(--card);
+  border: 1px solid var(--bd2);
+  border-radius: 20px; padding: 36px;
+  position: relative; overflow: hidden;
+}
+.token::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--moss), var(--glow-amber), var(--glow-violet), var(--glow-rose));
+}
+.token::after {
+  content: ''; position: absolute; inset: 0;
+  background: radial-gradient(ellipse at 30% 20%, rgba(138,173,110,0.04) 0%, transparent 60%);
+  pointer-events: none;
+}
+
+.token-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 24px;
+}
+.token-id {
+  font-family: var(--mono); font-size: 11px;
+  color: var(--moss-light); letter-spacing: 0.06em;
+}
+.token-state {
+  font-family: var(--mono); font-size: 10px; font-weight: 500;
+  padding: 4px 14px; border-radius: 100px;
+  background: rgba(138,173,110,0.1);
+  color: var(--moss-light);
+  animation: state-pulse 3s ease-in-out infinite;
+}
+@keyframes state-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(138,173,110,0.15); }
+  50% { box-shadow: 0 0 0 6px rgba(138,173,110,0); }
+}
+
+.token-title {
+  font-family: var(--display); font-size: 20px; font-weight: 700;
+  margin-bottom: 4px;
+}
+.token-subtitle {
+  font-size: 14px; color: var(--t3); margin-bottom: 24px;
+}
+
+.token-rows { margin-bottom: 20px; }
+.token-row {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(138,173,110,0.06);
+}
+.token-row:last-child { border-bottom: none; }
+.token-k { font-size: 13px; color: var(--t3); }
+.token-v {
+  font-family: var(--mono); font-size: 13px; color: var(--t2);
+  max-width: 280px; text-align: right;
+}
+.token-v .lit {
+  font-weight: 600;
+  background: linear-gradient(135deg, var(--moss-light), var(--glow-blue));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
+
+.token-chain {
+  display: flex; align-items: center; gap: 8px;
+  padding-top: 16px; border-top: 1px solid rgba(138,173,110,0.08);
+  flex-wrap: wrap;
+}
+.token-chain-label {
+  font-family: var(--mono); font-size: 10px;
+  color: var(--t3); letter-spacing: 0.06em; margin-right: 4px;
+}
+.token-chain-node {
+  width: 32px; height: 32px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--display); font-size: 12px; font-weight: 700;
+}
+.token-chain-arrow { color: var(--dim); font-size: 12px; }
+
+.token-footer {
+  margin-top: 20px; padding-top: 16px;
+  border-top: 1px solid rgba(138,173,110,0.08);
+  text-align: center;
+}
+.token-footer p {
+  font-size: 13px; color: var(--t3); line-height: 1.7;
+  font-style: italic;
+}
+
+/* ═══ Responsive ═══ */
+@media (max-width: 768px) {
+  .two { grid-template-columns: 1fr; }
+  .nav-dots { display: none; }
+  .sect { padding: 60px 0; min-height: auto; }
+  .hero { padding: 40px 20px; }
+  .panel { padding: 24px; }
+  .prof { padding: 24px; }
+}
+</style>
+</head>
+<body>
+
+<!-- Atmosphere -->
+<div class="atmosphere">
+  <div class="atmo-grain"></div>
+  <div class="atmo-orb atmo-orb-1"></div>
+  <div class="atmo-orb atmo-orb-2"></div>
+  <div class="atmo-orb atmo-orb-3"></div>
+  <div class="atmo-orb" style="width:450px;height:450px;top:60%;left:-100px;background:rgba(138,173,110,0.05);animation:drift 24s ease-in-out infinite alternate;animation-delay:-8s"></div>
+</div>
+
+<!-- Progress -->
+<div class="progress-track"><div class="progress-fill" id="prog"></div></div>
+
+<!-- Nav dots -->
+<nav class="nav-dots" id="navDots">
+  <div class="nav-dot on" data-s="hero"><span class="nav-dot-label">Home</span></div>
+  <div class="nav-dot" data-s="s1"><span class="nav-dot-label">Your Need</span></div>
+  <div class="nav-dot" data-s="s2"><span class="nav-dot-label">Your Time</span></div>
+  <div class="nav-dot" data-s="s3"><span class="nav-dot-label">Your Gift</span></div>
+  <div class="nav-dot" data-s="s4"><span class="nav-dot-label">Your People</span></div>
+  <div class="nav-dot" data-s="s5"><span class="nav-dot-label">Your Story</span></div>
+  <div class="nav-dot" data-s="s6"><span class="nav-dot-label">Your Future</span></div>
+</nav>
+
+<div class="page">
+
+<!-- ═══════════ HERO ═══════════ -->
+<section class="hero" id="hero">
+  <div class="hero-over">syncengine.earth</div>
+  <h1 class="hero-h">What If Creating Value<br>Was <em>the Currency</em>?</h1>
+  <p class="hero-p">Platforms reward engagement, not contribution. They harvest your attention, feed it to advertisers, and give you a feed in return. <strong>SyncEngine inverts this</strong> — here, the time you freely give and the work you actually do become the only things that matter. No likes. No followers. No algorithm deciding who gets seen.</p>
+  <a href="#s1" class="hero-btn" onclick="event.preventDefault(); go('s1')">Enter the Gift Cycle ↓</a>
+  <div class="hero-hint">scroll to begin</div>
+</section>
+
+
+<!-- ═══════════ STAGE 1 · YOUR NEED ═══════════ -->
+<section class="sect" id="s1">
+  <div class="wrap">
+    <div class="r">
+      <div class="stage-num" style="color:var(--s1)">01 · Your Need</div>
+      <h2 class="stage-h">Everything Starts With<br>Someone <span style="color:var(--s1)">Asking for Help</span></h2>
+      <p class="stage-p">In SyncEngine, there are no tasks, no tickets, no bounties. There are <strong>intentions</strong> — honest statements of what you need. You don't assign priority to them. The community does, simply by paying attention.</p>
+    </div>
+
+    <div class="two">
+      <div class="panel r r-d1">
+        <div class="panel-accent" style="background:var(--s1)"></div>
+        <div class="fg">
+          <label class="fl">What's your name?</label>
+          <input class="fi" type="text" id="fName" placeholder="What people call you" oninput="sync()">
+        </div>
+        <div class="fg">
+          <label class="fl">What do you need?</label>
+          <textarea class="ft" id="fNeed" placeholder="Be honest. What are you looking for — help learning something? A community to build with? A skill you can't find?&#10;&#10;The best intentions are simple and real." oninput="sync()"></textarea>
+        </div>
+        <div class="fg">
+          <label class="fl">Where are you?</label>
+          <input class="fi" type="text" id="fWhere" placeholder="City, region, or 'the internet'" oninput="sync()">
+        </div>
+        <button class="btn btn-1" onclick="done('s1')">Post My Intention →</button>
+      </div>
+
+      <div class="r r-d2">
+        <div class="note">
+          <div class="note-head">Why this matters</div>
+          <p>Most platforms bury your needs under algorithms. In SyncEngine, when you post an intention, everyone in your community sees it — not because an algorithm chose them, but because <strong>you're peers in the same space</strong>. No one decides what's important except the people who show up.</p>
+        </div>
+
+        <details class="hood">
+          <summary>The data structure</summary>
+          <div class="hood-body">
+            <div class="hstruct">
+              <div class="hstruct-name">Intention</div>
+              <div class="hfield"><span class="hfn">title</span><span class="hft">String</span><span class="hfc">what you wrote above</span></div>
+              <div class="hfield"><span class="hfn">creator</span><span class="hft">PublicKey</span><span class="hfc">your device's identity</span></div>
+              <div class="hfield"><span class="hfn">heat</span><span class="hft">f64</span><span class="hfc">0.0 → 1.0, rises with attention</span></div>
+              <div class="hfield"><span class="hfn">claims</span><span class="hft">Vec&lt;Claim&gt;</span><span class="hfc">who's working on it</span></div>
+            </div>
+            <div class="hnote">When you post, your device writes to a local <strong>Automerge CRDT</strong> — a data structure that merges edits from multiple people automatically, even offline. Then <strong>Iroh</strong> (a QUIC-based P2P protocol) gossips it to peers. No server. No API call. Your intention exists on every device that cares.</div>
+          </div>
+        </details>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══════════ STAGE 2 · YOUR TIME ═══════════ -->
+<section class="sect" id="s2">
+  <div class="wrap">
+    <div class="r">
+      <div class="stage-num" style="color:var(--s2)">02 · Your Time</div>
+      <h2 class="stage-h">You've Been Here for<br><span style="color:var(--s2)" id="heroTimerInline">0:00</span>. That <span style="color:var(--s2)">Means Something</span>.</h2>
+      <p class="stage-p">On most platforms, your attention enriches a company. Here, <strong>the time you choose to give is recognized as something real</strong> — and it belongs to you. It can only be released as a gift: when you acknowledge someone else's work.</p>
+    </div>
+
+    <div class="two">
+      <div class="panel r r-d1">
+        <div class="panel-accent" style="background:var(--s2)"></div>
+
+        <div class="timer-box">
+          <div class="timer-dot"></div>
+          <span class="timer-text">Your time on this page</span>
+          <span class="timer-val" id="timer">0:00</span>
+        </div>
+
+        <p style="font-size:14px;color:var(--t2);margin-bottom:28px;line-height:1.8">This timer is real. In SyncEngine, every moment you choose to spend reading someone's intention accumulates silently. It's called <strong style="color:var(--tx)">attention</strong>, and it's the one gift that can't be faked — because it costs you the one thing no one can manufacture: <em>your time, freely given</em>.</p>
+
+        <div class="fg">
+          <label class="fl">What are you here to do?</label>
+          <div class="chips" id="cFocus">
+            <span class="chip" onclick="pick(this)">Build something</span>
+            <span class="chip" onclick="pick(this)">Learn</span>
+            <span class="chip" onclick="pick(this)">Teach</span>
+            <span class="chip" onclick="pick(this)">Connect with people</span>
+            <span class="chip" onclick="pick(this)">Find community</span>
+            <span class="chip" onclick="pick(this)">Create</span>
+            <span class="chip" onclick="pick(this)">Organize</span>
+            <span class="chip" onclick="pick(this)">Explore</span>
+          </div>
+        </div>
+
+        <button class="btn btn-2" onclick="done('s2')">I'm Paying Attention →</button>
+      </div>
+
+      <div class="r r-d2">
+        <div class="note">
+          <div class="note-head">How attention becomes a gift</div>
+          <p>Every time you open someone's intention and start reading, a quiet navigation event is created. The gap between when you arrive and when you leave is your <strong>dwell time</strong>. All that accumulated time stays invisible — until the moment you see someone's work and decide to acknowledge it. Then it transforms into something powerful.</p>
+        </div>
+
+        <details class="hood">
+          <summary>How it's measured</summary>
+          <div class="hood-body">
+            <div class="hstruct">
+              <div class="hstruct-name">AttentionSwitchEvent</div>
+              <div class="hfield"><span class="hfn">member</span><span class="hft">MemberId</span><span class="hfc">you</span></div>
+              <div class="hfield"><span class="hfn">from</span><span class="hft">Option&lt;IntentionId&gt;</span><span class="hfc">what you were looking at</span></div>
+              <div class="hfield"><span class="hfn">to</span><span class="hft">IntentionId</span><span class="hfc">what you opened</span></div>
+              <div class="hfield"><span class="hfn">timestamp</span><span class="hft">u64</span><span class="hfc">when you navigated</span></div>
+            </div>
+            <div class="hsteps">
+              <div class="hstep"><span class="hstep-n">1</span><span class="hstep-t">You open an intention at <strong>10:03:12</strong></span></div>
+              <div class="hstep"><span class="hstep-n">2</span><span class="hstep-t">You navigate away at <strong>10:07:44</strong></span></div>
+              <div class="hstep"><span class="hstep-n">3</span><span class="hstep-t">Dwell time: <strong>4 minutes, 32 seconds</strong></span></div>
+              <div class="hstep"><span class="hstep-n">→</span><span class="hstep-t">That interval is the <strong>atomic unit of attention</strong></span></div>
+            </div>
+            <div class="hnote">Enough dwell time from enough people and the intention "heats up" — a signal from 0.0 to 1.0 that makes it more visible. No voting button. No like count. <strong>Presence is the signal.</strong></div>
+          </div>
+        </details>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══════════ STAGE 3 · YOUR GIFT ═══════════ -->
+<section class="sect" id="s3">
+  <div class="wrap">
+    <div class="r">
+      <div class="stage-num" style="color:var(--s3)">03 · Your Gift</div>
+      <h2 class="stage-h">Someone Sees a Need.<br>They <span style="color:var(--s3)">Act</span>.</h2>
+      <p class="stage-p">This is the heart of it. In SyncEngine, when you help someone, you show your work — screenshots, documents, code, designs. <strong>Evidence, not promises.</strong> This proof becomes a permanent, tamper-proof record of what you did.</p>
+    </div>
+
+    <div class="two">
+      <div class="panel r r-d1">
+        <div class="panel-accent" style="background:var(--s3)"></div>
+        <div class="fg">
+          <label class="fl">What skills do you bring?</label>
+          <div class="chips" id="cSkills">
+            <span class="chip" onclick="pick(this)">Code</span>
+            <span class="chip" onclick="pick(this)">Design</span>
+            <span class="chip" onclick="pick(this)">Writing</span>
+            <span class="chip" onclick="pick(this)">Music</span>
+            <span class="chip" onclick="pick(this)">Research</span>
+            <span class="chip" onclick="pick(this)">Facilitation</span>
+            <span class="chip" onclick="pick(this)">Farming</span>
+            <span class="chip" onclick="pick(this)">Craft</span>
+            <span class="chip" onclick="pick(this)">Care</span>
+            <span class="chip" onclick="pick(this)">Strategy</span>
+          </div>
+        </div>
+        <div class="fg">
+          <label class="fl">What can you offer?</label>
+          <textarea class="ft" id="fOffer" placeholder="What would you give to this community? Describe the kind of help you'd provide if someone posted an intention you could answer." oninput="sync()"></textarea>
+        </div>
+        <div class="fg">
+          <label class="fl">How do you prefer to work?</label>
+          <select class="fs" id="fCollab" onchange="sync()">
+            <option value="">Pick one...</option>
+            <option value="async">On my own time (async)</option>
+            <option value="pairing">Side by side (pairing)</option>
+            <option value="mentoring">Teaching or learning (mentoring)</option>
+            <option value="sprints">Short intense bursts (sprints)</option>
+            <option value="stewardship">Long-term care (stewardship)</option>
+          </select>
+        </div>
+        <button class="btn btn-3" onclick="done('s3')">Offer My Gift →</button>
+      </div>
+
+      <div class="r r-d2">
+        <div class="note">
+          <div class="note-head">Why proof matters</div>
+          <p>Anyone can say they'll help. In SyncEngine, you <strong>show</strong> what you did. Your proof is stored as immutable, encrypted artifacts that only your community can see. Multiple people can answer the same intention — it's collaborative, not competitive. The person who asked reviews everyone's work and decides what to acknowledge.</p>
+        </div>
+
+        <details class="hood">
+          <summary>How proof works</summary>
+          <div class="hood-body">
+            <div class="hformula">
+              <code>hash = <em>BLAKE3(</em>file_bytes<em>)</em></code>
+              <div class="hf-sub">Every file becomes a unique fingerprint. Same file → same hash. Changed file → new hash. Can't be tampered with.</div>
+            </div>
+            <div class="hstruct">
+              <div class="hstruct-name">Artifact</div>
+              <div class="hfield"><span class="hfn">hash</span><span class="hft">Blake3Hash</span><span class="hfc">content fingerprint</span></div>
+              <div class="hfield"><span class="hfn">encrypted</span><span class="hft">bool</span><span class="hfc">only your realm can decrypt</span></div>
+            </div>
+            <div class="hstruct">
+              <div class="hstruct-name">Claim</div>
+              <div class="hfield"><span class="hfn">claimant</span><span class="hft">MemberId</span><span class="hfc">who did the work</span></div>
+              <div class="hfield"><span class="hfn">intention</span><span class="hft">IntentionId</span><span class="hfc">which need they answered</span></div>
+              <div class="hfield"><span class="hfn">proof_folder</span><span class="hft">Vec&lt;Artifact&gt;</span><span class="hfc">the evidence</span></div>
+              <div class="hfield"><span class="hfn">status</span><span class="hft">Pending | Blessed</span><span class="hfc">awaiting review</span></div>
+            </div>
+            <div class="hnote">Multiple people can claim the same intention. The creator reviews the proof and decides who to bless. <strong>It's collaborative, not competitive.</strong></div>
+          </div>
+        </details>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══════════ STAGE 4 · YOUR PEOPLE ═══════════ -->
+<section class="sect" id="s4">
+  <div class="wrap">
+    <div class="r">
+      <div class="stage-num" style="color:var(--s4)">04 · Your People</div>
+      <h2 class="stage-h">Bots Can't <span style="color:var(--s4)">Show Up</span>.</h2>
+      <p class="stage-p">When someone reviews your work and says <strong>"this was worth my time"</strong>, that's called a <em>blessing</em>. It releases all the attention they invested — real minutes and seconds — as directed acknowledgment. But here's the key: <strong>only attention from verified humans counts</strong>. And the only way to get verified is to show up in person.</p>
+    </div>
+
+    <div class="two">
+      <div class="panel r r-d1">
+        <div class="panel-accent" style="background:var(--s4)"></div>
+
+        <div class="enc">
+          <div class="enc-sub">YOUR ENCOUNTER CODE</div>
+          <div class="enc-code" id="encCode">— — — —</div>
+          <div class="enc-sub">Share this code when you meet someone in person</div>
+        </div>
+
+        <p style="font-size:14px;color:var(--t2);margin-bottom:22px;line-height:1.8">SyncEngine holds <strong style="color:var(--tx)">Proof of Life</strong> gatherings — in-person events where real humans witness each other. When you attend, you're verified as alive. That verification is your <strong style="color:var(--tx)">aliveness score</strong>, and it determines whether your attention is counted at all. No ceremony, no score, no voice. <strong style="color:var(--tx)">Bots never attend because they can't.</strong></p>
+
+        <div class="fg">
+          <label class="fl">Invite a friend (email)</label>
+          <input class="fi" type="email" id="fInvite" placeholder="someone@example.com" oninput="sync()">
+        </div>
+
+        <button class="btn btn-4" onclick="done('s4')">Generate My Code ✦</button>
+      </div>
+
+      <div class="r r-d2">
+        <div class="note">
+          <div class="note-head">How aliveness filters out noise</div>
+          <p>A bot farm can create a million accounts — none of them will ever matter. Without attending a Proof of Life gathering, their aliveness is zero. Zero aliveness means their attention is never registered, their blessings carry no weight, and any tokens they mint are empty. <strong>The noise doesn't get filtered out — it never gets in.</strong> Only witnessed humans participate in the gift cycle.</p>
+        </div>
+
+        <div class="note" style="margin-top:16px">
+          <div class="note-head">The heartbeat</div>
+          <p>Aliveness isn't a one-time credential — it's a pulse. Full strength for 7 days after a gathering, then it fades. Miss too many beats and your attention stops counting until you show up again. <strong>You're never banned</strong> — you just go quiet. The system doesn't punish absence. It rewards presence.</p>
+        </div>
+
+        <details class="hood">
+          <summary>The decay curve</summary>
+          <div class="hood-body">
+            <div class="hformula">
+              <code>aliveness = e<sup style="font-size:11px">−0.1 × max(days − 7, 0)</sup></code>
+              <div class="hf-sub">Full strength for 7 days after a Proof of Life gathering, then exponential decay</div>
+            </div>
+            <div class="hdecay">
+              <span class="hdecay-day">Day 0–7</span><span class="hdecay-bar" style="width:100%;background:var(--moss)"></span><span class="hdecay-val">1.00</span>
+              <span class="hdecay-day">Day 14</span><span class="hdecay-bar" style="width:50%;background:var(--glow-amber)"></span><span class="hdecay-val">0.50</span>
+              <span class="hdecay-day">Day 30</span><span class="hdecay-bar" style="width:10%;background:var(--glow-rose)"></span><span class="hdecay-val">0.10</span>
+              <span class="hdecay-day">Never</span><span class="hdecay-bar" style="width:2%;background:var(--dim)"></span><span class="hdecay-val">0.00</span>
+            </div>
+            <div class="hnote">Zero aliveness means: attention not counted, blessings carry no weight, tokens are empty. <strong>Bots never get above zero because they never attend a gathering.</strong></div>
+          </div>
+        </details>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══════════ STAGE 5 · YOUR STORY ═══════════ -->
+<section class="sect" id="s5">
+  <div class="wrap">
+    <div class="r">
+      <div class="stage-num" style="color:var(--s5)">05 · Your Story</div>
+      <h2 class="stage-h">This Is What You've <span style="color:var(--s5)">Built</span><br>by Being Here</h2>
+      <p class="stage-p">A blessing crystallizes into a <strong>Token of Gratitude</strong> — not a coin, not a score, but a <em>letter of introduction</em>. It says: this person showed up, spent real time, and someone who witnessed their work acknowledged it. <strong>Complete the cycle and you'll receive yours</strong> — backed by the real attention you've given this page.</p>
+    </div>
+
+    <div class="two">
+      <div class="r r-d1">
+        <div class="prof" id="profCard">
+          <div class="prof-glow"></div>
+          <div class="prof-avatar" id="pAvatar">?</div>
+          <div class="prof-name" id="pName">Anonymous Peer</div>
+          <div class="prof-sub" id="pSub">awaiting first intention...</div>
+
+          <div style="margin:24px 0">
+            <div class="prof-row"><span class="prof-k">Intention</span><span class="prof-v" id="pNeed">—</span></div>
+            <div class="prof-row"><span class="prof-k">Location</span><span class="prof-v" id="pWhere">—</span></div>
+            <div class="prof-row"><span class="prof-k">Here to</span><span class="prof-v" id="pFocus">—</span></div>
+            <div class="prof-row"><span class="prof-k">Gifts</span><span class="prof-v" id="pSkills">—</span></div>
+            <div class="prof-row"><span class="prof-k">Work style</span><span class="prof-v" id="pCollab">—</span></div>
+            <div class="prof-row"><span class="prof-k">Offering</span><span class="prof-v" id="pOffer">—</span></div>
+            <div class="prof-row"><span class="prof-k">Time given</span><span class="prof-v" id="pTime"><em>0:00</em></span></div>
+            <div class="prof-row"><span class="prof-k">Aliveness</span><span class="prof-v"><em>awaiting first gathering</em></span></div>
+          </div>
+
+          <div class="prof-badges" id="pBadges"></div>
+        </div>
+
+        <!-- TOKEN OF GRATITUDE — revealed on cycle completion -->
+        <div class="token-reveal" id="tokenReveal">
+          <div class="token">
+            <div class="token-head">
+              <span class="token-id" id="tokId">tok:————</span>
+              <span class="token-state">First Token</span>
+            </div>
+            <div class="token-title">Token of Gratitude</div>
+            <div class="token-subtitle">Minted by completing the gift cycle on syncengine.earth</div>
+            <div class="token-rows">
+              <div class="token-row"><span class="token-k">Holder</span><span class="token-v" id="tokHolder">—</span></div>
+              <div class="token-row"><span class="token-k">Backed by</span><span class="token-v" id="tokTime"><span class="lit">—</span> of attention</span></div>
+              <div class="token-row"><span class="token-k">Blesser</span><span class="token-v" style="color:var(--moss-light)">syncengine.earth</span></div>
+              <div class="token-row"><span class="token-k">Intention</span><span class="token-v" id="tokIntention">—</span></div>
+              <div class="token-row"><span class="token-k">Aliveness</span><span class="token-v"><span class="lit">awaiting first gathering</span></span></div>
+              <div class="token-row"><span class="token-k">State</span><span class="token-v"><span class="lit">Held</span></span></div>
+            </div>
+            <div class="token-chain">
+              <span class="token-chain-label">Blessed by → Holder:</span>
+              <div class="token-chain-node" style="background:rgba(138,173,110,0.12);color:var(--moss-light)" title="syncengine.earth">S</div>
+              <span class="token-chain-arrow">→</span>
+              <div class="token-chain-node" id="tokChainYou" style="background:rgba(126,184,240,0.12);color:var(--glow-blue)" title="You">?</div>
+            </div>
+            <div class="token-footer">
+              <p>This token is yours. When SyncEngine launches,<br>it will carry forward as proof you were here from the beginning.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="r r-d2">
+        <div class="note">
+          <div class="note-head">Why this can't be gamed</div>
+          <p>A token's weight comes from two things: <strong>how much real attention backed it</strong>, and <strong>the blesser's aliveness score</strong> when they created it. If the blesser never attended a Proof of Life gathering, their aliveness is zero — and the token is empty. No amount of automation changes this. You can't fabricate co-presence at a physical gathering. The initiation ceremony is the gate.</p>
+        </div>
+
+        <details class="hood">
+          <summary>The token lifecycle</summary>
+          <div class="hood-body">
+            <div class="hstruct">
+              <div class="hstruct-name">TokenOfGratitude</div>
+              <div class="hfield"><span class="hfn">backed_by</span><span class="hft">Duration</span><span class="hfc">real attention time</span></div>
+              <div class="hfield"><span class="hfn">blesser</span><span class="hft">MemberId</span><span class="hfc">who acknowledged the work</span></div>
+              <div class="hfield"><span class="hfn">holder</span><span class="hft">MemberId</span><span class="hfc">current steward</span></div>
+              <div class="hfield"><span class="hfn">aliveness</span><span class="hft">f64</span><span class="hfc">blesser's score at mint time</span></div>
+              <div class="hfield"><span class="hfn">tagged_to</span><span class="hft">Option&lt;IntentionId&gt;</span><span class="hfc">where it's committed</span></div>
+            </div>
+            <div class="hformula">
+              <code>weight <em>=</em> attention_time <em>×</em> blesser_aliveness</code>
+              <div class="hf-sub">Zero aliveness blesser → token is empty. Unverified humans can't mint anything real.</div>
+            </div>
+            <div class="hsteps">
+              <div class="hstep"><span class="hstep-n">1</span><span class="hstep-t">Someone <strong>blesses your work</strong> → token is minted, you're the holder</span></div>
+              <div class="hstep"><span class="hstep-n">2</span><span class="hstep-t">You <strong>tag it to a new intention</strong> → token is locked there</span></div>
+              <div class="hstep"><span class="hstep-n">3</span><span class="hstep-t">Someone <strong>manifests that intention</strong></span></div>
+              <div class="hstep"><span class="hstep-n">4</span><span class="hstep-t">Token <strong>flows forward to the doer</strong> — they're the new steward</span></div>
+            </div>
+            <div class="hnote"><strong>Tokens only move toward work. Never backwards.</strong></div>
+          </div>
+        </details>
+
+        <div class="note" style="margin-top:16px">
+          <div class="note-head">Not a blockchain</div>
+          <p>SyncEngine runs on direct peer-to-peer connections. No mining, no gas fees, no global ledger. Your data lives on your device, syncs directly with people you know, and is encrypted so that no one in between can read it. The whole thing is built in Rust on a protocol called <strong>Indra's Network</strong> — named after a Buddhist metaphor of an infinite net where every jewel reflects every other.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══════════ STAGE 6 · YOUR FUTURE ═══════════ -->
+<section class="sect" id="s6">
+  <div class="wrap">
+    <div class="r" style="text-align:center;margin-bottom:48px">
+      <div style="font-size:52px;margin-bottom:20px;opacity:0.4">∞</div>
+      <div class="stage-num" style="color:var(--s6)">06 · Your Future</div>
+      <h2 class="stage-h" style="text-align:center">The Gift <span style="background:linear-gradient(135deg,var(--moss-light),var(--glow-blue),var(--glow-violet));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text">Tags Forward</span></h2>
+      <p class="stage-p" style="text-align:center;margin:16px auto 0;max-width:520px">Gratitude isn't an endpoint. When you hold a token, you can <strong>tag</strong> it to a new intention — putting your name and your token behind someone else's need. That token stays with the intention until someone manifests it. When they do, <strong>the token flows forward to them as the new steward</strong>. It never comes back. That's the point. Gratitude moves in one direction: toward the people who do the work.</p>
+    </div>
+
+    <div class="two">
+      <div class="panel r r-d1">
+        <div class="panel-accent" style="background:linear-gradient(90deg, var(--s6), var(--glow-violet), var(--glow-rose))"></div>
+
+        <div class="fg">
+          <label class="fl">Your email — we'll tell you when it's ready</label>
+          <input class="fi" type="email" id="fEmail" placeholder="you@example.com" oninput="sync()">
+        </div>
+
+        <div class="fg">
+          <label class="fl">When you receive your first token, what intention would you give it to?</label>
+          <textarea class="ft" id="fTag" placeholder="What matters enough that you'd release your token to whoever makes it real? What need would you put it behind?" style="min-height:80px" oninput="sync()"></textarea>
+        </div>
+
+        <button class="btn btn-6" style="width:100%;justify-content:center;padding:16px" onclick="done('s6')">
+          Mint My First Token ∞
+        </button>
+
+        <p style="font-size:12px;color:var(--dim);margin-top:20px;text-align:center;line-height:1.7">
+          Peer-to-peer. End-to-end encrypted. Post-quantum ready.<br>
+          No servers. No ads. No central authority. Just peers.
+        </p>
+      </div>
+
+      <div class="r r-d2">
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <div class="meta-card" style="border-top-color:var(--glow-amber)">
+            <div class="meta-tag" style="color:var(--glow-amber)">FLOWS</div>
+            <div class="meta-h">Attention</div>
+            <p>Emerges naturally as you participate. <strong>Cannot be hoarded</strong> — only has meaning when given away as a blessing. The raw material of every token.</p>
+          </div>
+
+          <div class="meta-card" style="border-top-color:var(--glow-rose)">
+            <div class="meta-tag" style="color:var(--glow-rose)">DECAYS</div>
+            <div class="meta-h">Aliveness</div>
+            <p>Verified at in-person Proof of Life gatherings. <strong>Gates everything</strong> — unverified attention is never registered. Full strength for 7 days after a gathering, then fades. No ceremony, no voice.</p>
+          </div>
+
+          <div class="meta-card" style="border-top-color:var(--moss)">
+            <div class="meta-tag" style="color:var(--moss-light)">FLOWS FORWARD</div>
+            <div class="meta-h">Tokens</div>
+            <p>Created when someone blesses your work. <strong>Can be tagged to new intentions</strong>, where they stay until someone manifests it. Then the token flows forward to the doer. Never backwards. Gratitude only moves toward work.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Closing -->
+    <div class="r" style="text-align:center;padding:80px 0 60px">
+      <p style="font-size:17px;color:var(--t2);max-width:480px;margin:0 auto;line-height:1.95;font-weight:300">
+        There is no separate layer for value. The way people collaborate <strong style="color:var(--tx)">is</strong> the gift cycle.
+        Attention is the metabolism. Intentions are the needs. Service is the exchange.
+        Blessings are the validation. Tokens are the memory.
+      </p>
+      <div style="margin-top:36px;font-size:15px;color:var(--moss-light);font-style:italic">Every jewel reflects all others.</div>
+      <div style="font-family:var(--mono);font-size:9px;color:var(--dim);letter-spacing:0.14em;text-transform:uppercase;margin-top:12px">SyncEngine · Built on Indra's Network · Rust · Iroh · Automerge</div>
+    </div>
+  </div>
+</section>
+
+</div>
+
+
+<script>
+// ═══ STATE ═══
+const S = {
+  name:'', need:'', where:'', focus:[], skills:[], offer:'',
+  collab:'', invite:'', email:'', tag:'',
+  done: new Set(),
+  t0: Date.now()
+};
+
+// ═══ TIMER ═══
+function tick() {
+  const sec = Math.floor((Date.now() - S.t0) / 1000);
+  const m = Math.floor(sec / 60), s = sec % 60;
+  const str = m + ':' + String(s).padStart(2, '0');
+  const el1 = document.getElementById('timer');
+  const el2 = document.getElementById('heroTimerInline');
+  const el3 = document.getElementById('pTime');
+  if (el1) el1.textContent = str;
+  if (el2) el2.textContent = str;
+  if (el3) el3.innerHTML = '<em>' + str + '</em>';
+  requestAnimationFrame(() => setTimeout(tick, 500));
+}
+tick();
+
+// ═══ CHIPS ═══
+function pick(el) { el.classList.toggle('on'); sync(); }
+
+function selected(id) {
+  return Array.from(document.querySelectorAll('#' + id + ' .chip.on')).map(c => c.textContent);
+}
+
+// ═══ SYNC PROFILE ═══
+function sync() {
+  S.name = v('fName'); S.need = v('fNeed'); S.where = v('fWhere');
+  S.focus = selected('cFocus'); S.skills = selected('cSkills');
+  S.offer = v('fOffer'); S.collab = v('fCollab');
+  S.invite = v('fInvite'); S.email = v('fEmail'); S.tag = v('fTag');
+
+  document.getElementById('pAvatar').textContent = S.name ? S.name[0].toUpperCase() : '?';
+  document.getElementById('pName').textContent = S.name || 'Anonymous Peer';
+  document.getElementById('pSub').textContent = S.need ? cut(S.need, 55) : 'awaiting first intention...';
+  set('pNeed', S.need); set('pWhere', S.where);
+  set('pFocus', S.focus.join(', ')); set('pSkills', S.skills.join(', '));
+  set('pCollab', S.collab ? document.getElementById('fCollab').selectedOptions[0].text : '');
+  set('pOffer', S.offer);
+  badges();
+}
+
+function v(id) { return document.getElementById(id).value.trim(); }
+function cut(s, n) { return s.length > n ? s.substring(0, n) + '…' : s; }
+function set(id, val) { document.getElementById(id).textContent = val ? cut(val, 42) : '—'; }
+
+function badges() {
+  const el = document.getElementById('pBadges');
+  el.innerHTML = '';
+  const list = [
+    ['s1', '💡 Need voiced', '--s1'],
+    ['s2', '👁 Attention given', '--s2'],
+    ['s3', '🤲 Gift offered', '--s3'],
+    ['s4', '✦ Code generated', '--s4'],
+    ['s6', '🪙 Token minted', '--s5'],
+  ];
+  list.forEach(([k, t, c]) => {
+    if (!S.done.has(k)) return;
+    const b = document.createElement('span');
+    b.className = 'prof-badge';
+    const color = getComputedStyle(document.documentElement).getPropertyValue(c).trim();
+    b.style.cssText = 'background:' + color + '12;border:1px solid ' + color + '30;color:' + color;
+    b.textContent = t;
+    el.appendChild(b);
+  });
+}
+
+// ═══ STAGE COMPLETE ═══
+function done(stage) {
+  S.done.add(stage);
+  sync();
+
+  if (stage === 's4') {
+    const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let code = '';
+    for (let i = 0; i < 4; i++) code += c[Math.floor(Math.random() * c.length)];
+    code += ' · ';
+    for (let i = 0; i < 4; i++) code += c[Math.floor(Math.random() * c.length)];
+    document.getElementById('encCode').textContent = code;
+  }
+
+  if (stage === 's6') {
+    // Mint the Token of Gratitude
+    const sec = Math.floor((Date.now() - S.t0) / 1000);
+    const m = Math.floor(sec / 60), s = sec % 60;
+    const timeStr = m + ':' + String(s).padStart(2, '0');
+    const millis = sec * 1000;
+
+    // Generate a plausible token ID from timestamp
+    const hex = Date.now().toString(16).slice(-8);
+    document.getElementById('tokId').textContent = 'tok:' + hex.slice(0,4) + '·' + hex.slice(4);
+
+    // Populate token fields
+    document.getElementById('tokHolder').textContent = S.name || 'Anonymous Peer';
+    document.getElementById('tokTime').innerHTML = '<span class="lit">' + timeStr + '</span> of attention (' + millis.toLocaleString() + 'ms)';
+    document.getElementById('tokIntention').textContent = S.need ? cut(S.need, 38) : 'Completing the gift cycle';
+    document.getElementById('tokChainYou').textContent = S.name ? S.name[0].toUpperCase() : '?';
+    document.getElementById('tokChainYou').title = S.name || 'You';
+
+    // Reveal the token with a delay for drama
+    setTimeout(() => {
+      document.getElementById('tokenReveal').classList.add('minted');
+    }, 300);
+
+    // Glow the profile card
+    const card = document.getElementById('profCard');
+    card.style.boxShadow = '0 0 80px rgba(138,173,110,0.15), 0 0 40px rgba(126,184,240,0.1)';
+    setTimeout(() => { card.style.boxShadow = ''; }, 3000);
+
+    // Scroll down to show the token after it reveals
+    setTimeout(() => {
+      document.getElementById('tokenReveal').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 800);
+  }
+
+  // Advance
+  const order = ['s1','s2','s3','s4','s5','s6'];
+  const i = order.indexOf(stage);
+  if (i < order.length - 1) {
+    setTimeout(() => go(order[i + 1]), 500);
+  }
+}
+
+// ═══ NAV ═══
+function go(id) { document.getElementById(id).scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+
+document.querySelectorAll('.nav-dot').forEach(d => {
+  d.addEventListener('click', () => go(d.dataset.s));
+});
+
+// ═══ SCROLL ═══
+const sects = ['hero','s1','s2','s3','s4','s5','s6'];
+
+function onScroll() {
+  // Progress
+  const top = window.scrollY;
+  const max = document.documentElement.scrollHeight - window.innerHeight;
+  document.getElementById('prog').style.width = (max > 0 ? top / max * 100 : 0) + '%';
+
+  // Active dot
+  let cur = 'hero';
+  sects.forEach(id => {
+    const el = document.getElementById(id);
+    if (el && el.getBoundingClientRect().top < window.innerHeight * 0.45) cur = id;
+  });
+
+  document.querySelectorAll('.nav-dot').forEach(d => {
+    const on = d.dataset.s === cur;
+    d.classList.toggle('on', on);
+    if (on) {
+      // Color per stage
+      const colors = { hero:'var(--moss)', s1:'var(--s1)', s2:'var(--s2)', s3:'var(--s3)', s4:'var(--s4)', s5:'var(--s5)', s6:'var(--s6)' };
+      const c = colors[cur] || 'var(--glow-blue)';
+      d.style.borderColor = c; d.style.background = c;
+      d.style.boxShadow = '0 0 14px ' + c;
+    } else {
+      d.style.borderColor = ''; d.style.background = ''; d.style.boxShadow = '';
+    }
+  });
+
+  // Reveal
+  document.querySelectorAll('.r').forEach(el => {
+    if (el.getBoundingClientRect().top < window.innerHeight * 0.88) el.classList.add('v');
+  });
+}
+
+window.addEventListener('scroll', onScroll, { passive: true });
+window.addEventListener('resize', onScroll);
+onScroll();
+</script>
+</body>
+</html>

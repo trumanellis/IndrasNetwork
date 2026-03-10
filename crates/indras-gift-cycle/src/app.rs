@@ -200,6 +200,10 @@ pub fn GiftCycleApp() -> Element {
             loop {
                 match tokio::time::timeout_at(deadline, merged.next()).await {
                     Ok(Some(event)) => {
+                        // Skip noisy CRDT sync events — they fire every 5s per realm
+                        if matches!(event, indras_network::SystemEvent::DocumentSynced { .. }) {
+                            continue;
+                        }
                         let entry = P2pLogEntry {
                             timestamp: event.timestamp(),
                             message: event.display_text(),
@@ -288,21 +292,28 @@ pub fn GiftCycleApp() -> Element {
                 continue;
             };
 
+            // Build peer name lookup from known contacts
+            let peer_names: std::collections::HashMap<_, _> = peers
+                .read()
+                .iter()
+                .map(|p| (p.member_id, p.name.clone()))
+                .collect();
+
             // Refresh feed cards
             let cards =
-                data::build_intention_cards(&b.home, b.member_id, &b.player_name).await;
+                data::build_intention_cards(&b.home, b.member_id, &b.player_name, &peer_names).await;
             my_cards.set(cards.clone());
 
             // Merge home + community into unified feed
             let mut merged = cards;
             let comm =
-                data::build_community_intention_cards(&b.network, b.member_id, &b.player_name)
+                data::build_community_intention_cards(&b.network, b.member_id, &b.player_name, &peer_names)
                     .await;
             merged.extend(comm);
             all_cards.set(merged);
 
             // Refresh tokens
-            let tokens = data::build_member_tokens(&b.home, b.member_id, &b.player_name).await;
+            let tokens = data::build_member_tokens(&b.home, b.member_id, &b.player_name, &peer_names).await;
             token_cards.set(tokens);
 
             // Refresh peers from contacts realm (matches workspace poll_contacts)
@@ -369,11 +380,18 @@ pub fn GiftCycleApp() -> Element {
             let view = current_view.read().clone();
             if let AppView::Detail(id) = view {
                 let detail =
-                    data::build_intention_view(&b.home, id, b.member_id, &b.player_name).await;
+                    data::build_intention_view(&b.home, id, b.member_id, &b.player_name, &peer_names).await;
                 detail_data.set(detail);
             }
         }
     });
+
+    // Build peer name lookup for render-time use
+    let render_peer_names: std::collections::HashMap<_, _> = peers
+        .read()
+        .iter()
+        .map(|p| (p.member_id, p.name.clone()))
+        .collect();
 
     // Render
     let has_bridge = bridge.read().is_some();
@@ -507,6 +525,7 @@ pub fn GiftCycleApp() -> Element {
                                 bridge: bridge().unwrap(),
                                 available_tokens: token_cards(),
                                 connected_peers: bridge().unwrap().connected_peers(),
+                                peer_names: render_peer_names.clone(),
                                 on_created: move |id: IntentionId| {
                                     let short: String = id.iter().take(4).map(|b| format!("{b:02x}")).collect();
                                     let now_ms = std::time::SystemTime::now()
@@ -558,6 +577,7 @@ pub fn GiftCycleApp() -> Element {
                                 claimant,
                                 view_data: detail_data(),
                                 bridge: bridge().unwrap(),
+                                peer_names: render_peer_names.clone(),
                                 on_blessed: move |_| {
                                     let now_ms = std::time::SystemTime::now()
                                         .duration_since(std::time::UNIX_EPOCH)

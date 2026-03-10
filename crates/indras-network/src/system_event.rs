@@ -133,10 +133,10 @@ impl SystemEvent {
                 format!("{creator_short} created the realm")
             }
             Self::DocumentSynced { is_remote: true, .. } => {
-                "Chat synced from peer".to_string()
+                "Synced with peer".to_string()
             }
             Self::DocumentSynced { .. } => {
-                "Chat synced locally".to_string()
+                "Synced locally".to_string()
             }
         }
     }
