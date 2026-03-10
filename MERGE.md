@@ -5,78 +5,72 @@
 - **feature/artifact-browser** — merged into main (2026-02-22). 3-column artifact browser UI, artifact detail modal, navigation sidebar, audience popup. Worktree removed, branch deleted.
 - **feature/telegram-chat** — merged into main (2026-02-22). New `indras-chat` crate with P2P Telegram-style chat, replaced workspace StoryView with embedded ChatLayout. Worktree removed, branch deleted. Conflict in app.rs resolved (import merge + `infer_artifact_type` re-applied).
 
-Branch `feature/telegram-chat` (worktree: `IndrasNetwork-telegram-chat`)
+## Pending: `worktree-relay-node`
 
-## What Changed
+Branch `worktree-relay-node` (worktree: `.claude/worktrees/relay-node`)
 
-New `indras-chat` crate: a standalone P2P Telegram-style chat app with Dioxus desktop UI. Also replaces the workspace's broken StoryView with an embedded `ChatLayout` from indras-chat. **23 files changed, +2184 -736 lines.**
+### What Changed
 
-### Commit 1: `af89c21` — Add indras-chat crate
+Evolves `indras-relay` from a blind store-and-forward relay into an authenticated three-tier relay node with credential-based auth and per-tier storage staging. **12 files changed, +1663 -141 lines.**
 
-New crate `crates/indras-chat/` — standalone Telegram-style chat app:
+### New Files
 
-- **bridge.rs** — `NetworkHandle` wrapping `Arc<IndrasNetwork>`, identity creation/loading, platform-specific data dirs
-- **state.rs** — `AppPhase`, `ChatContext` (Dioxus signals), `ConversationSummary`
-- **components/app.rs** — `App` (root with first-run detection), `MainLayout` (sidebar + chat + contact add), `ChatLayout` (embeddable entry point accepting `NetworkArc`)
-- **components/sidebar.rs** — Conversation list with last-message preview, add-contact button
-- **components/chat_view.rs** — Message list with auto-scroll, send/reply functionality
-- **components/message_bubble.rs** — Chat bubbles with sender avatar, timestamp, self/other styling
-- **components/message_input.rs** — Compose bar with send button
-- **components/contact_add.rs** — Add contact by identity URI
-- **components/setup.rs** — First-run onboarding (name + optional PassStory)
-- **style.css** — Full Telegram-style dark theme (792 lines)
-- **main.rs** — Desktop app entry point with window geometry from env vars
-- **se** — Launch script updates for multi-instance tiling
+- **`crates/indras-relay/src/auth.rs`** — `AuthService`: Ed25519 credential validation, session tracking, tier assignment. Credential format: `{ player_id, transport_pubkey, expires_at }` signed with player's Ed25519 key.
+- **`crates/indras-relay/src/tier.rs`** — Tier determination logic: `determine_tier(player_id, owner_id, contacts) → StorageTier`, `granted_tiers()`, per-tier config helpers.
 
-### Commit 2: `ee117ae` — Replace workspace StoryView with ChatLayout
+### Modified Files
 
-- **indras-chat** made lib+bin crate (`[lib]` section, `lib.rs` re-exports)
-- **Deleted** `crates/indras-workspace/src/components/story.rs` (347 lines) — `StoryView`, `StoryMessage`, `StoryArtifactRef`, `render_message` all removed
-- **Simplified** `crates/indras-workspace/src/components/app.rs` (394 lines removed) — removed `chat_msg_to_story()`, `story_messages` signal, `network_for_chat` signal, CRDT chat doc subscription, all StoryMessage construction, entire ViewType::Story rendering block
-- **ViewType::Story** now renders `indras_chat::components::app::ChatLayout` with the workspace's existing `Arc<IndrasNetwork>`
-- **Chat CSS** injected via `indras_chat::CHAT_CSS` in workspace's `<style>` tags
+- **`crates/indras-transport/src/protocol.rs`** — Added `StorageTier` enum, 4 new `WireMessage` variants (`RelayAuth`, `RelayAuthAck`, `RelayStore`, `RelayStoreAck`), 6 supporting structs. Added `PartialEq` to all protocol types.
+- **`crates/indras-relay/src/config.rs`** — Added `TierConfig` (per-tier quotas/TTLs), `owner_player_id`, `community_mode` fields.
+- **`crates/indras-relay/src/error.rs`** — Added `AuthenticationFailed`, `TierAccessDenied`, `InvalidCredential` variants.
+- **`crates/indras-relay/src/blob_store.rs`** — 6 redb tables (2 per tier), tiered store/retrieve/cleanup/usage methods.
+- **`crates/indras-relay/src/quota.rs`** — Added `TieredQuotaManager` with per-tier byte and interface limits.
+- **`crates/indras-relay/src/relay_node.rs`** — Auth flow, tier-aware dispatch, `RelayStore` handler, per-tier cleanup TTLs.
+- **`crates/indras-relay/src/admin.rs`** — Per-tier stats, peer tier access in admin API.
+- **`crates/indras-relay/src/lib.rs`** — Updated module docs, added `auth` and `tier` modules.
+- **`crates/indras-relay/Cargo.toml`** — Added `ed25519-dalek` dependency.
 
-## Merge Steps
+### Merge Steps
 
 ```bash
 cd /Users/truman/Code/IndrasNetwork
 
-# 1. Merge
-git merge feature/telegram-chat
+# 1. Merge (already rebased onto origin/main — should fast-forward)
+git merge worktree-relay-node
 
 # 2. Verify
-cargo build -p indras-chat
-cargo build -p indras-workspace
+cargo test -p indras-relay -p indras-transport
+cargo build -p indras-relay
 
-# 3. Clean up worktree
-git worktree remove ../IndrasNetwork-telegram-chat
+# 3. Push
+git push
 
-# 4. Delete the branch
-git branch -d feature/telegram-chat
+# 4. Clean up worktree
+git worktree remove .claude/worktrees/relay-node
+
+# 5. Delete the branch
+git branch -d worktree-relay-node
+git push origin --delete worktree-relay-node
 ```
 
-## If Not Fast-Forward
+### If Not Fast-Forward
 
 ```bash
-# Option A: Merge (preserves history)
-git merge feature/telegram-chat
-
-# Option B: Rebase branch first (linear history)
-git checkout feature/telegram-chat
+# Rebase first (should already be current)
+git checkout worktree-relay-node
 git rebase main
 git checkout main
-git merge feature/telegram-chat
+git merge worktree-relay-node
 ```
 
 Conflicts would likely be in:
-- `crates/indras-workspace/src/components/app.rs` — if app component was restructured on main
-- `crates/indras-workspace/src/components/mod.rs` — if modules were added/removed on main
-- `Cargo.toml` / `Cargo.lock` — workspace member list
+- `crates/indras-transport/src/protocol.rs` — if new WireMessage variants were added on main
+- `Cargo.lock` — dependency resolution (auto-resolvable)
 
-## Test Summary
+### Test Summary
 
-- `cargo build -p indras-chat` — zero errors, zero warnings
-- `cargo build -p indras-workspace` — zero errors, zero warnings
-- StoryView fully removed, no dead code remaining
+- `cargo test -p indras-relay` — 40 tests pass (23 new + 17 existing)
+- `cargo test -p indras-transport` — 62 tests pass (4 new + 58 existing)
+- `cargo build -p indras-relay` — zero errors, zero warnings
 
-All pass as of commit `ee117ae`.
+All pass as of commit `ac3efdb` (rebased onto origin/main).

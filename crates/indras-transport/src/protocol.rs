@@ -68,7 +68,7 @@ pub const ALPN_INDRAS: &[u8] = b"indras/1";
 pub const MAX_MESSAGE_SIZE: usize = 1024 * 1024;
 
 /// Wire messages exchanged between peers
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum WireMessage {
     /// A packet being transmitted or relayed
     Packet(SerializedPacket),
@@ -132,12 +132,37 @@ pub enum WireMessage {
 
     /// Encounter code exchange for in-person peer discovery
     EncounterExchange(EncounterExchangeMessage),
+
+    // ========== Relay Protocol Messages ==========
+    /// Register interfaces with a relay for store-and-forward
+    RelayRegister(RelayRegisterMessage),
+
+    /// Acknowledge relay registration
+    RelayRegisterAck(RelayRegisterAckMessage),
+
+    /// Unregister interfaces from a relay
+    RelayUnregister(RelayUnregisterMessage),
+
+    /// Request stored events from relay (peer reconnecting)
+    RelayRetrieve(RelayRetrieveMessage),
+
+    /// Relay delivers stored events to peer
+    RelayDelivery(RelayDeliveryMessage),
+
+    /// Authenticate with relay using profile credentials
+    RelayAuth(RelayAuthMessage),
+    /// Authentication acknowledgment
+    RelayAuthAck(RelayAuthAckMessage),
+    /// Store data in a specific tier
+    RelayStore(RelayStoreMessage),
+    /// Store acknowledgment
+    RelayStoreAck(RelayStoreAckMessage),
 }
 
 /// Serialized packet for wire transmission
 ///
 /// Contains the serialized packet data plus routing metadata.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SerializedPacket {
     /// Unique packet identifier
     pub id: PacketId,
@@ -158,7 +183,7 @@ pub struct SerializedPacket {
 }
 
 /// Serialized delivery confirmation
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SerializedConfirmation {
     /// The packet that was delivered
     pub packet_id: PacketId,
@@ -182,7 +207,7 @@ impl From<DeliveryConfirmation<IrohIdentity>> for SerializedConfirmation {
 }
 
 /// Information about a peer's presence
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PresenceInfo {
     /// The peer's identity
     pub peer_id: IrohIdentity,
@@ -225,7 +250,7 @@ impl PresenceInfo {
 }
 
 /// Request for CRDT sync
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SyncRequest {
     /// Document/namespace identifier
     pub namespace: [u8; 32],
@@ -234,7 +259,7 @@ pub struct SyncRequest {
 }
 
 /// Response with sync data
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SyncResponse {
     /// Document/namespace identifier
     pub namespace: [u8; 32],
@@ -252,7 +277,7 @@ pub struct SyncResponse {
 ///
 /// Events are encrypted with the interface's shared symmetric key.
 /// Only members with the key can decrypt the content.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InterfaceEventMessage {
     /// The interface this event belongs to
     pub interface_id: InterfaceId,
@@ -284,7 +309,7 @@ impl InterfaceEventMessage {
 /// Request sync state for an interface
 ///
 /// Sent when a peer reconnects or needs to catch up on missed events.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InterfaceSyncRequestMessage {
     /// The interface to sync
     pub interface_id: InterfaceId,
@@ -314,7 +339,7 @@ impl InterfaceSyncRequestMessage {
 /// Response with interface sync data
 ///
 /// Contains both Automerge document sync data and pending events.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InterfaceSyncResponseMessage {
     /// The interface being synced
     pub interface_id: InterfaceId,
@@ -327,7 +352,7 @@ pub struct InterfaceSyncResponseMessage {
 }
 
 /// Data for a pending event in sync response
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PendingEventData {
     /// Event ID
     pub event_id: EventId,
@@ -359,7 +384,7 @@ impl InterfaceSyncResponseMessage {
 ///
 /// Sent when a peer joins an interface to announce their presence.
 /// Includes post-quantum key material for secure peer-to-peer communication.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InterfaceJoinMessage {
     /// The interface being joined
     pub interface_id: InterfaceId,
@@ -414,7 +439,7 @@ impl InterfaceJoinMessage {
 }
 
 /// Announce leaving an interface
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InterfaceLeaveMessage {
     /// The interface being left
     pub interface_id: InterfaceId,
@@ -436,7 +461,7 @@ impl InterfaceLeaveMessage {
 ///
 /// Sent to confirm that events have been received and processed.
 /// This allows the sender to clear their store-and-forward buffer.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InterfaceEventAckMessage {
     /// The interface
     pub interface_id: InterfaceId,
@@ -459,7 +484,7 @@ impl InterfaceEventAckMessage {
 // ============================================================================
 
 /// Information about a realm peer for discovery
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RealmPeerInfo {
     /// The peer's iroh identity
     pub peer_id: IrohIdentity,
@@ -508,7 +533,7 @@ impl RealmPeerInfo {
 ///
 /// Sent by existing members when a new peer joins to ensure
 /// all members learn about the new peer.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PeerIntroductionMessage {
     /// The interface/realm this introduction is for
     pub interface_id: InterfaceId,
@@ -533,7 +558,7 @@ impl PeerIntroductionMessage {
 ///
 /// Sent by a peer joining a realm to catch up on members
 /// that may have been missed due to gossip unreliability.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct IntroductionRequestMessage {
     /// The interface/realm to request members for
     pub interface_id: InterfaceId,
@@ -564,7 +589,7 @@ impl IntroductionRequestMessage {
 ///
 /// Sent in response to IntroductionRequest with information
 /// about realm members the requester doesn't know about.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct IntroductionResponseMessage {
     /// The interface/realm this response is for
     pub interface_id: InterfaceId,
@@ -593,7 +618,7 @@ impl IntroductionResponseMessage {
 ///
 /// Sent on the DM gossip topic when the initiator (lower MemberId)
 /// encapsulates a shared secret to the peer's PQ encapsulation key.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct KeyExchangeMessage {
     /// The DM interface/realm this key exchange is for.
     pub interface_id: InterfaceId,
@@ -621,7 +646,7 @@ impl KeyExchangeMessage {
 ///
 /// Sent on an encounter gossip topic (derived from a 6-digit code + time window).
 /// Contains the sender's MemberId so the other party can call `connect()`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct EncounterExchangeMessage {
     /// The encounter topic this exchange is for.
     pub interface_id: InterfaceId,
@@ -649,6 +674,263 @@ impl EncounterExchangeMessage {
         self.display_name = Some(name.into());
         self
     }
+}
+
+// ============================================================================
+// Relay Protocol Message Types
+// ============================================================================
+
+/// Register interfaces with a relay for blind store-and-forward
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RelayRegisterMessage {
+    /// Interfaces to register for caching
+    pub interfaces: Vec<InterfaceId>,
+    /// Optional display name for admin visibility
+    pub display_name: Option<String>,
+    /// Timestamp (Unix millis)
+    pub timestamp_millis: i64,
+}
+
+impl RelayRegisterMessage {
+    /// Create a new relay register message
+    pub fn new(interfaces: Vec<InterfaceId>) -> Self {
+        Self {
+            interfaces,
+            display_name: None,
+            timestamp_millis: chrono::Utc::now().timestamp_millis(),
+        }
+    }
+
+    /// Set the display name
+    pub fn with_name(mut self, name: impl Into<String>) -> Self {
+        self.display_name = Some(name.into());
+        self
+    }
+}
+
+/// Relay registration acknowledgment
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RelayRegisterAckMessage {
+    /// Successfully registered interfaces
+    pub accepted: Vec<InterfaceId>,
+    /// Rejected interfaces with reason
+    pub rejected: Vec<(InterfaceId, String)>,
+    /// Timestamp (Unix millis)
+    pub timestamp_millis: i64,
+}
+
+impl RelayRegisterAckMessage {
+    /// Create a new registration ack
+    pub fn new(accepted: Vec<InterfaceId>) -> Self {
+        Self {
+            accepted,
+            rejected: Vec::new(),
+            timestamp_millis: chrono::Utc::now().timestamp_millis(),
+        }
+    }
+
+    /// Add rejected interfaces
+    pub fn with_rejected(mut self, rejected: Vec<(InterfaceId, String)>) -> Self {
+        self.rejected = rejected;
+        self
+    }
+}
+
+/// Unregister interfaces from relay
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RelayUnregisterMessage {
+    /// Interfaces to unregister
+    pub interfaces: Vec<InterfaceId>,
+    /// Timestamp (Unix millis)
+    pub timestamp_millis: i64,
+}
+
+impl RelayUnregisterMessage {
+    /// Create a new unregister message
+    pub fn new(interfaces: Vec<InterfaceId>) -> Self {
+        Self {
+            interfaces,
+            timestamp_millis: chrono::Utc::now().timestamp_millis(),
+        }
+    }
+}
+
+/// Request stored events from relay after reconnection
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RelayRetrieveMessage {
+    /// Interface to retrieve events for
+    pub interface_id: InterfaceId,
+    /// Last event ID the peer has seen (relay sends everything after this)
+    pub after_event_id: Option<EventId>,
+    /// Timestamp (Unix millis)
+    pub timestamp_millis: i64,
+}
+
+impl RelayRetrieveMessage {
+    /// Create a new retrieve message
+    pub fn new(interface_id: InterfaceId) -> Self {
+        Self {
+            interface_id,
+            after_event_id: None,
+            timestamp_millis: chrono::Utc::now().timestamp_millis(),
+        }
+    }
+
+    /// Set the last event ID seen
+    pub fn after(mut self, event_id: EventId) -> Self {
+        self.after_event_id = Some(event_id);
+        self
+    }
+}
+
+/// Relay delivers stored encrypted events to a reconnecting peer
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RelayDeliveryMessage {
+    /// Interface these events belong to
+    pub interface_id: InterfaceId,
+    /// Stored encrypted events (opaque blobs)
+    pub events: Vec<StoredEvent>,
+    /// Whether there are more events available
+    pub has_more: bool,
+    /// Timestamp (Unix millis)
+    pub timestamp_millis: i64,
+}
+
+impl RelayDeliveryMessage {
+    /// Create a new delivery message
+    pub fn new(interface_id: InterfaceId, events: Vec<StoredEvent>) -> Self {
+        Self {
+            interface_id,
+            events,
+            has_more: false,
+            timestamp_millis: chrono::Utc::now().timestamp_millis(),
+        }
+    }
+
+    /// Indicate there are more events
+    pub fn with_more(mut self) -> Self {
+        self.has_more = true;
+        self
+    }
+}
+
+/// An encrypted event stored by the relay (opaque blob)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StoredEvent {
+    /// Event ID for ordering
+    pub event_id: EventId,
+    /// The encrypted event payload (from InterfaceEventMessage)
+    pub encrypted_event: Vec<u8>,
+    /// Encryption nonce
+    pub nonce: [u8; 12],
+    /// When the relay received this event (Unix millis)
+    pub received_at_millis: i64,
+}
+
+impl StoredEvent {
+    /// Create a new stored event
+    pub fn new(event_id: EventId, encrypted_event: Vec<u8>, nonce: [u8; 12]) -> Self {
+        Self {
+            event_id,
+            encrypted_event,
+            nonce,
+            received_at_millis: chrono::Utc::now().timestamp_millis(),
+        }
+    }
+}
+
+/// Storage tier for the three-tier relay staging model.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum StorageTier {
+    /// Owner's own data — backup, pinning, cross-device sync
+    Self_,
+    /// Mutual peer data — realm sync, encrypted S&F, custody
+    Connections,
+    /// Network broadcast — announcements, discovery
+    Public,
+}
+
+/// Authentication request linking transport identity to profile PlayerId.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RelayAuthMessage {
+    /// Signed credential blob from indras-profile
+    pub credential: Vec<u8>,
+    /// PlayerId claiming authentication
+    pub player_id: [u8; 32],
+    /// Timestamp for replay protection
+    pub timestamp_millis: i64,
+}
+
+/// Authentication acknowledgment with tier access info.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RelayAuthAckMessage {
+    /// Whether authentication succeeded
+    pub authenticated: bool,
+    /// Granted storage tiers
+    pub granted_tiers: Vec<StorageTier>,
+    /// Per-tier quota information
+    pub tier_quotas: Vec<TierQuotaInfo>,
+    /// Timestamp
+    pub timestamp_millis: i64,
+}
+
+/// Quota information for a specific storage tier.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TierQuotaInfo {
+    pub tier: StorageTier,
+    pub max_bytes: u64,
+    pub used_bytes: u64,
+    pub max_interfaces: usize,
+}
+
+/// Store data in a specific tier (explicit storage beyond gossip observation).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RelayStoreMessage {
+    /// Target storage tier
+    pub tier: StorageTier,
+    /// Interface to store under
+    pub interface_id: InterfaceId,
+    /// Opaque encrypted blob
+    pub data: Vec<u8>,
+    /// Storage metadata
+    pub metadata: StoreMetadata,
+    /// Timestamp
+    pub timestamp_millis: i64,
+}
+
+/// Acknowledgment for a store request.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RelayStoreAckMessage {
+    /// Whether the store was accepted
+    pub accepted: bool,
+    /// Rejection reason if not accepted
+    pub reason: Option<String>,
+    /// Timestamp
+    pub timestamp_millis: i64,
+}
+
+/// Metadata for a store request.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StoreMetadata {
+    /// Type of content being stored
+    pub content_type: StoreContentType,
+    /// Request pinning (Self tier only)
+    pub pin: bool,
+    /// Override default TTL for this tier
+    pub ttl_override_days: Option<u64>,
+}
+
+/// Content type for stored data.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum StoreContentType {
+    /// Normal interface event
+    Event,
+    /// Backup blob (Self tier)
+    Backup,
+    /// Peer data custody transfer (Connections tier)
+    CustodyTransfer,
+    /// Public announcement broadcast
+    Broadcast,
 }
 
 /// Frame a message for wire transmission
@@ -923,6 +1205,121 @@ mod tests {
         let data = [0x00, 0x00, 0x03, 0xE8, 0x01, 0x02, 0x03, 0x04];
         let result = parse_framed_message(&data);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_relay_register_roundtrip() {
+        use indras_core::InterfaceId;
+
+        let interfaces = vec![InterfaceId::new([0xAA; 32]), InterfaceId::new([0xBB; 32])];
+        let msg = WireMessage::RelayRegister(
+            RelayRegisterMessage::new(interfaces.clone()).with_name("TestRelay"),
+        );
+        let framed = frame_message(&msg).unwrap();
+        let parsed = parse_framed_message(&framed).unwrap();
+
+        match parsed {
+            WireMessage::RelayRegister(r) => {
+                assert_eq!(r.interfaces, interfaces);
+                assert_eq!(r.display_name, Some("TestRelay".to_string()));
+            }
+            _ => panic!("Expected RelayRegister"),
+        }
+    }
+
+    #[test]
+    fn test_relay_register_ack_roundtrip() {
+        use indras_core::InterfaceId;
+
+        let accepted = vec![InterfaceId::new([0xAA; 32])];
+        let rejected = vec![(InterfaceId::new([0xBB; 32]), "over quota".to_string())];
+        let msg = WireMessage::RelayRegisterAck(
+            RelayRegisterAckMessage::new(accepted.clone()).with_rejected(rejected.clone()),
+        );
+        let framed = frame_message(&msg).unwrap();
+        let parsed = parse_framed_message(&framed).unwrap();
+
+        match parsed {
+            WireMessage::RelayRegisterAck(r) => {
+                assert_eq!(r.accepted, accepted);
+                assert_eq!(r.rejected.len(), 1);
+                assert_eq!(r.rejected[0].1, "over quota");
+            }
+            _ => panic!("Expected RelayRegisterAck"),
+        }
+    }
+
+    #[test]
+    fn test_relay_unregister_roundtrip() {
+        use indras_core::InterfaceId;
+
+        let interfaces = vec![InterfaceId::new([0xCC; 32])];
+        let msg = WireMessage::RelayUnregister(RelayUnregisterMessage::new(interfaces.clone()));
+        let framed = frame_message(&msg).unwrap();
+        let parsed = parse_framed_message(&framed).unwrap();
+
+        match parsed {
+            WireMessage::RelayUnregister(r) => {
+                assert_eq!(r.interfaces, interfaces);
+            }
+            _ => panic!("Expected RelayUnregister"),
+        }
+    }
+
+    #[test]
+    fn test_relay_retrieve_roundtrip() {
+        use indras_core::InterfaceId;
+
+        let interface_id = InterfaceId::new([0xDD; 32]);
+        let event_id = indras_core::EventId::new(42, 7);
+        let msg = WireMessage::RelayRetrieve(
+            RelayRetrieveMessage::new(interface_id).after(event_id),
+        );
+        let framed = frame_message(&msg).unwrap();
+        let parsed = parse_framed_message(&framed).unwrap();
+
+        match parsed {
+            WireMessage::RelayRetrieve(r) => {
+                assert_eq!(r.interface_id, interface_id);
+                assert_eq!(r.after_event_id, Some(event_id));
+            }
+            _ => panic!("Expected RelayRetrieve"),
+        }
+    }
+
+    #[test]
+    fn test_relay_delivery_roundtrip() {
+        use indras_core::InterfaceId;
+
+        let interface_id = InterfaceId::new([0xEE; 32]);
+        let events = vec![
+            StoredEvent::new(
+                indras_core::EventId::new(1, 1),
+                vec![1, 2, 3, 4],
+                [0x11; 12],
+            ),
+            StoredEvent::new(
+                indras_core::EventId::new(1, 2),
+                vec![5, 6, 7, 8],
+                [0x22; 12],
+            ),
+        ];
+        let msg = WireMessage::RelayDelivery(
+            RelayDeliveryMessage::new(interface_id, events).with_more(),
+        );
+        let framed = frame_message(&msg).unwrap();
+        let parsed = parse_framed_message(&framed).unwrap();
+
+        match parsed {
+            WireMessage::RelayDelivery(d) => {
+                assert_eq!(d.interface_id, interface_id);
+                assert_eq!(d.events.len(), 2);
+                assert!(d.has_more);
+                assert_eq!(d.events[0].encrypted_event, vec![1, 2, 3, 4]);
+                assert_eq!(d.events[1].nonce, [0x22; 12]);
+            }
+            _ => panic!("Expected RelayDelivery"),
+        }
     }
 
     #[test]
@@ -1220,5 +1617,65 @@ mod tests {
         assert_eq!(info.pq_encapsulation_key, Some(vec![1, 2, 3]));
         assert_eq!(info.pq_verifying_key, Some(vec![4, 5, 6]));
         assert!(info.timestamp_millis > 0);
+    }
+
+    #[test]
+    fn test_relay_auth_roundtrip() {
+        let msg = WireMessage::RelayAuth(RelayAuthMessage {
+            credential: vec![1, 2, 3, 4],
+            player_id: [42u8; 32],
+            timestamp_millis: 1700000000000,
+        });
+        let bytes = postcard::to_allocvec(&msg).unwrap();
+        let decoded: WireMessage = postcard::from_bytes(&bytes).unwrap();
+        assert_eq!(msg, decoded);
+    }
+
+    #[test]
+    fn test_relay_auth_ack_roundtrip() {
+        let msg = WireMessage::RelayAuthAck(RelayAuthAckMessage {
+            authenticated: true,
+            granted_tiers: vec![StorageTier::Self_, StorageTier::Connections, StorageTier::Public],
+            tier_quotas: vec![TierQuotaInfo {
+                tier: StorageTier::Self_,
+                max_bytes: 1_073_741_824,
+                used_bytes: 0,
+                max_interfaces: 100,
+            }],
+            timestamp_millis: 1700000000000,
+        });
+        let bytes = postcard::to_allocvec(&msg).unwrap();
+        let decoded: WireMessage = postcard::from_bytes(&bytes).unwrap();
+        assert_eq!(msg, decoded);
+    }
+
+    #[test]
+    fn test_relay_store_roundtrip() {
+        let msg = WireMessage::RelayStore(RelayStoreMessage {
+            tier: StorageTier::Connections,
+            interface_id: InterfaceId([7u8; 32]),
+            data: vec![10, 20, 30],
+            metadata: StoreMetadata {
+                content_type: StoreContentType::Event,
+                pin: false,
+                ttl_override_days: None,
+            },
+            timestamp_millis: 1700000000000,
+        });
+        let bytes = postcard::to_allocvec(&msg).unwrap();
+        let decoded: WireMessage = postcard::from_bytes(&bytes).unwrap();
+        assert_eq!(msg, decoded);
+    }
+
+    #[test]
+    fn test_relay_store_ack_roundtrip() {
+        let msg = WireMessage::RelayStoreAck(RelayStoreAckMessage {
+            accepted: false,
+            reason: Some("quota exceeded".to_string()),
+            timestamp_millis: 1700000000000,
+        });
+        let bytes = postcard::to_allocvec(&msg).unwrap();
+        let decoded: WireMessage = postcard::from_bytes(&bytes).unwrap();
+        assert_eq!(msg, decoded);
     }
 }
