@@ -10,7 +10,7 @@ use tokio::sync::RwLock;
 use indras_network::error::{IndraError, Result};
 use indras_network::home_realm::HomeRealm;
 use indras_network::member::MemberId;
-use indras_network::{IndrasNetwork, RealmId};
+use indras_network::IndrasNetwork;
 use indras_sync_engine::{
     AttentionDocument, AttentionEventId, BlessingDocument, BlessingId, ClaimId, Intention,
     IntentionDocument, IntentionId, IntentionKind, TokenOfGratitudeDocument, TokenOfGratitudeId,
@@ -31,8 +31,10 @@ pub struct GiftCycleBridge {
     pub player_name: String,
     /// The network instance for DM realm sharing.
     pub network: Arc<IndrasNetwork>,
-    /// Shared homepage profile handle for live updates.
-    pub homepage_profile: Option<Arc<RwLock<indras_profile::Profile>>>,
+    /// Shared homepage fields handle for live updates.
+    pub homepage_fields: Option<Arc<RwLock<Vec<indras_homepage::ProfileFieldArtifact>>>>,
+    /// Shared homepage artifacts handle for live updates.
+    pub homepage_artifacts: Option<Arc<RwLock<Vec<indras_homepage::ContentArtifact>>>>,
 }
 
 impl PartialEq for GiftCycleBridge {
@@ -54,13 +56,20 @@ impl GiftCycleBridge {
             member_id,
             player_name,
             network,
-            homepage_profile: None,
+            homepage_fields: None,
+            homepage_artifacts: None,
         }
     }
 
-    /// Set the homepage profile handle for live updates.
-    pub fn with_homepage_profile(mut self, handle: Arc<RwLock<indras_profile::Profile>>) -> Self {
-        self.homepage_profile = Some(handle);
+    /// Set the homepage fields handle for live updates.
+    pub fn with_homepage_fields(mut self, handle: Arc<RwLock<Vec<indras_homepage::ProfileFieldArtifact>>>) -> Self {
+        self.homepage_fields = Some(handle);
+        self
+    }
+
+    /// Set the homepage artifacts handle for live updates.
+    pub fn with_homepage_artifacts(mut self, handle: Arc<RwLock<Vec<indras_homepage::ContentArtifact>>>) -> Self {
+        self.homepage_artifacts = Some(handle);
         self
     }
 
@@ -151,76 +160,29 @@ impl GiftCycleBridge {
     // ── Stage 2: Attention ─────────────────────────────────────────
 
     /// Focus attention on an intention.
-    ///
-    /// Creates the event ONCE, then inserts the exact same event (same `event_id`,
-    /// same timestamp) into all relevant docs. For home realm intentions, the event
-    /// is written to home + all DM realms. For DM realm intentions, only the source
-    /// DM realm is written. CRDT dedup by `event_id` prevents double-counting.
     pub async fn focus_attention(
         &self,
         intention_id: IntentionId,
-        source_realm_id: Option<RealmId>,
     ) -> Result<AttentionEventId> {
-        use indras_sync_engine::AttentionSwitchEvent;
-
-        let event = AttentionSwitchEvent::focus(self.member_id, intention_id);
-        let event_id = event.event_id;
-
-        if let Some(ref rid) = source_realm_id {
-            // Community intention — write only to the source DM realm
-            let realm = self.network.get_realm_by_id(rid)
-                .ok_or_else(|| IndraError::RealmNotFound { id: "source realm".into() })?;
-            let doc = realm.document::<AttentionDocument>("attention").await?;
-            doc.update(|d| { d.insert_event(event); }).await?;
-        } else {
-            // Home realm intention — write to home + all DM realms
-            let home_doc = self.home.document::<AttentionDocument>("attention").await?;
-            let ev = event.clone();
-            home_doc.update(|d| { d.insert_event(ev); }).await?;
-
-            for rid in self.network.conversation_realms() {
-                if self.network.dm_peer_for_realm(&rid).is_none() {
-                    continue;
-                }
-                let Some(realm) = self.network.get_realm_by_id(&rid) else { continue };
-                let Ok(doc) = realm.document::<AttentionDocument>("attention").await else { continue };
-                let ev = event.clone();
-                let _ = doc.update(|d| { d.insert_event(ev); }).await;
-            }
-        }
+        let mut event_id = [0u8; 16];
+        let doc = self.home.document::<AttentionDocument>("attention").await?;
+        let member = self.member_id;
+        doc.update(|d| {
+            event_id = d.focus_on_intention(member, intention_id);
+        })
+        .await?;
         Ok(event_id)
     }
 
     /// Clear attention focus (idle).
-    ///
-    /// Creates the clear event ONCE, then inserts the exact same event into all
-    /// relevant docs. Same pattern as `focus_attention`.
-    pub async fn clear_attention(&self, source_realm_id: Option<RealmId>) -> Result<AttentionEventId> {
-        use indras_sync_engine::AttentionSwitchEvent;
-
-        let event = AttentionSwitchEvent::clear(self.member_id);
-        let event_id = event.event_id;
-
-        if let Some(ref rid) = source_realm_id {
-            let realm = self.network.get_realm_by_id(rid)
-                .ok_or_else(|| IndraError::RealmNotFound { id: "source realm".into() })?;
-            let doc = realm.document::<AttentionDocument>("attention").await?;
-            doc.update(|d| { d.insert_event(event); }).await?;
-        } else {
-            let home_doc = self.home.document::<AttentionDocument>("attention").await?;
-            let ev = event.clone();
-            home_doc.update(|d| { d.insert_event(ev); }).await?;
-
-            for rid in self.network.conversation_realms() {
-                if self.network.dm_peer_for_realm(&rid).is_none() {
-                    continue;
-                }
-                let Some(realm) = self.network.get_realm_by_id(&rid) else { continue };
-                let Ok(doc) = realm.document::<AttentionDocument>("attention").await else { continue };
-                let ev = event.clone();
-                let _ = doc.update(|d| { d.insert_event(ev); }).await;
-            }
-        }
+    pub async fn clear_attention(&self) -> Result<AttentionEventId> {
+        let mut event_id = [0u8; 16];
+        let doc = self.home.document::<AttentionDocument>("attention").await?;
+        let member = self.member_id;
+        doc.update(|d| {
+            event_id = d.clear_attention(member);
+        })
+        .await?;
         Ok(event_id)
     }
 
@@ -417,14 +379,15 @@ impl GiftCycleBridge {
         peers
     }
 
-    /// Grant a peer access to Connections-level profile fields.
-    pub async fn grant_profile_access(
+    /// Grant a peer access to a specific profile field.
+    pub async fn grant_field_access(
         &self,
+        field_name: &str,
         grantee: MemberId,
         mode: indras_artifacts::AccessMode,
     ) -> Result<()> {
-        let artifact_id = indras_artifacts::ArtifactId::Blob(
-            indras_profile::profile_artifact_id(&self.member_id),
+        let artifact_id = indras_artifacts::ArtifactId::Doc(
+            indras_homepage::profile_field_artifact_id(&self.member_id, field_name),
         );
         self.home.grant_access(&artifact_id, grantee, mode).await
     }

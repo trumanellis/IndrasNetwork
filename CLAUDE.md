@@ -54,8 +54,6 @@ When using names for peer/node instances in examples, simulations, or documentat
 
 Standard git workflow. Use `git commit`, `git push`, etc. normally.
 
-**Never auto-delete worktrees or branches after merging.** The user often continues working from worktree directories across many merges. Only remove worktrees or delete branches when explicitly asked.
-
 ## Greenfield Project
 
 This entire project is greenfield. Do not maintain backward compatibility unless explicitly told

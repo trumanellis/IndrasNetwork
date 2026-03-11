@@ -1,45 +1,46 @@
-//! HTML template rendering for the homepage
+//! HTML template rendering for the homepage.
 
-use crate::profile::{Profile, ViewLevel};
+use crate::{ContentArtifact, ProfileFieldArtifact, fields};
 
-/// Render the profile homepage as HTML with visibility-gated sections.
-pub fn render_profile(profile: &Profile, viewer: ViewLevel) -> String {
-    let name = profile.display_name.for_viewer(&viewer)
-        .map(|s| html_escape(s))
-        .unwrap_or_default();
-    let initial = profile.display_name.for_viewer(&viewer)
-        .and_then(|s| s.chars().next())
-        .unwrap_or('?');
-    let username = profile.username.for_viewer(&viewer)
-        .map(|s| html_escape(s))
-        .unwrap_or_default();
+/// Render the homepage as HTML with grant-filtered fields and artifacts.
+pub fn render_homepage(
+    fields: &[&ProfileFieldArtifact],
+    artifacts: &[&ContentArtifact],
+) -> String {
+    // Look up identity fields by name
+    let display_name = field_value(fields, fields::DISPLAY_NAME).unwrap_or_default();
+    let initial = display_name.chars().next().unwrap_or('?');
+    let username = field_value(fields, fields::USERNAME).unwrap_or_default();
 
-    let bio_section = profile.bio.for_viewer(&viewer)
-        .and_then(|opt| opt.as_deref())
-        .map(|bio| format!(r#"<p class="bio">{}</p>"#, html_escape(bio)))
+    let bio_section = field_value(fields, fields::BIO)
+        .filter(|s| !s.is_empty())
+        .map(|bio| format!(r#"<p class="bio">{}</p>"#, html_escape(&bio)))
         .unwrap_or_default();
 
-    let key_section = profile.public_key.for_viewer(&viewer)
+    let key_section = field_value(fields, fields::PUBLIC_KEY)
         .map(|key| {
             let short_key = if key.len() > 16 {
                 format!("{}…{}", &key[..8], &key[key.len()-8..])
             } else {
-                key.clone()
+                key
             };
             format!(r#"<div class="key"><span class="key-dot"></span><span>{short_key}</span></div>"#)
         })
         .unwrap_or_default();
 
-    let stats_section = render_stats(profile, &viewer);
-    let social_section = render_social(profile, &viewer);
-    let content_section = render_content(profile, &viewer);
+    let stats_section = render_stats(fields);
+    let social_section = render_social(fields);
+    let content_section = render_content(fields);
+    let artifacts_section = render_artifacts(artifacts);
+
+    let page_title = if display_name.is_empty() { "Anonymous".to_string() } else { html_escape(&display_name) };
 
     format!(r#"<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{name} — IndrasNetwork</title>
+<title>{page_title} — IndrasNetwork</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
 :root {{
@@ -222,6 +223,29 @@ h1 {{
   background: var(--bg-raised);
   color: var(--accent-violet);
 }}
+.artifact-list {{
+  list-style: none;
+}}
+.artifact-item {{
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin-bottom: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}}
+.artifact-name {{
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}}
+.artifact-meta {{
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}}
 .footer {{
   margin-top: 32px;
   font-size: 12px;
@@ -252,47 +276,59 @@ h1 {{
   {stats}
   {social}
   {content}
+  {artifacts}
   <div class="footer">
     Powered by <a href="https://github.com/indras-network/indras-network">IndrasNetwork</a>
   </div>
 </div>
 </body>
 </html>"#,
-        name = name,
+        name = html_escape(&display_name),
         initial = initial,
-        username = username,
+        username = html_escape(&username),
         bio = bio_section,
         key = key_section,
         stats = stats_section,
         social = social_section,
         content = content_section,
+        artifacts = artifacts_section,
     )
 }
 
+/// Get a field's display value by name.
+fn field_value(fields: &[&ProfileFieldArtifact], name: &str) -> Option<String> {
+    fields.iter()
+        .find(|f| f.field_name == name)
+        .map(|f| f.display_value.clone())
+}
+
 /// Render the activity stats grid.
-fn render_stats(profile: &Profile, viewer: &ViewLevel) -> String {
+fn render_stats(fields: &[&ProfileFieldArtifact]) -> String {
     let mut cards = Vec::new();
 
-    if let Some(&count) = profile.intention_count.for_viewer(viewer) {
+    if let Some(val) = field_value(fields, fields::INTENTION_COUNT) {
         cards.push(format!(
-            r#"<div class="stat-card"><div class="stat-value">{count}</div><div class="stat-label">Intentions</div></div>"#
+            r#"<div class="stat-card"><div class="stat-value">{}</div><div class="stat-label">Intentions</div></div>"#,
+            html_escape(&val)
         ));
     }
-    if let Some(&count) = profile.token_count.for_viewer(viewer) {
+    if let Some(val) = field_value(fields, fields::TOKEN_COUNT) {
         cards.push(format!(
-            r#"<div class="stat-card"><div class="stat-value">{count}</div><div class="stat-label">Tokens</div></div>"#
+            r#"<div class="stat-card"><div class="stat-value">{}</div><div class="stat-label">Tokens</div></div>"#,
+            html_escape(&val)
         ));
     }
-    if let Some(&count) = profile.blessings_given.for_viewer(viewer) {
+    if let Some(val) = field_value(fields, fields::BLESSINGS_GIVEN) {
         cards.push(format!(
-            r#"<div class="stat-card"><div class="stat-value">{count}</div><div class="stat-label">Blessings Given</div></div>"#
+            r#"<div class="stat-card"><div class="stat-value">{}</div><div class="stat-label">Blessings Given</div></div>"#,
+            html_escape(&val)
         ));
     }
-    if let Some(time) = profile.attention_contributed.for_viewer(viewer) {
-        if !time.is_empty() {
+    if let Some(val) = field_value(fields, fields::ATTENTION_CONTRIBUTED) {
+        if !val.is_empty() {
             cards.push(format!(
                 r#"<div class="stat-card"><div class="stat-value">{}</div><div class="stat-label">Attention</div></div>"#,
-                html_escape(time)
+                html_escape(&val)
             ));
         }
     }
@@ -308,20 +344,22 @@ fn render_stats(profile: &Profile, viewer: &ViewLevel) -> String {
 }
 
 /// Render the social section (contacts + humanness).
-fn render_social(profile: &Profile, viewer: &ViewLevel) -> String {
+fn render_social(fields: &[&ProfileFieldArtifact]) -> String {
     let mut items = Vec::new();
 
-    if let Some(&count) = profile.contact_count.for_viewer(viewer) {
+    if let Some(val) = field_value(fields, fields::CONTACT_COUNT) {
         items.push(format!(
-            r#"<div class="social-item"><div class="social-value">{count}</div><div class="social-label">Contacts</div></div>"#
+            r#"<div class="social-item"><div class="social-value">{val}</div><div class="social-label">Contacts</div></div>"#
         ));
     }
 
-    if let Some(&freshness) = profile.humanness_freshness.for_viewer(viewer) {
-        let pct = (freshness * 100.0).round() as u32;
-        items.push(format!(
-            r#"<div class="social-item"><div class="social-value">{pct}%</div><div class="social-label">Humanness</div><div class="freshness-bar"><div class="freshness-fill" style="width: {pct}%"></div></div></div>"#
-        ));
+    if let Some(val) = field_value(fields, fields::HUMANNESS_FRESHNESS) {
+        if let Ok(freshness) = val.parse::<f64>() {
+            let pct = (freshness * 100.0).round() as u32;
+            items.push(format!(
+                r#"<div class="social-item"><div class="social-value">{pct}%</div><div class="social-label">Humanness</div><div class="freshness-bar"><div class="freshness-fill" style="width: {pct}%"></div></div></div>"#
+            ));
+        }
     }
 
     if items.is_empty() {
@@ -334,43 +372,84 @@ fn render_social(profile: &Profile, viewer: &ViewLevel) -> String {
     )
 }
 
-/// Render the content section (active quests + offerings).
-fn render_content(profile: &Profile, viewer: &ViewLevel) -> String {
+/// Render the content section (active quests + offerings from field values).
+///
+/// The active_quests and active_offerings fields store JSON-serialized
+/// `Vec<IntentionSummary>` as their display_value.
+fn render_content(fields: &[&ProfileFieldArtifact]) -> String {
     let mut sections = Vec::new();
 
-    if let Some(quests) = profile.active_quests.for_viewer(viewer) {
-        if !quests.is_empty() {
-            let items: Vec<String> = quests.iter().map(|q| {
-                format!(
-                    r#"<li class="intention-item"><span class="intention-title">{}</span><span class="intention-badge">{}</span></li>"#,
-                    html_escape(&q.title),
-                    html_escape(&q.kind),
-                )
-            }).collect();
-            sections.push(format!(
-                r#"<div class="section"><div class="section-title">Active Quests</div><ul class="intention-list">{}</ul></div>"#,
-                items.join("\n    ")
-            ));
+    if let Some(val) = field_value(fields, fields::ACTIVE_QUESTS) {
+        if let Ok(quests) = serde_json::from_str::<Vec<crate::IntentionSummary>>(&val) {
+            if !quests.is_empty() {
+                let items: Vec<String> = quests.iter().map(|q| {
+                    format!(
+                        r#"<li class="intention-item"><span class="intention-title">{}</span><span class="intention-badge">{}</span></li>"#,
+                        html_escape(&q.title),
+                        html_escape(&q.kind),
+                    )
+                }).collect();
+                sections.push(format!(
+                    r#"<div class="section"><div class="section-title">Active Quests</div><ul class="intention-list">{}</ul></div>"#,
+                    items.join("\n    ")
+                ));
+            }
         }
     }
 
-    if let Some(offerings) = profile.active_offerings.for_viewer(viewer) {
-        if !offerings.is_empty() {
-            let items: Vec<String> = offerings.iter().map(|o| {
-                format!(
-                    r#"<li class="intention-item"><span class="intention-title">{}</span><span class="intention-badge">{}</span></li>"#,
-                    html_escape(&o.title),
-                    html_escape(&o.kind),
-                )
-            }).collect();
-            sections.push(format!(
-                r#"<div class="section"><div class="section-title">Active Offerings</div><ul class="intention-list">{}</ul></div>"#,
-                items.join("\n    ")
-            ));
+    if let Some(val) = field_value(fields, fields::ACTIVE_OFFERINGS) {
+        if let Ok(offerings) = serde_json::from_str::<Vec<crate::IntentionSummary>>(&val) {
+            if !offerings.is_empty() {
+                let items: Vec<String> = offerings.iter().map(|o| {
+                    format!(
+                        r#"<li class="intention-item"><span class="intention-title">{}</span><span class="intention-badge">{}</span></li>"#,
+                        html_escape(&o.title),
+                        html_escape(&o.kind),
+                    )
+                }).collect();
+                sections.push(format!(
+                    r#"<div class="section"><div class="section-title">Active Offerings</div><ul class="intention-list">{}</ul></div>"#,
+                    items.join("\n    ")
+                ));
+            }
         }
     }
 
     sections.join("\n")
+}
+
+/// Render the content artifacts section.
+fn render_artifacts(artifacts: &[&ContentArtifact]) -> String {
+    if artifacts.is_empty() {
+        return String::new();
+    }
+
+    let items: Vec<String> = artifacts.iter().map(|a| {
+        let mime = a.mime_type.as_deref().unwrap_or("unknown");
+        let size_str = format_size(a.size);
+        format!(
+            r#"<li class="artifact-item"><span class="artifact-name">{}</span><span class="artifact-meta">{} · {}</span></li>"#,
+            html_escape(&a.name),
+            html_escape(mime),
+            size_str,
+        )
+    }).collect();
+
+    format!(
+        r#"<div class="section"><div class="section-title">Artifacts</div><ul class="artifact-list">{}</ul></div>"#,
+        items.join("\n    ")
+    )
+}
+
+/// Format byte size as human-readable string.
+fn format_size(bytes: u64) -> String {
+    if bytes < 1024 {
+        format!("{bytes} B")
+    } else if bytes < 1024 * 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    } else {
+        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
+    }
 }
 
 /// Render a JSON health check response.
@@ -390,30 +469,55 @@ fn html_escape(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::profile::Profile;
-    use crate::profile::ViewLevel;
+    use indras_artifacts::access::{AccessGrant, AccessMode};
+
+    fn public_field(name: &str, value: &str) -> ProfileFieldArtifact {
+        ProfileFieldArtifact {
+            field_name: name.to_string(),
+            display_value: value.to_string(),
+            grants: vec![AccessGrant {
+                grantee: [0x00; 32],
+                mode: AccessMode::Public,
+                granted_at: 0,
+                granted_by: [0x00; 32],
+            }],
+        }
+    }
 
     #[test]
-    fn render_profile_contains_name() {
-        let profile = Profile::new("Alice", "alice", "abcdef1234567890abcdef1234567890");
-        let html = render_profile(&profile, ViewLevel::Public);
+    fn render_contains_name() {
+        let fields = vec![
+            public_field("display_name", "Alice"),
+            public_field("username", "alice"),
+            public_field("public_key", "abcdef1234567890abcdef1234567890"),
+        ];
+        let field_refs: Vec<&ProfileFieldArtifact> = fields.iter().collect();
+        let html = render_homepage(&field_refs, &[]);
         assert!(html.contains("Alice"));
         assert!(html.contains("@alice"));
         assert!(html.contains("abcdef12"));
     }
 
     #[test]
-    fn render_profile_with_bio() {
-        let profile = Profile::new("Bob", "bob", "1234567890abcdef1234567890abcdef")
-            .with_bio("P2P enthusiast");
-        let html = render_profile(&profile, ViewLevel::Public);
+    fn render_with_bio() {
+        let fields = vec![
+            public_field("display_name", "Bob"),
+            public_field("username", "bob"),
+            public_field("bio", "P2P enthusiast"),
+        ];
+        let field_refs: Vec<&ProfileFieldArtifact> = fields.iter().collect();
+        let html = render_homepage(&field_refs, &[]);
         assert!(html.contains("P2P enthusiast"));
     }
 
     #[test]
-    fn render_profile_escapes_html() {
-        let profile = Profile::new("<script>alert('xss')</script>", "hacker", "key123key123key123");
-        let html = render_profile(&profile, ViewLevel::Public);
+    fn render_escapes_html() {
+        let fields = vec![
+            public_field("display_name", "<script>alert('xss')</script>"),
+            public_field("username", "hacker"),
+        ];
+        let field_refs: Vec<&ProfileFieldArtifact> = fields.iter().collect();
+        let html = render_homepage(&field_refs, &[]);
         assert!(!html.contains("<script>"));
         assert!(html.contains("&lt;script&gt;"));
     }
@@ -425,27 +529,15 @@ mod tests {
     }
 
     #[test]
-    fn private_fields_hidden_from_public() {
-        let mut profile = Profile::new("Alice", "alice", "abcdef1234567890abcdef1234567890");
-        profile.bio = indras_profile::Visible::private(Some("Secret bio".to_string()));
-        let html = render_profile(&profile, ViewLevel::Public);
-        assert!(!html.contains("Secret bio"));
-    }
-
-    #[test]
-    fn private_fields_visible_to_owner() {
-        let mut profile = Profile::new("Alice", "alice", "abcdef1234567890abcdef1234567890");
-        profile.bio = indras_profile::Visible::private(Some("Secret bio".to_string()));
-        let html = render_profile(&profile, ViewLevel::Owner);
-        assert!(html.contains("Secret bio"));
-    }
-
-    #[test]
     fn stats_section_renders() {
-        let mut profile = Profile::new("Alice", "alice", "abcdef1234567890abcdef1234567890");
-        profile.set_intention_count(5);
-        profile.set_token_count(3);
-        let html = render_profile(&profile, ViewLevel::Public);
+        let fields = vec![
+            public_field("display_name", "Alice"),
+            public_field("username", "alice"),
+            public_field("intention_count", "5"),
+            public_field("token_count", "3"),
+        ];
+        let field_refs: Vec<&ProfileFieldArtifact> = fields.iter().collect();
+        let html = render_homepage(&field_refs, &[]);
         assert!(html.contains("Intentions"));
         assert!(html.contains("Tokens"));
         assert!(html.contains(">5<"));
@@ -454,9 +546,13 @@ mod tests {
 
     #[test]
     fn humanness_bar_renders() {
-        let mut profile = Profile::new("Alice", "alice", "abcdef1234567890abcdef1234567890");
-        profile.set_humanness_freshness(0.75);
-        let html = render_profile(&profile, ViewLevel::Public);
+        let fields = vec![
+            public_field("display_name", "Alice"),
+            public_field("username", "alice"),
+            public_field("humanness_freshness", "0.75"),
+        ];
+        let field_refs: Vec<&ProfileFieldArtifact> = fields.iter().collect();
+        let html = render_homepage(&field_refs, &[]);
         assert!(html.contains("75%"));
         assert!(html.contains("freshness-fill"));
     }

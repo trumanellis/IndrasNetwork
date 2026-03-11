@@ -18,15 +18,12 @@ pub fn IntentionDetail(
     on_submit_proof: EventHandler<IntentionId>,
     on_bless: EventHandler<(IntentionId, MemberId)>,
 ) -> Element {
-    // Extract source_realm_id from view data for attention routing
-    let source_realm_id = view_data.as_ref().and_then(|d| d.source_realm_id);
-
     // Focus attention on mount
     let bridge_focus = bridge.clone();
     let _focus = use_resource(move || {
         let b = bridge_focus.clone();
         async move {
-            if let Err(e) = b.focus_attention(intention_id, source_realm_id).await {
+            if let Err(e) = b.focus_attention(intention_id).await {
                 tracing::warn!(error = %e, "Failed to focus attention");
             }
         }
@@ -37,7 +34,7 @@ pub fn IntentionDetail(
     use_drop(move || {
         let b = bridge_clear.clone();
         tokio::spawn(async move {
-            let _ = b.clear_attention(source_realm_id).await;
+            let _ = b.clear_attention().await;
         });
     });
 

@@ -1,8 +1,0 @@
-[package]
-name = "indras-profile"
-version.workspace = true
-edition.workspace = true
-description = "Profile data types with per-field visibility controls"
-
-[dependencies]
-serde = { workspace = true, features = ["derive"] }

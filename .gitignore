@@ -25,7 +25,6 @@ Thumbs.db
 
 # Logs
 *.log
-*.json
 *.jsonl
 logs/
 
@@ -34,4 +33,5 @@ iroh-examples
 old-syncengine
 .worktrees/
 PLAN.md
-MERGE.md
+NOTES.md
+Cargo.lock

@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use indras_network::home_realm::HomeRealm;
 use indras_network::member::MemberId;
-use indras_network::{IndrasNetwork, RealmId};
+use indras_network::IndrasNetwork;
 use indras_sync_engine::{
     AttentionDocument, BlessingDocument, ClaimId, IntentionDocument, IntentionId, IntentionKind,
     HomeRealmIntentions, TokenOfGratitude, TokenOfGratitudeDocument,
@@ -89,8 +89,6 @@ pub struct IntentionViewData {
     pub intention_id: IntentionId,
     /// The creator's MemberId.
     pub creator: MemberId,
-    /// The realm where this intention lives (Some for community/DM, None for home).
-    pub source_realm_id: Option<RealmId>,
 }
 
 /// A proof of service entry.
@@ -484,12 +482,9 @@ pub async fn build_intention_view(
     };
 
     // Fall back to DM realms for community intentions
-    let (intention, source_realm_id) = match intention {
-        Some(i) => (i, None),
-        None => {
-            let (i, rid) = find_intention_in_dm_realms(network, intention_id).await?;
-            (i, Some(rid))
-        }
+    let intention = match intention {
+        Some(i) => i,
+        None => find_intention_in_dm_realms(network, intention_id).await?,
     };
 
     let (creator_name, creator_letter, creator_color_class) =
@@ -537,28 +532,9 @@ pub async fn build_intention_view(
         });
     }
 
-    // Attention data — collect from ALL available attention docs (home + DM realms)
-    // so each peer sees everyone's attention, not just their own.
-    let mut all_attention_docs = Vec::new();
-    if let Ok(adoc) = home.document::<AttentionDocument>("attention").await {
-        all_attention_docs.push(adoc);
-    }
-    for rid in network.conversation_realms() {
-        if network.dm_peer_for_realm(&rid).is_none() {
-            continue;
-        }
-        if let Some(realm) = network.get_realm_by_id(&rid) {
-            if let Ok(adoc) = realm.document::<AttentionDocument>("attention").await {
-                all_attention_docs.push(adoc);
-            }
-        }
-    }
-
-    // Collect all events from all docs, deduplicate by event_id to avoid
-    // double-counting when the creator mirrors events to DM realms.
-    let mut seen_ids = std::collections::HashSet::new();
-    let mut all_events: Vec<indras_sync_engine::AttentionSwitchEvent> = Vec::new();
-    for adoc in &all_attention_docs {
+    // Attention data
+    let attention_doc = home.document::<AttentionDocument>("attention").await.ok();
+    let (attention_peers, total_attention_duration, heat) = if let Some(ref adoc) = attention_doc {
         let data = adoc.read().await;
         for event in data.events() {
             if seen_ids.insert(event.event_id) {
@@ -684,7 +660,6 @@ pub async fn build_intention_view(
         unblessed_event_indices,
         intention_id,
         creator: intention.creator,
-        source_realm_id,
     })
 }
 
@@ -785,12 +760,10 @@ pub async fn build_member_tokens(
 }
 
 /// Search DM realms for an intention by ID (for community intentions not in the home realm).
-///
-/// Returns the intention and the DM realm ID where it was found.
 async fn find_intention_in_dm_realms(
     network: &IndrasNetwork,
     intention_id: IntentionId,
-) -> Option<(indras_sync_engine::Intention, RealmId)> {
+) -> Option<indras_sync_engine::Intention> {
     for realm_id in network.conversation_realms() {
         if network.dm_peer_for_realm(&realm_id).is_none() {
             continue;
@@ -802,7 +775,7 @@ async fn find_intention_in_dm_realms(
         };
         let data = doc.read().await;
         if let Some(i) = data.intentions.iter().find(|i| i.id == intention_id && !i.deleted) {
-            return Some((i.clone(), realm_id));
+            return Some(i.clone());
         }
     }
     None

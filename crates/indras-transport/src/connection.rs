@@ -391,7 +391,6 @@ mod tests {
             connect_timeout_ms: 5000,
             idle_timeout_ms: 30_000,
             accept_incoming: false,
-            local_only: false,
         };
 
         assert_eq!(config.max_connections, 50);

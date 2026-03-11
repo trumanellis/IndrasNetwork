@@ -78,6 +78,7 @@ fn str_to_artifact_id(s: &str) -> ArtifactId {
 
 fn access_mode_to_str(m: &AccessMode) -> String {
     match m {
+        AccessMode::Public => "public".to_string(),
         AccessMode::Revocable => "revocable".to_string(),
         AccessMode::Permanent => "permanent".to_string(),
         AccessMode::Timed { expires_at } => format!("timed:{expires_at}"),
@@ -87,6 +88,7 @@ fn access_mode_to_str(m: &AccessMode) -> String {
 
 fn str_to_access_mode(s: &str) -> AccessMode {
     match s {
+        "public" => AccessMode::Public,
         "revocable" => AccessMode::Revocable,
         "permanent" => AccessMode::Permanent,
         "transfer" => AccessMode::Transfer,

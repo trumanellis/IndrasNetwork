@@ -30,9 +30,7 @@ members = [
     "examples/sync-demo",
     "examples/indras-notes",
     "crates/indras-gift-cycle",
-    "crates/indras-relay",
     "crates/indras-homepage",
-    "crates/indras-profile",
 ]
 
 [workspace.package]
@@ -57,9 +55,7 @@ indras-node = { path = "crates/indras-node" }
 indras-network = { path = "crates/indras-network" }
 indras-sync-engine = { path = "crates/indras-sync-engine" }
 indras-artifacts = { path = "crates/indras-artifacts" }
-indras-relay = { path = "crates/indras-relay" }
 indras-homepage = { path = "crates/indras-homepage" }
-indras-profile = { path = "crates/indras-profile" }
 
 # Core iroh stack
 iroh = "0.95"
@@ -78,6 +74,7 @@ postcard = { version = "1.0", features = ["alloc"] }
 
 # Crypto
 x25519-dalek = "2.0"
+ed25519-dalek = { version = "2.1", features = ["rand_core"] }
 chacha20poly1305 = "0.10"
 
 # Utilities
@@ -99,6 +96,8 @@ clap = { version = "4.5", features = ["derive"] }
 
 # Encoding
 base64 = "0.22"
+hex = "0.4"
+blake3 = "1.5"
 
 # Testing
 tokio-test = "0.4"
