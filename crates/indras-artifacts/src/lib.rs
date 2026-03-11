@@ -47,7 +47,7 @@ pub mod story;
 pub mod token;
 pub mod vault;
 
-pub use access::{AccessGrant, AccessMode, ArtifactProvenance, ArtifactStatus, ProvenanceType};
+pub use access::{AccessGrant, AccessMode, ArtifactProvenance, ArtifactStatus, ProvenanceType, extract_contact_ids};
 pub use artifact::*;
 pub use attention::{
     AttentionLog, AttentionSwitchEvent, AttentionValue, DwellWindow, compute_heat,
