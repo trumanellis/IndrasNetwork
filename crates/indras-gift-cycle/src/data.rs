@@ -532,9 +532,28 @@ pub async fn build_intention_view(
         });
     }
 
-    // Attention data
-    let attention_doc = home.document::<AttentionDocument>("attention").await.ok();
-    let (attention_peers, total_attention_duration, heat) = if let Some(ref adoc) = attention_doc {
+    // Attention data — collect from ALL available attention docs (home + DM realms)
+    // so each peer sees everyone's attention, not just their own.
+    let mut all_attention_docs = Vec::new();
+    if let Ok(adoc) = home.document::<AttentionDocument>("attention").await {
+        all_attention_docs.push(adoc);
+    }
+    for rid in network.conversation_realms() {
+        if network.dm_peer_for_realm(&rid).is_none() {
+            continue;
+        }
+        if let Some(realm) = network.get_realm_by_id(&rid) {
+            if let Ok(adoc) = realm.document::<AttentionDocument>("attention").await {
+                all_attention_docs.push(adoc);
+            }
+        }
+    }
+
+    // Collect all events from all docs, deduplicate by event_id to avoid
+    // double-counting when the creator mirrors events to DM realms.
+    let mut seen_ids = std::collections::HashSet::new();
+    let mut all_events: Vec<indras_sync_engine::AttentionSwitchEvent> = Vec::new();
+    for adoc in &all_attention_docs {
         let data = adoc.read().await;
         for event in data.events() {
             if seen_ids.insert(event.event_id) {
@@ -601,12 +620,13 @@ pub async fn build_intention_view(
         peer_names,
     );
 
-    // Unblessed attention events for the local member (from home realm doc only)
-    let home_attention_doc = all_attention_docs.first();
-    let unblessed_event_indices: Vec<usize> =
-        if let (Some(adoc), Some(bdoc)) = (home_attention_doc, &blessing_doc) {
+    // Unblessed attention events for the local member.
+    // Search all attention docs for the member's focus events on this intention.
+    let unblessed_event_indices: Vec<usize> = if let Some(ref bdoc) = blessing_doc {
+        let bdata = bdoc.read().await;
+        let mut best_indices = Vec::new();
+        for adoc in &all_attention_docs {
             let adata = adoc.read().await;
-            let bdata = bdoc.read().await;
             let events = adata.events();
             let candidate_indices: Vec<usize> = events
                 .iter()
@@ -614,10 +634,18 @@ pub async fn build_intention_view(
                 .filter(|(_, e)| e.member == member_id && e.intention_id == Some(intention_id))
                 .map(|(idx, _)| idx)
                 .collect();
-            bdata.unblessed_event_indices(&member_id, &intention_id, &candidate_indices)
-        } else {
-            Vec::new()
-        };
+            if !candidate_indices.is_empty() {
+                let unblessed =
+                    bdata.unblessed_event_indices(&member_id, &intention_id, &candidate_indices);
+                if unblessed.len() > best_indices.len() {
+                    best_indices = unblessed;
+                }
+            }
+        }
+        best_indices
+    } else {
+        Vec::new()
+    };
 
     // Pledged tokens
     let token_doc = home

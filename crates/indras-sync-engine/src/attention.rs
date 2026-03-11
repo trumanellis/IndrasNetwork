@@ -70,6 +70,10 @@ pub struct AttentionSwitchEvent {
     pub intention_id: Option<IntentionId>,
     /// When the switch occurred (Unix timestamp in milliseconds).
     pub timestamp_millis: i64,
+    /// Logical clock for causal ordering. Monotonically increasing across
+    /// all events a peer has seen. Updated on create and on merge.
+    #[serde(default)]
+    pub logical_clock: u64,
 }
 
 impl AttentionSwitchEvent {
@@ -80,6 +84,7 @@ impl AttentionSwitchEvent {
             member,
             intention_id,
             timestamp_millis: chrono::Utc::now().timestamp_millis(),
+            logical_clock: 0,
         }
     }
 
@@ -102,9 +107,12 @@ impl PartialOrd for AttentionSwitchEvent {
 
 impl Ord for AttentionSwitchEvent {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        // Sort by timestamp first, then by event_id for determinism
-        self.timestamp_millis
-            .cmp(&other.timestamp_millis)
+        // Primary: logical clock for causal ordering
+        // Secondary: wall clock as tiebreaker
+        // Tertiary: event_id for determinism
+        self.logical_clock
+            .cmp(&other.logical_clock)
+            .then_with(|| self.timestamp_millis.cmp(&other.timestamp_millis))
             .then_with(|| self.event_id.cmp(&other.event_id))
     }
 }
@@ -139,6 +147,9 @@ pub struct AttentionDocument {
     /// Keyed by author (MemberId/PlayerId) for per-chain storage.
     #[serde(default)]
     chain_events: HashMap<MemberId, Vec<ChainedSwitchEvent>>,
+    /// Local Lamport clock — tracks the maximum logical_clock seen.
+    #[serde(default)]
+    local_clock: u64,
 }
 
 impl AttentionDocument {
@@ -155,7 +166,9 @@ impl AttentionDocument {
         member: MemberId,
         intention_id: Option<IntentionId>,
     ) -> AttentionEventId {
-        let event = AttentionSwitchEvent::new(member, intention_id);
+        self.local_clock += 1;
+        let mut event = AttentionSwitchEvent::new(member, intention_id);
+        event.logical_clock = self.local_clock;
         let event_id = event.event_id;
 
         // Update derived state
@@ -211,6 +224,20 @@ impl AttentionDocument {
         if self.events.iter().any(|e| e.event_id == event.event_id) {
             return;
         }
+        // Warn (but don't reject) if this member already has a different focus
+        // and the new event doesn't clear it first. This catches caller bugs
+        // without breaking CRDT merge semantics.
+        if let Some(current) = self.current_focus.get(&event.member) {
+            if current.is_some() && event.intention_id.is_some() && *current != event.intention_id {
+                tracing::warn!(
+                    member = ?event.member,
+                    current = ?current,
+                    new = ?event.intention_id,
+                    "insert_event: member switching focus without clearing first"
+                );
+            }
+        }
+        self.local_clock = self.local_clock.max(event.logical_clock) + 1;
         self.current_focus.insert(event.member, event.intention_id);
         self.events.push(event);
     }
@@ -275,6 +302,12 @@ impl AttentionDocument {
         all_events.sort();
 
         self.events = all_events;
+
+        // Advance local Lamport clock past all merged events
+        for event in &self.events {
+            self.local_clock = self.local_clock.max(event.logical_clock);
+        }
+
         self.rebuild_derived_state();
 
         // Merge chain events (union by event hash for each author)
@@ -570,18 +603,21 @@ mod tests {
             member,
             intention_id: Some(intention1),
             timestamp_millis: t0,
+            logical_clock: 0,
         });
         doc.events.push(AttentionSwitchEvent {
             event_id: [2; 16],
             member,
             intention_id: Some(intention2),
             timestamp_millis: t1,
+            logical_clock: 0,
         });
         doc.events.push(AttentionSwitchEvent {
             event_id: [3; 16],
             member,
             intention_id: None,
             timestamp_millis: t2,
+            logical_clock: 0,
         });
 
         doc.rebuild_derived_state();
@@ -653,6 +689,7 @@ mod tests {
             member,
             intention_id: Some(intention),
             timestamp_millis: 1000,
+            logical_clock: 0,
         });
         doc.rebuild_derived_state();
 
@@ -679,24 +716,28 @@ mod tests {
             member,
             intention_id: Some(intention1),
             timestamp_millis: 0,
+            logical_clock: 0,
         });
         doc.events.push(AttentionSwitchEvent {
             event_id: [2; 16],
             member,
             intention_id: Some(intention2),
             timestamp_millis: 1000,
+            logical_clock: 0,
         });
         doc.events.push(AttentionSwitchEvent {
             event_id: [3; 16],
             member,
             intention_id: Some(quest3),
             timestamp_millis: 4000,
+            logical_clock: 0,
         });
         doc.events.push(AttentionSwitchEvent {
             event_id: [4; 16],
             member,
             intention_id: None,
             timestamp_millis: 6000,
+            logical_clock: 0,
         });
 
         doc.rebuild_derived_state();
@@ -711,5 +752,93 @@ mod tests {
         assert_eq!(ranked[1].total_attention_millis, 2000);
         assert_eq!(ranked[2].intention_id, intention1);
         assert_eq!(ranked[2].total_attention_millis, 1000);
+    }
+
+    #[test]
+    fn test_insert_event_dedup() {
+        let mut doc = AttentionDocument::new();
+        let member = test_member_id(1);
+        let intention = test_intention_id(1);
+
+        // Create event once
+        let event = AttentionSwitchEvent::focus(member, intention);
+        let event_id = event.event_id;
+
+        // Insert same event twice — should be idempotent
+        doc.insert_event(event.clone());
+        doc.insert_event(event.clone());
+        assert_eq!(doc.event_count(), 1);
+        assert_eq!(doc.current_focus(&member), Some(intention));
+
+        // Insert into a second doc
+        let mut doc2 = AttentionDocument::new();
+        doc2.insert_event(event.clone());
+        assert_eq!(doc2.event_count(), 1);
+
+        // Merge — same event_id should deduplicate
+        doc.merge(&doc2);
+        assert_eq!(doc.event_count(), 1);
+        assert_eq!(doc.events()[0].event_id, event_id);
+    }
+
+    #[test]
+    fn test_insert_event_cross_doc_merge_no_double_count() {
+        let member = test_member_id(1);
+        let intention = test_intention_id(1);
+
+        // Simulate: create event once, insert into home + DM realm
+        let focus_event = AttentionSwitchEvent {
+            event_id: [10; 16],
+            member,
+            intention_id: Some(intention),
+            timestamp_millis: 1000,
+            logical_clock: 0,
+        };
+        let clear_event = AttentionSwitchEvent {
+            event_id: [11; 16],
+            member,
+            intention_id: None,
+            timestamp_millis: 5000,
+            logical_clock: 0,
+        };
+
+        let mut home_doc = AttentionDocument::new();
+        home_doc.insert_event(focus_event.clone());
+        home_doc.insert_event(clear_event.clone());
+
+        let mut dm_doc = AttentionDocument::new();
+        dm_doc.insert_event(focus_event.clone());
+        dm_doc.insert_event(clear_event.clone());
+
+        // Both docs should have identical events
+        assert_eq!(home_doc.event_count(), 2);
+        assert_eq!(dm_doc.event_count(), 2);
+
+        // Merge — no duplicates
+        home_doc.merge(&dm_doc);
+        assert_eq!(home_doc.event_count(), 2);
+
+        // Attention calculation should show 4000ms, NOT 8000ms (no double-counting)
+        let attention = home_doc.calculate_attention(Some(5000));
+        let qa = attention.iter().find(|a| a.intention_id == intention).unwrap();
+        assert_eq!(qa.total_attention_millis, 4000);
+    }
+
+    #[test]
+    fn test_insert_event_warns_on_switch_without_clear() {
+        let mut doc = AttentionDocument::new();
+        let member = test_member_id(1);
+        let intention1 = test_intention_id(1);
+        let intention2 = test_intention_id(2);
+
+        // Focus on intention1
+        doc.insert_event(AttentionSwitchEvent::focus(member, intention1));
+        assert_eq!(doc.current_focus(&member), Some(intention1));
+
+        // Switch directly to intention2 without clearing first
+        // (this should warn but still insert)
+        doc.insert_event(AttentionSwitchEvent::focus(member, intention2));
+        assert_eq!(doc.current_focus(&member), Some(intention2));
+        assert_eq!(doc.event_count(), 2);
     }
 }

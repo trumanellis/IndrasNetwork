@@ -10,7 +10,7 @@ use tokio::sync::RwLock;
 use indras_network::error::{IndraError, Result};
 use indras_network::home_realm::HomeRealm;
 use indras_network::member::MemberId;
-use indras_network::IndrasNetwork;
+use indras_network::{IndrasNetwork, RealmId};
 use indras_sync_engine::{
     AttentionDocument, AttentionEventId, BlessingDocument, BlessingId, ClaimId, Intention,
     IntentionDocument, IntentionId, IntentionKind, TokenOfGratitudeDocument, TokenOfGratitudeId,
@@ -160,29 +160,135 @@ impl GiftCycleBridge {
     // ── Stage 2: Attention ─────────────────────────────────────────
 
     /// Focus attention on an intention.
+    ///
+    /// Creates the event ONCE, then inserts the exact same event (same `event_id`,
+    /// same timestamp) into all relevant docs. For home realm intentions, the event
+    /// is written to home + all DM realms. For DM realm intentions, the event is
+    /// written to the source DM realm + home realm. CRDT dedup by `event_id`
+    /// prevents double-counting.
     pub async fn focus_attention(
         &self,
         intention_id: IntentionId,
+        source_realm_id: Option<RealmId>,
     ) -> Result<AttentionEventId> {
-        let mut event_id = [0u8; 16];
-        let doc = self.home.document::<AttentionDocument>("attention").await?;
-        let member = self.member_id;
-        doc.update(|d| {
-            event_id = d.focus_on_intention(member, intention_id);
-        })
-        .await?;
+        use indras_sync_engine::AttentionSwitchEvent;
+
+        let event = AttentionSwitchEvent::focus(self.member_id, intention_id);
+        let event_id = event.event_id;
+
+        if let Some(ref rid) = source_realm_id {
+            // Community/DM intention — write to the source DM realm AND home realm
+            // so the home realm has a complete record for card view.
+            let realm = self.network.get_realm_by_id(rid)
+                .ok_or_else(|| IndraError::RealmNotFound { id: "source realm".into() })?;
+            let doc = realm.document::<AttentionDocument>("attention").await?;
+            let ev = event.clone();
+            doc.update(|d| { d.insert_event(ev); }).await?;
+
+            // Mirror to home realm for complete attention history
+            let home_doc = self.home.document::<AttentionDocument>("attention").await?;
+            let ev = event.clone();
+            home_doc.update(|d| { d.insert_event(ev); }).await?;
+        } else {
+            // Home realm intention — write to home + all DM realms
+            let home_doc = self.home.document::<AttentionDocument>("attention").await?;
+            let ev = event.clone();
+            home_doc.update(|d| { d.insert_event(ev); }).await?;
+
+            for rid in self.network.conversation_realms() {
+                let Some(peer_id) = self.network.dm_peer_for_realm(&rid) else { continue };
+                let Some(realm) = self.network.get_realm_by_id(&rid) else { continue };
+                let Ok(doc) = realm.document::<AttentionDocument>("attention").await else { continue };
+                let ev = event.clone();
+                let _ = doc.update(|d| { d.insert_event(ev); }).await;
+
+                // Retry inserts so late-joining peers don't miss the event
+                let net = self.network.clone();
+                let ev_clone = event.clone();
+                tokio::spawn(async move {
+                    for delay_secs in [2u64, 5] {
+                        tokio::time::sleep(std::time::Duration::from_secs(delay_secs)).await;
+                        if let Ok((r, _)) = net.connect(peer_id).await {
+                            if let Ok(doc) = r.document::<AttentionDocument>("attention").await {
+                                // Check before writing to avoid unnecessary sync traffic
+                                let already_present = {
+                                    let data = doc.read().await;
+                                    data.events().iter().any(|e| e.event_id == ev_clone.event_id)
+                                };
+                                if !already_present {
+                                    let ev = ev_clone.clone();
+                                    let _ = doc.update(|d: &mut AttentionDocument| {
+                                        d.insert_event(ev);
+                                    }).await;
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
         Ok(event_id)
     }
 
     /// Clear attention focus (idle).
-    pub async fn clear_attention(&self) -> Result<AttentionEventId> {
-        let mut event_id = [0u8; 16];
-        let doc = self.home.document::<AttentionDocument>("attention").await?;
-        let member = self.member_id;
-        doc.update(|d| {
-            event_id = d.clear_attention(member);
-        })
-        .await?;
+    ///
+    /// Creates the clear event ONCE, then inserts the exact same event into all
+    /// relevant docs. Same pattern as `focus_attention`.
+    pub async fn clear_attention(&self, source_realm_id: Option<RealmId>) -> Result<AttentionEventId> {
+        use indras_sync_engine::AttentionSwitchEvent;
+
+        let event = AttentionSwitchEvent::clear(self.member_id);
+        let event_id = event.event_id;
+
+        if let Some(ref rid) = source_realm_id {
+            // Community/DM intention — write to the source DM realm AND home realm
+            let realm = self.network.get_realm_by_id(rid)
+                .ok_or_else(|| IndraError::RealmNotFound { id: "source realm".into() })?;
+            let doc = realm.document::<AttentionDocument>("attention").await?;
+            let ev = event.clone();
+            doc.update(|d| { d.insert_event(ev); }).await?;
+
+            // Mirror to home realm for complete attention history
+            let home_doc = self.home.document::<AttentionDocument>("attention").await?;
+            let ev = event.clone();
+            home_doc.update(|d| { d.insert_event(ev); }).await?;
+        } else {
+            let home_doc = self.home.document::<AttentionDocument>("attention").await?;
+            let ev = event.clone();
+            home_doc.update(|d| { d.insert_event(ev); }).await?;
+
+            for rid in self.network.conversation_realms() {
+                let Some(peer_id) = self.network.dm_peer_for_realm(&rid) else { continue };
+                let Some(realm) = self.network.get_realm_by_id(&rid) else { continue };
+                let Ok(doc) = realm.document::<AttentionDocument>("attention").await else { continue };
+                let ev = event.clone();
+                let _ = doc.update(|d| { d.insert_event(ev); }).await;
+
+                // Retry inserts so late-joining peers don't miss the event
+                let net = self.network.clone();
+                let ev_clone = event.clone();
+                tokio::spawn(async move {
+                    for delay_secs in [2u64, 5] {
+                        tokio::time::sleep(std::time::Duration::from_secs(delay_secs)).await;
+                        if let Ok((r, _)) = net.connect(peer_id).await {
+                            if let Ok(doc) = r.document::<AttentionDocument>("attention").await {
+                                // Check before writing to avoid unnecessary sync traffic
+                                let already_present = {
+                                    let data = doc.read().await;
+                                    data.events().iter().any(|e| e.event_id == ev_clone.event_id)
+                                };
+                                if !already_present {
+                                    let ev = ev_clone.clone();
+                                    let _ = doc.update(|d: &mut AttentionDocument| {
+                                        d.insert_event(ev);
+                                    }).await;
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
         Ok(event_id)
     }
 

@@ -23,7 +23,7 @@ pub fn IntentionDetail(
     let _focus = use_resource(move || {
         let b = bridge_focus.clone();
         async move {
-            if let Err(e) = b.focus_attention(intention_id).await {
+            if let Err(e) = b.focus_attention(intention_id, None).await {
                 tracing::warn!(error = %e, "Failed to focus attention");
             }
         }
@@ -34,7 +34,7 @@ pub fn IntentionDetail(
     use_drop(move || {
         let b = bridge_clear.clone();
         tokio::spawn(async move {
-            let _ = b.clear_attention().await;
+            let _ = b.clear_attention(None).await;
         });
     });
 
