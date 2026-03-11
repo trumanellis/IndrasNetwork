@@ -11,7 +11,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::Json;
 use axum::routing::get;
 use axum::Router;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use indras_core::identity::PeerIdentity;
 
@@ -70,6 +70,19 @@ pub struct InterfaceInfo {
     pub storage_bytes: u64,
 }
 
+/// Contacts list response
+#[derive(Serialize)]
+pub struct ContactsResponse {
+    pub contacts: Vec<String>,
+    pub count: usize,
+}
+
+/// Request body for replacing the contacts list
+#[derive(Deserialize)]
+pub struct UpdateContactsRequest {
+    pub contacts: Vec<String>,
+}
+
 /// Build the admin API router
 pub fn admin_router(state: Arc<AdminState>) -> Router {
     Router::new()
@@ -77,6 +90,7 @@ pub fn admin_router(state: Arc<AdminState>) -> Router {
         .route("/stats", get(stats_handler))
         .route("/peers", get(peers_handler))
         .route("/interfaces", get(interfaces_handler))
+        .route("/contacts", get(contacts_handler).put(update_contacts_handler))
         .with_state(state)
 }
 
@@ -194,6 +208,60 @@ async fn interfaces_handler(
         .collect();
 
     Ok(Json(interfaces))
+}
+
+/// GET /contacts — current contact list as hex strings
+async fn contacts_handler(
+    State(state): State<Arc<AdminState>>,
+    headers: HeaderMap,
+) -> Result<Json<ContactsResponse>, StatusCode> {
+    validate_token(&headers, &state.config.admin_token)?;
+
+    let ids = state.auth.contact_ids();
+    let contacts: Vec<String> = ids.iter().map(|id| hex::encode(id)).collect();
+    let count = contacts.len();
+
+    Ok(Json(ContactsResponse { contacts, count }))
+}
+
+/// PUT /contacts — replace the contact list
+async fn update_contacts_handler(
+    State(state): State<Arc<AdminState>>,
+    headers: HeaderMap,
+    Json(body): Json<UpdateContactsRequest>,
+) -> Result<Json<ContactsResponse>, StatusCode> {
+    validate_token(&headers, &state.config.admin_token)?;
+
+    let parsed: Vec<[u8; 32]> = body
+        .contacts
+        .iter()
+        .filter_map(|h| parse_hex_32(h))
+        .collect();
+
+    let count = parsed.len();
+    state.auth.sync_contacts(parsed);
+
+    let contacts_path = state.config.data_dir.join("contacts.json");
+    state
+        .auth
+        .save_contacts(&contacts_path)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let contacts: Vec<String> = state.auth.contact_ids().iter().map(|id| hex::encode(id)).collect();
+
+    Ok(Json(ContactsResponse { contacts, count }))
+}
+
+/// Parse a 64-character hex string into a 32-byte array
+fn parse_hex_32(hex: &str) -> Option<[u8; 32]> {
+    if hex.len() != 64 {
+        return None;
+    }
+    let mut bytes = [0u8; 32];
+    for i in 0..32 {
+        bytes[i] = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).ok()?;
+    }
+    Some(bytes)
 }
 
 /// Hex encoding helper

@@ -385,6 +385,8 @@ async fn handle_connection(
                     &quota,
                     &gossip,
                     &blob_store,
+                    &auth,
+                    &tiered_quota,
                 )
                 .await;
 
@@ -412,8 +414,16 @@ async fn handle_connection(
                 }
 
                 registrations.touch(&peer_id);
+                let tier = retrieve.tier.unwrap_or(StorageTier::Connections);
+
+                // Check tier access
+                if !auth.has_tier_access(&peer_id, tier) {
+                    warn!(peer = %peer_key.fmt_short(), ?tier, "No access to retrieve from tier");
+                    continue;
+                }
+
                 let events = blob_store
-                    .events_after(retrieve.interface_id, retrieve.after_event_id)?;
+                    .events_after_tiered(tier, retrieve.interface_id, retrieve.after_event_id)?;
 
                 let delivery = RelayDeliveryMessage::new(retrieve.interface_id, events);
                 let framed = frame_message(&WireMessage::RelayDelivery(delivery))
@@ -473,6 +483,29 @@ async fn handle_connection(
                 match blob_store.store_event_tiered(store_msg.tier, store_msg.interface_id, &stored) {
                     Ok(()) => {
                         tiered_quota.record_storage_tiered(peer_id, store_msg.tier, data_len);
+
+                        // Honor pin flag
+                        if store_msg.metadata.pin {
+                            if let Err(e) = blob_store.pin_event(
+                                store_msg.tier,
+                                &store_msg.interface_id,
+                                &event_id,
+                            ) {
+                                warn!(error = %e, "Failed to pin event");
+                            }
+                        }
+
+                        // Honor TTL override
+                        if let Some(ttl_days) = store_msg.metadata.ttl_override_days {
+                            if let Err(e) = blob_store.set_ttl_override(
+                                &store_msg.interface_id,
+                                &event_id,
+                                ttl_days,
+                            ) {
+                                warn!(error = %e, "Failed to set TTL override");
+                            }
+                        }
+
                         let ack = RelayStoreAckMessage {
                             accepted: true,
                             reason: None,
@@ -573,12 +606,28 @@ async fn handle_register(
     quota: &Arc<QuotaManager>,
     gossip: &Gossip,
     blob_store: &Arc<BlobStore>,
+    auth: &Arc<AuthService>,
+    tiered_quota: &Arc<TieredQuotaManager>,
 ) -> RelayRegisterAckMessage {
     let mut accepted = Vec::new();
     let mut rejected = Vec::new();
 
     // Check quota before processing individual interfaces
     if let Err(e) = quota.can_register(peer_id, register.interfaces.len()) {
+        for iface in register.interfaces {
+            rejected.push((iface, e.to_string()));
+        }
+        return RelayRegisterAckMessage::new(accepted).with_rejected(rejected);
+    }
+
+    // Determine the peer's highest tier for registration quota
+    let peer_tier = auth
+        .get_session(peer_id)
+        .map(|s| s.highest_tier)
+        .unwrap_or(StorageTier::Public);
+
+    // Check tiered registration quota
+    if let Err(e) = tiered_quota.can_register_tiered(peer_id, peer_tier, register.interfaces.len()) {
         for iface in register.interfaces {
             rejected.push((iface, e.to_string()));
         }
@@ -609,6 +658,7 @@ async fn handle_register(
             warn!(error = %e, "Failed to persist registration");
         }
         quota.record_registration(*peer_id, accepted.len());
+        tiered_quota.record_registration_tiered(*peer_id, peer_tier, accepted.len());
     }
 
     info!(

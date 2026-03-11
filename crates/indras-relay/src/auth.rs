@@ -185,6 +185,11 @@ impl AuthService {
         self.contacts.len()
     }
 
+    /// Get all contact IDs as a list
+    pub fn contact_ids(&self) -> Vec<[u8; 32]> {
+        self.contacts.iter().map(|e| *e.key()).collect()
+    }
+
     /// Load contacts from a JSON file.
     ///
     /// The file contains a JSON array of hex-encoded 32-byte player IDs.

@@ -34,6 +34,12 @@ const PUBLIC_EVENTS_TABLE: TableDefinition<&[u8], &[u8]> = TableDefinition::new(
 /// Table: interface_id bytes (32) → total bytes stored for that interface (Public tier)
 const PUBLIC_USAGE_TABLE: TableDefinition<&[u8], u64> = TableDefinition::new("pub_usage");
 
+/// Table: event key (48 bytes) → pin flag (u8, 1 = pinned); pinned events survive cleanup
+const PINNED_EVENTS_TABLE: TableDefinition<&[u8], u8> = TableDefinition::new("pinned_events");
+
+/// Table: event key (48 bytes) → TTL override in days (u64)
+const TTL_OVERRIDES_TABLE: TableDefinition<&[u8], u64> = TableDefinition::new("ttl_overrides");
+
 /// All storage tiers for iteration
 const ALL_TIERS: [StorageTier; 3] = [StorageTier::Self_, StorageTier::Connections, StorageTier::Public];
 
@@ -71,7 +77,7 @@ impl BlobStore {
             RelayError::Storage(format!("Failed to open database: {e}"))
         })?;
 
-        // Initialize all 6 tables (3 event + 3 usage, one pair per tier)
+        // Initialize all 8 tables (3 event + 3 usage + pinned + ttl_overrides)
         let write_txn = db.begin_write().map_err(|e| {
             RelayError::Storage(format!("Failed to begin write transaction: {e}"))
         })?;
@@ -93,6 +99,12 @@ impl BlobStore {
             })?;
             let _ = write_txn.open_table(PUBLIC_USAGE_TABLE).map_err(|e| {
                 RelayError::Storage(format!("Failed to create pub_usage table: {e}"))
+            })?;
+            let _ = write_txn.open_table(PINNED_EVENTS_TABLE).map_err(|e| {
+                RelayError::Storage(format!("Failed to create pinned_events table: {e}"))
+            })?;
+            let _ = write_txn.open_table(TTL_OVERRIDES_TABLE).map_err(|e| {
+                RelayError::Storage(format!("Failed to create ttl_overrides table: {e}"))
             })?;
         }
         write_txn.commit().map_err(|e| {
@@ -336,6 +348,90 @@ impl BlobStore {
         Ok(count)
     }
 
+    /// Mark an event as pinned so it survives cleanup
+    pub fn pin_event(
+        &self,
+        _tier: StorageTier,
+        interface_id: &InterfaceId,
+        event_id: &EventId,
+    ) -> RelayResult<()> {
+        let key = make_event_key(interface_id, event_id);
+        let write_txn = self.db.begin_write().map_err(|e| {
+            RelayError::Storage(format!("Failed to begin write: {e}"))
+        })?;
+        {
+            let mut table = write_txn.open_table(PINNED_EVENTS_TABLE).map_err(|e| {
+                RelayError::Storage(format!("Failed to open pinned table: {e}"))
+            })?;
+            table.insert(key.as_slice(), 1u8).map_err(|e| {
+                RelayError::Storage(format!("Failed to pin event: {e}"))
+            })?;
+        }
+        write_txn.commit().map_err(|e| {
+            RelayError::Storage(format!("Failed to commit pin: {e}"))
+        })?;
+        Ok(())
+    }
+
+    /// Set a TTL override for an event (overrides the tier default during cleanup)
+    pub fn set_ttl_override(
+        &self,
+        interface_id: &InterfaceId,
+        event_id: &EventId,
+        ttl_days: u64,
+    ) -> RelayResult<()> {
+        let key = make_event_key(interface_id, event_id);
+        let write_txn = self.db.begin_write().map_err(|e| {
+            RelayError::Storage(format!("Failed to begin write: {e}"))
+        })?;
+        {
+            let mut table = write_txn.open_table(TTL_OVERRIDES_TABLE).map_err(|e| {
+                RelayError::Storage(format!("Failed to open TTL overrides table: {e}"))
+            })?;
+            table.insert(key.as_slice(), ttl_days).map_err(|e| {
+                RelayError::Storage(format!("Failed to set TTL override: {e}"))
+            })?;
+        }
+        write_txn.commit().map_err(|e| {
+            RelayError::Storage(format!("Failed to commit TTL override: {e}"))
+        })?;
+        Ok(())
+    }
+
+    /// Check whether an event is pinned
+    pub fn is_pinned(&self, interface_id: &InterfaceId, event_id: &EventId) -> RelayResult<bool> {
+        let key = make_event_key(interface_id, event_id);
+        let read_txn = self.db.begin_read().map_err(|e| {
+            RelayError::Storage(format!("Failed to begin read: {e}"))
+        })?;
+        let table = read_txn.open_table(PINNED_EVENTS_TABLE).map_err(|e| {
+            RelayError::Storage(format!("Failed to open pinned table: {e}"))
+        })?;
+        Ok(table
+            .get(key.as_slice())
+            .map_err(|e| RelayError::Storage(format!("Failed to check pin: {e}")))?
+            .is_some())
+    }
+
+    /// Get the TTL override for an event, if any
+    pub fn get_ttl_override(
+        &self,
+        interface_id: &InterfaceId,
+        event_id: &EventId,
+    ) -> RelayResult<Option<u64>> {
+        let key = make_event_key(interface_id, event_id);
+        let read_txn = self.db.begin_read().map_err(|e| {
+            RelayError::Storage(format!("Failed to begin read: {e}"))
+        })?;
+        let table = read_txn.open_table(TTL_OVERRIDES_TABLE).map_err(|e| {
+            RelayError::Storage(format!("Failed to open TTL overrides table: {e}"))
+        })?;
+        Ok(table
+            .get(key.as_slice())
+            .map_err(|e| RelayError::Storage(format!("Failed to get TTL override: {e}")))?
+            .map(|v| v.value()))
+    }
+
     /// Clean up events older than the given duration across all tiers
     pub fn cleanup_expired(&self, max_age: Duration) -> RelayResult<usize> {
         let mut total = 0;
@@ -346,22 +442,32 @@ impl BlobStore {
     }
 
     /// Clean up expired events in a specific tier
+    ///
+    /// Pinned events are never removed. Events with a TTL override use that override
+    /// instead of the tier default `max_age`.
     pub fn cleanup_expired_tiered(&self, tier: StorageTier, max_age: Duration) -> RelayResult<usize> {
-        let cutoff = chrono::Utc::now().timestamp_millis() - max_age.as_millis() as i64;
+        let now_millis = chrono::Utc::now().timestamp_millis();
+        let cutoff = now_millis - max_age.as_millis() as i64;
         let mut count = 0;
 
         let write_txn = self.db.begin_write().map_err(|e| {
             RelayError::Storage(format!("Failed to begin write: {e}"))
         })?;
         {
-            let mut table = write_txn.open_table(events_table_for(tier)).map_err(|e| {
+            let mut events_table = write_txn.open_table(events_table_for(tier)).map_err(|e| {
                 RelayError::Storage(format!("Failed to open events table: {e}"))
+            })?;
+            let pinned_table = write_txn.open_table(PINNED_EVENTS_TABLE).map_err(|e| {
+                RelayError::Storage(format!("Failed to open pinned table: {e}"))
+            })?;
+            let ttl_table = write_txn.open_table(TTL_OVERRIDES_TABLE).map_err(|e| {
+                RelayError::Storage(format!("Failed to open TTL table: {e}"))
             })?;
 
             // Collect expired keys
             let mut keys_to_delete = Vec::new();
             {
-                let iter = table.iter().map_err(|e| {
+                let iter = events_table.iter().map_err(|e| {
                     RelayError::Storage(format!("Failed to iterate events: {e}"))
                 })?;
                 for entry in iter {
@@ -372,14 +478,36 @@ impl BlobStore {
                         Ok(e) => e,
                         Err(_) => continue,
                     };
-                    if event.received_at_millis < cutoff {
-                        keys_to_delete.push(key.value().to_vec());
+
+                    let key_bytes = key.value().to_vec();
+
+                    // Skip pinned events
+                    if pinned_table
+                        .get(key_bytes.as_slice())
+                        .map_err(|e| RelayError::Storage(format!("Failed to check pin: {e}")))?
+                        .is_some()
+                    {
+                        continue;
+                    }
+
+                    // Use TTL override if present, otherwise the tier default cutoff
+                    let effective_cutoff = if let Some(override_val) = ttl_table
+                        .get(key_bytes.as_slice())
+                        .map_err(|e| RelayError::Storage(format!("Failed to get TTL override: {e}")))?
+                    {
+                        now_millis - (override_val.value() as i64 * 86_400_000)
+                    } else {
+                        cutoff
+                    };
+
+                    if event.received_at_millis < effective_cutoff {
+                        keys_to_delete.push(key_bytes);
                     }
                 }
             }
 
             for key in &keys_to_delete {
-                table.remove(key.as_slice()).map_err(|e| {
+                events_table.remove(key.as_slice()).map_err(|e| {
                     RelayError::Storage(format!("Failed to remove expired: {e}"))
                 })?;
                 count += 1;
@@ -629,5 +757,56 @@ mod tests {
         assert!(store.tier_usage_bytes(StorageTier::Self_).unwrap() > 0);
         assert!(store.tier_usage_bytes(StorageTier::Public).unwrap() > 0);
         assert_eq!(store.tier_usage_bytes(StorageTier::Connections).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_pinned_events_survive_cleanup() {
+        let (store, _dir) = test_store();
+        let iface = InterfaceId::new([0x42; 32]);
+
+        let event_id_1 = EventId::new(1, 1);
+        let event_id_2 = EventId::new(1, 2);
+        let mut event1 = StoredEvent::new(event_id_1, vec![1], [0; 12]);
+        event1.received_at_millis = 1000; // very old
+        let mut event2 = StoredEvent::new(event_id_2, vec![2], [0; 12]);
+        event2.received_at_millis = 1000; // very old
+
+        store.store_event_tiered(StorageTier::Connections, iface, &event1).unwrap();
+        store.store_event_tiered(StorageTier::Connections, iface, &event2).unwrap();
+
+        // Pin event1
+        store.pin_event(StorageTier::Connections, &iface, &event_id_1).unwrap();
+        assert!(store.is_pinned(&iface, &event_id_1).unwrap());
+        assert!(!store.is_pinned(&iface, &event_id_2).unwrap());
+
+        // Cleanup should remove event2 but not event1
+        let cleaned = store.cleanup_expired_tiered(StorageTier::Connections, Duration::from_secs(86400)).unwrap();
+        assert_eq!(cleaned, 1);
+        assert_eq!(store.events_after_tiered(StorageTier::Connections, iface, None).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_ttl_override() {
+        let (store, _dir) = test_store();
+        let iface = InterfaceId::new([0x42; 32]);
+
+        let event_id = EventId::new(1, 1);
+        let mut event = StoredEvent::new(event_id, vec![1], [0; 12]);
+        // 2 days ago
+        event.received_at_millis = chrono::Utc::now().timestamp_millis() - 2 * 86_400_000;
+
+        store.store_event_tiered(StorageTier::Connections, iface, &event).unwrap();
+
+        // Set TTL override to 30 days
+        store.set_ttl_override(&iface, &event_id, 30).unwrap();
+        assert_eq!(store.get_ttl_override(&iface, &event_id).unwrap(), Some(30));
+
+        // Cleanup with 1-day default TTL should NOT remove the event (override is 30 days)
+        let cleaned = store.cleanup_expired_tiered(StorageTier::Connections, Duration::from_secs(86400)).unwrap();
+        assert_eq!(cleaned, 0);
+
+        // Event is only 2 days old vs 30-day override — still survives
+        let cleaned = store.cleanup_expired_tiered(StorageTier::Connections, Duration::from_secs(60 * 86400)).unwrap();
+        assert_eq!(cleaned, 0);
     }
 }

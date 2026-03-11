@@ -766,6 +766,8 @@ pub struct RelayRetrieveMessage {
     pub interface_id: InterfaceId,
     /// Last event ID the peer has seen (relay sends everything after this)
     pub after_event_id: Option<EventId>,
+    /// Which staging area to retrieve from (defaults to Connections if None)
+    pub tier: Option<StorageTier>,
     /// Timestamp (Unix millis)
     pub timestamp_millis: i64,
 }
@@ -776,8 +778,15 @@ impl RelayRetrieveMessage {
         Self {
             interface_id,
             after_event_id: None,
+            tier: None,
             timestamp_millis: chrono::Utc::now().timestamp_millis(),
         }
+    }
+
+    /// Retrieve from a specific storage tier
+    pub fn from_tier(mut self, tier: StorageTier) -> Self {
+        self.tier = Some(tier);
+        self
     }
 
     /// Set the last event ID seen
@@ -1294,6 +1303,8 @@ mod tests {
 
         let interface_id = InterfaceId::new([0xDD; 32]);
         let event_id = indras_core::EventId::new(42, 7);
+
+        // Default tier (None → Connections)
         let msg = WireMessage::RelayRetrieve(
             RelayRetrieveMessage::new(interface_id).after(event_id),
         );
@@ -1304,8 +1315,24 @@ mod tests {
             WireMessage::RelayRetrieve(r) => {
                 assert_eq!(r.interface_id, interface_id);
                 assert_eq!(r.after_event_id, Some(event_id));
+                assert_eq!(r.tier, None);
             }
             _ => panic!("Expected RelayRetrieve"),
+        }
+
+        // Explicit tier
+        let msg2 = WireMessage::RelayRetrieve(
+            RelayRetrieveMessage::new(interface_id).from_tier(StorageTier::Self_),
+        );
+        let framed2 = frame_message(&msg2).unwrap();
+        let parsed2 = parse_framed_message(&framed2).unwrap();
+
+        match parsed2 {
+            WireMessage::RelayRetrieve(r) => {
+                assert_eq!(r.interface_id, interface_id);
+                assert_eq!(r.tier, Some(StorageTier::Self_));
+            }
+            _ => panic!("Expected RelayRetrieve with tier"),
         }
     }
 
