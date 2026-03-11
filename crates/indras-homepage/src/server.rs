@@ -8,19 +8,23 @@ use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 use tracing::info;
 
-use indras_artifacts::AccessGrant;
-use indras_profile::{Profile, ViewLevel};
-use crate::HomepageError;
 use crate::auth::OptionalViewer;
 use crate::grants;
 use crate::templates;
+use crate::{ContentArtifact, HomepageError, ProfileFieldArtifact};
 
 /// Shared state for the axum server.
 #[derive(Clone)]
 pub struct AppState {
-    pub profile: Arc<RwLock<Profile>>,
-    pub grants: Arc<RwLock<Vec<AccessGrant>>>,
+    pub fields: Arc<RwLock<Vec<ProfileFieldArtifact>>>,
+    pub artifacts: Arc<RwLock<Vec<ContentArtifact>>>,
     pub steward: [u8; 32],
+}
+
+impl AsRef<[u8; 32]> for AppState {
+    fn as_ref(&self) -> &[u8; 32] {
+        &self.steward
+    }
 }
 
 /// Build the axum router
@@ -32,28 +36,23 @@ pub fn router(state: AppState) -> Router {
         .with_state(state)
 }
 
-impl AsRef<[u8; 32]> for AppState {
-    fn as_ref(&self) -> &[u8; 32] {
-        &self.steward
-    }
-}
-
-/// GET / — render the profile homepage
+/// GET / — render the homepage with grant-filtered fields and artifacts
 async fn homepage(
     State(state): State<AppState>,
     viewer: OptionalViewer,
 ) -> Html<String> {
-    let profile = state.profile.read().await;
-    let grants = state.grants.read().await;
+    let fields = state.fields.read().await;
+    let artifacts = state.artifacts.read().await;
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64;
-    let view_level = match viewer.0 {
-        Some(viewer_id) => grants::resolve_view_level(&viewer_id, &state.steward, &grants, now),
-        None => ViewLevel::Public,
-    };
-    Html(templates::render_profile(&profile, view_level))
+
+    let viewer_id = viewer.0.as_ref();
+    let visible_fields = grants::visible_fields(viewer_id, &state.steward, &fields, now);
+    let visible_artifacts = grants::visible_artifacts(viewer_id, &state.steward, &artifacts, now);
+
+    Html(templates::render_homepage(&visible_fields, &visible_artifacts))
 }
 
 /// GET /health — JSON health check
@@ -64,11 +63,11 @@ async fn health() -> (StatusCode, String) {
 /// Start serving on the given address
 pub async fn serve(
     addr: SocketAddr,
-    profile: Arc<RwLock<Profile>>,
-    grants: Arc<RwLock<Vec<AccessGrant>>>,
+    fields: Arc<RwLock<Vec<ProfileFieldArtifact>>>,
+    artifacts: Arc<RwLock<Vec<ContentArtifact>>>,
     steward: [u8; 32],
 ) -> Result<(), HomepageError> {
-    let state = AppState { profile, grants, steward };
+    let state = AppState { fields, artifacts, steward };
     let app = router(state);
     let listener = tokio::net::TcpListener::bind(addr)
         .await

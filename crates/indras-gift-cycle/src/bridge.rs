@@ -31,10 +31,10 @@ pub struct GiftCycleBridge {
     pub player_name: String,
     /// The network instance for DM realm sharing.
     pub network: Arc<IndrasNetwork>,
-    /// Shared homepage profile handle for live updates.
-    pub homepage_profile: Option<Arc<RwLock<indras_profile::Profile>>>,
-    /// Shared homepage grants handle for live grant updates.
-    pub homepage_grants: Option<Arc<RwLock<Vec<indras_artifacts::AccessGrant>>>>,
+    /// Shared homepage fields handle for live updates.
+    pub homepage_fields: Option<Arc<RwLock<Vec<indras_homepage::ProfileFieldArtifact>>>>,
+    /// Shared homepage artifacts handle for live updates.
+    pub homepage_artifacts: Option<Arc<RwLock<Vec<indras_homepage::ContentArtifact>>>>,
 }
 
 impl PartialEq for GiftCycleBridge {
@@ -56,20 +56,20 @@ impl GiftCycleBridge {
             member_id,
             player_name,
             network,
-            homepage_profile: None,
-            homepage_grants: None,
+            homepage_fields: None,
+            homepage_artifacts: None,
         }
     }
 
-    /// Set the homepage profile handle for live updates.
-    pub fn with_homepage_profile(mut self, handle: Arc<RwLock<indras_profile::Profile>>) -> Self {
-        self.homepage_profile = Some(handle);
+    /// Set the homepage fields handle for live updates.
+    pub fn with_homepage_fields(mut self, handle: Arc<RwLock<Vec<indras_homepage::ProfileFieldArtifact>>>) -> Self {
+        self.homepage_fields = Some(handle);
         self
     }
 
-    /// Set the homepage grants handle for live updates.
-    pub fn with_homepage_grants(mut self, handle: Arc<RwLock<Vec<indras_artifacts::AccessGrant>>>) -> Self {
-        self.homepage_grants = Some(handle);
+    /// Set the homepage artifacts handle for live updates.
+    pub fn with_homepage_artifacts(mut self, handle: Arc<RwLock<Vec<indras_homepage::ContentArtifact>>>) -> Self {
+        self.homepage_artifacts = Some(handle);
         self
     }
 
@@ -379,14 +379,15 @@ impl GiftCycleBridge {
         peers
     }
 
-    /// Grant a peer access to Connections-level profile fields.
-    pub async fn grant_profile_access(
+    /// Grant a peer access to a specific profile field.
+    pub async fn grant_field_access(
         &self,
+        field_name: &str,
         grantee: MemberId,
         mode: indras_artifacts::AccessMode,
     ) -> Result<()> {
-        let artifact_id = indras_artifacts::ArtifactId::Blob(
-            indras_profile::profile_artifact_id(&self.member_id),
+        let artifact_id = indras_artifacts::ArtifactId::Doc(
+            indras_homepage::profile_field_artifact_id(&self.member_id, field_name),
         );
         self.home.grant_access(&artifact_id, grantee, mode).await
     }

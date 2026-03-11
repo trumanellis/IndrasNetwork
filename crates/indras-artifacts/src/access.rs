@@ -2,6 +2,7 @@
 //!
 //! Defines fine-grained access modes for artifacts:
 //!
+//! - **Public**: Visible to anyone without a grant
 //! - **Revocable**: View-only access that can be revoked by the steward
 //! - **Permanent**: Co-stewardship with download and reshare rights
 //! - **Timed**: Auto-expiring access after a deadline
@@ -13,6 +14,8 @@ use serde::{Deserialize, Serialize};
 /// How a grantee may interact with an artifact.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AccessMode {
+    /// Visible to anyone. The `grantee` field is ignored.
+    Public,
     /// View-only; steward can revoke at any time.
     Revocable,
     /// Co-stewardship: download, reshare, and cannot be revoked.
@@ -50,6 +53,7 @@ impl AccessMode {
     /// Human-readable label for UI display.
     pub fn label(&self) -> &'static str {
         match self {
+            Self::Public => "public",
             Self::Revocable => "revocable",
             Self::Permanent => "permanent",
             Self::Timed { .. } => "timed",
@@ -185,7 +189,18 @@ mod tests {
     }
 
     #[test]
+    fn test_public_no_download_no_reshare_never_expires() {
+        let mode = AccessMode::Public;
+        assert!(!mode.allows_download());
+        assert!(!mode.allows_reshare());
+        assert!(!mode.is_expired(0));
+        assert!(!mode.is_expired(i64::MAX));
+        assert_eq!(mode.label(), "public");
+    }
+
+    #[test]
     fn test_access_mode_labels() {
+        assert_eq!(AccessMode::Public.label(), "public");
         assert_eq!(AccessMode::Revocable.label(), "revocable");
         assert_eq!(AccessMode::Permanent.label(), "permanent");
         assert_eq!(AccessMode::Timed { expires_at: 0 }.label(), "timed");

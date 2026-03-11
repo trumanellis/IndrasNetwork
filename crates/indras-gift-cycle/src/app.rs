@@ -117,14 +117,9 @@ async fn boot_network(
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(3000);
-    let profile = indras_homepage::Profile::new(
-        &player_name,
-        player_name.to_lowercase().replace(' ', "-"),
-        player_id.iter().map(|b| format!("{b:02x}")).collect::<String>(),
-    );
-    let server = indras_homepage::HomepageServer::new(profile, player_id);
-    let profile_handle = server.profile_handle();
-    let grants_handle = server.grants_handle();
+    let server = indras_homepage::HomepageServer::new(player_id);
+    let fields_handle = server.fields_handle();
+    let artifacts_handle = server.artifacts_handle();
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], homepage_port));
     tokio::spawn(async move {
         if let Err(e) = server.serve(addr).await {
@@ -133,36 +128,77 @@ async fn boot_network(
     });
     tracing::info!(port = homepage_port, "Homepage server started at http://localhost:{}", homepage_port);
 
-    // Register profile as artifact for grant-based visibility
-    let profile_aid = indras_artifacts::ArtifactId::Blob(
-        indras_profile::profile_artifact_id(&player_id),
-    );
+    // Create/update ProfileIdentityDocument
+    let public_key_hex: String = player_id.iter().map(|b| format!("{b:02x}")).collect();
+    let username = player_name.to_lowercase().replace(' ', "-");
+    if let Ok(doc) = home.document::<indras_sync_engine::ProfileIdentityDocument>("_profile_identity").await {
+        let pname = player_name.clone();
+        let uname = username.clone();
+        let pk = public_key_hex.clone();
+        let _ = doc.update(move |d| {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64;
+            // Only update if our data is newer or doc is empty
+            if d.display_name.is_empty() || d.updated_at == 0 {
+                d.display_name = pname;
+                d.username = uname;
+                d.public_key = pk;
+                d.updated_at = now;
+            }
+        }).await;
+    }
+
+    // Register each profile field as an artifact with default Public grant
+    let all_field_names = [
+        indras_homepage::fields::DISPLAY_NAME,
+        indras_homepage::fields::USERNAME,
+        indras_homepage::fields::BIO,
+        indras_homepage::fields::PUBLIC_KEY,
+        indras_homepage::fields::INTENTION_COUNT,
+        indras_homepage::fields::TOKEN_COUNT,
+        indras_homepage::fields::BLESSINGS_GIVEN,
+        indras_homepage::fields::ATTENTION_CONTRIBUTED,
+        indras_homepage::fields::CONTACT_COUNT,
+        indras_homepage::fields::HUMANNESS_FRESHNESS,
+        indras_homepage::fields::ACTIVE_QUESTS,
+        indras_homepage::fields::ACTIVE_OFFERINGS,
+    ];
     if let Ok(doc) = home.artifact_index().await {
-        let aid = profile_aid.clone();
         let _ = doc
             .update(|index| {
-                if index.get(&aid).is_none() {
-                    let entry = indras_network::artifact_index::HomeArtifactEntry {
-                        id: aid.clone(),
-                        name: indras_profile::PROFILE_ARTIFACT_NAME.to_string(),
-                        mime_type: Some("application/x-indras-profile".to_string()),
-                        size: 0,
-                        created_at: 0,
-                        encrypted_key: None,
-                        status: indras_artifacts::ArtifactStatus::Active,
-                        grants: Vec::new(),
-                        provenance: None,
-                        location: None,
-                    };
-                    index.store(entry);
+                for field_name in &all_field_names {
+                    let field_id = indras_homepage::profile_field_artifact_id(&player_id, field_name);
+                    let aid = indras_artifacts::ArtifactId::Doc(field_id);
+                    if index.get(&aid).is_none() {
+                        let entry = indras_network::artifact_index::HomeArtifactEntry {
+                            id: aid,
+                            name: format!("profile:{field_name}"),
+                            mime_type: Some("application/x-indras-profile-field".to_string()),
+                            size: 0,
+                            created_at: 0,
+                            encrypted_key: None,
+                            status: indras_artifacts::ArtifactStatus::Active,
+                            grants: vec![indras_artifacts::AccessGrant {
+                                grantee: [0u8; 32],
+                                mode: indras_artifacts::AccessMode::Public,
+                                granted_at: 0,
+                                granted_by: player_id,
+                            }],
+                            provenance: None,
+                            location: None,
+                        };
+                        index.store(entry);
+                    }
                 }
             })
             .await;
     }
 
     let b = GiftCycleBridge::new(home, player_id, player_name, Arc::clone(&net))
-        .with_homepage_profile(profile_handle)
-        .with_homepage_grants(grants_handle);
+        .with_homepage_fields(fields_handle)
+        .with_homepage_artifacts(artifacts_handle);
     bridge.set(Some(b));
 }
 
@@ -426,48 +462,127 @@ pub fn GiftCycleApp() -> Element {
                 let _ = b.network.connect(peer_info.member_id).await;
             }
 
-            // Refresh homepage profile with live stats
-            if let Some(ref profile_handle) = b.homepage_profile {
-                let mut profile = profile_handle.write().await;
+            // Refresh homepage fields with live stats
+            if let Some(ref fields_handle) = b.homepage_fields {
+                let mut field_artifacts = Vec::new();
+
+                // Read grants snapshot from artifact index (once)
+                let default_public_grant = vec![indras_artifacts::AccessGrant {
+                    grantee: [0u8; 32],
+                    mode: indras_artifacts::AccessMode::Public,
+                    granted_at: 0,
+                    granted_by: b.member_id,
+                }];
+                let mut grants_map: std::collections::HashMap<String, Vec<indras_artifacts::AccessGrant>> =
+                    std::collections::HashMap::new();
+                let artifact_index = b.home.artifact_index().await.ok();
+                if let Some(ref artifact_doc) = artifact_index {
+                    let index = artifact_doc.read().await;
+                    for field_name in &[
+                        indras_homepage::fields::DISPLAY_NAME, indras_homepage::fields::USERNAME,
+                        indras_homepage::fields::BIO, indras_homepage::fields::PUBLIC_KEY,
+                        indras_homepage::fields::INTENTION_COUNT, indras_homepage::fields::TOKEN_COUNT,
+                        indras_homepage::fields::BLESSINGS_GIVEN, indras_homepage::fields::ATTENTION_CONTRIBUTED,
+                        indras_homepage::fields::CONTACT_COUNT, indras_homepage::fields::HUMANNESS_FRESHNESS,
+                        indras_homepage::fields::ACTIVE_QUESTS, indras_homepage::fields::ACTIVE_OFFERINGS,
+                    ] {
+                        let aid = indras_artifacts::ArtifactId::Doc(
+                            indras_homepage::profile_field_artifact_id(&b.member_id, field_name),
+                        );
+                        if let Some(entry) = index.get(&aid) {
+                            grants_map.insert(field_name.to_string(), entry.grants.clone());
+                        }
+                    }
+                }
+                let field_grants = |field_name: &str| -> Vec<indras_artifacts::AccessGrant> {
+                    grants_map.get(field_name).cloned().unwrap_or_else(|| default_public_grant.clone())
+                };
+
+                // Read identity from ProfileIdentityDocument
+                if let Ok(doc) = b.home.document::<indras_sync_engine::ProfileIdentityDocument>("_profile_identity").await {
+                    let identity = doc.read().await;
+                    field_artifacts.push(indras_homepage::ProfileFieldArtifact {
+                        field_name: indras_homepage::fields::DISPLAY_NAME.to_string(),
+                        display_value: identity.display_name.clone(),
+                        grants: field_grants(indras_homepage::fields::DISPLAY_NAME),
+                    });
+                    field_artifacts.push(indras_homepage::ProfileFieldArtifact {
+                        field_name: indras_homepage::fields::USERNAME.to_string(),
+                        display_value: identity.username.clone(),
+                        grants: field_grants(indras_homepage::fields::USERNAME),
+                    });
+                    if let Some(ref bio) = identity.bio {
+                        field_artifacts.push(indras_homepage::ProfileFieldArtifact {
+                            field_name: indras_homepage::fields::BIO.to_string(),
+                            display_value: bio.clone(),
+                            grants: field_grants(indras_homepage::fields::BIO),
+                        });
+                    }
+                    field_artifacts.push(indras_homepage::ProfileFieldArtifact {
+                        field_name: indras_homepage::fields::PUBLIC_KEY.to_string(),
+                        display_value: identity.public_key.clone(),
+                        grants: field_grants(indras_homepage::fields::PUBLIC_KEY),
+                    });
+                }
 
                 // Intention count + active quests/offerings
                 if let Ok(doc) = b.home.document::<indras_sync_engine::IntentionDocument>("intentions").await {
                     let intentions = doc.read().await;
-                    profile.set_intention_count(intentions.intentions.len() as u32);
+                    field_artifacts.push(indras_homepage::ProfileFieldArtifact {
+                        field_name: indras_homepage::fields::INTENTION_COUNT.to_string(),
+                        display_value: intentions.intentions.len().to_string(),
+                        grants: field_grants(indras_homepage::fields::INTENTION_COUNT),
+                    });
 
-                    let quests: Vec<indras_profile::IntentionSummary> = intentions.intentions.iter()
+                    let quests: Vec<indras_homepage::IntentionSummary> = intentions.intentions.iter()
                         .filter(|i| matches!(i.kind, indras_sync_engine::IntentionKind::Quest) && i.completed_at_millis.is_none() && !i.deleted)
-                        .map(|i| indras_profile::IntentionSummary {
+                        .map(|i| indras_homepage::IntentionSummary {
                             title: i.title.clone(),
                             kind: format!("{:?}", i.kind),
                             status: "active".to_string(),
                         })
                         .collect();
-                    profile.set_active_quests(quests);
+                    field_artifacts.push(indras_homepage::ProfileFieldArtifact {
+                        field_name: indras_homepage::fields::ACTIVE_QUESTS.to_string(),
+                        display_value: serde_json::to_string(&quests).unwrap_or_default(),
+                        grants: field_grants(indras_homepage::fields::ACTIVE_QUESTS),
+                    });
 
-                    let offerings: Vec<indras_profile::IntentionSummary> = intentions.intentions.iter()
+                    let offerings: Vec<indras_homepage::IntentionSummary> = intentions.intentions.iter()
                         .filter(|i| matches!(i.kind, indras_sync_engine::IntentionKind::Offering) && i.completed_at_millis.is_none() && !i.deleted)
-                        .map(|i| indras_profile::IntentionSummary {
+                        .map(|i| indras_homepage::IntentionSummary {
                             title: i.title.clone(),
                             kind: format!("{:?}", i.kind),
                             status: "active".to_string(),
                         })
                         .collect();
-                    profile.set_active_offerings(offerings);
+                    field_artifacts.push(indras_homepage::ProfileFieldArtifact {
+                        field_name: indras_homepage::fields::ACTIVE_OFFERINGS.to_string(),
+                        display_value: serde_json::to_string(&offerings).unwrap_or_default(),
+                        grants: field_grants(indras_homepage::fields::ACTIVE_OFFERINGS),
+                    });
                 }
 
                 // Token count
                 if let Ok(doc) = b.home.document::<indras_sync_engine::TokenOfGratitudeDocument>("_tokens").await {
                     let tokens = doc.read().await;
-                    let count = tokens.tokens_for_steward(&b.member_id).len() as u32;
-                    profile.set_token_count(count);
+                    let count = tokens.tokens_for_steward(&b.member_id).len();
+                    field_artifacts.push(indras_homepage::ProfileFieldArtifact {
+                        field_name: indras_homepage::fields::TOKEN_COUNT.to_string(),
+                        display_value: count.to_string(),
+                        grants: field_grants(indras_homepage::fields::TOKEN_COUNT),
+                    });
                 }
 
                 // Blessings given
                 if let Ok(doc) = b.home.document::<indras_sync_engine::BlessingDocument>("blessings").await {
                     let blessings = doc.read().await;
-                    let count = blessings.blessings_by_member(&b.member_id).len() as u32;
-                    profile.set_blessings_given(count);
+                    let count = blessings.blessings_by_member(&b.member_id).len();
+                    field_artifacts.push(indras_homepage::ProfileFieldArtifact {
+                        field_name: indras_homepage::fields::BLESSINGS_GIVEN.to_string(),
+                        display_value: count.to_string(),
+                        grants: field_grants(indras_homepage::fields::BLESSINGS_GIVEN),
+                    });
                 }
 
                 // Attention contributed
@@ -476,7 +591,7 @@ pub fn GiftCycleApp() -> Element {
                     let my_events: Vec<_> = attention.events().iter()
                         .filter(|e| e.member == b.member_id)
                         .collect();
-                    let total_secs = my_events.len() as u64 * 2; // rough estimate: each event ~2s polling interval
+                    let total_secs = my_events.len() as u64 * 2;
                     let hours = total_secs / 3600;
                     let mins = (total_secs % 3600) / 60;
                     let time_str = if hours > 0 {
@@ -484,13 +599,21 @@ pub fn GiftCycleApp() -> Element {
                     } else {
                         format!("{mins}m")
                     };
-                    profile.set_attention_contributed(time_str);
+                    field_artifacts.push(indras_homepage::ProfileFieldArtifact {
+                        field_name: indras_homepage::fields::ATTENTION_CONTRIBUTED.to_string(),
+                        display_value: time_str,
+                        grants: field_grants(indras_homepage::fields::ATTENTION_CONTRIBUTED),
+                    });
                 }
 
                 // Contact count
                 if let Some(contacts_realm) = b.network.contacts_realm().await {
-                    let count = contacts_realm.contact_count().await as u32;
-                    profile.set_contact_count(count);
+                    let count = contacts_realm.contact_count().await;
+                    field_artifacts.push(indras_homepage::ProfileFieldArtifact {
+                        field_name: indras_homepage::fields::CONTACT_COUNT.to_string(),
+                        display_value: count.to_string(),
+                        grants: field_grants(indras_homepage::fields::CONTACT_COUNT),
+                    });
                 }
 
                 // Humanness freshness
@@ -501,19 +624,35 @@ pub fn GiftCycleApp() -> Element {
                         .unwrap_or_default()
                         .as_millis() as i64;
                     let freshness = humanness.freshness_at(&b.member_id, now_millis);
-                    profile.set_humanness_freshness(freshness);
+                    field_artifacts.push(indras_homepage::ProfileFieldArtifact {
+                        field_name: indras_homepage::fields::HUMANNESS_FRESHNESS.to_string(),
+                        display_value: format!("{freshness}"),
+                        grants: field_grants(indras_homepage::fields::HUMANNESS_FRESHNESS),
+                    });
                 }
 
-                // Sync profile artifact grants
-                if let Ok(artifact_doc) = b.home.artifact_index().await {
+                // Push fields to homepage server
+                *fields_handle.write().await = field_artifacts;
+
+                // Build content artifacts from non-profile entries in artifact index
+                if let Some(ref artifact_doc) = artifact_index {
                     let index = artifact_doc.read().await;
-                    let profile_aid = indras_artifacts::ArtifactId::Blob(
-                        indras_profile::profile_artifact_id(&b.member_id),
-                    );
-                    if let Some(entry) = index.get(&profile_aid) {
-                        if let Some(ref grants_handle) = b.homepage_grants {
-                            *grants_handle.write().await = entry.grants.clone();
-                        }
+                    let content_artifacts: Vec<indras_homepage::ContentArtifact> = index
+                        .active_artifacts()
+                        .filter(|entry| {
+                            // Skip profile field artifacts
+                            !entry.name.starts_with("profile:")
+                        })
+                        .map(|entry| indras_homepage::ContentArtifact {
+                            name: entry.name.clone(),
+                            mime_type: entry.mime_type.clone(),
+                            size: entry.size,
+                            created_at: entry.created_at,
+                            grants: entry.grants.clone(),
+                        })
+                        .collect();
+                    if let Some(ref artifacts_handle) = b.homepage_artifacts {
+                        *artifacts_handle.write().await = content_artifacts;
                     }
                 }
             }

@@ -64,7 +64,7 @@ use indras_storage::CompositeStorage;
 use indras_sync::NInterface;
 use indras_transport::{IrohIdentity, IrohNetworkAdapter, PeerEvent};
 
-use indras_homepage::{HomepageServer, Profile};
+use indras_homepage::HomepageServer;
 use message_handler::MessageHandler;
 use sync_task::SyncTask;
 
@@ -216,10 +216,10 @@ pub struct IndrasNode {
     background_tasks: RwLock<Vec<JoinHandle<()>>>,
     /// Whether the node has been started
     started: AtomicBool,
-    /// Homepage server profile handle (for live updates after start)
-    homepage_profile: std::sync::OnceLock<std::sync::Arc<tokio::sync::RwLock<indras_homepage::Profile>>>,
-    /// Homepage server grants handle (for live updates after start)
-    homepage_grants: std::sync::OnceLock<std::sync::Arc<tokio::sync::RwLock<Vec<indras_artifacts::AccessGrant>>>>,
+    /// Homepage server fields handle (for live updates after start)
+    homepage_fields: std::sync::OnceLock<std::sync::Arc<tokio::sync::RwLock<Vec<indras_homepage::ProfileFieldArtifact>>>>,
+    /// Homepage server artifacts handle (for live updates after start)
+    homepage_artifacts: std::sync::OnceLock<std::sync::Arc<tokio::sync::RwLock<Vec<indras_homepage::ContentArtifact>>>>,
 }
 
 impl IndrasNode {
@@ -279,8 +279,8 @@ impl IndrasNode {
             shutdown_tx,
             background_tasks: RwLock::new(Vec::new()),
             started: AtomicBool::new(false),
-            homepage_profile: std::sync::OnceLock::new(),
-            homepage_grants: std::sync::OnceLock::new(),
+            homepage_fields: std::sync::OnceLock::new(),
+            homepage_artifacts: std::sync::OnceLock::new(),
         })
     }
 
@@ -339,8 +339,8 @@ impl IndrasNode {
             shutdown_tx,
             background_tasks: RwLock::new(Vec::new()),
             started: AtomicBool::new(false),
-            homepage_profile: std::sync::OnceLock::new(),
-            homepage_grants: std::sync::OnceLock::new(),
+            homepage_fields: std::sync::OnceLock::new(),
+            homepage_artifacts: std::sync::OnceLock::new(),
         })
     }
 
@@ -448,16 +448,11 @@ impl IndrasNode {
 
             // Start homepage server if configured
             if let Some(port) = self.config.homepage_port {
-                let profile = Profile::new(
-                    self.config.display_name.as_deref().unwrap_or("Anonymous"),
-                    self.config.display_name.as_deref().unwrap_or("anonymous"),
-                    format!("{}", self.identity.short_id()),
-                );
                 let steward_id = *self.identity.public_key().as_bytes();
-                let server = HomepageServer::new(profile, steward_id);
+                let server = HomepageServer::new(steward_id);
                 // Extract handles BEFORE consuming server via serve()
-                let profile_handle = server.profile_handle();
-                let grants_handle = server.grants_handle();
+                let fields_handle = server.fields_handle();
+                let artifacts_handle = server.artifacts_handle();
                 let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
                 let homepage_task = tokio::spawn(async move {
                     if let Err(e) = server.serve(addr).await {
@@ -468,8 +463,8 @@ impl IndrasNode {
                 info!(port, "Homepage server started");
                 // Store handles for live updates; ignore errors (only fails if
                 // start() is somehow called twice, which is guarded above).
-                let _ = self.homepage_profile.set(profile_handle);
-                let _ = self.homepage_grants.set(grants_handle);
+                let _ = self.homepage_fields.set(fields_handle);
+                let _ = self.homepage_artifacts.set(artifacts_handle);
             }
         }
 
@@ -477,36 +472,24 @@ impl IndrasNode {
         Ok(())
     }
 
-    /// Update the homepage profile data
-    ///
-    /// Changes take effect on the next HTTP request. No-ops if the homepage
-    /// server was not configured or has not been started yet.
-    pub async fn update_homepage_profile(&self, display_name: String, bio: Option<String>) {
-        if let Some(profile_handle) = self.homepage_profile.get() {
-            let mut profile = profile_handle.write().await;
-            profile.display_name = indras_homepage::Visible::new(display_name);
-            profile.bio = indras_homepage::Visible::new(bio);
-        }
-    }
-
-    /// Get the homepage grants handle for pushing live grant updates.
+    /// Get the homepage fields handle for pushing live field updates.
     ///
     /// Returns `None` if the homepage server was not configured or has not
     /// been started yet.
-    pub fn homepage_grants_handle(
+    pub fn homepage_fields_handle(
         &self,
-    ) -> Option<std::sync::Arc<tokio::sync::RwLock<Vec<indras_artifacts::AccessGrant>>>> {
-        self.homepage_grants.get().cloned()
+    ) -> Option<std::sync::Arc<tokio::sync::RwLock<Vec<indras_homepage::ProfileFieldArtifact>>>> {
+        self.homepage_fields.get().cloned()
     }
 
-    /// Get the homepage profile handle for pushing live profile updates.
+    /// Get the homepage artifacts handle for pushing live artifact updates.
     ///
     /// Returns `None` if the homepage server was not configured or has not
     /// been started yet.
-    pub fn homepage_profile_handle(
+    pub fn homepage_artifacts_handle(
         &self,
-    ) -> Option<std::sync::Arc<tokio::sync::RwLock<indras_homepage::Profile>>> {
-        self.homepage_profile.get().cloned()
+    ) -> Option<std::sync::Arc<tokio::sync::RwLock<Vec<indras_homepage::ContentArtifact>>>> {
+        self.homepage_artifacts.get().cloned()
     }
 
     /// Spawn the realm discovery event handler task
