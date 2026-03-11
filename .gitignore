@@ -34,3 +34,7 @@ old-syncengine
 .worktrees/
 PLAN.md
 NOTES.md
+NEXT.md
+WORLD_VIEW.json
+simulation/reports/
+.jj/

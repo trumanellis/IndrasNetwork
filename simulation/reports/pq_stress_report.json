@@ -1,0 +1,151 @@
+{
+  "test_run_id": "387caac5-a60b-4302-93e3-f9469ba95fa6",
+  "timestamp": "2026-01-23T09:49:00.221024Z",
+  "scenario": "unknown",
+  "status": "fail",
+  "metrics": {
+    "signature": {
+      "operations": {
+        "created": 1000,
+        "verified": 1000,
+        "failures": 17
+      },
+      "latency": {
+        "count": 101,
+        "total_us": 19997,
+        "min_us": 197,
+        "max_us": 198,
+        "p50_us": 198,
+        "p95_us": 198,
+        "p99_us": 198,
+        "avg_us": 197.990099009901,
+        "ops_per_sec": 5050.757613642046
+      },
+      "verification_latency": {
+        "count": 101,
+        "total_us": 15052,
+        "min_us": 149,
+        "max_us": 152,
+        "p50_us": 149,
+        "p95_us": 149,
+        "p99_us": 149,
+        "avg_us": 149.02970297029702,
+        "ops_per_sec": 6710.071751262291
+      }
+    },
+    "kem": {
+      "operations": {
+        "encapsulations": 500,
+        "decapsulations": 500,
+        "failures": 2
+      },
+      "encap_latency": {
+        "count": 101,
+        "total_us": 7369,
+        "min_us": 69,
+        "max_us": 73,
+        "p50_us": 73,
+        "p95_us": 73,
+        "p99_us": 73,
+        "avg_us": 72.96039603960396,
+        "ops_per_sec": 13706.065951960916
+      },
+      "decap_latency": {
+        "count": 101,
+        "total_us": 7581,
+        "min_us": 75,
+        "max_us": 81,
+        "p50_us": 75,
+        "p95_us": 75,
+        "p99_us": 75,
+        "avg_us": 75.05940594059406,
+        "ops_per_sec": 13322.780635800025
+      }
+    },
+    "invites": {
+      "created": 24,
+      "accepted": 24,
+      "failed": 0,
+      "success_rate": 1.0
+    }
+  },
+  "thresholds": {
+    "checks": [
+      {
+        "metric": "signature_latency_p99_us",
+        "target": 1000,
+        "actual": 198,
+        "passed": true
+      },
+      {
+        "metric": "signature_throughput",
+        "target": 1000,
+        "actual": 5050.757613642046,
+        "passed": true
+      },
+      {
+        "metric": "verification_latency_p99_us",
+        "target": 500,
+        "actual": 149,
+        "passed": true
+      },
+      {
+        "metric": "verification_throughput",
+        "target": 2000,
+        "actual": 6710.071751262291,
+        "passed": true
+      },
+      {
+        "metric": "kem_encap_latency_p99_us",
+        "target": 200,
+        "actual": 73,
+        "passed": true
+      },
+      {
+        "metric": "kem_encap_throughput",
+        "target": 5000,
+        "actual": 13706.065951960916,
+        "passed": true
+      },
+      {
+        "metric": "kem_decap_latency_p99_us",
+        "target": 200,
+        "actual": 75,
+        "passed": true
+      },
+      {
+        "metric": "kem_decap_throughput",
+        "target": 5000,
+        "actual": 13322.780635800025,
+        "passed": true
+      },
+      {
+        "metric": "verification_failure_rate",
+        "target": 0.01,
+        "actual": 0.01671583087512291,
+        "passed": false
+      },
+      {
+        "metric": "kem_decap_failure_rate",
+        "target": 0.01,
+        "actual": 0.00398406374501992,
+        "passed": true
+      },
+      {
+        "metric": "invite_success_rate",
+        "target": 0.95,
+        "actual": 1.0,
+        "passed": true
+      }
+    ],
+    "passed": 10,
+    "failed": 1,
+    "total": 11
+  },
+  "summary": {
+    "total_pq_operations": 3000,
+    "failed_checks": [
+      "verification_failure_rate"
+    ]
+  }
+}

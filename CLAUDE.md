@@ -1,5 +1,15 @@
 # Claude Code Instructions for IndrasNetwork
 
+## Session Start
+
+On every new session, run `jj workspace list` and `jj log --limit 5` silently, then greet the user with:
+1. Current workspace and change (from `jj st`)
+2. Any other active workspaces (from `jj workspace list`)
+3. Recent changes with open (non-main) work (from `jj log`)
+4. Offer: "Continue an existing change, start new work, or create a parallel workspace?"
+
+Keep the welcome concise — a short table or list, not a wall of text.
+
 ## Working Directory
 
 **Always run commands from the repository root directory** (`/Users/truman/Code/IndrasNetwork`).
@@ -50,9 +60,64 @@ Then the user can simply run:
 
 When using names for peer/node instances in examples, simulations, or documentation, use single-letter identifiers: A, B, C, D, E, F, G, etc.
 
-## Git Workflow
+## Version Control (jj)
 
-Standard git workflow. Use `git commit`, `git push`, etc. normally.
+This repo uses **jj (Jujutsu)** colocated with git. Never use raw git commands.
+
+### Core Rules
+- Every change gets a descriptive message via `jj describe -m "..."`
+- Use `jj new main` to start work, never bookmark creation
+- Use `jj undo` as first response to any mistake
+- Working copy is always a commit — no staging needed
+
+### Single-Session Workflow
+- `jj new main -m "task"` → work → `jj describe` → land
+- Switch between tasks: `jj edit <change-id>`
+- Stack dependent work: `jj new <parent-change> -m "next task"`
+
+### Parallel Sessions (Multiple Claude Code instances)
+**Always ask the user before creating workspaces.**
+1. Create workspaces: `jj workspace add ../IndrasNetwork-ws-{name} --rev main -m "task"`
+2. Launch Claude Code in each workspace directory
+3. Track workspace→change mapping in notepad
+4. Integrate when done (see Landing Changes)
+5. Clean up: `jj workspace forget {name}` + remove directory
+
+### Curating Output Before Landing
+Self-curate all work into clean commits before landing:
+1. `jj new @- -m "feat: clean description"` (clean target)
+2. `jj squash -i --from <scratch>` (cherry-pick good parts)
+3. `jj abandon <scratch>` (discard the scratch revision)
+Or split a large change: `jj split` to separate concerns interactively.
+
+### Landing Changes
+1. `jj rebase -d main` (catch up with main)
+2. `jj bookmark set main -r @`
+3. `jj git push`
+4. Other active changes auto-rebase onto new main
+
+### Key Commands
+```bash
+jj st                        # status
+jj log                       # commit graph
+jj diff                      # working copy diff
+jj new main -m "task"        # start new work
+jj edit <change-id>          # switch to existing change
+jj describe -m "msg"         # set change description
+jj rebase -d main            # rebase onto main
+jj squash                    # fold into parent
+jj squash -i --from <id>     # cherry-pick from another change
+jj split                     # split change interactively
+jj abandon                   # discard a change
+jj undo                      # undo last operation
+jj bookmark list             # list bookmarks
+jj bookmark set main -r @    # point main at current change
+jj git fetch                 # pull from remote
+jj git push                  # push to remote
+jj workspace add <path>      # create parallel workspace
+jj workspace forget <name>   # remove workspace
+jj workspace list            # list workspaces
+```
 
 ## Greenfield Project
 
