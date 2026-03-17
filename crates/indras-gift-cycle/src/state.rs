@@ -88,6 +88,8 @@ pub enum AppView {
     Bless(IntentionId, MemberId),
     /// Token wallet.
     Wallet,
+    /// Profile visibility / grant management.
+    Profile,
 }
 
 // AppState is not used currently — state lives in signals in app.rs.

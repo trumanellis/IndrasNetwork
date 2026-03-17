@@ -18,9 +18,10 @@ use crate::components::intention_detail::IntentionDetail;
 use crate::components::intention_feed::IntentionFeed;
 use crate::components::intention_form::IntentionForm;
 use crate::components::peer_bar::PeerBar;
+use crate::components::profile_grants::ProfileGrantsPanel;
 use crate::components::proof_submit::ProofSubmit;
 use crate::components::token_wallet::TokenWallet;
-use crate::data::{self, IntentionCardData, IntentionViewData, P2pLogEntry, PeerDisplayInfo, TokenCardData};
+use crate::data::{self, IntentionCardData, IntentionViewData, P2pLogEntry, PeerDisplayInfo, ProfileFieldVisibility, TokenCardData};
 use indras_sync_engine::IntentionId;
 use crate::state::{AppView, CycleStage};
 
@@ -117,7 +118,23 @@ async fn boot_network(
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(3000);
-    let server = indras_homepage::HomepageServer::new(player_id);
+
+    // Create persistent store for homepage data
+    let data_dir = default_data_dir();
+    let homepage_store: Option<Arc<dyn indras_homepage::HomepageStore>> =
+        match indras_homepage::relay_bridge::FileHomepageStore::new(data_dir.join("homepage-store"))
+        {
+            Ok(store) => Some(Arc::new(store)),
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to create homepage store (non-fatal)");
+                None
+            }
+        };
+
+    let mut server = indras_homepage::HomepageServer::new(player_id);
+    if let Some(ref store) = homepage_store {
+        server = server.with_store(Arc::clone(store));
+    }
     let fields_handle = server.fields_handle();
     let artifacts_handle = server.artifacts_handle();
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], homepage_port));
@@ -196,9 +213,12 @@ async fn boot_network(
             .await;
     }
 
-    let b = GiftCycleBridge::new(home, player_id, player_name, Arc::clone(&net))
+    let mut b = GiftCycleBridge::new(home, player_id, player_name, Arc::clone(&net))
         .with_homepage_fields(fields_handle)
         .with_homepage_artifacts(artifacts_handle);
+    if let Some(store) = homepage_store {
+        b = b.with_homepage_store(store);
+    }
     bridge.set(Some(b));
 }
 
@@ -224,6 +244,7 @@ pub fn GiftCycleApp() -> Element {
     let mut detail_data = use_signal(|| None::<IntentionViewData>);
     let mut peers = use_signal(Vec::<PeerDisplayInfo>::new);
     let mut p2p_log = use_signal(Vec::<P2pLogEntry>::new);
+    let mut profile_fields = use_signal(Vec::<ProfileFieldVisibility>::new);
     let mut contact_invite_open = use_signal(|| false);
     let mut needs_onboarding = use_signal(|| false);
     let mut onboard_name = use_signal(String::new);
@@ -632,7 +653,18 @@ pub fn GiftCycleApp() -> Element {
                 }
 
                 // Push fields to homepage server
+                let vis = crate::data::build_profile_field_visibility(&field_artifacts, &peer_names);
+                profile_fields.set(vis);
+
+                // Persist to store for offline serving
+                if let Some(ref store) = b.homepage_store {
+                    let _ = store.save_profile(&field_artifacts);
+                }
+
                 *fields_handle.write().await = field_artifacts;
+
+                // Sync connections-only grants with current contact list
+                let _ = b.sync_connections_only_grants().await;
 
                 // Build content artifacts from non-profile entries in artifact index
                 if let Some(ref artifact_doc) = artifact_index {
@@ -643,12 +675,19 @@ pub fn GiftCycleApp() -> Element {
                             // Skip profile field artifacts
                             !entry.name.starts_with("profile:")
                         })
-                        .map(|entry| indras_homepage::ContentArtifact {
-                            name: entry.name.clone(),
-                            mime_type: entry.mime_type.clone(),
-                            size: entry.size,
-                            created_at: entry.created_at,
-                            grants: entry.grants.clone(),
+                        .map(|entry| {
+                            let aid = match &entry.id {
+                                indras_artifacts::ArtifactId::Doc(id) => *id,
+                                _ => [0u8; 32],
+                            };
+                            indras_homepage::ContentArtifact {
+                                artifact_id: aid,
+                                name: entry.name.clone(),
+                                mime_type: entry.mime_type.clone(),
+                                size: entry.size,
+                                created_at: entry.created_at,
+                                grants: entry.grants.clone(),
+                            }
                         })
                         .collect();
                     if let Some(ref artifacts_handle) = b.homepage_artifacts {
@@ -744,6 +783,7 @@ pub fn GiftCycleApp() -> Element {
                 member_id,
                 peers: peers(),
                 on_add_contact: move |_| contact_invite_open.set(true),
+                on_profile: move |_| current_view.set(AppView::Profile),
             }
 
             ContactInviteOverlay {
@@ -885,6 +925,16 @@ pub fn GiftCycleApp() -> Element {
                                 bridge: bridge().unwrap(),
                                 my_cards: my_cards(),
                                 on_pledge: move |_| {},
+                                on_back: move |_| {
+                                    current_view.set(AppView::Feed);
+                                    current_stage.set(CycleStage::Intention);
+                                },
+                            }
+                        },
+                        AppView::Profile => rsx! {
+                            ProfileGrantsPanel {
+                                bridge: bridge().unwrap(),
+                                profile_fields: profile_fields(),
                                 on_back: move |_| {
                                     current_view.set(AppView::Feed);
                                     current_stage.set(CycleStage::Intention);

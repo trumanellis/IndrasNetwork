@@ -35,6 +35,8 @@ pub struct GiftCycleBridge {
     pub homepage_fields: Option<Arc<RwLock<Vec<indras_homepage::ProfileFieldArtifact>>>>,
     /// Shared homepage artifacts handle for live updates.
     pub homepage_artifacts: Option<Arc<RwLock<Vec<indras_homepage::ContentArtifact>>>>,
+    /// Persistent homepage store for offline profile serving.
+    pub homepage_store: Option<Arc<dyn indras_homepage::HomepageStore>>,
 }
 
 impl PartialEq for GiftCycleBridge {
@@ -58,6 +60,7 @@ impl GiftCycleBridge {
             network,
             homepage_fields: None,
             homepage_artifacts: None,
+            homepage_store: None,
         }
     }
 
@@ -70,6 +73,12 @@ impl GiftCycleBridge {
     /// Set the homepage artifacts handle for live updates.
     pub fn with_homepage_artifacts(mut self, handle: Arc<RwLock<Vec<indras_homepage::ContentArtifact>>>) -> Self {
         self.homepage_artifacts = Some(handle);
+        self
+    }
+
+    /// Set the persistent homepage store for offline profile serving.
+    pub fn with_homepage_store(mut self, store: Arc<dyn indras_homepage::HomepageStore>) -> Self {
+        self.homepage_store = Some(store);
         self
     }
 
@@ -483,6 +492,197 @@ impl GiftCycleBridge {
             }
         }
         peers
+    }
+
+    /// Set a profile field to public visibility.
+    ///
+    /// Adds a public grant (grantee `[0u8; 32]`) and removes all specific grants.
+    pub async fn set_field_public(&self, field_name: &str) -> Result<()> {
+        let artifact_id = indras_artifacts::ArtifactId::Doc(
+            indras_homepage::profile_field_artifact_id(&self.member_id, field_name),
+        );
+        let doc = self.home.artifact_index().await?;
+        let member_id = self.member_id;
+        doc.update(|index| {
+            if let Some(entry) = index.get_mut(&artifact_id) {
+                entry.grants.clear();
+                entry.grants.push(indras_artifacts::AccessGrant {
+                    grantee: [0u8; 32],
+                    mode: indras_artifacts::AccessMode::Public,
+                    granted_at: 0,
+                    granted_by: member_id,
+                });
+            }
+        })
+        .await?;
+        Ok(())
+    }
+
+    /// Set a profile field to connections-only visibility.
+    ///
+    /// Removes the public grant and adds Revocable grants for all current contacts.
+    pub async fn set_field_connections_only(&self, field_name: &str) -> Result<()> {
+        let artifact_id = indras_artifacts::ArtifactId::Doc(
+            indras_homepage::profile_field_artifact_id(&self.member_id, field_name),
+        );
+        let doc = self.home.artifact_index().await?;
+        let member_id = self.member_id;
+
+        // Get current contacts
+        let contacts: Vec<[u8; 32]> = if let Some(contacts_realm) = self.network.contacts_realm().await {
+            if let Ok(cdoc) = contacts_realm.contacts().await {
+                let data = cdoc.read().await;
+                data.contacts.keys().copied().collect()
+            } else {
+                Vec::new()
+            }
+        } else {
+            Vec::new()
+        };
+
+        doc.update(move |index| {
+            if let Some(entry) = index.get_mut(&artifact_id) {
+                entry.grants.clear();
+                for contact in &contacts {
+                    if *contact != member_id && *contact != [0u8; 32] {
+                        entry.grants.push(indras_artifacts::AccessGrant {
+                            grantee: *contact,
+                            mode: indras_artifacts::AccessMode::Revocable,
+                            granted_at: 0,
+                            granted_by: member_id,
+                        });
+                    }
+                }
+            }
+        })
+        .await?;
+        Ok(())
+    }
+
+    /// Set a profile field to private (remove all grants).
+    pub async fn set_field_private(&self, field_name: &str) -> Result<()> {
+        let artifact_id = indras_artifacts::ArtifactId::Doc(
+            indras_homepage::profile_field_artifact_id(&self.member_id, field_name),
+        );
+        let doc = self.home.artifact_index().await?;
+        doc.update(|index| {
+            if let Some(entry) = index.get_mut(&artifact_id) {
+                entry.grants.clear();
+            }
+        })
+        .await?;
+        Ok(())
+    }
+
+    /// Grant timed access to a profile field for a specific peer.
+    pub async fn grant_field_timed_access(
+        &self,
+        field_name: &str,
+        grantee: MemberId,
+        duration_secs: i64,
+    ) -> Result<()> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        let expires_at = now + duration_secs;
+        self.grant_field_access(
+            field_name,
+            grantee,
+            indras_artifacts::AccessMode::Timed { expires_at },
+        )
+        .await
+    }
+
+    /// Revoke a specific peer's access to a profile field.
+    pub async fn revoke_field_access(&self, field_name: &str, grantee: MemberId) -> Result<()> {
+        let artifact_id = indras_artifacts::ArtifactId::Doc(
+            indras_homepage::profile_field_artifact_id(&self.member_id, field_name),
+        );
+        let doc = self.home.artifact_index().await?;
+        doc.update(|index| {
+            if let Some(entry) = index.get_mut(&artifact_id) {
+                entry.grants.retain(|g| g.grantee != grantee);
+            }
+        })
+        .await?;
+        Ok(())
+    }
+
+    /// Sync connections-only grants for all fields that have that visibility.
+    ///
+    /// For each field with non-public, non-empty grants, ensures grants match
+    /// the current contact list (adds new contacts, revokes removed ones).
+    pub async fn sync_connections_only_grants(&self) -> Result<()> {
+        let contacts: Vec<[u8; 32]> = if let Some(contacts_realm) = self.network.contacts_realm().await {
+            if let Ok(cdoc) = contacts_realm.contacts().await {
+                let data = cdoc.read().await;
+                data.contacts.keys().copied().collect()
+            } else {
+                return Ok(());
+            }
+        } else {
+            return Ok(());
+        };
+
+        let doc = self.home.artifact_index().await?;
+        let member_id = self.member_id;
+        let field_names: Vec<&str> = vec![
+            indras_homepage::fields::DISPLAY_NAME,
+            indras_homepage::fields::USERNAME,
+            indras_homepage::fields::BIO,
+            indras_homepage::fields::PUBLIC_KEY,
+            indras_homepage::fields::INTENTION_COUNT,
+            indras_homepage::fields::TOKEN_COUNT,
+            indras_homepage::fields::BLESSINGS_GIVEN,
+            indras_homepage::fields::ATTENTION_CONTRIBUTED,
+            indras_homepage::fields::CONTACT_COUNT,
+            indras_homepage::fields::HUMANNESS_FRESHNESS,
+            indras_homepage::fields::ACTIVE_QUESTS,
+            indras_homepage::fields::ACTIVE_OFFERINGS,
+        ];
+
+        doc.update(move |index| {
+            for field_name in &field_names {
+                let aid = indras_artifacts::ArtifactId::Doc(
+                    indras_homepage::profile_field_artifact_id(&member_id, field_name),
+                );
+                if let Some(entry) = index.get_mut(&aid) {
+                    let has_public = entry
+                        .grants
+                        .iter()
+                        .any(|g| matches!(g.mode, indras_artifacts::AccessMode::Public));
+                    if has_public || entry.grants.is_empty() {
+                        continue; // Skip public and private fields
+                    }
+                    // This field is connections-only: sync grants with contact list
+                    let current_grantees: std::collections::HashSet<[u8; 32]> =
+                        entry.grants.iter().map(|g| g.grantee).collect();
+                    let contact_set: std::collections::HashSet<[u8; 32]> = contacts
+                        .iter()
+                        .filter(|c| **c != member_id && **c != [0u8; 32])
+                        .copied()
+                        .collect();
+
+                    // Remove grants for non-contacts
+                    entry.grants.retain(|g| contact_set.contains(&g.grantee));
+
+                    // Add grants for new contacts
+                    for contact in &contact_set {
+                        if !current_grantees.contains(contact) {
+                            entry.grants.push(indras_artifacts::AccessGrant {
+                                grantee: *contact,
+                                mode: indras_artifacts::AccessMode::Revocable,
+                                granted_at: 0,
+                                granted_by: member_id,
+                            });
+                        }
+                    }
+                }
+            }
+        })
+        .await?;
+        Ok(())
     }
 
     /// Grant a peer access to a specific profile field.

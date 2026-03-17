@@ -116,6 +116,12 @@ impl ViewerToken {
 /// invalid, returns a 401 error.
 pub struct OptionalViewer(pub Option<[u8; 32]>);
 
+/// Axum extractor requiring the viewer to be the steward (page owner).
+///
+/// Returns 401 if no token is present, 403 if the viewer is not the
+/// steward. On success yields the steward's public key bytes.
+pub struct RequiredSteward(pub [u8; 32]);
+
 /// Returns the current Unix timestamp in seconds.
 fn unix_now() -> i64 {
     std::time::SystemTime::now()
@@ -150,6 +156,23 @@ where
             .map_err(|_| (StatusCode::UNAUTHORIZED, "token verification failed"))?;
 
         Ok(OptionalViewer(Some(viewer_id)))
+    }
+}
+
+impl<S> FromRequestParts<S> for RequiredSteward
+where
+    S: Send + Sync + AsRef<[u8; 32]>,
+{
+    type Rejection = (StatusCode, &'static str);
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let viewer = OptionalViewer::from_request_parts(parts, state).await?;
+        let steward = state.as_ref();
+        match viewer.0 {
+            None => Err((StatusCode::UNAUTHORIZED, "authentication required")),
+            Some(id) if id == *steward => Ok(RequiredSteward(id)),
+            Some(_) => Err((StatusCode::FORBIDDEN, "steward access required")),
+        }
     }
 }
 

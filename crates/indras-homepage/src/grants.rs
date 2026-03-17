@@ -158,6 +158,7 @@ mod tests {
         let steward = [0x01; 32];
         let artifacts = vec![
             ContentArtifact {
+                artifact_id: [0xA0; 32],
                 name: "public.txt".to_string(),
                 mime_type: Some("text/plain".to_string()),
                 size: 100,
@@ -165,6 +166,7 @@ mod tests {
                 grants: vec![make_grant([0x00; 32], AccessMode::Public)],
             },
             ContentArtifact {
+                artifact_id: [0xA1; 32],
                 name: "private.txt".to_string(),
                 mime_type: Some("text/plain".to_string()),
                 size: 200,

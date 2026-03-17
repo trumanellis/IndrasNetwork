@@ -229,6 +229,127 @@ pub struct P2pLogEntry {
     pub message: String,
 }
 
+/// Simplified visibility level derived from grants.
+#[derive(Clone, Debug, PartialEq)]
+pub enum FieldVisibility {
+    /// Has a public grant — anyone can see.
+    Public,
+    /// Has grants for specific peers but no public grant.
+    ConnectionsOnly,
+    /// No grants — only steward can see.
+    Private,
+}
+
+/// Per-field visibility info for the grant management UI.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProfileFieldVisibility {
+    /// Field name (e.g. "display_name").
+    pub field_name: String,
+    /// Human-readable label (e.g. "Display Name").
+    pub display_label: String,
+    /// Current display value.
+    pub display_value: String,
+    /// Derived visibility level.
+    pub visibility: FieldVisibility,
+    /// Specific non-public grants on this field.
+    pub specific_grants: Vec<FieldGrantInfo>,
+}
+
+/// Info about a specific grant on a field.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FieldGrantInfo {
+    /// Grantee member ID.
+    pub grantee: [u8; 32],
+    /// Grantee display name.
+    pub grantee_name: String,
+    /// Access mode description.
+    pub mode_label: String,
+}
+
+/// Build profile field visibility data from homepage fields and artifact index grants.
+pub fn build_profile_field_visibility(
+    fields: &[indras_homepage::ProfileFieldArtifact],
+    peer_names: &std::collections::HashMap<[u8; 32], String>,
+) -> Vec<ProfileFieldVisibility> {
+    fields
+        .iter()
+        .map(|f| {
+            let has_public = f
+                .grants
+                .iter()
+                .any(|g| matches!(g.mode, indras_artifacts::AccessMode::Public));
+            let specific: Vec<FieldGrantInfo> = f
+                .grants
+                .iter()
+                .filter(|g| {
+                    g.grantee != [0u8; 32]
+                        && !matches!(g.mode, indras_artifacts::AccessMode::Public)
+                })
+                .map(|g| {
+                    let name = peer_names.get(&g.grantee).cloned().unwrap_or_else(|| {
+                        g.grantee
+                            .iter()
+                            .take(4)
+                            .map(|b| format!("{b:02x}"))
+                            .collect()
+                    });
+                    let mode_label = match &g.mode {
+                        indras_artifacts::AccessMode::Revocable => "Revocable".to_string(),
+                        indras_artifacts::AccessMode::Timed { expires_at } => {
+                            format!("Timed (expires {expires_at})")
+                        }
+                        indras_artifacts::AccessMode::Permanent => "Permanent".to_string(),
+                        other => format!("{other:?}"),
+                    };
+                    FieldGrantInfo {
+                        grantee: g.grantee,
+                        grantee_name: name,
+                        mode_label,
+                    }
+                })
+                .collect();
+
+            let visibility = if has_public {
+                FieldVisibility::Public
+            } else if !specific.is_empty() {
+                FieldVisibility::ConnectionsOnly
+            } else {
+                FieldVisibility::Private
+            };
+
+            let display_label = field_display_label(&f.field_name);
+
+            ProfileFieldVisibility {
+                field_name: f.field_name.clone(),
+                display_label,
+                display_value: f.display_value.clone(),
+                visibility,
+                specific_grants: specific,
+            }
+        })
+        .collect()
+}
+
+/// Human-readable label for a field name.
+fn field_display_label(name: &str) -> String {
+    match name {
+        "display_name" => "Display Name",
+        "username" => "Username",
+        "bio" => "Bio",
+        "public_key" => "Public Key",
+        "intention_count" => "Intentions",
+        "token_count" => "Tokens",
+        "blessings_given" => "Blessings Given",
+        "attention_contributed" => "Attention",
+        "contact_count" => "Contacts",
+        "humanness_freshness" => "Humanness",
+        "active_quests" => "Active Quests",
+        "active_offerings" => "Active Offerings",
+        _ => name,
+    }
+    .to_string()
+}
+
 // ================================================================
 // Helpers
 // ================================================================

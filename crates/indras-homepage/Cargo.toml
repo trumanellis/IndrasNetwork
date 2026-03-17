@@ -9,8 +9,8 @@ description = "HTTP homepage server for indras nodes"
 indras-artifacts.workspace = true
 blake3.workspace = true
 hex.workspace = true
-axum.workspace = true
-tokio = { workspace = true, features = ["net"] }
+axum = { workspace = true, features = ["multipart"] }
+tokio = { workspace = true, features = ["net", "fs", "sync"] }
 tower-http = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 tracing.workspace = true

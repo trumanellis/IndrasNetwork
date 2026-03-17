@@ -12,12 +12,16 @@ pub fn PeerBar(
     member_id: MemberId,
     peers: Vec<PeerDisplayInfo>,
     on_add_contact: EventHandler<()>,
+    on_profile: EventHandler<()>,
 ) -> Element {
     let letter = player_name.chars().next().unwrap_or('?').to_string();
 
     rsx! {
         div { class: "peer-bar",
-            div { class: "peer-bar-identity",
+            div {
+                class: "peer-bar-identity",
+                style: "cursor: pointer;",
+                onclick: move |_| on_profile.call(()),
                 div { class: "peer-dot peer-dot-self", "{letter}" }
                 span { "{player_name}" }
             }

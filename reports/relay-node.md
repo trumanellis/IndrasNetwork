@@ -41,7 +41,7 @@ Set `owner_player_id` to your 64-character hex PlayerId. The relay then assigns 
 
 ### Community Server
 
-Set `community_mode = true` and omit `owner_player_id`. All authenticated peers get Public tier unless they appear in the contacts list (which grants Connections tier).
+Omit `owner_player_id`. All authenticated peers get Public tier unless they appear in the contacts list (which grants Connections tier).
 
 ## Configuration Reference
 
@@ -60,7 +60,6 @@ admin_token = "change-me"          # CHANGE THIS for production
 
 # Personal server mode (omit for community mode)
 # owner_player_id = "abcd1234...64 hex chars..."
-# community_mode = false
 
 [quota]
 default_max_bytes_per_peer = 104857600      # 100 MB
@@ -201,11 +200,11 @@ RelayStore {
 }
 ```
 
-The relay checks: (1) the peer is authenticated, (2) the peer's tier grants access to the target tier, (3) the tier quota isn't exceeded. Violations are rejected with a descriptive reason in `RelayStoreAck`.
+The relay checks: (1) the peer is authenticated, (2) the peer's tier grants access to the target tier, (3) the per-tier quota isn't exceeded, (4) the per-peer and global byte limits aren't exceeded. Violations are rejected with a descriptive reason in `RelayStoreAck`.
 
 **Pin and TTL overrides are honored:**
 - `pin: true` (Self_ tier only) marks the event as pinned — pinned events survive cleanup and are never auto-deleted by the background TTL task
-- `ttl_override_days` overrides the tier's default TTL for that specific event — useful for extending retention of important data beyond the tier default
+- `ttl_override_days` overrides the tier's default TTL for that specific event, clamped to `max_event_ttl_days` (default 365) — useful for extending retention of important data beyond the tier default
 
 Both are stored in dedicated redb tables (`pinned_events`, `ttl_overrides`) and checked during each cleanup cycle.
 
@@ -227,7 +226,7 @@ This makes the profile artifact the single source of truth for relay access — 
 2. The relay subscribes to iroh-gossip topics for those interfaces
 3. When any peer publishes an `InterfaceEvent` to gossip, the relay captures and stores it
 4. When the registered peer reconnects, they send `RelayRetrieve` to fetch missed events (optionally specifying which tier to retrieve from — defaults to Connections)
-5. The relay delivers stored events and the peer is caught up
+5. The relay delivers stored events in pages of up to 100 events, with `has_more` indicating additional pages available
 
 The relay never decrypts events — it stores opaque encrypted blobs and nonces. It has no interface keys.
 
@@ -243,7 +242,7 @@ All communication happens over QUIC (`indras/1` ALPN) with framed postcard-seria
 | `RelayAuthAck` | relay -> peer | -- | Tier grants + quota info |
 | `RelayRegister` | peer -> relay | Yes | Register interfaces for S&F |
 | `RelayRegisterAck` | relay -> peer | -- | Accepted/rejected interfaces |
-| `RelayUnregister` | peer -> relay | No | Remove registrations |
+| `RelayUnregister` | peer -> relay | Yes | Remove registrations |
 | `RelayRetrieve` | peer -> relay | Yes | Fetch stored events (tier-aware) |
 | `RelayDelivery` | relay -> peer | -- | Batch of stored events |
 | `RelayStore` | peer -> relay | Yes | Push data to a specific tier |
@@ -346,12 +345,14 @@ Events are stored in separate redb tables per tier (`self_events`, `conn_events`
 
 A background cleanup task runs every `cleanup_interval_secs` (default 1 hour) and removes events older than each tier's TTL. Cleanup runs independently per tier so Self_ data (365 days) lives much longer than Public data (7 days).
 
-Per-interface storage usage is tracked atomically alongside each insert and available through the admin API. Pinned events (set via `RelayStore` with `pin: true`) are never cleaned up regardless of age. Events with TTL overrides use their custom TTL instead of the tier default during cleanup.
+Per-interface storage usage is tracked atomically alongside each insert and updated during cleanup (bytes freed by expired events are subtracted from usage counters). Usage is available through the admin API. Pinned events (set via `RelayStore` with `pin: true`) are never cleaned up regardless of age. Events with TTL overrides use their custom TTL instead of the tier default during cleanup. When events are deleted (by cleanup or eviction), their corresponding pin and TTL override entries are also removed.
 
 ## Operational Notes
 
 - **Identity key:** Deleting `secret.key` forces a new identity on next startup. All peers must reconnect to the new node ID.
 - **Graceful shutdown:** Ctrl-C triggers graceful shutdown of the admin server and cleanup task.
-- **Quota resets:** In-memory quota counters reset on restart (storage usage is recalculated from the database, but per-peer registration counts start fresh).
+- **Quota persistence:** Per-tier quota counters are reconstructed from the database on startup, so storage limits survive restarts. Per-peer registration counts start fresh.
+- **Session expiry:** Expired credentials are swept periodically — sessions whose `expires_at_millis` has passed are removed automatically.
+- **Admin token warning:** The relay logs a warning at startup if the admin token is still set to the default `"change-me"`.
 - **Gossip persistence:** On restart, the relay re-subscribes to all gossip topics from `registrations.json` before accepting new connections, minimizing the window for missed events.
 - **Logging:** Controlled by `RUST_LOG` env var. Default: `info` for `indras_relay`. Set `RUST_LOG=indras_relay=debug` for verbose output.
