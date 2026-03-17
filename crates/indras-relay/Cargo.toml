@@ -48,6 +48,7 @@ futures-lite = "2"
 
 # Cryptography (credential verification)
 ed25519-dalek = { version = "2", features = ["std", "rand_core"] }
+blake3.workspace = true
 
 [dev-dependencies]
 tokio-test.workspace = true

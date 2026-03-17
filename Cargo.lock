@@ -4055,6 +4055,7 @@ version = "1.0.0"
 dependencies = [
  "anyhow",
  "axum 0.8.8",
+ "blake3",
  "bytes",
  "chrono",
  "clap",
@@ -4240,6 +4241,7 @@ name = "indras-transport"
 version = "1.0.0"
 dependencies = [
  "async-trait",
+ "blake3",
  "bytes",
  "chrono",
  "dashmap",

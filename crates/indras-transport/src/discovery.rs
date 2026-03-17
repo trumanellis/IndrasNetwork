@@ -261,18 +261,11 @@ impl DiscoveryService {
     /// The topic ID is derived from the interface ID to ensure all members
     /// of the same realm subscribe to the same gossip topic.
     pub fn topic_for_interface(interface_id: &InterfaceId) -> TopicId {
-        use std::hash::{Hash, Hasher};
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        b"indras/realm/v1/".hash(&mut hasher);
-        interface_id.as_bytes().hash(&mut hasher);
-        let hash = hasher.finish();
-
-        let mut topic = [0u8; 32];
-        // Use interface ID bytes as base, with hash for uniqueness
-        topic[..16].copy_from_slice(&interface_id.as_bytes()[..16]);
-        topic[16..24].copy_from_slice(&hash.to_le_bytes());
-        topic[24..32].copy_from_slice(&hash.to_be_bytes());
-        TopicId::from(topic)
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"indras/realm/v1/");
+        hasher.update(interface_id.as_bytes());
+        let hash = hasher.finalize();
+        TopicId::from(*hash.as_bytes())
     }
 
     /// Join a realm's gossip topic for peer discovery

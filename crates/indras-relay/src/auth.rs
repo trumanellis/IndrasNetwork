@@ -38,6 +38,8 @@ pub struct AuthSession {
     pub highest_tier: StorageTier,
     /// All granted tiers
     pub granted_tiers: Vec<StorageTier>,
+    /// When the credential expires (milliseconds since Unix epoch)
+    pub expires_at_millis: i64,
 }
 
 /// Authentication service that validates credentials and tracks sessions
@@ -118,6 +120,7 @@ impl AuthService {
             transport_id: *transport_id,
             highest_tier,
             granted_tiers: granted_tiers.clone(),
+            expires_at_millis: signed.credential.expires_at_millis,
         };
 
         // Store the session
@@ -150,6 +153,14 @@ impl AuthService {
         self.sessions.remove(transport_id);
     }
 
+    /// Remove all sessions whose credentials have expired.
+    ///
+    /// Intended to be called periodically from a cleanup task.
+    pub fn sweep_expired_sessions(&self) {
+        let now = chrono::Utc::now().timestamp_millis();
+        self.sessions.retain(|_, session| session.expires_at_millis >= now);
+    }
+
     /// Add a contact (grants Connections tier access)
     pub fn add_contact(&self, player_id: [u8; 32]) {
         self.contacts.insert(player_id, ());
@@ -173,11 +184,16 @@ impl AuthService {
     /// Replace the contacts list with a new set of player IDs.
     ///
     /// Called when the owner syncs their profile artifact grants.
+    ///
+    /// Avoids the window where contacts is empty by inserting new entries
+    /// first, then removing stale ones in a single `retain` pass.
     pub fn sync_contacts(&self, contacts: Vec<[u8; 32]>) {
-        self.contacts.clear();
-        for id in contacts {
-            self.contacts.insert(id, ());
+        use std::collections::HashSet;
+        let new_set: HashSet<[u8; 32]> = contacts.into_iter().collect();
+        for id in &new_set {
+            self.contacts.insert(*id, ());
         }
+        self.contacts.retain(|id, _| new_set.contains(id));
     }
 
     /// Get the current number of contacts.

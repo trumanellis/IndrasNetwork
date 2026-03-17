@@ -36,13 +36,8 @@ pub struct RelayConfig {
 
     /// Owner's PlayerId (32 bytes, hex-encoded in TOML).
     /// When set, this relay acts as a personal server for the owner.
-    /// When None with community_mode=true, acts as a community server.
     #[serde(default)]
     pub owner_player_id: Option<String>,
-
-    /// Whether this relay runs in community mode (allowlist-based tier grants)
-    #[serde(default)]
-    pub community_mode: bool,
 
     /// Per-tier configuration
     #[serde(default)]
@@ -59,7 +54,6 @@ impl Default for RelayConfig {
             quota: QuotaConfig::default(),
             storage: StorageConfig::default(),
             owner_player_id: None,
-            community_mode: false,
             tiers: TierConfig::default(),
         }
     }
@@ -313,7 +307,6 @@ mod tests {
         let toml_str = r#"
             display_name = "tier-relay"
             owner_player_id = "abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234"
-            community_mode = false
 
             [tiers]
             self_max_bytes = 2147483648
@@ -324,7 +317,6 @@ mod tests {
         let config: RelayConfig = toml::from_str(toml_str).unwrap();
         assert_eq!(config.display_name, "tier-relay");
         assert!(config.owner_player_id.is_some());
-        assert!(!config.community_mode);
         assert_eq!(config.tiers.self_max_bytes, 2 * 1024 * 1024 * 1024);
         assert_eq!(config.tiers.connections_max_bytes, 1024 * 1024 * 1024);
         assert_eq!(config.tiers.public_max_bytes, 100 * 1024 * 1024);

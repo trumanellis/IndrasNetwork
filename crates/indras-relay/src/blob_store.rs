@@ -324,13 +324,6 @@ impl BlobStore {
                 }
             }
 
-            for key in &keys_to_delete {
-                table.remove(key.as_slice()).map_err(|e| {
-                    RelayError::Storage(format!("Failed to remove event: {e}"))
-                })?;
-                count += 1;
-            }
-
             // Reset usage for this tier
             let mut usage_table = write_txn.open_table(usage_table_for(tier)).map_err(|e| {
                 RelayError::Storage(format!("Failed to open usage table: {e}"))
@@ -338,6 +331,26 @@ impl BlobStore {
             usage_table.remove(interface_id.0.as_slice()).map_err(|e| {
                 RelayError::Storage(format!("Failed to remove usage: {e}"))
             })?;
+
+            let mut pinned_table = write_txn.open_table(PINNED_EVENTS_TABLE).map_err(|e| {
+                RelayError::Storage(format!("Failed to open pinned table: {e}"))
+            })?;
+            let mut ttl_table = write_txn.open_table(TTL_OVERRIDES_TABLE).map_err(|e| {
+                RelayError::Storage(format!("Failed to open TTL table: {e}"))
+            })?;
+
+            for key in &keys_to_delete {
+                table.remove(key.as_slice()).map_err(|e| {
+                    RelayError::Storage(format!("Failed to remove event: {e}"))
+                })?;
+                pinned_table.remove(key.as_slice()).map_err(|e| {
+                    RelayError::Storage(format!("Failed to remove pin entry: {e}"))
+                })?;
+                ttl_table.remove(key.as_slice()).map_err(|e| {
+                    RelayError::Storage(format!("Failed to remove TTL override: {e}"))
+                })?;
+                count += 1;
+            }
         }
 
         write_txn.commit().map_err(|e| {
@@ -457,10 +470,13 @@ impl BlobStore {
             let mut events_table = write_txn.open_table(events_table_for(tier)).map_err(|e| {
                 RelayError::Storage(format!("Failed to open events table: {e}"))
             })?;
-            let pinned_table = write_txn.open_table(PINNED_EVENTS_TABLE).map_err(|e| {
+            let mut usage_table = write_txn.open_table(usage_table_for(tier)).map_err(|e| {
+                RelayError::Storage(format!("Failed to open usage table: {e}"))
+            })?;
+            let mut pinned_table = write_txn.open_table(PINNED_EVENTS_TABLE).map_err(|e| {
                 RelayError::Storage(format!("Failed to open pinned table: {e}"))
             })?;
-            let ttl_table = write_txn.open_table(TTL_OVERRIDES_TABLE).map_err(|e| {
+            let mut ttl_table = write_txn.open_table(TTL_OVERRIDES_TABLE).map_err(|e| {
                 RelayError::Storage(format!("Failed to open TTL table: {e}"))
             })?;
 
@@ -507,9 +523,39 @@ impl BlobStore {
             }
 
             for key in &keys_to_delete {
-                events_table.remove(key.as_slice()).map_err(|e| {
+                let removed = events_table.remove(key.as_slice()).map_err(|e| {
                     RelayError::Storage(format!("Failed to remove expired: {e}"))
                 })?;
+
+                // Subtract deleted bytes from usage for this interface
+                if let Some(old_value) = removed {
+                    let deleted_bytes = old_value.value().len() as u64;
+                    let iface_key = &key[..32];
+                    let current = usage_table
+                        .get(iface_key)
+                        .map_err(|e| RelayError::Storage(format!("Failed to get usage: {e}")))?
+                        .map(|v| v.value())
+                        .unwrap_or(0);
+                    let new_usage = current.saturating_sub(deleted_bytes);
+                    if new_usage == 0 {
+                        usage_table.remove(iface_key).map_err(|e| {
+                            RelayError::Storage(format!("Failed to remove usage: {e}"))
+                        })?;
+                    } else {
+                        usage_table.insert(iface_key, new_usage).map_err(|e| {
+                            RelayError::Storage(format!("Failed to update usage: {e}"))
+                        })?;
+                    }
+                }
+
+                // Remove corresponding pin and TTL override entries
+                pinned_table.remove(key.as_slice()).map_err(|e| {
+                    RelayError::Storage(format!("Failed to remove pin entry: {e}"))
+                })?;
+                ttl_table.remove(key.as_slice()).map_err(|e| {
+                    RelayError::Storage(format!("Failed to remove TTL override: {e}"))
+                })?;
+
                 count += 1;
             }
         }
@@ -521,6 +567,41 @@ impl BlobStore {
             info!(count, ?tier, "Cleaned up expired events");
         }
         Ok(count)
+    }
+
+    /// Scan all usage tables and return per-interface, per-tier byte counts
+    ///
+    /// Returns a list of `(interface_id, tier, bytes_used)` for every interface
+    /// that has non-zero usage in any tier. Used during startup to reconstruct
+    /// quota state from durable storage.
+    pub fn all_interface_usage(&self) -> RelayResult<Vec<(InterfaceId, StorageTier, u64)>> {
+        let mut results = Vec::new();
+        for tier in ALL_TIERS {
+            let read_txn = self.db.begin_read().map_err(|e| {
+                RelayError::Storage(format!("Failed to begin read: {e}"))
+            })?;
+            let table = read_txn.open_table(usage_table_for(tier)).map_err(|e| {
+                RelayError::Storage(format!("Failed to open usage table: {e}"))
+            })?;
+            let iter = table.iter().map_err(|e| {
+                RelayError::Storage(format!("Failed to iterate usage: {e}"))
+            })?;
+            for entry in iter {
+                let (key, value) = entry.map_err(|e| {
+                    RelayError::Storage(format!("Failed to read usage entry: {e}"))
+                })?;
+                let key_bytes = key.value();
+                if key_bytes.len() == 32 {
+                    let mut arr = [0u8; 32];
+                    arr.copy_from_slice(key_bytes);
+                    let bytes = value.value();
+                    if bytes > 0 {
+                        results.push((InterfaceId::new(arr), tier, bytes));
+                    }
+                }
+            }
+        }
+        Ok(results)
     }
 
     /// Count total events stored across all tiers

@@ -274,6 +274,28 @@ impl TieredQuotaManager {
             .and_then(|q| q.tier_bytes.get(&tier).copied())
             .unwrap_or(0)
     }
+
+    /// Populate quota state from persisted usage data
+    ///
+    /// Called during relay startup to restore in-memory quota tracking from the
+    /// BlobStore's durable usage tables. Each entry maps a peer to a tier and
+    /// the total bytes that peer has stored in that tier. Bytes are accumulated
+    /// so multiple entries for the same `(peer_id, tier)` pair are summed.
+    ///
+    /// The caller is responsible for joining BlobStore's per-interface usage
+    /// (from `BlobStore::all_interface_usage`) with the peer→interface mapping
+    /// (from `RegistrationState`) before calling this method.
+    pub fn reconstruct_from_usage(&self, usage_data: Vec<(IrohIdentity, StorageTier, u64)>) {
+        for (peer_id, tier, bytes) in usage_data {
+            self.peer_quotas
+                .entry(peer_id)
+                .or_default()
+                .tier_bytes
+                .entry(tier)
+                .and_modify(|b| *b += bytes)
+                .or_insert(bytes);
+        }
+    }
 }
 
 #[cfg(test)]

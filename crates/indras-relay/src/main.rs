@@ -52,6 +52,10 @@ async fn main() -> anyhow::Result<()> {
         config.admin_bind = admin_bind;
     }
 
+    if config.admin_token == "change-me" {
+        tracing::warn!("Admin API token is set to default 'change-me' — change this for production use");
+    }
+
     tracing::info!(
         name = %config.display_name,
         data_dir = %config.data_dir.display(),

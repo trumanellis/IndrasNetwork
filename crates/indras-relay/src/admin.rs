@@ -94,6 +94,14 @@ pub fn admin_router(state: Arc<AdminState>) -> Router {
         .with_state(state)
 }
 
+/// Constant-time string comparison to prevent timing attacks
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter().zip(b.iter()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
 /// Validate bearer token from request headers
 fn validate_token(headers: &HeaderMap, expected: &str) -> Result<(), StatusCode> {
     let auth = headers
@@ -106,7 +114,7 @@ fn validate_token(headers: &HeaderMap, expected: &str) -> Result<(), StatusCode>
     }
 
     let token = &auth[7..];
-    if token != expected {
+    if !constant_time_eq(token.as_bytes(), expected.as_bytes()) {
         return Err(StatusCode::UNAUTHORIZED);
     }
 

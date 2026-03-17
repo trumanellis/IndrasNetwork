@@ -202,6 +202,7 @@ impl RelayNode {
                     let auth = self.auth.clone();
                     let tiered_quota = self.tiered_quota.clone();
                     let data_dir = self.config.data_dir.clone();
+                    let config = self.config.clone();
                     tokio::spawn(async move {
                         if let Err(e) = handle_connection(
                             conn,
@@ -212,6 +213,7 @@ impl RelayNode {
                             auth,
                             tiered_quota,
                             data_dir,
+                            config,
                         ).await {
                             warn!(error = %e, "Connection handling error");
                         }
@@ -277,6 +279,7 @@ async fn handle_connection(
     auth: Arc<AuthService>,
     tiered_quota: Arc<TieredQuotaManager>,
     data_dir: std::path::PathBuf,
+    config: RelayConfig,
 ) -> RelayResult<()> {
     let peer_key = conn.remote_id();
     let peer_id = IrohIdentity::new(peer_key);
@@ -398,6 +401,11 @@ async fn handle_connection(
             }
 
             WireMessage::RelayUnregister(unregister) => {
+                if !authenticated {
+                    warn!(peer = %peer_key.fmt_short(), "Unauthenticated peer attempted operation");
+                    continue;
+                }
+
                 let count = unregister.interfaces.len();
                 registrations.unregister(&peer_id, &unregister.interfaces)?;
                 quota.record_unregistration(&peer_id, count);
@@ -422,10 +430,21 @@ async fn handle_connection(
                     continue;
                 }
 
-                let events = blob_store
+                const RETRIEVE_PAGE_SIZE: usize = 100;
+
+                let mut events = blob_store
                     .events_after_tiered(tier, retrieve.interface_id, retrieve.after_event_id)?;
 
-                let delivery = RelayDeliveryMessage::new(retrieve.interface_id, events);
+                let has_more = events.len() > RETRIEVE_PAGE_SIZE;
+                if has_more {
+                    events.truncate(RETRIEVE_PAGE_SIZE);
+                }
+
+                let delivery = if has_more {
+                    RelayDeliveryMessage::new(retrieve.interface_id, events).with_more()
+                } else {
+                    RelayDeliveryMessage::new(retrieve.interface_id, events)
+                };
                 let framed = frame_message(&WireMessage::RelayDelivery(delivery))
                     .map_err(|e| RelayError::Serialization(e.to_string()))?;
                 send_stream.write_all(&framed).await.map_err(|e| {
@@ -477,6 +496,22 @@ async fn handle_connection(
                     continue;
                 }
 
+                // Check flat quota (per-peer and global byte limits)
+                let total_usage = blob_store.total_usage_bytes().unwrap_or(0);
+                if let Err(e) = quota.can_store(&peer_id, data_len, total_usage) {
+                    let ack = RelayStoreAckMessage {
+                        accepted: false,
+                        reason: Some(e.to_string()),
+                        timestamp_millis: chrono::Utc::now().timestamp_millis(),
+                    };
+                    let framed = frame_message(&WireMessage::RelayStoreAck(ack))
+                        .map_err(|e| RelayError::Serialization(e.to_string()))?;
+                    send_stream.write_all(&framed).await.map_err(|e| {
+                        RelayError::Transport(format!("Failed to send store ack: {e}"))
+                    })?;
+                    continue;
+                }
+
                 // Store the data as a StoredEvent
                 let event_id = indras_core::EventId::new(0, chrono::Utc::now().timestamp_millis() as u64);
                 let stored = StoredEvent::new(event_id, store_msg.data, [0u8; 12]);
@@ -495,12 +530,13 @@ async fn handle_connection(
                             }
                         }
 
-                        // Honor TTL override
+                        // Honor TTL override, clamped to the configured maximum
                         if let Some(ttl_days) = store_msg.metadata.ttl_override_days {
+                            let clamped = ttl_days.min(config.storage.max_event_ttl_days);
                             if let Err(e) = blob_store.set_ttl_override(
                                 &store_msg.interface_id,
                                 &event_id,
-                                ttl_days,
+                                clamped,
                             ) {
                                 warn!(error = %e, "Failed to set TTL override");
                             }
@@ -803,21 +839,11 @@ async fn run_cleanup(
 /// This MUST match `DiscoveryService::topic_for_interface` in indras-transport
 /// exactly so the relay subscribes to the same topics that peers publish to.
 fn topic_for_interface(interface_id: &InterfaceId) -> TopicId {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    b"indras/realm/v1/".hash(&mut hasher);
-    interface_id.as_bytes().hash(&mut hasher);
-    let hash = hasher.finish();
-
-    let mut topic = [0u8; 32];
-    // Layout mirrors DiscoveryService::topic_for_interface exactly:
-    //   [0..16]  = first 16 bytes of interface_id
-    //   [16..24] = hash as little-endian u64
-    //   [24..32] = hash as big-endian u64
-    topic[..16].copy_from_slice(&interface_id.as_bytes()[..16]);
-    topic[16..24].copy_from_slice(&hash.to_le_bytes());
-    topic[24..32].copy_from_slice(&hash.to_be_bytes());
-    TopicId::from(topic)
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"indras/realm/v1/");
+    hasher.update(interface_id.as_bytes());
+    let hash = hasher.finalize();
+    TopicId::from(*hash.as_bytes())
 }
 
 /// Load a persistent 32-byte secret key from disk, or generate and save a new one
