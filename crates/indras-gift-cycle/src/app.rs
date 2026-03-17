@@ -90,6 +90,7 @@ async fn boot_network(
     net: Arc<IndrasNetwork>,
     bridge: &mut Signal<Option<GiftCycleBridge>>,
     boot_error: &mut Signal<Option<String>>,
+    homepage_store_sig: &mut Signal<Option<Arc<dyn indras_homepage::HomepageStore>>>,
 ) {
     let player_name = net.display_name().unwrap_or_else(|| "Unknown".to_string());
     let player_id = net.id();
@@ -119,14 +120,18 @@ async fn boot_network(
         .and_then(|v| v.parse().ok())
         .unwrap_or(3000);
 
-    // Create persistent store for homepage data
+    // Create BlobStore-backed persistent store for homepage data
     let data_dir = default_data_dir();
     let homepage_store: Option<Arc<dyn indras_homepage::HomepageStore>> =
-        match indras_homepage::relay_bridge::FileHomepageStore::new(data_dir.join("homepage-store"))
-        {
-            Ok(store) => Some(Arc::new(store)),
+        match indras_relay::blob_store::BlobStore::open(&data_dir.join("homepage-events.redb")) {
+            Ok(bs) => Some(Arc::new(
+                indras_relay::blob_homepage::BlobStoreHomepageStore::new(
+                    std::sync::Arc::new(bs),
+                    &player_id,
+                ),
+            ) as Arc<dyn indras_homepage::HomepageStore>),
             Err(e) => {
-                tracing::warn!(error = %e, "Failed to create homepage store (non-fatal)");
+                tracing::warn!(error = %e, "Failed to create homepage blob store (non-fatal)");
                 None
             }
         };
@@ -213,12 +218,30 @@ async fn boot_network(
             .await;
     }
 
-    let mut b = GiftCycleBridge::new(home, player_id, player_name, Arc::clone(&net))
+    // Pre-populate homepage from CRDT (faster than waiting for first poll)
+    if let Ok(doc) = home.document::<indras_sync_engine::HomepageProfileDocument>("_homepage_profile").await {
+        let data = doc.read().await;
+        if !data.fields.is_empty() {
+            let artifacts: Vec<indras_homepage::ProfileFieldArtifact> = data.fields.iter().map(|f| {
+                indras_homepage::ProfileFieldArtifact {
+                    field_name: f.name.clone(),
+                    display_value: f.value.clone(),
+                    grants: serde_json::from_str(&f.grants_json).unwrap_or_default(),
+                }
+            }).collect();
+            *fields_handle.write().await = artifacts;
+            tracing::info!("Pre-populated homepage from CRDT ({} fields)", data.fields.len());
+        }
+    }
+
+    // Expose homepage store to polling loop via signal
+    if let Some(store) = homepage_store {
+        homepage_store_sig.set(Some(store));
+    }
+
+    let b = GiftCycleBridge::new(home, player_id, player_name, Arc::clone(&net))
         .with_homepage_fields(fields_handle)
         .with_homepage_artifacts(artifacts_handle);
-    if let Some(store) = homepage_store {
-        b = b.with_homepage_store(store);
-    }
     bridge.set(Some(b));
 }
 
@@ -232,6 +255,7 @@ pub fn GiftCycleApp() -> Element {
     // Boot state
     let mut boot_error = use_signal(|| None::<String>);
     let mut bridge = use_signal(|| None::<GiftCycleBridge>);
+    let mut homepage_store_sig = use_signal(|| None::<Arc<dyn indras_homepage::HomepageStore>>);
 
     // Navigation state
     let mut current_view = use_signal(|| AppView::Feed);
@@ -274,7 +298,7 @@ pub fn GiftCycleApp() -> Element {
             }
         };
 
-        boot_network(net, &mut bridge, &mut boot_error).await;
+        boot_network(net, &mut bridge, &mut boot_error, &mut homepage_store_sig).await;
     });
 
     // SystemEvent stream — push P2P events from all realms into the log.
@@ -656,8 +680,27 @@ pub fn GiftCycleApp() -> Element {
                 let vis = crate::data::build_profile_field_visibility(&field_artifacts, &peer_names);
                 profile_fields.set(vis);
 
-                // Persist to store for offline serving
-                if let Some(ref store) = b.homepage_store {
+                // Write computed fields to HomepageProfileDocument CRDT
+                if let Ok(doc) = b.home.document::<indras_sync_engine::HomepageProfileDocument>("_homepage_profile").await {
+                    let crdt_fields: Vec<indras_sync_engine::HomepageField> = field_artifacts.iter().map(|f| {
+                        indras_sync_engine::HomepageField {
+                            name: f.field_name.clone(),
+                            value: f.display_value.clone(),
+                            grants_json: serde_json::to_string(&f.grants).unwrap_or_default(),
+                        }
+                    }).collect();
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs() as i64;
+                    let _ = doc.update(|d| {
+                        d.fields = crdt_fields;
+                        d.updated_at = now;
+                    }).await;
+                }
+
+                // Persist to BlobStore for relay-hosted offline serving
+                if let Some(ref store) = *homepage_store_sig.read() {
                     let _ = store.save_profile(&field_artifacts);
                 }
 
@@ -748,7 +791,7 @@ pub fn GiftCycleApp() -> Element {
                             spawn(async move {
                                 match create_identity(&name).await {
                                     Ok(net) => {
-                                        boot_network(net, &mut bridge, &mut boot_error).await;
+                                        boot_network(net, &mut bridge, &mut boot_error, &mut homepage_store_sig).await;
                                     }
                                     Err(e) => {
                                         boot_error.set(Some(e));

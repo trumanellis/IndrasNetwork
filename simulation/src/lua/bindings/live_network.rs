@@ -106,17 +106,6 @@ fn parse_artifact_id(hex_str: &str) -> std::result::Result<ArtifactId, mlua::Err
     Ok(ArtifactId::Blob(arr))
 }
 
-fn parse_quest_id(hex_str: &str) -> std::result::Result<QuestId, mlua::Error> {
-    let bytes = hex::decode(hex_str)
-        .map_err(|e| mlua::Error::external(format!("Invalid quest ID hex: {}", e)))?;
-    if bytes.len() != 16 {
-        return Err(mlua::Error::external("Quest ID must be 16 bytes"));
-    }
-    let mut arr = [0u8; 16];
-    arr.copy_from_slice(&bytes);
-    Ok(arr)
-}
-
 fn artifact_id_to_hex(id: &ArtifactId) -> String {
     hex::encode(id.bytes())
 }
@@ -478,13 +467,11 @@ impl UserData for LuaNetwork {
             "disconnect_from",
             |_, this, other: mlua::AnyUserData| async move {
                 let other_ref = other.borrow::<LuaNetwork>()?;
-                let other_net = other_ref.network.read().await;
-                let peer_id = other_net.id();
-                drop(other_net);
+                let peer_id = other_ref.network.id();
                 drop(other_ref);
 
-                let net = this.network.read().await;
-                net.node()
+                this.network
+                    .node()
                     .disconnect_from(&peer_id)
                     .await
                     .map_err(mlua::Error::external)?;
@@ -1090,13 +1077,13 @@ impl UserData for LuaRealm {
         // -- Basic attention (focus/clear/rank) --
 
         methods.add_async_method(
-            "focus_on_quest",
-            |_, this, (quest_id_hex, member_hex): (String, String)| async move {
-                let quest_id = parse_quest_id(&quest_id_hex)?;
+            "focus_on_intention",
+            |_, this, (intention_id_hex, member_hex): (String, String)| async move {
+                let intention_id = parse_intention_id(&intention_id_hex)?;
                 let member = parse_member_id(&member_hex)?;
                 let event_id = this
                     .realm
-                    .focus_on_quest(quest_id, member)
+                    .focus_on_intention(intention_id, member)
                     .await
                     .map_err(mlua::Error::external)?;
                 Ok(hex::encode(event_id))
@@ -1306,12 +1293,12 @@ impl UserData for LuaRealm {
         );
 
         methods.add_async_method(
-            "get_quest_focusers",
-            |_, this, quest_id_hex: String| async move {
-                let quest_id = parse_quest_id(&quest_id_hex)?;
+            "get_intention_focusers",
+            |_, this, intention_id_hex: String| async move {
+                let intention_id = parse_intention_id(&intention_id_hex)?;
                 let focusers = this
                     .realm
-                    .get_quest_focusers(&quest_id)
+                    .get_intention_focusers(&intention_id)
                     .await
                     .map_err(mlua::Error::external)?;
                 let result: Vec<String> = focusers.iter().map(hex::encode).collect();
@@ -1320,20 +1307,20 @@ impl UserData for LuaRealm {
         );
 
         methods.add_async_method(
-            "quests_by_attention",
+            "intentions_by_attention",
             |lua, this, ()| async move {
-                let quests = this
+                let intentions = this
                     .realm
-                    .quests_by_attention()
+                    .intentions_by_attention()
                     .await
                     .map_err(mlua::Error::external)?;
                 let result = lua.create_table()?;
-                for (i, qa) in quests.iter().enumerate() {
+                for (i, ia) in intentions.iter().enumerate() {
                     let t = lua.create_table()?;
-                    t.set("quest_id", hex::encode(qa.quest_id))?;
-                    t.set("total_ms", qa.total_attention_millis)?;
+                    t.set("intention_id", hex::encode(ia.intention_id))?;
+                    t.set("total_ms", ia.total_attention_millis)?;
                     let members = lua.create_table()?;
-                    for (j, m) in qa.currently_focused_members.iter().enumerate() {
+                    for (j, m) in ia.currently_focused_members.iter().enumerate() {
                         members.set(j + 1, hex::encode(m))?;
                     }
                     t.set("members", members)?;

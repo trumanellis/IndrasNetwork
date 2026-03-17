@@ -43,6 +43,7 @@ pub mod story_auth;
 pub mod rehearsal;
 pub mod bioregion_catalog;
 pub mod profile_identity;
+pub mod homepage_profile;
 
 // SyncContent extension type
 pub mod content;
@@ -101,6 +102,7 @@ pub use sentiment::{
 pub use rehearsal::RehearsalState;
 pub use story_auth::{AuthResult, StoryAuth};
 pub use profile_identity::ProfileIdentityDocument;
+pub use homepage_profile::{HomepageProfileDocument, HomepageField};
 pub use content::SyncContent;
 pub use sync_engine::SyncEngine;
 

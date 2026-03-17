@@ -6,6 +6,7 @@ description = "Transport layer for Indras Network - iroh integration and connect
 
 [dependencies]
 indras-core.workspace = true
+indras-crypto.workspace = true
 
 # Core iroh stack
 iroh.workspace = true
@@ -27,6 +28,7 @@ bytes.workspace = true
 chrono.workspace = true
 rand.workspace = true
 blake3.workspace = true
+ed25519-dalek = { version = "2", features = ["std", "rand_core"] }
 
 [dev-dependencies]
 tokio-test.workspace = true

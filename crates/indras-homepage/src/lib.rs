@@ -12,7 +12,6 @@ use indras_artifacts::access::AccessGrant;
 
 pub mod auth;
 pub mod grants;
-pub mod relay_bridge;
 pub mod server;
 pub mod storage;
 mod templates;

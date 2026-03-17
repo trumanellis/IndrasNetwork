@@ -49,6 +49,12 @@ futures-lite = "2"
 # Cryptography (credential verification)
 ed25519-dalek = { version = "2", features = ["std", "rand_core"] }
 blake3.workspace = true
+hex = "0.4"
+indras-homepage = { path = "../indras-homepage", optional = true }
+
+[features]
+default = []
+homepage = ["dep:indras-homepage"]
 
 [dev-dependencies]
 tokio-test.workspace = true

@@ -185,9 +185,10 @@ impl RelayNode {
         let cleanup_store = self.blob_store.clone();
         let cleanup_tier_config = self.config.tiers.clone();
         let cleanup_interval = self.config.storage.cleanup_interval_secs;
+        let cleanup_auth = self.auth.clone();
         let cleanup_shutdown = self.shutdown.clone();
         tokio::spawn(async move {
-            run_cleanup(cleanup_store, cleanup_tier_config, cleanup_interval, cleanup_shutdown).await;
+            run_cleanup(cleanup_store, cleanup_tier_config, cleanup_interval, cleanup_auth, cleanup_shutdown).await;
         });
 
         // Main connection handling loop
@@ -241,6 +242,168 @@ impl RelayNode {
     /// Return a clone of the shutdown token for external shutdown signaling
     pub fn shutdown_token(&self) -> CancellationToken {
         self.shutdown.clone()
+    }
+
+    /// Start the relay and return its endpoint address
+    ///
+    /// Convenience method for tests and embedders. Spawns the relay in a
+    /// background task and returns the endpoint address once ready.
+    pub async fn start(
+        self,
+    ) -> RelayResult<(iroh::EndpointAddr, tokio::task::JoinHandle<RelayResult<()>>)> {
+        let (addr_tx, addr_rx) = tokio::sync::oneshot::channel();
+
+        let key_path = self.config.data_dir.join("secret.key");
+        let secret_key = load_or_generate_key(&key_path)?;
+
+        let endpoint = Endpoint::builder()
+            .secret_key(secret_key)
+            .alpns(vec![ALPN_INDRAS.to_vec()])
+            .bind()
+            .await
+            .map_err(|e| RelayError::Transport(format!("Failed to create endpoint: {e}")))?;
+
+        let handle = tokio::spawn(async move {
+            self.run_with_endpoint(endpoint, addr_tx).await
+        });
+
+        let endpoint_addr = addr_rx.await.map_err(|_| {
+            RelayError::Transport("Relay failed to start".into())
+        })?;
+
+        Ok((endpoint_addr, handle))
+    }
+
+    /// Run the relay with a pre-created endpoint, signaling readiness via `ready_tx`
+    async fn run_with_endpoint(
+        &self,
+        endpoint: Endpoint,
+        ready_tx: tokio::sync::oneshot::Sender<iroh::EndpointAddr>,
+    ) -> RelayResult<()> {
+        let node_id = endpoint.secret_key().public();
+        info!(
+            node_id = %node_id.fmt_short(),
+            name = %self.config.display_name,
+            "Relay node starting"
+        );
+
+        let gossip = Gossip::builder().spawn(endpoint.clone());
+        let (conn_tx, mut conn_rx) = mpsc::channel::<Connection>(256);
+
+        let conn_handler = ConnectionHandler { sender: conn_tx };
+        let router = Router::builder(endpoint.clone())
+            .accept(ALPN_INDRAS, conn_handler)
+            .accept(GOSSIP_ALPN, gossip.clone())
+            .spawn();
+
+        // Re-subscribe to gossip topics for existing registrations
+        for iface in self.registrations.registered_interfaces() {
+            let topic_id = topic_for_interface(&iface);
+            match gossip.subscribe(topic_id, vec![]).await {
+                Ok(topic) => {
+                    let (_sender, receiver) = topic.split();
+                    spawn_topic_observer(iface, receiver, self.blob_store.clone());
+                    debug!(
+                        interface = %short_hex(iface.as_bytes()),
+                        "Re-subscribed to gossip topic on startup"
+                    );
+                }
+                Err(e) => {
+                    warn!(
+                        interface = %short_hex(iface.as_bytes()),
+                        error = %e,
+                        "Failed to re-subscribe to gossip topic"
+                    );
+                }
+            }
+        }
+
+        // Start admin API
+        let admin_state = Arc::new(AdminState {
+            config: self.config.clone(),
+            blob_store: self.blob_store.clone(),
+            registrations: self.registrations.clone(),
+            auth: self.auth.clone(),
+            started_at: std::time::Instant::now(),
+        });
+        let admin_router = admin::admin_router(admin_state);
+        let admin_bind = self.config.admin_bind;
+        let admin_shutdown = self.shutdown.clone();
+        tokio::spawn(async move {
+            let listener = tokio::net::TcpListener::bind(admin_bind)
+                .await
+                .expect("Failed to bind admin API");
+            info!(bind = %admin_bind, "Admin API started");
+            axum::serve(listener, admin_router)
+                .with_graceful_shutdown(async move { admin_shutdown.cancelled().await })
+                .await
+                .ok();
+        });
+
+        // Spawn cleanup task
+        let cleanup_store = self.blob_store.clone();
+        let cleanup_tier_config = self.config.tiers.clone();
+        let cleanup_interval = self.config.storage.cleanup_interval_secs;
+        let cleanup_auth = self.auth.clone();
+        let cleanup_shutdown = self.shutdown.clone();
+        tokio::spawn(async move {
+            run_cleanup(
+                cleanup_store,
+                cleanup_tier_config,
+                cleanup_interval,
+                cleanup_auth,
+                cleanup_shutdown,
+            )
+            .await;
+        });
+
+        // Signal ready with our endpoint address
+        let addr = endpoint.addr();
+        let _ = ready_tx.send(addr);
+
+        // Main connection handling loop
+        info!("Relay node ready, accepting connections");
+        loop {
+            tokio::select! {
+                Some(conn) = conn_rx.recv() => {
+                    let blob_store = self.blob_store.clone();
+                    let registrations = self.registrations.clone();
+                    let quota = self.quota.clone();
+                    let gossip_clone = gossip.clone();
+                    let auth = self.auth.clone();
+                    let tiered_quota = self.tiered_quota.clone();
+                    let data_dir = self.config.data_dir.clone();
+                    let config = self.config.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = handle_connection(
+                            conn,
+                            blob_store,
+                            registrations,
+                            quota,
+                            gossip_clone,
+                            auth,
+                            tiered_quota,
+                            data_dir,
+                            config,
+                        )
+                        .await
+                        {
+                            warn!(error = %e, "Connection handling error");
+                        }
+                    });
+                }
+                _ = self.shutdown.cancelled() => {
+                    info!("Relay node shutting down");
+                    break;
+                }
+            }
+        }
+
+        router.shutdown().await.map_err(|e| {
+            RelayError::Transport(format!("Router shutdown error: {e}"))
+        })?;
+
+        Ok(())
     }
 }
 
@@ -797,6 +960,7 @@ async fn run_cleanup(
     store: Arc<BlobStore>,
     tier_config: crate::config::TierConfig,
     interval_secs: u64,
+    auth: Arc<AuthService>,
     shutdown: CancellationToken,
 ) {
     use indras_transport::protocol::StorageTier;
@@ -821,6 +985,9 @@ async fn run_cleanup(
                         Err(e) => warn!(error = %e, ?tier, "Cleanup failed"),
                     }
                 }
+
+                // Sweep expired authentication sessions
+                auth.sweep_expired_sessions();
             }
             _ = shutdown.cancelled() => {
                 info!("Cleanup task shutting down");

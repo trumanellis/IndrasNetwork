@@ -38,7 +38,7 @@ pub mod discovery;
 pub mod error;
 pub mod identity;
 pub mod protocol;
-
+pub mod relay_client;
 // Re-export main types
 pub use adapter::{AdapterConfig, AdapterError, IrohNetworkAdapter};
 pub use connection::{ConnectionConfig, ConnectionError, ConnectionManager, ConnectionStats};

@@ -18,6 +18,7 @@ indras-artifacts.workspace = true
 indras-sync-engine = { path = "../indras-sync-engine" }
 indras-crypto = { path = "../indras-crypto" }
 indras-homepage = { path = "../indras-homepage" }
+indras-relay = { path = "../indras-relay", features = ["homepage"] }
 
 # Async runtime
 tokio = { version = "1", features = ["full", "sync", "rt-multi-thread"] }

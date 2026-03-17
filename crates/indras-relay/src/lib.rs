@@ -36,6 +36,9 @@ pub mod registration;
 pub mod relay_node;
 pub mod tier;
 
+#[cfg(feature = "homepage")]
+pub mod blob_homepage;
+
 pub use config::RelayConfig;
 pub use error::{RelayError, RelayResult};
 pub use relay_node::RelayNode;

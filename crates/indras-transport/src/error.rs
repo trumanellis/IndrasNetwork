@@ -26,4 +26,10 @@ pub enum TransportError {
 
     #[error("Invalid peer address")]
     InvalidAddress,
+
+    #[error("Connection failed: {0}")]
+    ConnectionFailed(String),
+
+    #[error("Protocol error: {0}")]
+    Protocol(String),
 }

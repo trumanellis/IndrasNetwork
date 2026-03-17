@@ -35,8 +35,6 @@ pub struct GiftCycleBridge {
     pub homepage_fields: Option<Arc<RwLock<Vec<indras_homepage::ProfileFieldArtifact>>>>,
     /// Shared homepage artifacts handle for live updates.
     pub homepage_artifacts: Option<Arc<RwLock<Vec<indras_homepage::ContentArtifact>>>>,
-    /// Persistent homepage store for offline profile serving.
-    pub homepage_store: Option<Arc<dyn indras_homepage::HomepageStore>>,
 }
 
 impl PartialEq for GiftCycleBridge {
@@ -60,7 +58,6 @@ impl GiftCycleBridge {
             network,
             homepage_fields: None,
             homepage_artifacts: None,
-            homepage_store: None,
         }
     }
 
@@ -73,12 +70,6 @@ impl GiftCycleBridge {
     /// Set the homepage artifacts handle for live updates.
     pub fn with_homepage_artifacts(mut self, handle: Arc<RwLock<Vec<indras_homepage::ContentArtifact>>>) -> Self {
         self.homepage_artifacts = Some(handle);
-        self
-    }
-
-    /// Set the persistent homepage store for offline profile serving.
-    pub fn with_homepage_store(mut self, store: Arc<dyn indras_homepage::HomepageStore>) -> Self {
-        self.homepage_store = Some(store);
         self
     }
 

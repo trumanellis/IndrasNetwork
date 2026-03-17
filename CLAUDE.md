@@ -77,11 +77,30 @@ This repo uses **jj (Jujutsu)** colocated with git. Never use raw git commands.
 
 ### Parallel Sessions (Multiple Claude Code instances)
 **Always ask the user before creating workspaces.**
-1. Create workspaces: `jj workspace add ../IndrasNetwork-ws-{name} --rev main -m "task"`
-2. Launch Claude Code in each workspace directory
-3. Track workspace→change mapping in notepad
+
+**Never use git worktrees (`EnterWorktree` tool) — they conflict with jj's colocated repo.**
+
+#### Creating Workspaces
+1. Create workspace inside the repo: `jj workspace add .jj-workspaces/{name} --rev main -m "task"`
+2. Launch Claude Code in the workspace directory
+3. Save workspace mapping to **memory** (not just notepad) so it survives restarts:
+   - Workspace name, directory path, change ID, and task description
 4. Integrate when done (see Landing Changes)
-5. Clean up: `jj workspace forget {name}` + remove directory
+
+#### Cleaning Up Workspaces
+Always do both steps together — never one without the other:
+1. `jj workspace forget {name}`
+2. `rm -rf .jj-workspaces/{name}`
+3. Remove the workspace entry from memory
+
+#### Recovering Lost Workspaces
+If `jj workspace list` shows a workspace whose directory is missing:
+- `jj workspace forget {name}` to clean up the dangling reference
+- Check `jj op log` to find the change ID that was in progress
+- `jj log -r 'all()'` to verify the change still exists — work is never lost in jj, only the workspace pointer
+
+If a `.jj-workspaces/{name}` directory exists but isn't in `jj workspace list`:
+- The workspace was already forgotten — safe to `rm -rf` the directory
 
 ### Curating Output Before Landing
 Self-curate all work into clean commits before landing:

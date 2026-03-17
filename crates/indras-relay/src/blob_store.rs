@@ -241,6 +241,34 @@ impl BlobStore {
         Ok(results)
     }
 
+    /// Retrieve a single event by exact key in a specific tier.
+    ///
+    /// Returns `None` if no event exists at the given `(interface_id, event_id)`.
+    pub fn get_event(
+        &self,
+        tier: StorageTier,
+        interface_id: &InterfaceId,
+        event_id: &EventId,
+    ) -> RelayResult<Option<StoredEvent>> {
+        let key = make_event_key(interface_id, event_id);
+        let read_txn = self.db.begin_read().map_err(|e| {
+            RelayError::Storage(format!("Failed to begin read: {e}"))
+        })?;
+        let table = read_txn.open_table(events_table_for(tier)).map_err(|e| {
+            RelayError::Storage(format!("Failed to open events table: {e}"))
+        })?;
+        match table.get(key.as_slice()) {
+            Ok(Some(value)) => {
+                let event: StoredEvent = postcard::from_bytes(value.value()).map_err(|e| {
+                    RelayError::Serialization(format!("Failed to deserialize event: {e}"))
+                })?;
+                Ok(Some(event))
+            }
+            Ok(None) => Ok(None),
+            Err(e) => Err(RelayError::Storage(format!("Failed to get event: {e}"))),
+        }
+    }
+
     /// Get total storage usage for an interface in bytes (across all tiers)
     pub fn interface_usage_bytes(&self, interface_id: &InterfaceId) -> RelayResult<u64> {
         let mut total = 0u64;
