@@ -37,6 +37,12 @@ pub const PENDING_DELIVERY: TableDefinition<&[u8], &[u8]> =
 // Key: interface_id, Value: serialized SnapshotMetadata
 pub const SNAPSHOTS: TableDefinition<&[u8], &[u8]> = TableDefinition::new("snapshots");
 
+// Key: sequence (8 bytes BE), Value: file offset (8 bytes BE)
+pub const NODE_LOG_INDEX: TableDefinition<&[u8], &[u8]> = TableDefinition::new("node_log_index");
+
+// Key: b"meta", Value: postcard NodeLogMeta
+pub const NODE_LOG_META: TableDefinition<&[u8], &[u8]> = TableDefinition::new("node_log_meta");
+
 /// Configuration for redb storage
 #[derive(Debug, Clone)]
 pub struct RedbStorageConfig {
@@ -113,6 +119,12 @@ impl RedbStorage {
             .map_err(|e| StorageError::Io(e.to_string()))?;
         write_txn
             .open_table(SNAPSHOTS)
+            .map_err(|e| StorageError::Io(e.to_string()))?;
+        write_txn
+            .open_table(NODE_LOG_INDEX)
+            .map_err(|e| StorageError::Io(e.to_string()))?;
+        write_txn
+            .open_table(NODE_LOG_META)
             .map_err(|e| StorageError::Io(e.to_string()))?;
 
         write_txn

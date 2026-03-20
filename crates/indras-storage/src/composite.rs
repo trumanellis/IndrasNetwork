@@ -34,6 +34,7 @@ use tracing::{debug, info, instrument};
 use indras_core::{EventId, InterfaceId, PeerIdentity};
 
 use crate::append_log::{EventLog, EventLogConfig, EventLogEntry};
+use crate::node_log::NodeLog;
 use crate::blobs::{BlobStore, BlobStoreConfig, ContentRef};
 use crate::error::StorageError;
 use crate::structured::{
@@ -115,6 +116,8 @@ pub struct CompositeStorage<I: PeerIdentity> {
     sync_state: SyncStateStore,
     /// Blob storage
     blobs: Arc<BlobStore>,
+    /// Node-level event log
+    node_log: Arc<NodeLog>,
     /// Configuration
     config: CompositeStorageConfig,
 }
@@ -139,6 +142,10 @@ impl<I: PeerIdentity> CompositeStorage<I> {
         // Open blob store
         let blobs = Arc::new(BlobStore::new(config.blobs.clone()).await?);
 
+        // Open node log
+        let node_log = NodeLog::open(&config.base_dir, redb.clone()).await?;
+        let node_log = Arc::new(node_log);
+
         info!("Composite storage initialized");
 
         Ok(Self {
@@ -148,6 +155,7 @@ impl<I: PeerIdentity> CompositeStorage<I> {
             interface_store,
             sync_state,
             blobs,
+            node_log,
             config,
         })
     }
@@ -249,6 +257,11 @@ impl<I: PeerIdentity> CompositeStorage<I> {
     /// Get the blob store
     pub fn blob_store(&self) -> &BlobStore {
         &self.blobs
+    }
+
+    /// Get the node log
+    pub fn node_log(&self) -> &Arc<NodeLog> {
+        &self.node_log
     }
 
     /// Create a new interface

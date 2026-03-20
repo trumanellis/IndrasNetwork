@@ -21,7 +21,7 @@ use tracing::{debug, error, info, warn};
 use indras_core::transport::Transport;
 use indras_core::{InterfaceId, NInterfaceTrait, PeerIdentity};
 use indras_crypto::{InterfaceKey, PQIdentity};
-use indras_storage::CompositeStorage;
+use indras_storage::{CompositeStorage, NodeEvent, NodeLog};
 use indras_transport::{IrohIdentity, IrohNetworkAdapter};
 
 use crate::InterfaceState;
@@ -115,6 +115,8 @@ pub struct SyncTask {
     /// Storage (reserved for future use)
     #[allow(dead_code)]
     storage: Arc<CompositeStorage<IrohIdentity>>,
+    /// Node-level event log for audit trail
+    node_log: Arc<NodeLog>,
     /// Sync interval
     sync_interval: Duration,
     /// Shutdown signal
@@ -135,6 +137,7 @@ impl SyncTask {
         interface_keys: Arc<DashMap<InterfaceId, InterfaceKey>>,
         interfaces: Arc<DashMap<InterfaceId, InterfaceState>>,
         storage: Arc<CompositeStorage<IrohIdentity>>,
+        node_log: Arc<NodeLog>,
         sync_interval: Duration,
         shutdown_rx: broadcast::Receiver<()>,
     ) -> Self {
@@ -145,6 +148,7 @@ impl SyncTask {
             interface_keys,
             interfaces,
             storage,
+            node_log,
             sync_interval,
             shutdown_rx,
             delivery_states: HashMap::new(),
@@ -161,6 +165,7 @@ impl SyncTask {
         interface_keys: Arc<DashMap<InterfaceId, InterfaceKey>>,
         interfaces: Arc<DashMap<InterfaceId, InterfaceState>>,
         storage: Arc<CompositeStorage<IrohIdentity>>,
+        node_log: Arc<NodeLog>,
         sync_interval: Duration,
         shutdown_rx: broadcast::Receiver<()>,
     ) -> JoinHandle<()> {
@@ -171,6 +176,7 @@ impl SyncTask {
             interface_keys,
             interfaces,
             storage,
+            node_log,
             sync_interval,
             shutdown_rx,
         );
@@ -395,10 +401,17 @@ impl SyncTask {
         let bytes = self.sign_message(msg)?;
 
         // Send to peer
+        let bytes_len = bytes.len() as u32;
         self.transport
             .send(peer, bytes)
             .await
             .map_err(|e| SyncError::Transport(e.to_string()))?;
+
+        let _ = self.node_log.append(NodeEvent::SyncSent {
+            interface_id: sync_msg.interface_id,
+            peer: peer.as_bytes().to_vec(),
+            bytes_sent: bytes_len,
+        }).await;
 
         debug!(
             peer = %peer.short_id(),
@@ -463,6 +476,12 @@ impl SyncTask {
                     .send(peer, bytes)
                     .await
                     .map_err(|e| SyncError::Transport(e.to_string()))?;
+
+                let _ = self.node_log.append(NodeEvent::EventSent {
+                    interface_id: interface.id(),
+                    event_id,
+                    recipient: peer.as_bytes().to_vec(),
+                }).await;
             }
 
             if batch_count > 1 {

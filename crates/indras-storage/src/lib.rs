@@ -58,6 +58,7 @@ pub mod quota;
 pub mod append_log;
 pub mod blobs;
 pub mod composite;
+pub mod node_log;
 pub mod structured;
 
 // Re-exports
@@ -70,6 +71,7 @@ pub use quota::{EvictionPolicy, QuotaManager, QuotaManagerBuilder};
 pub use append_log::{CompactionConfig, EventLog, EventLogConfig, EventLogEntry};
 pub use blobs::{BlobStore, BlobStoreConfig, ContentRef};
 pub use composite::{CompositeStorage, CompositeStorageConfig};
+pub use node_log::{NodeEvent, NodeLog, NodeLogEntry, NodeLogMeta, NodeSequence};
 pub use structured::{
     InterfaceRecord, InterfaceStore, PeerRecord, PeerRegistry, RedbStorage, RedbStorageConfig,
     SyncStateRecord, SyncStateStore,

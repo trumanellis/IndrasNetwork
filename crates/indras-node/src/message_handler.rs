@@ -22,7 +22,7 @@ use tracing::{debug, error, info, warn};
 use indras_core::transport::Transport;
 use indras_core::{EventId, InterfaceEvent, InterfaceId, NInterfaceTrait, PeerIdentity};
 use indras_crypto::{InterfaceKey, PQIdentity, PQPublicIdentity, PQSignature};
-use indras_storage::CompositeStorage;
+use indras_storage::{CompositeStorage, NodeEvent, NodeLog};
 use indras_transport::{IrohIdentity, IrohNetworkAdapter};
 
 use crate::{InterfaceState, ReceivedEvent};
@@ -197,6 +197,8 @@ pub struct MessageHandler {
     transport: Arc<IrohNetworkAdapter>,
     /// PQ identity for signing outgoing messages
     pq_identity: Arc<PQIdentity>,
+    /// Node-level event log for audit trail
+    node_log: Arc<NodeLog>,
     /// Whether to allow unsigned (legacy) messages
     ///
     /// When false, unsigned messages will be rejected with an error.
@@ -220,6 +222,7 @@ impl MessageHandler {
         storage: Arc<CompositeStorage<IrohIdentity>>,
         transport: Arc<IrohNetworkAdapter>,
         pq_identity: Arc<PQIdentity>,
+        node_log: Arc<NodeLog>,
         allow_legacy_unsigned: bool,
         shutdown_rx: broadcast::Receiver<()>,
     ) -> Self {
@@ -230,6 +233,7 @@ impl MessageHandler {
             storage,
             transport,
             pq_identity,
+            node_log,
             allow_legacy_unsigned,
             shutdown_rx,
         }
@@ -248,6 +252,7 @@ impl MessageHandler {
         storage: Arc<CompositeStorage<IrohIdentity>>,
         transport: Arc<IrohNetworkAdapter>,
         pq_identity: Arc<PQIdentity>,
+        node_log: Arc<NodeLog>,
         allow_legacy_unsigned: bool,
         shutdown_rx: broadcast::Receiver<()>,
         message_rx: tokio::sync::mpsc::Receiver<(IrohIdentity, Vec<u8>)>,
@@ -259,6 +264,7 @@ impl MessageHandler {
             storage,
             transport,
             pq_identity,
+            node_log,
             allow_legacy_unsigned,
             shutdown_rx,
         );
@@ -366,10 +372,52 @@ impl MessageHandler {
         message: NetworkMessage,
     ) -> Result<(), MessageError> {
         match message {
-            NetworkMessage::InterfaceEvent(msg) => self.handle_interface_event(sender, msg).await,
-            NetworkMessage::SyncRequest(msg) => self.handle_sync_request(sender, msg).await,
-            NetworkMessage::SyncResponse(msg) => self.handle_sync_response(sender, msg).await,
-            NetworkMessage::EventAck(msg) => self.handle_event_ack(sender, msg).await,
+            NetworkMessage::InterfaceEvent(msg) => {
+                let iid = msg.interface_id;
+                let eid = msg.event_id;
+                let size = msg.ciphertext.len() as u32;
+                self.handle_interface_event(sender.clone(), msg).await?;
+                let _ = self.node_log.append(NodeEvent::EventReceived {
+                    interface_id: iid,
+                    event_id: eid,
+                    sender: sender.as_bytes().to_vec(),
+                    payload_size: size,
+                }).await;
+                Ok(())
+            }
+            NetworkMessage::SyncRequest(msg) => {
+                let iid = msg.interface_id;
+                let bytes = msg.sync_data.len() as u32;
+                self.handle_sync_request(sender.clone(), msg).await?;
+                let _ = self.node_log.append(NodeEvent::SyncReceived {
+                    interface_id: iid,
+                    peer: sender.as_bytes().to_vec(),
+                    bytes_merged: bytes,
+                }).await;
+                Ok(())
+            }
+            NetworkMessage::SyncResponse(msg) => {
+                let iid = msg.interface_id;
+                let bytes = msg.sync_data.len() as u32;
+                self.handle_sync_response(sender.clone(), msg).await?;
+                let _ = self.node_log.append(NodeEvent::SyncReceived {
+                    interface_id: iid,
+                    peer: sender.as_bytes().to_vec(),
+                    bytes_merged: bytes,
+                }).await;
+                Ok(())
+            }
+            NetworkMessage::EventAck(msg) => {
+                let iid = msg.interface_id;
+                let up_to = msg.up_to;
+                self.handle_event_ack(sender.clone(), msg).await?;
+                let _ = self.node_log.append(NodeEvent::EventAckReceived {
+                    interface_id: iid,
+                    peer: sender.as_bytes().to_vec(),
+                    up_to,
+                }).await;
+                Ok(())
+            }
         }
     }
 

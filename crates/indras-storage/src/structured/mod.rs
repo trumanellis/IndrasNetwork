@@ -16,4 +16,6 @@ mod tables;
 pub use interface_store::{InterfaceRecord, InterfaceStore, MembershipRecord};
 pub use peer_registry::{PeerRecord, PeerRegistry};
 pub use sync_state::{SyncStateRecord, SyncStateStore};
-pub use tables::{RedbStorage, RedbStorageConfig};
+pub use tables::{
+    RedbStorage, RedbStorageConfig, NODE_LOG_INDEX, NODE_LOG_META,
+};

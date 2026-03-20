@@ -60,7 +60,7 @@ use indras_core::{EventId, InterfaceEvent, InterfaceId, NInterfaceTrait, PeerIde
 use indras_crypto::{
     InterfaceKey, KeyDistribution, KeyInvite, PQEncapsulationKey, PQIdentity, PQKemKeyPair,
 };
-use indras_storage::CompositeStorage;
+use indras_storage::{CompositeStorage, NodeEvent, NodeLog};
 use indras_sync::NInterface;
 use indras_transport::{IrohIdentity, IrohNetworkAdapter, PeerEvent};
 
@@ -204,6 +204,8 @@ pub struct IndrasNode {
     pq_kem_keypair: PQKemKeyPair,
     /// Composite storage (logs + redb + blobs)
     storage: Arc<CompositeStorage<IrohIdentity>>,
+    /// Node-level event log
+    node_log: Arc<NodeLog>,
     /// Loaded interfaces
     interfaces: Arc<DashMap<InterfaceId, InterfaceState>>,
     /// Interface encryption keys
@@ -237,6 +239,7 @@ impl IndrasNode {
         // Initialize storage
         let storage = CompositeStorage::new(config.storage.clone()).await?;
         let storage = Arc::new(storage);
+        let node_log = storage.node_log().clone();
 
         // Load or generate all keys from keystore
         // Use encrypted keystore when passphrase is provided
@@ -273,6 +276,7 @@ impl IndrasNode {
             pq_identity,
             pq_kem_keypair,
             storage,
+            node_log,
             interfaces: Arc::new(DashMap::new()),
             interface_keys: Arc::new(DashMap::new()),
             transport: RwLock::new(None),
@@ -299,6 +303,7 @@ impl IndrasNode {
 
         let storage = CompositeStorage::new(config.storage.clone()).await?;
         let storage = Arc::new(storage);
+        let node_log = storage.node_log().clone();
 
         // Save iroh key and load/generate PQ keys
         let (pq_identity, pq_kem_keypair) = if let Some(ref passphrase) = config.passphrase {
@@ -333,6 +338,7 @@ impl IndrasNode {
             pq_identity,
             pq_kem_keypair,
             storage,
+            node_log,
             interfaces: Arc::new(DashMap::new()),
             interface_keys: Arc::new(DashMap::new()),
             transport: RwLock::new(None),
@@ -412,6 +418,7 @@ impl IndrasNode {
             self.storage.clone(),
             adapter.clone(),
             pq_identity_arc.clone(),
+            self.node_log.clone(),
             self.config.allow_legacy_unsigned,
             self.shutdown_tx.subscribe(),
             message_rx,
@@ -425,6 +432,7 @@ impl IndrasNode {
             self.interface_keys.clone(),
             self.interfaces.clone(),
             self.storage.clone(),
+            self.node_log.clone(),
             Duration::from_secs(DEFAULT_SYNC_INTERVAL_SECS),
             self.shutdown_tx.subscribe(),
         );
@@ -469,6 +477,9 @@ impl IndrasNode {
         }
 
         info!("Node started");
+        let _ = self.node_log.append(NodeEvent::NodeStarted {
+            identity_fingerprint: *self.identity.public_key().as_bytes(),
+        }).await;
         Ok(())
     }
 
@@ -715,6 +726,9 @@ impl IndrasNode {
                 }
             }
         }
+
+        // Log shutdown before signaling (tasks may stop immediately after signal)
+        let _ = self.node_log.append(NodeEvent::NodeStopped).await;
 
         // Signal shutdown
         let _ = self.shutdown_tx.send(());
@@ -974,6 +988,11 @@ impl IndrasNode {
             sync_tx,
         };
         self.interfaces.insert(interface_id, state);
+
+        let _ = self.node_log.append(NodeEvent::InterfaceCreated {
+            interface_id,
+            name: name.map(|n| n.to_string()),
+        }).await;
 
         // Create invite with our endpoint address and PQ keys
         let mut invite = InviteKey::new(interface_id)
