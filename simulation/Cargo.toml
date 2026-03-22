@@ -18,6 +18,8 @@ indras-network.workspace = true
 indras-sync-engine.workspace = true
 indras-artifacts.workspace = true
 indras-iot.workspace = true
+indras-relay.workspace = true
+indras-transport.workspace = true
 
 # Core iroh stack (for future real networking)
 iroh.workspace = true
@@ -55,6 +57,7 @@ base64 = "0.22"
 blake3 = "1.6"
 hex = "0.4"
 tempfile = "3.24"
+ed25519-dalek = { version = "2", features = ["std", "rand_core"] }
 
 [[bin]]
 name = "lua_runner"
