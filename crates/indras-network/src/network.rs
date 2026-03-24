@@ -2164,6 +2164,22 @@ impl IndrasNetwork {
         self.inner.storage()
     }
 
+    /// Access the embedded relay auth service for direct contact sync.
+    ///
+    /// Returns `None` if the relay service has not started yet (i.e. before
+    /// [`start`](Self::start) completes).
+    pub fn relay_auth(&self) -> Option<&Arc<indras_relay::AuthService>> {
+        self.inner.relay_service().map(|rs| rs.auth())
+    }
+
+    /// Get this node's endpoint address for sharing with peers.
+    ///
+    /// Returns `None` if the transport has not started yet (i.e. before
+    /// [`start`](Self::start) completes).
+    pub async fn endpoint_addr(&self) -> Option<iroh::EndpointAddr> {
+        self.inner.endpoint_addr().await
+    }
+
     /// Access the network configuration.
     pub fn config(&self) -> &NetworkConfig {
         &self.config

@@ -222,6 +222,8 @@ pub struct IndrasNode {
     homepage_fields: std::sync::OnceLock<std::sync::Arc<tokio::sync::RwLock<Vec<indras_homepage::ProfileFieldArtifact>>>>,
     /// Homepage server artifacts handle (for live updates after start)
     homepage_artifacts: std::sync::OnceLock<std::sync::Arc<tokio::sync::RwLock<Vec<indras_homepage::ContentArtifact>>>>,
+    /// Embedded relay service — every node is a relay.
+    relay_service: std::sync::OnceLock<Arc<indras_relay::RelayService>>,
 }
 
 impl IndrasNode {
@@ -285,6 +287,7 @@ impl IndrasNode {
             started: AtomicBool::new(false),
             homepage_fields: std::sync::OnceLock::new(),
             homepage_artifacts: std::sync::OnceLock::new(),
+            relay_service: std::sync::OnceLock::new(),
         })
     }
 
@@ -347,6 +350,7 @@ impl IndrasNode {
             started: AtomicBool::new(false),
             homepage_fields: std::sync::OnceLock::new(),
             homepage_artifacts: std::sync::OnceLock::new(),
+            relay_service: std::sync::OnceLock::new(),
         })
     }
 
@@ -476,11 +480,53 @@ impl IndrasNode {
             }
         }
 
+        // Create embedded relay service
+        let relay_data_dir = self.config.data_dir.join("relay-data");
+        let _ = std::fs::create_dir_all(&relay_data_dir);
+        let owner_hex = hex::encode(self.identity.public_key().as_bytes());
+
+        let mut relay_config = indras_relay::RelayConfig::default();
+        relay_config.data_dir = relay_data_dir;
+        relay_config.owner_player_id = Some(owner_hex);
+
+        match indras_relay::RelayService::new(relay_config).await {
+            Ok(service) => {
+                let service = service.with_gossip(adapter.gossip().clone());
+                let service = Arc::new(service);
+                let _ = self.relay_service.set(Arc::clone(&service));
+
+                // Spawn bi-stream router
+                if let Some(mut bi_rx) = adapter.take_bi_stream_rx() {
+                    let relay = Arc::clone(&service);
+                    tokio::spawn(async move {
+                        while let Some((peer_id, send, recv)) = bi_rx.recv().await {
+                            let relay = Arc::clone(&relay);
+                            tokio::spawn(async move {
+                                if let Err(e) = relay.handle_bi_stream(peer_id, send, recv).await {
+                                    tracing::debug!(error = %e, "Relay stream ended");
+                                }
+                            });
+                        }
+                    });
+                }
+
+                tracing::info!("Embedded relay service started");
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to start relay service (non-fatal)");
+            }
+        }
+
         info!("Node started");
         let _ = self.node_log.append(NodeEvent::NodeStarted {
             identity_fingerprint: *self.identity.public_key().as_bytes(),
         }).await;
         Ok(())
+    }
+
+    /// Get the embedded relay service, if started.
+    pub fn relay_service(&self) -> Option<&Arc<indras_relay::RelayService>> {
+        self.relay_service.get()
     }
 
     /// Get the homepage fields handle for pushing live field updates.

@@ -46,19 +46,23 @@ use crate::error::{RelayError, RelayResult};
 use crate::quota::{QuotaManager, TieredQuotaManager};
 use crate::registration::RegistrationState;
 
-/// Core relay server
-pub struct RelayNode {
+/// Relay service that processes relay protocol on pre-accepted bi streams.
+/// Does not own an endpoint — composable into any iroh-based node.
+pub struct RelayService {
     config: RelayConfig,
     blob_store: Arc<BlobStore>,
     registrations: Arc<RegistrationState>,
-    quota: Arc<QuotaManager>,
     auth: Arc<AuthService>,
+    quota: Arc<QuotaManager>,
     tiered_quota: Arc<TieredQuotaManager>,
-    shutdown: CancellationToken,
+    gossip: Option<Gossip>,
 }
 
-impl RelayNode {
-    /// Create a new relay node with the given configuration
+impl RelayService {
+    /// Create a new relay service with the given configuration.
+    ///
+    /// Initializes blob store, registration state, auth, and quota managers.
+    /// Does not create a shutdown token — the parent node manages lifecycle.
     pub async fn new(config: RelayConfig) -> RelayResult<Self> {
         // Ensure data directory exists
         std::fs::create_dir_all(&config.data_dir).map_err(|e| {
@@ -89,29 +93,410 @@ impl RelayNode {
         // Initialize tiered quota manager
         let tiered_quota = Arc::new(TieredQuotaManager::new(config.tiers.clone()));
 
-        let shutdown = CancellationToken::new();
-
         Ok(Self {
             config,
             blob_store,
             registrations,
-            quota,
             auth,
+            quota,
             tiered_quota,
-            shutdown,
+            gossip: None,
         })
+    }
+
+    /// Attach a gossip instance (for interface subscription on register).
+    pub fn with_gossip(mut self, gossip: Gossip) -> Self {
+        self.gossip = Some(gossip);
+        self
+    }
+
+    /// Return a reference to the auth service.
+    pub fn auth(&self) -> &Arc<AuthService> {
+        &self.auth
+    }
+
+    /// Return a reference to the blob store.
+    pub fn blob_store(&self) -> &Arc<BlobStore> {
+        &self.blob_store
+    }
+
+    /// Handle the relay protocol on a pre-accepted bidirectional stream.
+    ///
+    /// The streams must already be accepted by the caller — this method does
+    /// not call `conn.accept_bi()`. `peer_identity` is the transport identity
+    /// of the remote peer extracted from the connection.
+    pub async fn handle_bi_stream(
+        &self,
+        peer_identity: IrohIdentity,
+        mut send_stream: iroh::endpoint::SendStream,
+        mut recv_stream: iroh::endpoint::RecvStream,
+    ) -> RelayResult<()> {
+        let peer_id = peer_identity;
+        let peer_key = peer_id.public_key();
+        debug!(peer = %peer_key.fmt_short(), "Peer connected");
+
+        let mut authenticated = false;
+
+        loop {
+            // Read 4-byte length prefix
+            let mut len_buf = [0u8; 4];
+            match recv_stream.read_exact(&mut len_buf).await {
+                Ok(_) => {}
+                Err(e) => {
+                    debug!(peer = %peer_key.fmt_short(), "Stream closed: {e}");
+                    break;
+                }
+            }
+
+            let msg_len = u32::from_be_bytes(len_buf) as usize;
+            if msg_len > MAX_MESSAGE_SIZE {
+                warn!(
+                    peer = %peer_key.fmt_short(),
+                    size = msg_len,
+                    "Message too large, closing connection"
+                );
+                break;
+            }
+
+            // Read message body
+            let mut msg_buf = vec![0u8; msg_len];
+            if let Err(e) = recv_stream.read_exact(&mut msg_buf).await {
+                debug!(peer = %peer_key.fmt_short(), "Failed to read message body: {e}");
+                break;
+            }
+
+            let msg: WireMessage = match postcard::from_bytes(&msg_buf) {
+                Ok(m) => m,
+                Err(e) => {
+                    warn!(peer = %peer_key.fmt_short(), error = %e, "Deserialize error");
+                    continue;
+                }
+            };
+
+            match msg {
+                WireMessage::RelayAuth(auth_msg) => {
+                    let result = self.auth.authenticate(
+                        &peer_id,
+                        &auth_msg.credential,
+                        &auth_msg.player_id,
+                    );
+
+                    let response = match result {
+                        Ok(session) => {
+                            authenticated = true;
+                            let tier_quotas: Vec<TierQuotaInfo> = session.granted_tiers.iter().map(|t| {
+                                TierQuotaInfo {
+                                    tier: *t,
+                                    max_bytes: crate::tier::tier_max_bytes(*t, self.tiered_quota.tier_config()),
+                                    used_bytes: self.tiered_quota.peer_tier_bytes(&peer_id, *t),
+                                    max_interfaces: crate::tier::tier_max_interfaces(*t, self.tiered_quota.tier_config()),
+                                }
+                            }).collect();
+
+                            RelayAuthAckMessage {
+                                authenticated: true,
+                                granted_tiers: session.granted_tiers,
+                                tier_quotas,
+                                timestamp_millis: chrono::Utc::now().timestamp_millis(),
+                            }
+                        }
+                        Err(e) => {
+                            warn!(peer = %peer_key.fmt_short(), error = %e, "Authentication failed");
+                            RelayAuthAckMessage {
+                                authenticated: false,
+                                granted_tiers: vec![],
+                                tier_quotas: vec![],
+                                timestamp_millis: chrono::Utc::now().timestamp_millis(),
+                            }
+                        }
+                    };
+
+                    let framed = frame_message(&WireMessage::RelayAuthAck(response))
+                        .map_err(|e| RelayError::Serialization(e.to_string()))?;
+                    send_stream.write_all(&framed).await.map_err(|e| {
+                        RelayError::Transport(format!("Failed to send auth ack: {e}"))
+                    })?;
+                }
+
+                WireMessage::RelayRegister(register) => {
+                    if !authenticated {
+                        warn!(peer = %peer_key.fmt_short(), "Unauthenticated peer attempted operation");
+                        continue;
+                    }
+
+                    self.registrations.touch(&peer_id);
+                    let response = if let Some(gossip) = &self.gossip {
+                        handle_register(
+                            &peer_id,
+                            register,
+                            &self.registrations,
+                            &self.quota,
+                            gossip,
+                            &self.blob_store,
+                            &self.auth,
+                            &self.tiered_quota,
+                        )
+                        .await
+                    } else {
+                        // No gossip attached — reject all registrations
+                        let rejected = register.interfaces
+                            .into_iter()
+                            .map(|iface| (iface, "Gossip not available".to_string()))
+                            .collect();
+                        RelayRegisterAckMessage::new(vec![]).with_rejected(rejected)
+                    };
+
+                    let framed = frame_message(&WireMessage::RelayRegisterAck(response))
+                        .map_err(|e| RelayError::Serialization(e.to_string()))?;
+                    send_stream.write_all(&framed).await.map_err(|e| {
+                        RelayError::Transport(format!("Failed to send ack: {e}"))
+                    })?;
+                }
+
+                WireMessage::RelayUnregister(unregister) => {
+                    if !authenticated {
+                        warn!(peer = %peer_key.fmt_short(), "Unauthenticated peer attempted operation");
+                        continue;
+                    }
+
+                    let count = unregister.interfaces.len();
+                    self.registrations.unregister(&peer_id, &unregister.interfaces)?;
+                    self.quota.record_unregistration(&peer_id, count);
+                    info!(peer = %peer_key.fmt_short(), count, "Unregistered interfaces");
+                }
+
+                WireMessage::RelayRetrieve(retrieve) => {
+                    if !authenticated {
+                        warn!(peer = %peer_key.fmt_short(), "Unauthenticated peer attempted operation");
+                        continue;
+                    }
+
+                    self.registrations.touch(&peer_id);
+                    let tier = retrieve.tier.unwrap_or(StorageTier::Connections);
+
+                    if !self.auth.has_tier_access(&peer_id, tier) {
+                        warn!(peer = %peer_key.fmt_short(), ?tier, "No access to retrieve from tier");
+                        continue;
+                    }
+
+                    const RETRIEVE_PAGE_SIZE: usize = 100;
+
+                    let mut events = self.blob_store
+                        .events_after_tiered(tier, retrieve.interface_id, retrieve.after_event_id)?;
+
+                    let has_more = events.len() > RETRIEVE_PAGE_SIZE;
+                    if has_more {
+                        events.truncate(RETRIEVE_PAGE_SIZE);
+                    }
+
+                    let delivery = if has_more {
+                        RelayDeliveryMessage::new(retrieve.interface_id, events).with_more()
+                    } else {
+                        RelayDeliveryMessage::new(retrieve.interface_id, events)
+                    };
+                    let framed = frame_message(&WireMessage::RelayDelivery(delivery))
+                        .map_err(|e| RelayError::Serialization(e.to_string()))?;
+                    send_stream.write_all(&framed).await.map_err(|e| {
+                        RelayError::Transport(format!("Failed to send delivery: {e}"))
+                    })?;
+
+                    debug!(
+                        peer = %peer_key.fmt_short(),
+                        interface = %short_hex(retrieve.interface_id.as_bytes()),
+                        "Delivered stored events"
+                    );
+                }
+
+                WireMessage::RelayStore(store_msg) => {
+                    if !authenticated {
+                        warn!(peer = %peer_key.fmt_short(), "Unauthenticated store attempt");
+                        continue;
+                    }
+
+                    let has_access = self.auth.has_tier_access(&peer_id, store_msg.tier);
+                    if !has_access {
+                        let ack = RelayStoreAckMessage {
+                            accepted: false,
+                            reason: Some(format!("No access to {:?} tier", store_msg.tier)),
+                            timestamp_millis: chrono::Utc::now().timestamp_millis(),
+                        };
+                        let framed = frame_message(&WireMessage::RelayStoreAck(ack))
+                            .map_err(|e| RelayError::Serialization(e.to_string()))?;
+                        send_stream.write_all(&framed).await.map_err(|e| {
+                            RelayError::Transport(format!("Failed to send store ack: {e}"))
+                        })?;
+                        continue;
+                    }
+
+                    let data_len = store_msg.data.len() as u64;
+                    if let Err(e) = self.tiered_quota.can_store_tiered(&peer_id, store_msg.tier, data_len) {
+                        let ack = RelayStoreAckMessage {
+                            accepted: false,
+                            reason: Some(e.to_string()),
+                            timestamp_millis: chrono::Utc::now().timestamp_millis(),
+                        };
+                        let framed = frame_message(&WireMessage::RelayStoreAck(ack))
+                            .map_err(|e| RelayError::Serialization(e.to_string()))?;
+                        send_stream.write_all(&framed).await.map_err(|e| {
+                            RelayError::Transport(format!("Failed to send store ack: {e}"))
+                        })?;
+                        continue;
+                    }
+
+                    let total_usage = self.blob_store.total_usage_bytes().unwrap_or(0);
+                    if let Err(e) = self.quota.can_store(&peer_id, data_len, total_usage) {
+                        let ack = RelayStoreAckMessage {
+                            accepted: false,
+                            reason: Some(e.to_string()),
+                            timestamp_millis: chrono::Utc::now().timestamp_millis(),
+                        };
+                        let framed = frame_message(&WireMessage::RelayStoreAck(ack))
+                            .map_err(|e| RelayError::Serialization(e.to_string()))?;
+                        send_stream.write_all(&framed).await.map_err(|e| {
+                            RelayError::Transport(format!("Failed to send store ack: {e}"))
+                        })?;
+                        continue;
+                    }
+
+                    let event_id = indras_core::EventId::new(0, chrono::Utc::now().timestamp_millis() as u64);
+                    let stored = StoredEvent::new(event_id, store_msg.data, [0u8; 12]);
+                    match self.blob_store.store_event_tiered(store_msg.tier, store_msg.interface_id, &stored) {
+                        Ok(()) => {
+                            self.tiered_quota.record_storage_tiered(peer_id, store_msg.tier, data_len);
+
+                            if store_msg.metadata.pin {
+                                if let Err(e) = self.blob_store.pin_event(
+                                    store_msg.tier,
+                                    &store_msg.interface_id,
+                                    &event_id,
+                                ) {
+                                    warn!(error = %e, "Failed to pin event");
+                                }
+                            }
+
+                            if let Some(ttl_days) = store_msg.metadata.ttl_override_days {
+                                let clamped = ttl_days.min(self.config.storage.max_event_ttl_days);
+                                if let Err(e) = self.blob_store.set_ttl_override(
+                                    &store_msg.interface_id,
+                                    &event_id,
+                                    clamped,
+                                ) {
+                                    warn!(error = %e, "Failed to set TTL override");
+                                }
+                            }
+
+                            let ack = RelayStoreAckMessage {
+                                accepted: true,
+                                reason: None,
+                                timestamp_millis: chrono::Utc::now().timestamp_millis(),
+                            };
+                            let framed = frame_message(&WireMessage::RelayStoreAck(ack))
+                                .map_err(|e| RelayError::Serialization(e.to_string()))?;
+                            send_stream.write_all(&framed).await.map_err(|e| {
+                                RelayError::Transport(format!("Failed to send store ack: {e}"))
+                            })?;
+                        }
+                        Err(e) => {
+                            warn!(error = %e, "Failed to store tiered data");
+                            let ack = RelayStoreAckMessage {
+                                accepted: false,
+                                reason: Some(e.to_string()),
+                                timestamp_millis: chrono::Utc::now().timestamp_millis(),
+                            };
+                            let framed = frame_message(&WireMessage::RelayStoreAck(ack))
+                                .map_err(|e| RelayError::Serialization(e.to_string()))?;
+                            send_stream.write_all(&framed).await.map_err(|e| {
+                                RelayError::Transport(format!("Failed to send store ack: {e}"))
+                            })?;
+                        }
+                    }
+                }
+
+                WireMessage::Ping(n) => {
+                    let pong = frame_message(&WireMessage::Pong(n))
+                        .map_err(|e| RelayError::Serialization(e.to_string()))?;
+                    send_stream.write_all(&pong).await.map_err(|e| {
+                        RelayError::Transport(format!("Failed to send pong: {e}"))
+                    })?;
+                }
+
+                WireMessage::RelayContactsSync(sync_msg) => {
+                    if !authenticated {
+                        warn!(peer = %peer_key.fmt_short(), "Unauthenticated contacts sync attempt");
+                        continue;
+                    }
+
+                    let is_owner = self.auth.has_tier_access(&peer_id, StorageTier::Self_);
+                    let response = if is_owner {
+                        self.auth.sync_contacts(sync_msg.contacts);
+                        let contacts_path = self.config.data_dir.join("contacts.json");
+                        if let Err(e) = self.auth.save_contacts(&contacts_path) {
+                            warn!(error = %e, "Failed to persist contacts");
+                        }
+                        info!(
+                            peer = %peer_key.fmt_short(),
+                            count = self.auth.contact_count(),
+                            "Contacts synced from owner"
+                        );
+                        RelayContactsSyncAckMessage {
+                            accepted: true,
+                            contact_count: self.auth.contact_count() as u32,
+                        }
+                    } else {
+                        warn!(peer = %peer_key.fmt_short(), "Non-owner attempted contacts sync");
+                        RelayContactsSyncAckMessage {
+                            accepted: false,
+                            contact_count: 0,
+                        }
+                    };
+
+                    let framed = frame_message(&WireMessage::RelayContactsSyncAck(response))
+                        .map_err(|e| RelayError::Serialization(e.to_string()))?;
+                    send_stream.write_all(&framed).await.map_err(|e| {
+                        RelayError::Transport(format!("Failed to send contacts sync ack: {e}"))
+                    })?;
+                }
+
+                other => {
+                    debug!(
+                        peer = %peer_key.fmt_short(),
+                        variant = ?std::mem::discriminant(&other),
+                        "Ignoring unhandled message variant"
+                    );
+                }
+            }
+        }
+
+        self.auth.remove_session(&peer_id);
+
+        Ok(())
+    }
+}
+
+/// Core relay server
+pub struct RelayNode {
+    service: RelayService,
+    shutdown: CancellationToken,
+}
+
+impl RelayNode {
+    /// Create a new relay node with the given configuration
+    pub async fn new(config: RelayConfig) -> RelayResult<Self> {
+        let service = RelayService::new(config).await?;
+        let shutdown = CancellationToken::new();
+        Ok(Self { service, shutdown })
     }
 
     /// Run the relay server until shutdown
     pub async fn run(&self) -> RelayResult<()> {
         // Load or generate a persistent secret key
-        let key_path = self.config.data_dir.join("secret.key");
+        let key_path = self.service.config.data_dir.join("secret.key");
         let secret_key = load_or_generate_key(&key_path)?;
         let node_id = secret_key.public();
 
         info!(
             node_id = %node_id.fmt_short(),
-            name = %self.config.display_name,
+            name = %self.service.config.display_name,
             "Relay node starting"
         );
 
@@ -138,12 +523,12 @@ impl RelayNode {
 
         // Re-subscribe to gossip topics for existing registrations so we don't
         // miss events from before new peers connect after a restart.
-        for iface in self.registrations.registered_interfaces() {
+        for iface in self.service.registrations.registered_interfaces() {
             let topic_id = topic_for_interface(&iface);
             match gossip.subscribe(topic_id, vec![]).await {
                 Ok(topic) => {
                     let (_sender, receiver) = topic.split();
-                    spawn_topic_observer(iface, receiver, self.blob_store.clone());
+                    spawn_topic_observer(iface, receiver, self.service.blob_store.clone());
                     debug!(
                         interface = %short_hex(iface.as_bytes()),
                         "Re-subscribed to gossip topic on startup"
@@ -161,14 +546,14 @@ impl RelayNode {
 
         // Start admin API
         let admin_state = Arc::new(AdminState {
-            config: self.config.clone(),
-            blob_store: self.blob_store.clone(),
-            registrations: self.registrations.clone(),
-            auth: self.auth.clone(),
+            config: self.service.config.clone(),
+            blob_store: self.service.blob_store.clone(),
+            registrations: self.service.registrations.clone(),
+            auth: self.service.auth.clone(),
             started_at: std::time::Instant::now(),
         });
         let admin_router = admin::admin_router(admin_state);
-        let admin_bind = self.config.admin_bind;
+        let admin_bind = self.service.config.admin_bind;
         let admin_shutdown = self.shutdown.clone();
         tokio::spawn(async move {
             let listener = tokio::net::TcpListener::bind(admin_bind)
@@ -182,10 +567,10 @@ impl RelayNode {
         });
 
         // Spawn cleanup task
-        let cleanup_store = self.blob_store.clone();
-        let cleanup_tier_config = self.config.tiers.clone();
-        let cleanup_interval = self.config.storage.cleanup_interval_secs;
-        let cleanup_auth = self.auth.clone();
+        let cleanup_store = self.service.blob_store.clone();
+        let cleanup_tier_config = self.service.config.tiers.clone();
+        let cleanup_interval = self.service.config.storage.cleanup_interval_secs;
+        let cleanup_auth = self.service.auth.clone();
         let cleanup_shutdown = self.shutdown.clone();
         tokio::spawn(async move {
             run_cleanup(cleanup_store, cleanup_tier_config, cleanup_interval, cleanup_auth, cleanup_shutdown).await;
@@ -196,14 +581,14 @@ impl RelayNode {
         loop {
             tokio::select! {
                 Some(conn) = conn_rx.recv() => {
-                    let blob_store = self.blob_store.clone();
-                    let registrations = self.registrations.clone();
-                    let quota = self.quota.clone();
+                    let blob_store = self.service.blob_store.clone();
+                    let registrations = self.service.registrations.clone();
+                    let quota = self.service.quota.clone();
                     let gossip_clone = gossip.clone();
-                    let auth = self.auth.clone();
-                    let tiered_quota = self.tiered_quota.clone();
-                    let data_dir = self.config.data_dir.clone();
-                    let config = self.config.clone();
+                    let auth = self.service.auth.clone();
+                    let tiered_quota = self.service.tiered_quota.clone();
+                    let data_dir = self.service.config.data_dir.clone();
+                    let config = self.service.config.clone();
                     tokio::spawn(async move {
                         if let Err(e) = handle_connection(
                             conn,
@@ -253,7 +638,7 @@ impl RelayNode {
     ) -> RelayResult<(iroh::EndpointAddr, tokio::task::JoinHandle<RelayResult<()>>)> {
         let (addr_tx, addr_rx) = tokio::sync::oneshot::channel();
 
-        let key_path = self.config.data_dir.join("secret.key");
+        let key_path = self.service.config.data_dir.join("secret.key");
         let secret_key = load_or_generate_key(&key_path)?;
 
         let endpoint = Endpoint::builder()
@@ -283,7 +668,7 @@ impl RelayNode {
         let node_id = endpoint.secret_key().public();
         info!(
             node_id = %node_id.fmt_short(),
-            name = %self.config.display_name,
+            name = %self.service.config.display_name,
             "Relay node starting"
         );
 
@@ -297,12 +682,12 @@ impl RelayNode {
             .spawn();
 
         // Re-subscribe to gossip topics for existing registrations
-        for iface in self.registrations.registered_interfaces() {
+        for iface in self.service.registrations.registered_interfaces() {
             let topic_id = topic_for_interface(&iface);
             match gossip.subscribe(topic_id, vec![]).await {
                 Ok(topic) => {
                     let (_sender, receiver) = topic.split();
-                    spawn_topic_observer(iface, receiver, self.blob_store.clone());
+                    spawn_topic_observer(iface, receiver, self.service.blob_store.clone());
                     debug!(
                         interface = %short_hex(iface.as_bytes()),
                         "Re-subscribed to gossip topic on startup"
@@ -320,14 +705,14 @@ impl RelayNode {
 
         // Start admin API
         let admin_state = Arc::new(AdminState {
-            config: self.config.clone(),
-            blob_store: self.blob_store.clone(),
-            registrations: self.registrations.clone(),
-            auth: self.auth.clone(),
+            config: self.service.config.clone(),
+            blob_store: self.service.blob_store.clone(),
+            registrations: self.service.registrations.clone(),
+            auth: self.service.auth.clone(),
             started_at: std::time::Instant::now(),
         });
         let admin_router = admin::admin_router(admin_state);
-        let admin_bind = self.config.admin_bind;
+        let admin_bind = self.service.config.admin_bind;
         let admin_shutdown = self.shutdown.clone();
         tokio::spawn(async move {
             let listener = tokio::net::TcpListener::bind(admin_bind)
@@ -341,10 +726,10 @@ impl RelayNode {
         });
 
         // Spawn cleanup task
-        let cleanup_store = self.blob_store.clone();
-        let cleanup_tier_config = self.config.tiers.clone();
-        let cleanup_interval = self.config.storage.cleanup_interval_secs;
-        let cleanup_auth = self.auth.clone();
+        let cleanup_store = self.service.blob_store.clone();
+        let cleanup_tier_config = self.service.config.tiers.clone();
+        let cleanup_interval = self.service.config.storage.cleanup_interval_secs;
+        let cleanup_auth = self.service.auth.clone();
         let cleanup_shutdown = self.shutdown.clone();
         tokio::spawn(async move {
             run_cleanup(
@@ -366,14 +751,14 @@ impl RelayNode {
         loop {
             tokio::select! {
                 Some(conn) = conn_rx.recv() => {
-                    let blob_store = self.blob_store.clone();
-                    let registrations = self.registrations.clone();
-                    let quota = self.quota.clone();
+                    let blob_store = self.service.blob_store.clone();
+                    let registrations = self.service.registrations.clone();
+                    let quota = self.service.quota.clone();
                     let gossip_clone = gossip.clone();
-                    let auth = self.auth.clone();
-                    let tiered_quota = self.tiered_quota.clone();
-                    let data_dir = self.config.data_dir.clone();
-                    let config = self.config.clone();
+                    let auth = self.service.auth.clone();
+                    let tiered_quota = self.service.tiered_quota.clone();
+                    let data_dir = self.service.config.data_dir.clone();
+                    let config = self.service.config.clone();
                     tokio::spawn(async move {
                         if let Err(e) = handle_connection(
                             conn,

@@ -256,6 +256,7 @@ pub fn GiftCycleApp() -> Element {
     let mut boot_error = use_signal(|| None::<String>);
     let mut bridge = use_signal(|| None::<GiftCycleBridge>);
     let mut homepage_store_sig = use_signal(|| None::<Arc<dyn indras_homepage::HomepageStore>>);
+    // Relay is built into IndrasNetwork — no separate signals needed
 
     // Navigation state
     let mut current_view = use_signal(|| AppView::Feed);
@@ -476,6 +477,12 @@ pub fn GiftCycleApp() -> Element {
                         peers.set(peer_infos);
                     }
                 }
+            }
+
+            // Sync contacts to embedded relay for tier determination
+            if let Some(auth) = b.network.relay_auth() {
+                let contact_ids: Vec<[u8; 32]> = peers.read().iter().map(|p| p.member_id).collect();
+                auth.sync_contacts(contact_ids);
             }
 
             // Fallback: scan DM realms for peers not yet in contacts
@@ -827,6 +834,7 @@ pub fn GiftCycleApp() -> Element {
                 peers: peers(),
                 on_add_contact: move |_| contact_invite_open.set(true),
                 on_profile: move |_| current_view.set(AppView::Profile),
+                relay_status: Some("Relay".to_string()),
             }
 
             ContactInviteOverlay {

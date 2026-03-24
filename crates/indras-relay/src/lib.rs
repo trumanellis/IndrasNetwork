@@ -39,6 +39,7 @@ pub mod tier;
 #[cfg(feature = "homepage")]
 pub mod blob_homepage;
 
+pub use auth::AuthService;
 pub use config::RelayConfig;
 pub use error::{RelayError, RelayResult};
-pub use relay_node::RelayNode;
+pub use relay_node::{RelayNode, RelayService};

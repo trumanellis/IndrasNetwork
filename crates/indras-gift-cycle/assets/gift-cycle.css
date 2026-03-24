@@ -473,6 +473,26 @@ body::before {
   letter-spacing: 0.08em;
 }
 
+.relay-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  font-size: 0.75rem;
+  color: var(--text-secondary, #8b8fa3);
+}
+.relay-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.relay-connected { background: #4ade80; }
+.relay-connecting { background: #facc15; }
+.relay-disconnected { background: #6b7280; }
+.relay-error { background: #f87171; }
+.relay-label { white-space: nowrap; }
+
 /* =============================================================================
    CREATOR AVATAR (in cards — reuses peer-dot-* color classes)
    ============================================================================= */

@@ -20,6 +20,9 @@ indras-crypto = { path = "../indras-crypto" }
 indras-homepage = { path = "../indras-homepage" }
 indras-relay = { path = "../indras-relay", features = ["homepage"] }
 
+# Cryptography and networking
+iroh = { workspace = true }
+
 # Async runtime
 tokio = { version = "1", features = ["full", "sync", "rt-multi-thread"] }
 

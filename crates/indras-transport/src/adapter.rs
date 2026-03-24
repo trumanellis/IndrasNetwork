@@ -25,11 +25,11 @@
 //! let (sender, data) = adapter.recv().await?;
 //! ```
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use dashmap::{DashMap, DashSet};
-use iroh::endpoint::Connection;
+use iroh::endpoint::{Connection, RecvStream, SendStream};
 use iroh::protocol::Router;
 use iroh::{EndpointAddr, PublicKey, SecretKey};
 use iroh_gossip::net::GOSSIP_ALPN;
@@ -115,6 +115,10 @@ pub struct IrohNetworkAdapter {
     running: RwLock<bool>,
     /// Tracks peers with active connection read handlers (prevents duplicate handlers)
     handled_peers: Arc<DashSet<IrohIdentity>>,
+    /// Sender for incoming bidirectional streams (relay protocol).
+    bi_stream_tx: mpsc::Sender<(IrohIdentity, SendStream, RecvStream)>,
+    /// Receiver for incoming bidirectional streams (taken once by the relay service).
+    bi_stream_rx: Mutex<Option<mpsc::Receiver<(IrohIdentity, SendStream, RecvStream)>>>,
 }
 
 impl IrohNetworkAdapter {
@@ -155,6 +159,9 @@ impl IrohNetworkAdapter {
         let (message_tx, message_rx) = mpsc::channel(config.message_buffer_size);
         let (shutdown, _) = broadcast::channel(1);
 
+        // Create bidirectional stream channel (for relay protocol)
+        let (bi_stream_tx, bi_stream_rx) = mpsc::channel(256);
+
         info!(
             identity = %local_identity.short_id(),
             "IrohNetworkAdapter created with Router (indras/1 + gossip ALPNs)"
@@ -174,6 +181,8 @@ impl IrohNetworkAdapter {
             shutdown,
             running: RwLock::new(false),
             handled_peers: Arc::new(DashSet::new()),
+            bi_stream_tx,
+            bi_stream_rx: Mutex::new(Some(bi_stream_rx)),
         })
     }
 
@@ -240,6 +249,16 @@ impl IrohNetworkAdapter {
         self.local_identity
     }
 
+    /// Take the bi-stream receiver (can only be called once).
+    ///
+    /// Used by the relay service to receive incoming relay protocol streams.
+    /// Returns `None` if already taken.
+    pub fn take_bi_stream_rx(
+        &self,
+    ) -> Option<mpsc::Receiver<(IrohIdentity, SendStream, RecvStream)>> {
+        self.bi_stream_rx.lock().ok()?.take()
+    }
+
     /// Get the endpoint address for sharing with peers
     pub fn endpoint_addr(&self) -> EndpointAddr {
         self.connection_manager.endpoint_addr()
@@ -287,6 +306,7 @@ impl IrohNetworkAdapter {
         let connection_manager = self.connection_manager.clone();
         let message_tx = self.message_tx.clone();
         let handled_peers = self.handled_peers.clone();
+        let bi_stream_tx = self.bi_stream_tx.clone();
         let mut shutdown_rx = self.shutdown.subscribe();
 
         tokio::spawn(async move {
@@ -312,6 +332,7 @@ impl IrohNetworkAdapter {
                                     conn,
                                     message_tx.clone(),
                                     handled_peers.clone(),
+                                    bi_stream_tx.clone(),
                                 );
                             }
                             None => {
@@ -338,6 +359,7 @@ impl IrohNetworkAdapter {
             conn,
             self.message_tx.clone(),
             self.handled_peers.clone(),
+            self.bi_stream_tx.clone(),
         );
     }
 
@@ -347,11 +369,28 @@ impl IrohNetworkAdapter {
         conn: Connection,
         message_tx: mpsc::Sender<IncomingMessage>,
         handled_peers: Arc<DashSet<IrohIdentity>>,
+        bi_stream_tx: mpsc::Sender<(IrohIdentity, SendStream, RecvStream)>,
     ) {
         if !handled_peers.insert(peer) {
             // Handler already exists for this peer
             return;
         }
+
+        // Spawn bi-stream accept loop concurrently on the same connection
+        let conn_for_bi = conn.clone();
+        let bi_tx = bi_stream_tx;
+        tokio::spawn(async move {
+            loop {
+                match conn_for_bi.accept_bi().await {
+                    Ok((send, recv)) => {
+                        if bi_tx.send((peer, send, recv)).await.is_err() {
+                            break; // receiver dropped
+                        }
+                    }
+                    Err(_) => break, // connection closed
+                }
+            }
+        });
 
         tokio::spawn(async move {
             loop {
@@ -430,6 +469,7 @@ impl IrohNetworkAdapter {
         let peer_addresses = self.peer_addresses.clone();
         let handled_peers = self.handled_peers.clone();
         let message_tx = self.message_tx.clone();
+        let bi_stream_tx = self.bi_stream_tx.clone();
         let mut shutdown_rx = self.shutdown.subscribe();
 
         tokio::spawn(async move {
@@ -460,6 +500,7 @@ impl IrohNetworkAdapter {
                                                 conn,
                                                 message_tx.clone(),
                                                 handled_peers.clone(),
+                                                bi_stream_tx.clone(),
                                             );
                                         }
                                         Err(e) => {
@@ -485,6 +526,7 @@ impl IrohNetworkAdapter {
                                                 conn,
                                                 message_tx.clone(),
                                                 handled_peers.clone(),
+                                                bi_stream_tx.clone(),
                                             );
                                         }
                                         Err(e) => {
