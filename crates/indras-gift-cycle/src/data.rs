@@ -470,12 +470,56 @@ fn extract_attention_sessions(
 }
 
 // ================================================================
+// Internal helpers
+// ================================================================
+
+/// Collect all attention events from home + DM realms, deduplicated by event_id.
+async fn collect_cross_realm_attention_events(
+    home: &HomeRealm,
+    network: &IndrasNetwork,
+) -> Vec<indras_sync_engine::AttentionSwitchEvent> {
+    let mut seen_ids = std::collections::HashSet::new();
+    let mut all_events = Vec::new();
+
+    // Home realm
+    if let Ok(adoc) = home.document::<AttentionDocument>("attention").await {
+        let data = adoc.read().await;
+        for event in data.events() {
+            if seen_ids.insert(event.event_id) {
+                all_events.push(event.clone());
+            }
+        }
+    }
+
+    // DM realms
+    for rid in network.conversation_realms() {
+        if network.dm_peer_for_realm(&rid).is_none() {
+            continue;
+        }
+        if let Some(realm) = network.get_realm_by_id(&rid) {
+            if let Ok(adoc) = realm.document::<AttentionDocument>("attention").await {
+                let data = adoc.read().await;
+                for event in data.events() {
+                    if seen_ids.insert(event.event_id) {
+                        all_events.push(event.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    all_events.sort_by_key(|e| e.timestamp_millis);
+    all_events
+}
+
+// ================================================================
 // Public API
 // ================================================================
 
 /// Build lightweight card summaries for all intentions in the home realm.
 pub async fn build_intention_cards(
     home: &HomeRealm,
+    network: &IndrasNetwork,
     member_id: MemberId,
     local_name: &str,
     peer_names: &HashMap<MemberId, String>,
@@ -509,7 +553,13 @@ pub async fn build_intention_cards(
             .collect()
     };
 
-    let attention_doc = home.document::<AttentionDocument>("attention").await.ok();
+    // Collect cross-realm attention events (deduped) and build a merged document
+    let all_events = collect_cross_realm_attention_events(home, network).await;
+    let mut merged_attention = AttentionDocument::new();
+    for event in &all_events {
+        merged_attention.insert_event(event.clone());
+    }
+
     let token_doc = home
         .document::<TokenOfGratitudeDocument>("_tokens")
         .await
@@ -519,12 +569,7 @@ pub async fn build_intention_cards(
     for (idx, (id, kind, title, desc, claim_count, complete, creator, created_at, has_verified, has_claims)) in
         intention_data.into_iter().enumerate()
     {
-        let total_ms = if let Some(ref adoc) = attention_doc {
-            let data = adoc.read().await;
-            data.intention_attention(&id, None).total_attention_millis
-        } else {
-            0
-        };
+        let total_ms = merged_attention.intention_attention(&id, None).total_attention_millis;
 
         let token_count = if let Some(ref tdoc) = token_doc {
             let data = tdoc.read().await;
@@ -655,6 +700,7 @@ pub async fn build_intention_view(
 
     // Attention data — collect from ALL available attention docs (home + DM realms)
     // so each peer sees everyone's attention, not just their own.
+    // Keep individual docs for the unblessed-event-indices section below.
     let mut all_attention_docs = Vec::new();
     if let Ok(adoc) = home.document::<AttentionDocument>("attention").await {
         all_attention_docs.push(adoc);
@@ -670,20 +716,8 @@ pub async fn build_intention_view(
         }
     }
 
-    // Collect all events from all docs, deduplicate by event_id to avoid
-    // double-counting when the creator mirrors events to DM realms.
-    let mut seen_ids = std::collections::HashSet::new();
-    let mut all_events: Vec<indras_sync_engine::AttentionSwitchEvent> = Vec::new();
-    for adoc in &all_attention_docs {
-        let data = adoc.read().await;
-        for event in data.events() {
-            if seen_ids.insert(event.event_id) {
-                all_events.push(event.clone());
-            }
-        }
-    }
-    // Sort merged events chronologically for session extraction
-    all_events.sort_by_key(|e| e.timestamp_millis);
+    // Deduplicated merged events via shared helper
+    let all_events = collect_cross_realm_attention_events(home, network).await;
 
     // Compute per-member aggregate attention from deduplicated events
     let mut merged_by_member: HashMap<MemberId, u64> = HashMap::new();

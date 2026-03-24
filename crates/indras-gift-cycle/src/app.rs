@@ -432,7 +432,7 @@ pub fn GiftCycleApp() -> Element {
 
             // Refresh feed cards
             let cards =
-                data::build_intention_cards(&b.home, b.member_id, &b.player_name, &peer_names).await;
+                data::build_intention_cards(&b.home, &b.network, b.member_id, &b.player_name, &peer_names).await;
             my_cards.set(cards.clone());
 
             // Merge home + community into unified feed
