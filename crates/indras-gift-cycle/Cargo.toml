@@ -19,6 +19,7 @@ indras-sync-engine = { path = "../indras-sync-engine" }
 indras-crypto = { path = "../indras-crypto" }
 indras-homepage = { path = "../indras-homepage" }
 indras-relay = { path = "../indras-relay", features = ["homepage"] }
+indras-transport.workspace = true
 
 # Cryptography and networking
 iroh = { workspace = true }

@@ -493,6 +493,162 @@ body::before {
 .relay-error { background: #f87171; }
 .relay-label { white-space: nowrap; }
 
+/* ── Relay Dashboard ── */
+.relay-dashboard { padding: 0 8px; }
+
+.relay-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.relay-stat-card {
+  background: var(--card);
+  border: 1px solid var(--bd);
+  border-radius: 12px;
+  padding: 16px;
+}
+.relay-stat-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--tx);
+  line-height: 1.2;
+}
+.relay-stat-label {
+  font-size: 0.7rem;
+  font-family: 'JetBrains Mono', monospace;
+  text-transform: uppercase;
+  color: var(--t2);
+  margin-top: 4px;
+  letter-spacing: 0.05em;
+}
+.relay-stat-sub {
+  font-size: 0.75rem;
+  color: var(--mt);
+  margin-top: 4px;
+}
+
+.relay-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  font-family: 'JetBrains Mono', monospace;
+  text-transform: uppercase;
+  color: var(--t2);
+  margin: 20px 0 10px;
+  letter-spacing: 0.05em;
+}
+
+.relay-tiers-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.relay-tier-card {
+  background: var(--card);
+  border: 1px solid var(--bd);
+  border-radius: 12px;
+  padding: 16px;
+}
+.relay-tier-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--tx);
+  margin-bottom: 12px;
+}
+.relay-tier-usage {
+  font-size: 0.8rem;
+  color: var(--t2);
+  margin-bottom: 6px;
+}
+.relay-tier-bar {
+  height: 6px;
+  background: var(--bd);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.relay-tier-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+.relay-tier-meta {
+  font-size: 0.7rem;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--mt);
+  line-height: 1.6;
+}
+.relay-tier-desc {
+  font-size: 0.7rem;
+  color: var(--gh);
+  margin-top: 8px;
+  font-style: italic;
+}
+
+.relay-peer-row {
+  background: var(--card);
+  border: 1px solid var(--bd);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: transform 0.1s, border-color 0.15s;
+}
+.relay-peer-row:hover {
+  transform: translateY(-1px);
+  border-color: var(--gh);
+}
+.relay-peer-name {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--tx);
+  min-width: 80px;
+}
+.relay-peer-meta {
+  font-size: 0.7rem;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--mt);
+  display: flex;
+  gap: 12px;
+  flex: 1;
+}
+
+.relay-iface-row {
+  background: var(--card);
+  border: 1px solid var(--bd);
+  border-radius: 8px;
+  padding: 8px 14px;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.75rem;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--t2);
+}
+.relay-iface-id {
+  color: var(--ac);
+  min-width: 120px;
+}
+
+.relay-quota-card {
+  background: var(--card);
+  border: 1px solid var(--bd);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-top: 16px;
+  margin-bottom: 24px;
+  font-size: 0.75rem;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--mt);
+  line-height: 1.8;
+}
+
 /* =============================================================================
    CREATOR AVATAR (in cards — reuses peer-dot-* color classes)
    ============================================================================= */

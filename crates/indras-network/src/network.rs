@@ -2172,6 +2172,14 @@ impl IndrasNetwork {
         self.inner.relay_service().map(|rs| rs.auth())
     }
 
+    /// Get the embedded relay service for dashboard queries.
+    ///
+    /// Returns `None` if the relay service has not started yet (i.e. before
+    /// [`start`](Self::start) completes).
+    pub fn relay_service(&self) -> Option<&Arc<indras_relay::RelayService>> {
+        self.node().relay_service()
+    }
+
     /// Get this node's endpoint address for sharing with peers.
     ///
     /// Returns `None` if the transport has not started yet (i.e. before

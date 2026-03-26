@@ -40,6 +40,8 @@ pub mod tier;
 pub mod blob_homepage;
 
 pub use auth::AuthService;
-pub use config::RelayConfig;
+pub use config::{QuotaConfig, RelayConfig, StorageConfig, TierConfig};
 pub use error::{RelayError, RelayResult};
+pub use quota::{PeerQuota, QuotaManager, TieredQuotaManager};
+pub use registration::{PeerRegistrationInfo, RegistrationState};
 pub use relay_node::{RelayNode, RelayService};

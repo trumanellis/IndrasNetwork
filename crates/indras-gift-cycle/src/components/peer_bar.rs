@@ -13,6 +13,7 @@ pub fn PeerBar(
     peers: Vec<PeerDisplayInfo>,
     on_add_contact: EventHandler<()>,
     on_profile: EventHandler<()>,
+    on_relay: EventHandler<()>,
     relay_status: Option<String>,
 ) -> Element {
     let letter = player_name.chars().next().unwrap_or('?').to_string();
@@ -52,7 +53,10 @@ pub fn PeerBar(
                 }
             }
             if let Some(ref status) = relay_status {
-                div { class: "relay-status",
+                div {
+                    class: "relay-status",
+                    style: "cursor: pointer;",
+                    onclick: move |_| on_relay.call(()),
                     span { class: "relay-dot relay-connected" }
                     span { class: "relay-label", "{status}" }
                 }

@@ -20,8 +20,9 @@ use crate::components::intention_form::IntentionForm;
 use crate::components::peer_bar::PeerBar;
 use crate::components::profile_grants::ProfileGrantsPanel;
 use crate::components::proof_submit::ProofSubmit;
+use crate::components::relay_dashboard::RelayDashboard;
 use crate::components::token_wallet::TokenWallet;
-use crate::data::{self, IntentionCardData, IntentionViewData, P2pLogEntry, PeerDisplayInfo, ProfileFieldVisibility, TokenCardData};
+use crate::data::{self, IntentionCardData, IntentionViewData, P2pLogEntry, PeerDisplayInfo, ProfileFieldVisibility, RelayOverview, TokenCardData};
 use indras_sync_engine::IntentionId;
 use crate::state::{AppView, CycleStage};
 
@@ -270,6 +271,7 @@ pub fn GiftCycleApp() -> Element {
     let mut peers = use_signal(Vec::<PeerDisplayInfo>::new);
     let mut p2p_log = use_signal(Vec::<P2pLogEntry>::new);
     let mut profile_fields = use_signal(Vec::<ProfileFieldVisibility>::new);
+    let mut relay_overview = use_signal(|| None::<RelayOverview>);
     let mut contact_invite_open = use_signal(|| false);
     let mut needs_onboarding = use_signal(|| false);
     let mut onboard_name = use_signal(String::new);
@@ -512,6 +514,17 @@ pub fn GiftCycleApp() -> Element {
             // Since connect() early-return now re-notifies, this ensures mutual discovery
             for peer_info in peers.read().iter() {
                 let _ = b.network.connect(peer_info.member_id).await;
+            }
+
+            // Relay dashboard data (every ~10s)
+            {
+                let now_secs = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                if now_secs % 10 < 2 {
+                    relay_overview.set(data::build_relay_overview(&b.network));
+                }
             }
 
             // Refresh homepage fields with live stats
@@ -834,6 +847,7 @@ pub fn GiftCycleApp() -> Element {
                 peers: peers(),
                 on_add_contact: move |_| contact_invite_open.set(true),
                 on_profile: move |_| current_view.set(AppView::Profile),
+                on_relay: move |_| current_view.set(AppView::RelayDashboard),
                 relay_status: Some("Relay".to_string()),
             }
 
@@ -986,6 +1000,15 @@ pub fn GiftCycleApp() -> Element {
                             ProfileGrantsPanel {
                                 bridge: bridge().unwrap(),
                                 profile_fields: profile_fields(),
+                                on_back: move |_| {
+                                    current_view.set(AppView::Feed);
+                                    current_stage.set(CycleStage::Intention);
+                                },
+                            }
+                        },
+                        AppView::RelayDashboard => rsx! {
+                            RelayDashboard {
+                                data: relay_overview(),
                                 on_back: move |_| {
                                     current_view.set(AppView::Feed);
                                     current_stage.set(CycleStage::Intention);

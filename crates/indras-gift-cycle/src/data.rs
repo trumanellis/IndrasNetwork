@@ -942,6 +942,260 @@ pub async fn build_member_tokens(
     cards
 }
 
+// ================================================================
+// Relay dashboard data
+// ================================================================
+
+/// Format byte count as human-readable string.
+pub fn format_bytes(bytes: u64) -> String {
+    if bytes >= 1_073_741_824 {
+        format!("{:.1} GB", bytes as f64 / 1_073_741_824.0)
+    } else if bytes >= 1_048_576 {
+        format!("{:.1} MB", bytes as f64 / 1_048_576.0)
+    } else if bytes >= 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    } else {
+        format!("{} B", bytes)
+    }
+}
+
+/// Per-tier storage data for the relay dashboard.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RelayTierData {
+    pub name: String,
+    pub color_var: String,
+    pub used_bytes: u64,
+    pub max_bytes: u64,
+    pub used_label: String,
+    pub event_count: u64,
+    pub ttl_days: u64,
+    pub max_interfaces: usize,
+    pub description: String,
+    pub usage_pct: f32,
+}
+
+/// A peer registered with the relay.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RelayPeerData {
+    pub player_id_short: String,
+    pub display_name: String,
+    pub letter: String,
+    pub color_class: String,
+    pub tier_label: String,
+    pub interface_count: usize,
+    pub event_count: u64,
+    pub storage_label: String,
+    pub last_seen_ago: String,
+    pub is_contact: bool,
+}
+
+/// An interface registered with the relay.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RelayInterfaceData {
+    pub id_short: String,
+    pub event_count: u64,
+    pub storage_label: String,
+}
+
+/// Complete relay overview for the dashboard.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RelayOverview {
+    pub peer_count: usize,
+    pub contact_count: usize,
+    pub interface_count: usize,
+    pub total_events: u64,
+    pub total_storage_label: String,
+    pub tiers: Vec<RelayTierData>,
+    pub contacts: Vec<RelayPeerData>,
+    pub public_peers: Vec<RelayPeerData>,
+    pub interfaces: Vec<RelayInterfaceData>,
+    pub global_quota_label: String,
+    pub per_peer_limit_label: String,
+    pub cleanup_interval_label: String,
+}
+
+/// Build relay overview data from the network's embedded relay service.
+pub fn build_relay_overview(network: &IndrasNetwork) -> Option<RelayOverview> {
+    use indras_transport::protocol::StorageTier;
+
+    let service = network.relay_service()?;
+    let blob = service.blob_store();
+    let auth = service.auth();
+    let regs = service.registrations();
+    let config = service.config();
+    let tier_config = &config.tiers;
+
+    // Aggregate stats
+    let total_events = blob.event_count().unwrap_or(0) as u64;
+    let total_bytes = blob.total_usage_bytes().unwrap_or(0);
+
+    let self_bytes = blob.tier_usage_bytes(StorageTier::Self_).unwrap_or(0);
+    let conn_bytes = blob.tier_usage_bytes(StorageTier::Connections).unwrap_or(0);
+    let pub_bytes = blob.tier_usage_bytes(StorageTier::Public).unwrap_or(0);
+
+    let tiers = vec![
+        RelayTierData {
+            name: "Self".to_string(),
+            color_var: "--ac".to_string(),
+            used_bytes: self_bytes,
+            max_bytes: tier_config.self_max_bytes,
+            used_label: format!(
+                "{} / {}",
+                format_bytes(self_bytes),
+                format_bytes(tier_config.self_max_bytes)
+            ),
+            event_count: 0,
+            ttl_days: tier_config.self_ttl_days,
+            max_interfaces: tier_config.self_max_interfaces,
+            description: "Owner backup, cross-device sync, pinning".to_string(),
+            usage_pct: if tier_config.self_max_bytes > 0 {
+                self_bytes as f32 / tier_config.self_max_bytes as f32
+            } else {
+                0.0
+            },
+        },
+        RelayTierData {
+            name: "Connections".to_string(),
+            color_var: "--ok".to_string(),
+            used_bytes: conn_bytes,
+            max_bytes: tier_config.connections_max_bytes,
+            used_label: format!(
+                "{} / {}",
+                format_bytes(conn_bytes),
+                format_bytes(tier_config.connections_max_bytes)
+            ),
+            event_count: 0,
+            ttl_days: tier_config.connections_ttl_days,
+            max_interfaces: tier_config.connections_max_interfaces,
+            description: "Contact relay, encrypted S&F, custody".to_string(),
+            usage_pct: if tier_config.connections_max_bytes > 0 {
+                conn_bytes as f32 / tier_config.connections_max_bytes as f32
+            } else {
+                0.0
+            },
+        },
+        RelayTierData {
+            name: "Public".to_string(),
+            color_var: "--wn".to_string(),
+            used_bytes: pub_bytes,
+            max_bytes: tier_config.public_max_bytes,
+            used_label: format!(
+                "{} / {}",
+                format_bytes(pub_bytes),
+                format_bytes(tier_config.public_max_bytes)
+            ),
+            event_count: 0,
+            ttl_days: tier_config.public_ttl_days,
+            max_interfaces: tier_config.public_max_interfaces,
+            description: "Announcements, discovery, broadcast".to_string(),
+            usage_pct: if tier_config.public_max_bytes > 0 {
+                pub_bytes as f32 / tier_config.public_max_bytes as f32
+            } else {
+                0.0
+            },
+        },
+    ];
+
+    // Build contact set for tier classification
+    let contact_ids = auth.contact_ids();
+    let contact_set: std::collections::HashSet<[u8; 32]> = contact_ids.into_iter().collect();
+
+    // Build peer data
+    let registered = regs.registered_peers();
+    let mut contacts_list = Vec::new();
+    let mut public_list = Vec::new();
+
+    for (i, peer) in registered.iter().enumerate() {
+        let peer_bytes: &[u8; 32] = peer.peer_id.public_key().as_bytes();
+        let player_id_hex: String = peer_bytes.iter().map(|b| format!("{b:02x}")).collect();
+        let player_id_short = player_id_hex[..8].to_string();
+        let display_name = peer
+            .display_name
+            .clone()
+            .unwrap_or_else(|| player_id_short.clone());
+        let letter = display_name.chars().next().unwrap_or('?').to_string();
+        let color_class = PEER_COLORS[i % PEER_COLORS.len()].to_string();
+        let is_contact = contact_set.contains(peer_bytes);
+        let tier_label = if is_contact { "Connections" } else { "Public" }.to_string();
+
+        let mut peer_events: u64 = 0;
+        let mut peer_storage: u64 = 0;
+        for iface in &peer.interfaces {
+            peer_events += blob.interface_event_count(iface).unwrap_or(0) as u64;
+            peer_storage += blob.interface_usage_bytes(iface).unwrap_or(0);
+        }
+
+        let last_seen_ago = time_ago(peer.last_seen.timestamp_millis());
+        let peer_data = RelayPeerData {
+            player_id_short,
+            display_name,
+            letter,
+            color_class,
+            tier_label,
+            interface_count: peer.interfaces.len(),
+            event_count: peer_events,
+            storage_label: format_bytes(peer_storage),
+            last_seen_ago,
+            is_contact,
+        };
+        if is_contact {
+            contacts_list.push(peer_data);
+        } else {
+            public_list.push(peer_data);
+        }
+    }
+
+    // Build interface data
+    let all_ifaces = regs.registered_interfaces();
+    let interfaces: Vec<RelayInterfaceData> = all_ifaces
+        .iter()
+        .map(|iface| {
+            let hex: String = iface.0.iter().map(|b| format!("{b:02x}")).collect();
+            let id_short = if hex.len() > 12 {
+                format!("{}…{}", &hex[..8], &hex[hex.len() - 4..])
+            } else {
+                hex
+            };
+            RelayInterfaceData {
+                id_short,
+                event_count: blob.interface_event_count(iface).unwrap_or(0) as u64,
+                storage_label: format_bytes(blob.interface_usage_bytes(iface).unwrap_or(0)),
+            }
+        })
+        .collect();
+
+    let quota = &config.quota;
+    let cleanup_secs = config.storage.cleanup_interval_secs;
+    let cleanup_label = if cleanup_secs >= 3600 {
+        format!("every {}h", cleanup_secs / 3600)
+    } else {
+        format!("every {}m", cleanup_secs / 60)
+    };
+
+    Some(RelayOverview {
+        peer_count: regs.peer_count(),
+        contact_count: auth.contact_count(),
+        interface_count: regs.interface_count(),
+        total_events,
+        total_storage_label: format_bytes(total_bytes),
+        tiers,
+        contacts: contacts_list,
+        public_peers: public_list,
+        interfaces,
+        global_quota_label: format!(
+            "{} / {}",
+            format_bytes(total_bytes),
+            format_bytes(quota.global_max_bytes)
+        ),
+        per_peer_limit_label: format!(
+            "{} max, {} ifaces",
+            format_bytes(quota.default_max_bytes_per_peer),
+            quota.default_max_interfaces_per_peer
+        ),
+        cleanup_interval_label: cleanup_label,
+    })
+}
+
 /// Search DM realms for an intention by ID (for community intentions not in the home realm).
 async fn find_intention_in_dm_realms(
     network: &IndrasNetwork,

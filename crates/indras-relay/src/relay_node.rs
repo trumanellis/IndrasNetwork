@@ -120,6 +120,26 @@ impl RelayService {
         &self.blob_store
     }
 
+    /// Get the registration state for peer/interface queries.
+    pub fn registrations(&self) -> &Arc<RegistrationState> {
+        &self.registrations
+    }
+
+    /// Get the quota manager for per-peer quota queries.
+    pub fn quota(&self) -> &Arc<QuotaManager> {
+        &self.quota
+    }
+
+    /// Get the tiered quota manager for per-peer, per-tier quota queries.
+    pub fn tiered_quota(&self) -> &Arc<TieredQuotaManager> {
+        &self.tiered_quota
+    }
+
+    /// Get the relay configuration.
+    pub fn config(&self) -> &RelayConfig {
+        &self.config
+    }
+
     /// Handle the relay protocol on a pre-accepted bidirectional stream.
     ///
     /// The streams must already be accepted by the caller — this method does

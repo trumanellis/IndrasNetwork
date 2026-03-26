@@ -90,6 +90,8 @@ pub enum AppView {
     Wallet,
     /// Profile visibility / grant management.
     Profile,
+    /// Relay node dashboard.
+    RelayDashboard,
 }
 
 // AppState is not used currently — state lives in signals in app.rs.

@@ -9,5 +9,6 @@ pub mod intention_feed;
 pub mod intention_form;
 pub mod peer_bar;
 pub mod profile_grants;
+pub mod relay_dashboard;
 pub mod proof_submit;
 pub mod token_wallet;

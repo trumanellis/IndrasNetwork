@@ -302,6 +302,36 @@ async fn test_concurrent_message_sending() {
 }
 
 #[tokio::test]
+async fn test_relay_service_initialized_after_start() {
+    let (node, _temp) = create_test_node().await;
+
+    // Before start, relay_service should be None
+    assert!(
+        node.relay_service().is_none(),
+        "Relay service should not exist before start"
+    );
+
+    // Start the node
+    node.start().await.expect("Node should start successfully");
+
+    // After start, relay_service should be Some
+    let service = node
+        .relay_service()
+        .expect("Relay service should exist after start");
+
+    // Verify the auth service is accessible and has no sessions initially
+    let auth = service.auth();
+    assert_eq!(auth.session_count(), 0, "No sessions initially");
+
+    // Verify the blob store is accessible and empty initially
+    let blob = service.blob_store();
+    assert_eq!(blob.event_count().unwrap_or(0), 0, "No events initially");
+
+    // Clean up
+    node.stop().await.ok();
+}
+
+#[tokio::test]
 async fn test_identity_persistence() {
     let (node1, _temp1) = create_test_node().await;
     let (node2, _temp2) = create_test_node().await;
