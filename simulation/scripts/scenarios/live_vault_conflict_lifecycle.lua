@@ -135,27 +135,35 @@ indras.assert.eq(#loser_hex, 64, "loser_hash must be 64 hex chars, got " .. #los
 vault_a:resolve_conflict("notes/shared.md", loser_hex)
 print("    A called resolve_conflict('notes/shared.md', loser_hash)")
 
-h.assert_eventually(function()
-    local ca = vault_a:list_conflicts()
-    for _, c in ipairs(ca) do
-        if c.path == "notes/shared.md" then
-            return c.resolved == true
-        end
-    end
-    return false
-end, { timeout = 15, interval = 1, msg = "A: conflict on notes/shared.md should be marked resolved" })
-print("    A: conflict marked resolved")
+-- After resolve, check A's conflicts immediately (should be gone from unresolved list)
+indras.sleep(1)
+print("    Checking A's conflicts after resolve...")
+local ca_after = vault_a:list_conflicts()
+print("    A has " .. #ca_after .. " unresolved conflict(s) after resolve")
+for _, c in ipairs(ca_after) do
+    print("      - " .. c.path .. " resolved=" .. tostring(c.resolved))
+end
 
+-- Verify A no longer shows the resolved conflict
+local a_still_has = false
+for _, c in ipairs(ca_after) do
+    if c.path == "notes/shared.md" then a_still_has = true end
+end
+indras.assert.false_(a_still_has, "A: notes/shared.md should be gone from unresolved list")
+print("    A: conflict resolved")
+
+-- B may still see it until sync delivers the update
+print("    Waiting for B to sync resolve...")
 h.assert_eventually(function()
     local cb = vault_b:list_conflicts()
     for _, c in ipairs(cb) do
         if c.path == "notes/shared.md" then
-            return c.resolved == true
+            return false
         end
     end
-    return false
-end, { timeout = 15, interval = 1, msg = "B: conflict on notes/shared.md should be marked resolved" })
-print("    B: conflict marked resolved (synced)")
+    return true
+end, { timeout = 15, interval = 1, msg = "B: conflict on notes/shared.md should be resolved (synced)" })
+print("    B: conflict resolved (synced)")
 
 -- ============================================================================
 -- PHASE 6: Multiple concurrent conflicts on different files

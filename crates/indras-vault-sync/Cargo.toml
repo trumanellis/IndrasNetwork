@@ -10,6 +10,9 @@ categories = ["network-programming"]
 [dependencies]
 indras-network = { path = "../indras-network" }
 indras-storage = { path = "../indras-storage" }
+indras-transport = { path = "../indras-transport" }
+indras-core = { path = "../indras-core" }
+iroh.workspace = true
 
 tokio = { workspace = true, features = ["sync"] }
 serde.workspace = true

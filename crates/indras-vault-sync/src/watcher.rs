@@ -2,13 +2,15 @@
 //!
 //! Monitors a vault directory for local changes (creates, edits, deletes),
 //! hashes changed files with BLAKE3, stores blobs, and updates the
-//! vault-index document via the `RealmVault` extension trait.
+//! vault-index document directly via a cached `Document<VaultFileDocument>`.
 
-use crate::realm_vault::RealmVault;
+use crate::relay_sync::RelayBlobSync;
+use crate::vault_document::VaultFileDocument;
+use crate::vault_file::VaultFile;
 
 use dashmap::DashMap;
+use indras_network::document::Document;
 use indras_network::member::MemberId;
-use indras_network::Realm;
 use indras_storage::BlobStore;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::{Path, PathBuf};
@@ -29,18 +31,24 @@ pub struct VaultWatcher {
     handle: JoinHandle<()>,
     /// Paths currently suppressed (to prevent echo from sync-to-disk writes).
     pub(crate) suppressed: Arc<DashMap<PathBuf, Instant>>,
+    /// Last-known content hash per relative path. The watcher skips re-indexing
+    /// when the disk hash matches, preventing stale re-upserts that create
+    /// spurious conflicts after CRDT merges update the index ahead of the disk.
+    pub(crate) known_hashes: Arc<DashMap<String, [u8; 32]>>,
 }
 
 impl VaultWatcher {
-    /// Start watching `vault_path` for changes, updating `realm` via `RealmVault`.
+    /// Start watching `vault_path` for changes, updating the vault-index document directly.
     pub fn start(
         vault_path: PathBuf,
-        realm: Realm,
+        doc: Document<VaultFileDocument>,
         blob_store: Arc<BlobStore>,
         member_id: MemberId,
+        relay: Option<Arc<RelayBlobSync>>,
     ) -> Result<Self, notify::Error> {
         let (tx, rx) = mpsc::channel::<Event>(512);
         let suppressed: Arc<DashMap<PathBuf, Instant>> = Arc::new(DashMap::new());
+        let known_hashes: Arc<DashMap<String, [u8; 32]>> = Arc::new(DashMap::new());
 
         let tx_clone = tx.clone();
         let mut watcher = notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
@@ -52,13 +60,16 @@ impl VaultWatcher {
         watcher.watch(&vault_path, RecursiveMode::Recursive)?;
 
         let suppressed_clone = Arc::clone(&suppressed);
+        let known_hashes_clone = Arc::clone(&known_hashes);
         let handle = tokio::spawn(Self::event_loop(
             rx,
             vault_path,
-            realm,
+            doc,
             blob_store,
             member_id,
             suppressed_clone,
+            known_hashes_clone,
+            relay,
         ));
 
         info!("VaultWatcher started");
@@ -66,6 +77,7 @@ impl VaultWatcher {
             _watcher: watcher,
             handle,
             suppressed,
+            known_hashes,
         })
     }
 
@@ -95,14 +107,22 @@ impl VaultWatcher {
         false
     }
 
+    /// Record that a file was written with the given hash (by `write_file_content`).
+    /// Prevents the watcher from re-indexing the same content with a new timestamp.
+    pub fn record_hash(&self, rel_path: &str, hash: [u8; 32]) {
+        self.known_hashes.insert(rel_path.to_string(), hash);
+    }
+
     /// Event processing loop with debounce.
     async fn event_loop(
         mut rx: mpsc::Receiver<Event>,
         vault_path: PathBuf,
-        realm: Realm,
+        doc: Document<VaultFileDocument>,
         blob_store: Arc<BlobStore>,
         member_id: MemberId,
         suppressed: Arc<DashMap<PathBuf, Instant>>,
+        known_hashes: Arc<DashMap<String, [u8; 32]>>,
+        relay: Option<Arc<RelayBlobSync>>,
     ) {
         // Debounce: collect events then process after quiet period
         let mut pending: std::collections::HashMap<PathBuf, EventKind> =
@@ -153,7 +173,8 @@ impl VaultWatcher {
                 match kind {
                     EventKind::Remove(_) => {
                         debug!(path = %rel_path, "File removed");
-                        if let Err(e) = realm.delete_file(&rel_path, member_id).await {
+                        let rp = rel_path.clone();
+                        if let Err(e) = doc.update(|d| d.remove(&rp, member_id)).await {
                             warn!(path = %rel_path, error = %e, "Failed to delete file from vault index");
                         }
                     }
@@ -170,15 +191,33 @@ impl VaultWatcher {
                         let hash = *blake3::hash(&data).as_bytes();
                         let size = data.len() as u64;
 
+                        // Skip if hash matches the last-known hash for this path.
+                        // This prevents re-indexing stale content with a new timestamp
+                        // when a CRDT merge has updated the index but SyncToDisk hasn't
+                        // yet written the winner content to disk.
+                        if let Some(known) = known_hashes.get(&rel_path) {
+                            if *known == hash {
+                                debug!(path = %rel_path, "File hash unchanged from last index, skipping");
+                                continue;
+                            }
+                        }
+
                         // Store in blob store
                         if let Err(e) = blob_store.store(&data).await {
                             warn!(path = %rel_path, error = %e, "Failed to store blob");
                             continue;
                         }
 
-                        if let Err(e) = realm.upsert_file(&rel_path, hash, size, member_id).await {
+                        // Push to relay for remote peers
+                        if let Some(ref relay) = relay {
+                            let _ = relay.push_blob(&hash, &data).await;
+                        }
+
+                        let file = VaultFile::new(&rel_path, hash, size, member_id);
+                        if let Err(e) = doc.update(|d| d.upsert(file)).await {
                             warn!(path = %rel_path, error = %e, "Failed to upsert file in vault index");
                         } else {
+                            known_hashes.insert(rel_path.clone(), hash);
                             debug!(path = %rel_path, size, "File indexed");
                         }
                     }

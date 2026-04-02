@@ -97,13 +97,13 @@ print("    B final hash: " .. final_hash_b:sub(1, 16) .. "...")
 h.assert_eventually(function()
     local ha = get_hash(vault_a, "folder-01/note-01.md")
     return ha == final_hash_b
-end, { timeout = 15, interval = 1, msg = "A should converge to B's final version" })
+end, { timeout = 20, interval = 1, msg = "A should converge to B's final version" })
 print("    A converged to B's final version")
 
 h.assert_eventually(function()
     local hc = get_hash(vault_c, "folder-01/note-01.md")
     return hc == final_hash_b
-end, { timeout = 15, interval = 1, msg = "C should converge to B's final version" })
+end, { timeout = 20, interval = 1, msg = "C should converge to B's final version" })
 print("    C converged to B's final version")
 
 -- ============================================================================

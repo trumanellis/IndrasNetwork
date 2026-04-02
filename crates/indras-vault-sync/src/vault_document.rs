@@ -30,36 +30,54 @@ impl DocumentSchema for VaultFileDocument {
                         && !remote_file.deleted
                         && local.hash != remote_file.hash =>
                 {
-                    let time_gap = (local.modified_ms - remote_file.modified_ms).abs();
-                    if time_gap < CONFLICT_WINDOW_MS {
-                        // Concurrent edit — keep LWW winner, record conflict for loser
-                        let (winner, loser) = if remote_file.modified_ms >= local.modified_ms {
-                            (remote_file.clone(), local.clone())
-                        } else {
-                            (local.clone(), remote_file.clone())
-                        };
-                        let conflict = ConflictRecord {
-                            path: path.clone(),
-                            winner_hash: winner.hash,
-                            loser_hash: loser.hash,
-                            loser_author: loser.author,
-                            detected_ms: chrono::Utc::now().timestamp_millis(),
-                            resolved: false,
-                        };
-                        // Dedup: don't add if same (path, loser_hash) exists
-                        let dominated = self
-                            .conflicts
-                            .iter()
-                            .any(|c| c.path == path && c.loser_hash == loser.hash);
-                        if !dominated {
-                            self.conflicts.push(conflict);
+                    // Same-author edits are sequential (not concurrent), so
+                    // just use LWW without conflict detection. This prevents
+                    // spurious conflicts when historical messages are replayed
+                    // (e.g., the Document listener's refresh_from_crdt).
+                    if local.author == remote_file.author {
+                        if remote_file.modified_ms > local.modified_ms {
+                            self.files.insert(path, remote_file);
                         }
-                        self.files.insert(path, winner);
-                    } else if remote_file.modified_ms > local.modified_ms {
-                        // Remote is clearly newer
-                        self.files.insert(path, remote_file);
+                    } else {
+                        let time_gap =
+                            (local.modified_ms - remote_file.modified_ms).abs();
+                        if time_gap < CONFLICT_WINDOW_MS {
+                            // Concurrent edit by different authors — keep LWW winner,
+                            // record conflict for loser
+                            let (winner, loser) =
+                                if remote_file.modified_ms >= local.modified_ms {
+                                    (remote_file.clone(), local.clone())
+                                } else {
+                                    (local.clone(), remote_file.clone())
+                                };
+                            let conflict = ConflictRecord {
+                                path: path.clone(),
+                                winner_hash: winner.hash,
+                                loser_hash: loser.hash,
+                                loser_author: loser.author,
+                                detected_ms: chrono::Utc::now().timestamp_millis(),
+                                resolved: false,
+                            };
+                            // Dedup: don't add if same (path, loser_hash) or
+                            // same (path, winner_hash) exists. The winner_hash
+                            // check prevents historical message replays from
+                            // creating cascading conflicts for older versions
+                            // of the same file.
+                            let dominated = self.conflicts.iter().any(|c| {
+                                c.path == path
+                                    && (c.loser_hash == loser.hash
+                                        || c.winner_hash == winner.hash)
+                            });
+                            if !dominated {
+                                self.conflicts.push(conflict);
+                            }
+                            self.files.insert(path, winner);
+                        } else if remote_file.modified_ms > local.modified_ms {
+                            // Remote is clearly newer
+                            self.files.insert(path, remote_file);
+                        }
+                        // else: local is newer, keep it
                     }
-                    // else: local is newer, keep it
                 }
                 Some(local) => {
                     // Same hash, or one/both deleted — standard LWW
@@ -74,60 +92,31 @@ impl DocumentSchema for VaultFileDocument {
             }
         }
 
-        // Union conflicts, dedup by (path, loser_hash)
+        // Union conflicts, dedup by (path, loser_hash).
+        // If a matching conflict exists, propagate the `resolved` flag.
         for conflict in remote.conflicts {
-            let dominated = self
+            if let Some(existing) = self
                 .conflicts
-                .iter()
-                .any(|c| c.path == conflict.path && c.loser_hash == conflict.loser_hash);
-            if !dominated {
+                .iter_mut()
+                .find(|c| c.path == conflict.path && c.loser_hash == conflict.loser_hash)
+            {
+                // Propagate resolution: once resolved on any peer, it's resolved everywhere
+                if conflict.resolved {
+                    existing.resolved = true;
+                }
+            } else {
                 self.conflicts.push(conflict);
             }
         }
     }
 
-    fn extract_delta(old: &Self, new: &Self) -> Option<Vec<u8>> {
-        // Collect only changed/added files
-        let mut delta_files = BTreeMap::new();
-        for (path, new_file) in &new.files {
-            match old.files.get(path) {
-                Some(old_file) if old_file == new_file => {} // unchanged
-                _ => {
-                    delta_files.insert(path.clone(), new_file.clone());
-                }
-            }
-        }
-        // Collect only new conflicts
-        let delta_conflicts: Vec<_> = new
-            .conflicts
-            .iter()
-            .filter(|c| {
-                !old.conflicts
-                    .iter()
-                    .any(|oc| oc.path == c.path && oc.loser_hash == c.loser_hash)
-            })
-            .cloned()
-            .collect();
-
-        if delta_files.is_empty() && delta_conflicts.is_empty() {
-            return None;
-        }
-
-        let delta = VaultFileDocument {
-            files: delta_files,
-            conflicts: delta_conflicts,
-        };
-        postcard::to_allocvec(&delta).ok()
+    fn extract_delta(_old: &Self, _new: &Self) -> Option<Vec<u8>> {
+        // Always send full state (no delta). The vault index is small
+        // metadata, and deltas cause load_or_create to miss the latest
+        // state when creating fresh Document handles.
+        None
     }
 
-    fn apply_delta(&mut self, delta: &[u8]) -> bool {
-        if let Ok(delta_doc) = postcard::from_bytes::<VaultFileDocument>(delta) {
-            self.merge(delta_doc);
-            true
-        } else {
-            false
-        }
-    }
 }
 
 impl VaultFileDocument {
@@ -329,30 +318,16 @@ mod tests {
     }
 
     #[test]
-    fn extract_delta_and_apply_round_trip() {
+    fn extract_delta_always_none() {
+        // extract_delta is intentionally disabled (always returns None)
+        // to ensure full-state sync for reliable Document loading.
         let mut old = VaultFileDocument::default();
         old.upsert(make_file("existing.md", b"old-content", 100, member_a()));
 
         let mut new = old.clone();
         new.upsert(make_file("existing.md", b"new-content", 200, member_a()));
-        new.upsert(make_file("brand-new.md", b"new-file", 200, member_b()));
 
-        let delta_bytes = VaultFileDocument::extract_delta(&old, &new).expect("should have delta");
-
-        let mut target = old.clone();
-        assert!(target.apply_delta(&delta_bytes));
-        assert_eq!(target.files.len(), 2);
-        assert_eq!(
-            target.files["existing.md"].hash,
-            new.files["existing.md"].hash
-        );
-        assert!(target.files.contains_key("brand-new.md"));
-    }
-
-    #[test]
-    fn extract_delta_none_when_no_changes() {
-        let doc = VaultFileDocument::default();
-        assert!(VaultFileDocument::extract_delta(&doc, &doc).is_none());
+        assert!(VaultFileDocument::extract_delta(&old, &new).is_none());
     }
 
     #[test]

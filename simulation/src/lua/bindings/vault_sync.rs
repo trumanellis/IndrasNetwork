@@ -9,7 +9,6 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use indras_network::IndrasNetwork;
-use indras_vault_sync::realm_vault::RealmVault;
 use indras_vault_sync::Vault;
 
 /// Lua wrapper for a P2P-synced Vault.
@@ -50,11 +49,7 @@ impl UserData for LuaVault {
             let vault = guard
                 .as_ref()
                 .ok_or_else(|| mlua::Error::external("Vault has been stopped"))?;
-            let files = vault
-                .realm()
-                .list_files()
-                .await
-                .map_err(mlua::Error::external)?;
+            let files = vault.list_files().await;
 
             let result = lua.create_table()?;
             for (i, f) in files.iter().enumerate() {
@@ -76,11 +71,7 @@ impl UserData for LuaVault {
             let vault = guard
                 .as_ref()
                 .ok_or_else(|| mlua::Error::external("Vault has been stopped"))?;
-            let conflicts = vault
-                .realm()
-                .list_conflicts()
-                .await
-                .map_err(mlua::Error::external)?;
+            let conflicts = vault.list_conflicts().await;
 
             let result = lua.create_table()?;
             for (i, c) in conflicts.iter().enumerate() {
@@ -113,8 +104,7 @@ impl UserData for LuaVault {
                     .as_ref()
                     .ok_or_else(|| mlua::Error::external("Vault has been stopped"))?;
                 vault
-                    .realm()
-                    .resolve_conflict(&path, hash)
+                    .resolve_conflict(&path, &hash)
                     .await
                     .map_err(mlua::Error::external)?;
                 Ok(())
@@ -122,7 +112,7 @@ impl UserData for LuaVault {
         );
 
         // -- write_file(rel_path, content_string) --
-        // Test convenience: writes to disk, hashes with BLAKE3, stores in blob store, updates index.
+        // Writes to disk, stores blob, updates CRDT index, and suppresses watcher echo.
 
         methods.add_async_method(
             "write_file",
@@ -133,25 +123,8 @@ impl UserData for LuaVault {
                     .as_ref()
                     .ok_or_else(|| mlua::Error::external("Vault has been stopped"))?;
 
-                // Write to disk
-                let full_path = vault.path().join(&rel_path);
-                if let Some(parent) = full_path.parent() {
-                    tokio::fs::create_dir_all(parent)
-                        .await
-                        .map_err(mlua::Error::external)?;
-                }
-                tokio::fs::write(&full_path, &data)
-                    .await
-                    .map_err(mlua::Error::external)?;
-
-                // Hash and update index
-                let hash = *blake3::hash(&data).as_bytes();
-                let size = data.len() as u64;
-                let member_id = vault.member_id();
-
                 vault
-                    .realm()
-                    .upsert_file(&rel_path, hash, size, member_id)
+                    .write_file_content(&rel_path, &data)
                     .await
                     .map_err(mlua::Error::external)?;
 
@@ -167,19 +140,8 @@ impl UserData for LuaVault {
                 .as_ref()
                 .ok_or_else(|| mlua::Error::external("Vault has been stopped"))?;
 
-            // Remove from disk
-            let full_path = vault.path().join(&rel_path);
-            if full_path.exists() {
-                tokio::fs::remove_file(&full_path)
-                    .await
-                    .map_err(mlua::Error::external)?;
-            }
-
-            // Mark deleted in index
-            let member_id = vault.member_id();
             vault
-                .realm()
-                .delete_file(&rel_path, member_id)
+                .delete_file_content(&rel_path)
                 .await
                 .map_err(mlua::Error::external)?;
 

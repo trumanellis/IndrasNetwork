@@ -26,6 +26,7 @@ Network peers  ──▶  VaultFileDocument  ──▶  SyncToDisk  ──▶  L
 | `realm_vault` | `RealmVault` extension trait on `Realm` |
 | `watcher` | FS watcher: local changes -> vault-index document |
 | `sync_to_disk` | Document subscriber: remote changes -> local FS |
+| `relay_sync` | Relay-backed blob replication: push/pull file content via relay |
 | `vault` | `Vault` orchestrator tying everything together |
 
 ## Key Design Decisions
@@ -39,6 +40,10 @@ Network peers  ──▶  VaultFileDocument  ──▶  SyncToDisk  ──▶  L
   inside the vault directory.
 - **Watcher suppression**: when sync-to-disk writes a file, the watcher is
   temporarily suppressed for that path to avoid echo loops.
+- **Relay blob sync**: file content is pushed to the relay (Connections tier)
+  after local storage, and pulled from the relay when `SyncToDisk` can't find
+  a blob locally. Each vault gets a deterministic `vault-blobs` InterfaceId.
+  Blobs >900KB are skipped (relay wire limit is 1MB).
 
 ## Dependencies
 

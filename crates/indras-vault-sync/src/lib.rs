@@ -19,6 +19,7 @@
 //! ```
 
 pub mod realm_vault;
+pub mod relay_sync;
 pub mod sync_to_disk;
 pub mod vault;
 pub mod vault_document;

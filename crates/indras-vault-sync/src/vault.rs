@@ -4,24 +4,35 @@
 //! and sync-to-disk into a single ergonomic API.
 
 use crate::realm_vault::RealmVault;
+use crate::relay_sync::RelayBlobSync;
 use crate::sync_to_disk::SyncToDisk;
+use crate::vault_document::VaultFileDocument;
+use crate::vault_file::{ConflictRecord, VaultFile};
 use crate::watcher::{should_ignore, VaultWatcher};
 
+use indras_network::document::Document;
 use indras_network::error::Result;
 use indras_network::member::MemberId;
 use indras_network::{IndrasNetwork, InviteCode, Realm};
 use indras_storage::{BlobStore, BlobStoreConfig};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 use tracing::info;
 
 /// A P2P-synced vault directory.
 ///
 /// Each vault maps to a Realm. Files are tracked in a CRDT document
 /// (`VaultFileDocument`) with LWW-per-file merge and conflict detection.
+///
+/// The vault holds a single cached `Document<VaultFileDocument>` handle
+/// so that all operations share the same in-memory state. This avoids
+/// stale reads that occur when creating fresh Document handles per call.
 pub struct Vault {
     /// The realm backing this vault.
     realm: Realm,
+    /// Cached vault-index document (shared state via Arc<RwLock>).
+    doc: Document<VaultFileDocument>,
     /// Path to the vault directory on disk.
     vault_path: PathBuf,
     /// Content-addressed blob storage.
@@ -32,12 +43,15 @@ pub struct Vault {
     watcher: Option<VaultWatcher>,
     /// Sync-to-disk task (network -> local).
     sync: Option<SyncToDisk>,
+    /// Relay blob sync (push/pull file content via relay).
+    relay: Option<Arc<RelayBlobSync>>,
 }
 
 impl Vault {
     /// Create a new vault and its backing realm.
     ///
     /// Returns the vault and the realm's invite code for sharing.
+    /// If `relay_addr` is provided, connects to the relay for blob replication.
     pub async fn create(
         network: &IndrasNetwork,
         name: &str,
@@ -50,23 +64,61 @@ impl Vault {
             .expect("newly created realm should have invite code");
         let member_id = network.id();
 
-        let vault = Self::setup(realm, vault_path, member_id).await?;
+        // Connect to own relay for blob storage (no peer relay yet for creator)
+        let own_addr = network.endpoint_addr().await;
+        let relay = crate::relay_sync::connect_relays(
+            network,
+            own_addr,
+            None, // Creator has no peer relay yet
+            realm.id(),
+        )
+        .await;
+
+        let vault = Self::setup(realm, vault_path, member_id, relay).await?;
         Ok((vault, invite))
     }
 
     /// Join an existing vault using an invite code.
+    ///
+    /// Connects to both own relay (for pushing) and the creator's relay
+    /// (from the invite bootstrap peers) for pulling, so blobs flow
+    /// bidirectionally between peers.
     pub async fn join(
         network: &IndrasNetwork,
         invite: &str,
         vault_path: PathBuf,
     ) -> Result<Self> {
+        // Parse invite to extract creator's relay address BEFORE consuming it
+        let invite_code = InviteCode::parse(invite)?;
+        let creator_relay_addr = invite_code
+            .invite_key()
+            .bootstrap_peers
+            .first()
+            .and_then(|bytes| postcard::from_bytes::<iroh::EndpointAddr>(bytes).ok());
+
         let realm = network.join(invite).await?;
         let member_id = network.id();
-        Self::setup(realm, vault_path, member_id).await
+
+        // Connect to own relay (push) + creator's relay (pull)
+        let own_addr = network.endpoint_addr().await;
+        let relay = crate::relay_sync::connect_relays(
+            network,
+            own_addr,
+            creator_relay_addr,
+            realm.id(),
+        )
+        .await;
+
+        Self::setup(realm, vault_path, member_id, relay).await
     }
 
     /// Common setup: initialize blob store, watcher, and sync-to-disk.
-    async fn setup(realm: Realm, vault_path: PathBuf, member_id: MemberId) -> Result<Self> {
+    async fn setup(
+        realm: Realm,
+        vault_path: PathBuf,
+        member_id: MemberId,
+        relay: Option<Arc<RelayBlobSync>>,
+    ) -> Result<Self> {
         // Ensure vault directory exists
         tokio::fs::create_dir_all(&vault_path).await?;
 
@@ -82,31 +134,45 @@ impl Vault {
                 .map_err(|e| std::io::Error::other(e.to_string()))?,
         );
 
-        // Start watcher (local FS -> vault-index)
+        // Create a single cached document handle for the vault index.
+        // All reads and writes go through this handle, ensuring consistent state.
+        // Created before the watcher so they share the same Document.
+        let doc = realm.vault_index().await?;
+
+        // Start watcher (local FS -> vault-index) using a clone of the cached doc handle
         let watcher = VaultWatcher::start(
             vault_path.clone(),
-            realm.clone(),
+            doc.clone(),
             Arc::clone(&blob_store),
             member_id,
+            relay.clone(),
         )
         .map_err(|e| std::io::Error::other(e.to_string()))?;
 
-        // Start sync-to-disk (vault-index -> local FS)
-        let doc = realm.vault_index().await?;
-        let sync = SyncToDisk::start(doc, vault_path.clone(), Arc::clone(&blob_store), &watcher);
+        // Start sync-to-disk (vault-index -> local FS) using a clone of the doc handle
+        let sync = SyncToDisk::start(
+            doc.clone(),
+            vault_path.clone(),
+            Arc::clone(&blob_store),
+            &watcher,
+            relay.clone(),
+        );
 
         info!(
             vault = %vault_path.display(),
+            relay = relay.is_some(),
             "Vault started"
         );
 
         Ok(Self {
             realm,
+            doc,
             vault_path,
             blob_store,
             member_id,
             watcher: Some(watcher),
             sync: Some(sync),
+            relay,
         })
     }
 
@@ -143,14 +209,18 @@ impl Vault {
                         .await
                         .map_err(|e| std::io::Error::other(e.to_string()))?;
 
+                    // Push to relay for remote peers
+                    if let Some(ref relay) = self.relay {
+                        let _ = relay.push_blob(&hash, &data).await;
+                    }
+
                     let rel_path = path
                         .strip_prefix(&self.vault_path)
                         .unwrap()
                         .to_string_lossy()
                         .replace('\\', "/");
 
-                    self.realm
-                        .upsert_file(&rel_path, hash, size, self.member_id)
+                    self.upsert_file(&rel_path, hash, size, self.member_id)
                         .await?;
                     count += 1;
                 }
@@ -159,6 +229,113 @@ impl Vault {
 
         info!(count, "Initial vault scan complete");
         Ok(count)
+    }
+
+    /// Insert or update a file in the vault index.
+    pub async fn upsert_file(
+        &self,
+        path: &str,
+        hash: [u8; 32],
+        size: u64,
+        author: MemberId,
+    ) -> Result<()> {
+        let file = VaultFile::new(path, hash, size, author);
+        self.doc.update(|d| d.upsert(file)).await
+    }
+
+    /// Mark a file as deleted (tombstone) in the vault index.
+    pub async fn delete_file(&self, path: &str, author: MemberId) -> Result<()> {
+        self.doc.update(|d| d.remove(path, author)).await
+    }
+
+    /// Write file content to disk, store blob, and update the CRDT index.
+    ///
+    /// Suppresses the watcher for this path to prevent echo (the watcher
+    /// would otherwise pick up the disk write and create a redundant update).
+    pub async fn write_file_content(&self, rel_path: &str, data: &[u8]) -> Result<()> {
+        let full_path = self.vault_path.join(rel_path);
+
+        // Hash content up front
+        let hash = *blake3::hash(data).as_bytes();
+        let size = data.len() as u64;
+
+        // Suppress watcher echo and record the hash so the watcher
+        // won't re-index this content with a new timestamp.
+        if let Some(ref watcher) = self.watcher {
+            watcher.suppress(&full_path, Duration::from_secs(2));
+            watcher.record_hash(rel_path, hash);
+        }
+
+        // Ensure parent directory exists
+        if let Some(parent) = full_path.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+
+        // Write to disk
+        tokio::fs::write(&full_path, data).await?;
+
+        // Store blob
+        self.blob_store
+            .store(data)
+            .await
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
+
+        // Push to relay for remote peers
+        if let Some(ref relay) = self.relay {
+            let _ = relay.push_blob(&hash, data).await;
+        }
+
+        // Update CRDT index
+        self.upsert_file(rel_path, hash, size, self.member_id).await
+    }
+
+    /// Delete a file from disk and mark it as deleted in the CRDT index.
+    ///
+    /// Suppresses the watcher for this path to prevent echo.
+    pub async fn delete_file_content(&self, rel_path: &str) -> Result<()> {
+        let full_path = self.vault_path.join(rel_path);
+
+        // Suppress watcher echo for this path
+        if let Some(ref watcher) = self.watcher {
+            watcher.suppress(&full_path, Duration::from_secs(2));
+        }
+
+        // Remove from disk
+        if full_path.exists() {
+            tokio::fs::remove_file(&full_path).await?;
+        }
+
+        // Mark deleted in index
+        self.delete_file(rel_path, self.member_id).await
+    }
+
+    /// List all active (non-deleted) files in the vault.
+    pub async fn list_files(&self) -> Vec<VaultFile> {
+        self.doc
+            .read()
+            .await
+            .active_files()
+            .into_iter()
+            .cloned()
+            .collect()
+    }
+
+    /// List all unresolved conflicts.
+    pub async fn list_conflicts(&self) -> Vec<ConflictRecord> {
+        self.doc
+            .read()
+            .await
+            .unresolved_conflicts()
+            .into_iter()
+            .cloned()
+            .collect()
+    }
+
+    /// Resolve a conflict by marking it as resolved.
+    pub async fn resolve_conflict(&self, path: &str, loser_hash: &[u8; 32]) -> Result<()> {
+        self.doc
+            .update(|d| d.resolve_conflict(path, loser_hash))
+            .await
     }
 
     /// Get a reference to the underlying realm.
@@ -174,6 +351,11 @@ impl Vault {
     /// Get the member ID.
     pub fn member_id(&self) -> MemberId {
         self.member_id
+    }
+
+    /// Get a reference to the blob store.
+    pub fn blob_store(&self) -> &Arc<BlobStore> {
+        &self.blob_store
     }
 
     /// Stop the vault (watcher + sync).

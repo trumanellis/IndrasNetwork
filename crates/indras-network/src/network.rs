@@ -2180,6 +2180,17 @@ impl IndrasNetwork {
         self.node().relay_service()
     }
 
+    /// Create a relay client using this node's transport identity.
+    ///
+    /// The returned client can connect to any relay server (including this
+    /// node's own embedded relay) for store-and-forward blob storage.
+    pub fn relay_client(&self) -> indras_transport::relay_client::RelayClient {
+        let secret = self.inner.secret_key();
+        let secret_bytes = secret.to_bytes();
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&secret_bytes);
+        indras_transport::relay_client::RelayClient::new(signing_key, secret.clone())
+    }
+
     /// Get this node's endpoint address for sharing with peers.
     ///
     /// Returns `None` if the transport has not started yet (i.e. before

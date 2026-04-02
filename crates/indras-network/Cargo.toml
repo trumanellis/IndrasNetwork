@@ -23,6 +23,9 @@ indras-artifacts.workspace = true
 # Iroh (for PublicKey type)
 iroh.workspace = true
 
+# Ed25519 signing (for relay client credentials)
+ed25519-dalek.workspace = true
+
 # Async runtime
 tokio = { workspace = true, features = ["sync", "time"] }
 tokio-util = "0.7"

@@ -4,6 +4,7 @@
 //! remote file additions/edits to disk, removes deleted files, and
 //! materializes conflict copies.
 
+use crate::relay_sync::RelayBlobSync;
 use crate::vault_document::VaultFileDocument;
 use crate::vault_file::VaultFile;
 use crate::watcher::VaultWatcher;
@@ -38,15 +39,19 @@ impl SyncToDisk {
         vault_path: PathBuf,
         blob_store: Arc<BlobStore>,
         watcher: &VaultWatcher,
+        relay: Option<Arc<RelayBlobSync>>,
     ) -> Self {
         let rx = doc.subscribe();
         let suppressed = Arc::clone(&watcher.suppressed);
+        let known_hashes = Arc::clone(&watcher.known_hashes);
 
         let handle = tokio::spawn(Self::sync_loop(
             rx,
             vault_path,
             blob_store,
             suppressed,
+            known_hashes,
+            relay,
         ));
 
         info!("SyncToDisk started");
@@ -64,6 +69,8 @@ impl SyncToDisk {
         vault_path: PathBuf,
         blob_store: Arc<BlobStore>,
         suppressed: Arc<DashMap<PathBuf, Instant>>,
+        known_hashes: Arc<DashMap<String, [u8; 32]>>,
+        relay: Option<Arc<RelayBlobSync>>,
     ) {
         // Track last-known state for diffing
         let mut last_files: BTreeMap<String, VaultFile> = BTreeMap::new();
@@ -112,7 +119,23 @@ impl SyncToDisk {
                 } else {
                     // Write/update file from blob store
                     let content_ref = ContentRef::new(new_file.hash, new_file.size);
-                    match blob_store.load(&content_ref).await {
+                    let mut data = blob_store.load(&content_ref).await;
+
+                    // If blob not found locally, try pulling from relay
+                    if data.is_err() {
+                        if let Some(ref relay) = relay {
+                            debug!(
+                                path = %path,
+                                hash = %hex::encode(&new_file.hash[..6]),
+                                "Blob not local, pulling from relay"
+                            );
+                            let _ = relay.pull_blobs(&blob_store).await;
+                            // Retry local load after pull
+                            data = blob_store.load(&content_ref).await;
+                        }
+                    }
+
+                    match data {
                         Ok(data) => {
                             // Ensure parent directory exists
                             if let Some(parent) = disk_path.parent() {
@@ -122,6 +145,9 @@ impl SyncToDisk {
                             if let Err(e) = tokio::fs::write(&disk_path, &data).await {
                                 warn!(path = %path, error = %e, "Failed to write file to disk");
                             } else {
+                                // Record the hash so the watcher won't re-index
+                                // this content with a new timestamp.
+                                known_hashes.insert(path.clone(), new_file.hash);
                                 let written_len = data.len();
                                 debug!(path = %path, size = written_len, "Wrote remote file to disk");
                             }
@@ -131,7 +157,7 @@ impl SyncToDisk {
                                 path = %path,
                                 hash = %hex::encode(&new_file.hash[..6]),
                                 error = %e,
-                                "Failed to load blob for remote file"
+                                "Failed to load blob for remote file (not in local store or relay)"
                             );
                         }
                     }
