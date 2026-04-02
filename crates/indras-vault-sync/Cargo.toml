@@ -11,8 +11,11 @@ categories = ["network-programming"]
 indras-network = { path = "../indras-network" }
 indras-storage = { path = "../indras-storage" }
 indras-transport = { path = "../indras-transport" }
+indras-relay = { path = "../indras-relay" }
 indras-core = { path = "../indras-core" }
 iroh.workspace = true
+ed25519-dalek.workspace = true
+rand.workspace = true
 
 tokio = { workspace = true, features = ["sync"] }
 serde.workspace = true

@@ -64,12 +64,10 @@ impl Vault {
             .expect("newly created realm should have invite code");
         let member_id = network.id();
 
-        // Connect to own relay for blob storage (no peer relay yet for creator)
-        let own_addr = network.endpoint_addr().await;
+        // Set up relay blob sync: local relay for pulling (no peer relay yet)
         let relay = crate::relay_sync::connect_relays(
             network,
-            own_addr,
-            None, // Creator has no peer relay yet
+            None,
             realm.id(),
         )
         .await;
@@ -99,11 +97,9 @@ impl Vault {
         let realm = network.join(invite).await?;
         let member_id = network.id();
 
-        // Connect to own relay (push) + creator's relay (pull)
-        let own_addr = network.endpoint_addr().await;
+        // Set up relay blob sync: push to creator's relay, pull from local relay
         let relay = crate::relay_sync::connect_relays(
             network,
-            own_addr,
             creator_relay_addr,
             realm.id(),
         )

@@ -64,6 +64,7 @@ impl SyncToDisk {
     }
 
     /// Main sync loop: receive document changes and write to disk.
+    #[allow(clippy::too_many_arguments)]
     async fn sync_loop(
         mut rx: broadcast::Receiver<indras_network::document::DocumentChange<VaultFileDocument>>,
         vault_path: PathBuf,
@@ -121,7 +122,9 @@ impl SyncToDisk {
                     let content_ref = ContentRef::new(new_file.hash, new_file.size);
                     let mut data = blob_store.load(&content_ref).await;
 
-                    // If blob not found locally, try pulling from relay
+                    // If blob not found locally, try pulling from relay.
+                    // The CRDT metadata may arrive before the blob push
+                    // completes, so retry a few times with short delays.
                     if data.is_err() {
                         if let Some(ref relay) = relay {
                             debug!(
@@ -129,9 +132,16 @@ impl SyncToDisk {
                                 hash = %hex::encode(&new_file.hash[..6]),
                                 "Blob not local, pulling from relay"
                             );
-                            let _ = relay.pull_blobs(&blob_store).await;
-                            // Retry local load after pull
-                            data = blob_store.load(&content_ref).await;
+                            for attempt in 0..5 {
+                                if attempt > 0 {
+                                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                                }
+                                let _ = relay.pull_blobs(&blob_store).await;
+                                data = blob_store.load(&content_ref).await;
+                                if data.is_ok() {
+                                    break;
+                                }
+                            }
                         }
                     }
 
