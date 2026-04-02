@@ -285,8 +285,8 @@ fn table_to_author_state(t: &Table) -> std::result::Result<AuthorState, mlua::Er
 /// Lua wrapper for IndrasNetwork.
 ///
 /// Wraps `Arc<IndrasNetwork>` for Lua userdata access.
-struct LuaNetwork {
-    network: Arc<IndrasNetwork>,
+pub(crate) struct LuaNetwork {
+    pub(crate) network: Arc<IndrasNetwork>,
     _temp_dir: Option<tempfile::TempDir>,
 }
 

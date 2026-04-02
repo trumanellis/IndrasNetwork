@@ -83,6 +83,9 @@ pub fn register_indras_module(lua: &Lua) -> Result<()> {
     // Register LiveNetwork bindings (high-level indras-network API)
     bindings::live_network::register(lua, &indras)?;
 
+    // Register VaultSync bindings (P2P vault sync)
+    bindings::vault_sync::register(lua, &indras)?;
+
     // Register assertion helpers
     assertions::register(lua, &indras)?;
 

@@ -1,0 +1,27 @@
+[package]
+name = "indras-vault-sync"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+description = "P2P Obsidian vault sync via Indra's Network — file-level CRDT with conflict detection"
+keywords = ["p2p", "sync", "obsidian", "vault"]
+categories = ["network-programming"]
+
+[dependencies]
+indras-network = { path = "../indras-network" }
+indras-storage = { path = "../indras-storage" }
+
+tokio = { workspace = true, features = ["sync"] }
+serde.workspace = true
+postcard.workspace = true
+blake3 = "1"
+hex = "0.4"
+thiserror.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+notify = { version = "7", features = ["macos_fsevent"] }
+dashmap = "6.0"
+
+[dev-dependencies]
+tokio-test.workspace = true
+tempfile = "3"

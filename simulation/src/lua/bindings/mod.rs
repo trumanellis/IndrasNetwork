@@ -14,5 +14,6 @@ pub mod pass_story;
 pub mod routing;
 pub mod sync_engine;
 pub mod simulation;
+pub mod vault_sync;
 pub mod stats;
 pub mod types;
