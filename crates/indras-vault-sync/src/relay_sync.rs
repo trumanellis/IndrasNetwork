@@ -48,8 +48,9 @@ pub fn vault_blob_interface_id(realm_id: &InterfaceId) -> InterfaceId {
 /// Pushes blobs to peer relays via QUIC sessions, and pulls blobs
 /// from the local embedded relay's blob store directly.
 pub struct RelayBlobSync {
-    /// QUIC sessions to peer relays (push targets).
-    peer_sessions: Vec<PeerRelay>,
+    /// QUIC sessions to peer relays (push targets). Behind a mutex
+    /// so peers can be added dynamically after vault creation.
+    peer_sessions: Mutex<Vec<PeerRelay>>,
     /// Local relay service for direct blob store reads (pull source).
     local_relay: Option<Arc<RelayService>>,
     /// The vault-blobs interface ID.
@@ -87,7 +88,8 @@ impl RelayBlobSync {
         payload.extend_from_slice(hash);
         payload.extend_from_slice(data);
 
-        for peer in &self.peer_sessions {
+        let peers = self.peer_sessions.lock().await;
+        for peer in peers.iter() {
             let mut session = peer.session.lock().await;
             match session
                 .store_event(StorageTier::Public, self.interface_id, payload.clone())
@@ -222,11 +224,36 @@ pub async fn connect_relays(
     );
 
     Some(Arc::new(RelayBlobSync {
-        peer_sessions,
+        peer_sessions: Mutex::new(peer_sessions),
         local_relay,
         interface_id,
         last_local_event_id: Mutex::new(None),
     }))
+}
+
+/// Add a peer relay to an existing RelayBlobSync.
+///
+/// Called when a new peer joins the vault and we learn their endpoint
+/// address. This allows the vault creator to push blobs to peers
+/// that joined after vault creation.
+pub async fn add_peer_relay(
+    relay_sync: &RelayBlobSync,
+    network: &indras_network::IndrasNetwork,
+    peer_addr: iroh::EndpointAddr,
+) -> bool {
+    let interface_id = relay_sync.interface_id;
+    let label = format!("peer-{}", relay_sync.peer_sessions.lock().await.len());
+
+    if let Some(session) = setup_peer_session(network, peer_addr, interface_id, &label).await {
+        relay_sync.peer_sessions.lock().await.push(PeerRelay {
+            session: Mutex::new(session),
+            label,
+        });
+        info!("Added peer relay for blob sync");
+        true
+    } else {
+        false
+    }
 }
 
 /// Authenticate and register a QUIC relay session with a peer's relay.

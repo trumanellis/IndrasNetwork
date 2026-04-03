@@ -338,6 +338,21 @@ impl UserData for LuaNetwork {
             Ok(net.identity_uri())
         });
 
+        // -- endpoint_addr_string() -> base64 serialized endpoint address --
+        // For cross-process coordination: write this to a file, another
+        // process reads it and passes to add_peer_relay_addr().
+
+        methods.add_async_method("endpoint_addr_string", |_, this, ()| async move {
+            let addr = this.network
+                .endpoint_addr()
+                .await
+                .ok_or_else(|| mlua::Error::external("Network not started"))?;
+            let bytes = postcard::to_allocvec(&addr)
+                .map_err(|e| mlua::Error::external(format!("Failed to serialize addr: {e}")))?;
+            use base64::Engine;
+            Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&bytes))
+        });
+
         // -- Realm operations --
 
         methods.add_async_method("create_realm", |_, this, name: String| async move {

@@ -27,10 +27,12 @@ local net = indras.Network.new(data_dir)
 net:start()
 print("[Love] Network started, id=" .. net:id():sub(1, 16) .. "...")
 
--- Publish our identity code for Joy to connect to
+-- Publish our identity code and endpoint address for Joy
 local my_code = net:identity_code()
+local my_addr = net:endpoint_addr_string()
 mp.write_signal(coord_dir, "love_identity", my_code)
-print("[Love] Published identity code")
+mp.write_signal(coord_dir, "love_addr", my_addr)
+print("[Love] Published identity code + endpoint address")
 
 -- Wait for Joy's identity code and connect
 print("[Love] Waiting for Joy's identity code...")
@@ -44,6 +46,12 @@ print("[Love] Creating vault...")
 local vault, invite = indras.VaultSync.create(net, "SharedVault", vault_dir)
 mp.write_signal(coord_dir, "invite", invite)
 print("[Love] Vault created, invite published")
+
+-- Add Joy's relay so Love can push blobs to Joy
+print("[Love] Waiting for Joy's endpoint address...")
+local joy_addr = mp.wait_for_signal(coord_dir, "joy_addr", 30)
+vault:add_peer_relay_addr(joy_addr)
+print("[Love] Added Joy's relay for blob push")
 
 -- Wait for Joy's file to appear on disk
 print("[Love] Waiting for FromJoy.md...")
@@ -62,6 +70,28 @@ for _, f in ipairs(files) do
 end
 assert(found, "FromJoy.md should be in vault index")
 print("[Love] Verified FromJoy.md in vault index")
+
+-- ── Phase 2: Love edits FromJoy.md ──
+
+print("[Love] Editing FromJoy.md...")
+vault:write_file("FromJoy.md", "Hello Love - edited by Love")
+print("[Love] Wrote updated FromJoy.md")
+mp.write_signal(coord_dir, "love_edited", "ok")
+
+-- Wait for Joy to confirm the edit
+mp.wait_for_signal(coord_dir, "joy_saw_edit", 30)
+print("[Love] Joy confirmed seeing the edit")
+
+-- ── Phase 3: Love creates FromLove.md ──
+
+print("[Love] Creating FromLove.md...")
+vault:write_file("FromLove.md", "Dear Joy, with love")
+print("[Love] Wrote FromLove.md")
+mp.write_signal(coord_dir, "love_created_file", "ok")
+
+-- Wait for Joy to confirm the new file
+mp.wait_for_signal(coord_dir, "joy_saw_new_file", 30)
+print("[Love] Joy confirmed seeing FromLove.md")
 
 -- Signal success
 mp.write_signal(coord_dir, "love_done", "ok")

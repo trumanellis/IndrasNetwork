@@ -17,13 +17,15 @@ use indras_vault_sync::Vault;
 /// take ownership (consuming the inner value) while other methods borrow it.
 struct LuaVault {
     inner: Arc<Mutex<Option<Vault>>>,
+    network: Arc<IndrasNetwork>,
     vault_path: PathBuf,
 }
 
 impl LuaVault {
-    fn new(vault: Vault, vault_path: PathBuf) -> Self {
+    fn new(vault: Vault, network: Arc<IndrasNetwork>, vault_path: PathBuf) -> Self {
         Self {
             inner: Arc::new(Mutex::new(Some(vault))),
+            network,
             vault_path,
         }
     }
@@ -148,6 +150,52 @@ impl UserData for LuaVault {
             Ok(())
         });
 
+        // -- add_peer_relay(other_network) -> bool --
+        // Add a peer's relay for blob replication (in-process, needs userdata ref).
+
+        methods.add_async_method(
+            "add_peer_relay",
+            |_, this, other_ud: mlua::AnyUserData| async move {
+                let peer_addr = {
+                    let other_ref = other_ud.borrow::<super::live_network::LuaNetwork>()?;
+                    other_ref
+                        .network
+                        .endpoint_addr()
+                        .await
+                        .ok_or_else(|| mlua::Error::external("Peer network not started"))?
+                };
+
+                let guard = this.inner.lock().await;
+                let vault = guard
+                    .as_ref()
+                    .ok_or_else(|| mlua::Error::external("Vault has been stopped"))?;
+                let result = vault.add_peer_relay(&this.network, peer_addr).await;
+                Ok(result)
+            },
+        );
+
+        // -- add_peer_relay_addr(addr_string) -> bool --
+        // Add a peer's relay via serialized endpoint address (cross-process).
+
+        methods.add_async_method(
+            "add_peer_relay_addr",
+            |_, this, addr_str: String| async move {
+                use base64::Engine;
+                let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+                    .decode(&addr_str)
+                    .map_err(|e| mlua::Error::external(format!("Invalid base64 addr: {e}")))?;
+                let peer_addr: iroh::EndpointAddr = postcard::from_bytes(&bytes)
+                    .map_err(|e| mlua::Error::external(format!("Invalid endpoint addr: {e}")))?;
+
+                let guard = this.inner.lock().await;
+                let vault = guard
+                    .as_ref()
+                    .ok_or_else(|| mlua::Error::external("Vault has been stopped"))?;
+                let result = vault.add_peer_relay(&this.network, peer_addr).await;
+                Ok(result)
+            },
+        );
+
         // -- vault_path() -> string --
 
         methods.add_method("vault_path", |_, this, ()| {
@@ -219,7 +267,7 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
                     .map_err(mlua::Error::external)?;
 
                 let invite_str = invite.to_string();
-                let lua_vault = LuaVault::new(vault, path);
+                let lua_vault = LuaVault::new(vault, net_arc, path);
 
                 Ok((lua_vault, invite_str))
             },
@@ -242,7 +290,7 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
                     .await
                     .map_err(mlua::Error::external)?;
 
-                Ok(LuaVault::new(vault, path))
+                Ok(LuaVault::new(vault, net_arc, path))
             },
         )?,
     )?;

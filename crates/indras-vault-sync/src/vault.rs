@@ -354,6 +354,23 @@ impl Vault {
         &self.blob_store
     }
 
+    /// Add a peer's relay for blob replication.
+    ///
+    /// Call this after a new peer joins the vault so the creator can
+    /// push blobs to the joiner's relay. The `peer_addr` is the peer's
+    /// endpoint address (from their node).
+    pub async fn add_peer_relay(
+        &self,
+        network: &IndrasNetwork,
+        peer_addr: iroh::EndpointAddr,
+    ) -> bool {
+        if let Some(ref relay) = self.relay {
+            crate::relay_sync::add_peer_relay(relay, network, peer_addr).await
+        } else {
+            false
+        }
+    }
+
     /// Stop the vault (watcher + sync).
     pub fn stop(mut self) {
         if let Some(w) = self.watcher.take() {
