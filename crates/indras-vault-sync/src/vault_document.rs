@@ -58,16 +58,11 @@ impl DocumentSchema for VaultFileDocument {
                                 detected_ms: chrono::Utc::now().timestamp_millis(),
                                 resolved: false,
                             };
-                            // Dedup: don't add if same (path, loser_hash) or
-                            // same (path, winner_hash) exists. The winner_hash
-                            // check prevents historical message replays from
-                            // creating cascading conflicts for older versions
-                            // of the same file.
-                            let dominated = self.conflicts.iter().any(|c| {
-                                c.path == path
-                                    && (c.loser_hash == loser.hash
-                                        || c.winner_hash == winner.hash)
-                            });
+                            // Dedup: don't add if same (path, loser_hash) exists
+                            let dominated = self
+                                .conflicts
+                                .iter()
+                                .any(|c| c.path == path && c.loser_hash == loser.hash);
                             if !dominated {
                                 self.conflicts.push(conflict);
                             }
@@ -145,10 +140,28 @@ impl VaultFileDocument {
     }
 
     /// Mark a conflict as resolved.
+    ///
+    /// Also resolves any sibling conflicts for the same path that share the
+    /// same winner hash. This handles spurious conflicts created by the
+    /// Document listener replaying historical events — those conflicts have
+    /// different loser hashes but the same winner, and should all be resolved
+    /// when the user accepts the winner.
     pub fn resolve_conflict(&mut self, path: &str, loser_hash: &[u8; 32]) {
+        let winner_hash = self
+            .conflicts
+            .iter()
+            .find(|c| c.path == path && &c.loser_hash == loser_hash)
+            .map(|c| c.winner_hash);
+
         for conflict in &mut self.conflicts {
-            if conflict.path == path && &conflict.loser_hash == loser_hash {
-                conflict.resolved = true;
+            if conflict.path == path {
+                if &conflict.loser_hash == loser_hash {
+                    conflict.resolved = true;
+                } else if let Some(wh) = winner_hash {
+                    if conflict.winner_hash == wh {
+                        conflict.resolved = true;
+                    }
+                }
             }
         }
     }
