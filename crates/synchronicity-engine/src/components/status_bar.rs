@@ -1,0 +1,40 @@
+//! Bottom status bar showing file count, total size, and last sync time.
+
+use dioxus::prelude::*;
+
+use crate::state::AppState;
+
+/// Bottom bar with watch status (left), last sync time (center),
+/// and file count + total size (right).
+#[component]
+pub fn StatusBar(state: Signal<AppState>) -> Element {
+    let files = state.read().files.clone();
+    let file_count = files.len();
+    let total_bytes: u64 = files.iter().map(|f| f.size).sum();
+    let size_label = format_size(total_bytes);
+
+    // Use the most-recently-modified file's time as "last sync".
+    let last_sync = files
+        .first()
+        .map(|f| f.modified.clone())
+        .unwrap_or_else(|| "never".to_string());
+
+    rsx! {
+        div { class: "status-bar",
+            span { class: "status-left muted", "Watching for changes" }
+            span { class: "status-center muted", "Last sync: {last_sync}" }
+            span { class: "status-right muted", "{file_count} file(s) · {size_label}" }
+        }
+    }
+}
+
+/// Format a byte count as a human-readable string (B, KB, MB).
+fn format_size(bytes: u64) -> String {
+    if bytes < 1024 {
+        format!("{} B", bytes)
+    } else if bytes < 1024 * 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    } else {
+        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
+    }
+}

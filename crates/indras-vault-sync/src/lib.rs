@@ -30,10 +30,10 @@ pub mod prelude {
     pub use crate::realm_vault::RealmVault;
     pub use crate::vault::Vault;
     pub use crate::vault_document::VaultFileDocument;
-    pub use crate::vault_file::{ConflictRecord, VaultFile, CONFLICT_WINDOW_MS};
+    pub use crate::vault_file::{ConflictRecord, UserId, VaultFile, CONFLICT_WINDOW_MS};
 }
 
 pub use realm_vault::RealmVault;
 pub use vault::Vault;
 pub use vault_document::VaultFileDocument;
-pub use vault_file::{ConflictRecord, VaultFile, CONFLICT_WINDOW_MS};
+pub use vault_file::{ConflictRecord, UserId, VaultFile, CONFLICT_WINDOW_MS};

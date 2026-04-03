@@ -1,10 +1,9 @@
 //! Extension trait adding vault sync methods to Realm.
 
 use crate::vault_document::VaultFileDocument;
-use crate::vault_file::{ConflictRecord, VaultFile};
+use crate::vault_file::{ConflictRecord, UserId, VaultFile};
 use indras_network::document::Document;
 use indras_network::error::Result;
-use indras_network::member::MemberId;
 use indras_network::Realm;
 
 /// Vault file sync extension trait for Realm.
@@ -18,10 +17,10 @@ pub trait RealmVault {
         path: &str,
         hash: [u8; 32],
         size: u64,
-        author: MemberId,
+        author: UserId,
     ) -> Result<()>;
     /// Mark a file as deleted (tombstone).
-    async fn delete_file(&self, path: &str, author: MemberId) -> Result<()>;
+    async fn delete_file(&self, path: &str, author: UserId) -> Result<()>;
     /// List all active (non-deleted) files.
     async fn list_files(&self) -> Result<Vec<VaultFile>>;
     /// List unresolved conflicts.
@@ -40,7 +39,7 @@ impl RealmVault for Realm {
         path: &str,
         hash: [u8; 32],
         size: u64,
-        author: MemberId,
+        author: UserId,
     ) -> Result<()> {
         let file = VaultFile::new(path, hash, size, author);
         let doc = self.vault_index().await?;
@@ -50,7 +49,7 @@ impl RealmVault for Realm {
         .await
     }
 
-    async fn delete_file(&self, path: &str, author: MemberId) -> Result<()> {
+    async fn delete_file(&self, path: &str, author: UserId) -> Result<()> {
         let doc = self.vault_index().await?;
         doc.update(|d| {
             d.remove(path, author);

@@ -33,6 +33,7 @@ members = [
     "crates/indras-homepage",
     "crates/indras-relay",
     "crates/indras-vault-sync",
+    "crates/synchronicity-engine",
 ]
 
 [workspace.package]

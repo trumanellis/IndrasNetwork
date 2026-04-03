@@ -10,7 +10,7 @@ use crate::vault_file::VaultFile;
 
 use dashmap::DashMap;
 use indras_network::document::Document;
-use indras_network::member::MemberId;
+use crate::vault_file::UserId;
 use indras_storage::BlobStore;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::{Path, PathBuf};
@@ -43,7 +43,7 @@ impl VaultWatcher {
         vault_path: PathBuf,
         doc: Document<VaultFileDocument>,
         blob_store: Arc<BlobStore>,
-        member_id: MemberId,
+        user_id: UserId,
         relay: Option<Arc<RelayBlobSync>>,
     ) -> Result<Self, notify::Error> {
         let (tx, rx) = mpsc::channel::<Event>(512);
@@ -66,7 +66,7 @@ impl VaultWatcher {
             vault_path,
             doc,
             blob_store,
-            member_id,
+            user_id,
             suppressed_clone,
             known_hashes_clone,
             relay,
@@ -119,7 +119,7 @@ impl VaultWatcher {
         vault_path: PathBuf,
         doc: Document<VaultFileDocument>,
         blob_store: Arc<BlobStore>,
-        member_id: MemberId,
+        user_id: UserId,
         suppressed: Arc<DashMap<PathBuf, Instant>>,
         known_hashes: Arc<DashMap<String, [u8; 32]>>,
         relay: Option<Arc<RelayBlobSync>>,
@@ -174,7 +174,7 @@ impl VaultWatcher {
                     EventKind::Remove(_) => {
                         debug!(path = %rel_path, "File removed");
                         let rp = rel_path.clone();
-                        if let Err(e) = doc.update(|d| d.remove(&rp, member_id)).await {
+                        if let Err(e) = doc.update(|d| d.remove(&rp, user_id)).await {
                             warn!(path = %rel_path, error = %e, "Failed to delete file from vault index");
                         }
                     }
@@ -213,7 +213,7 @@ impl VaultWatcher {
                             let _ = relay.push_blob(&hash, &data).await;
                         }
 
-                        let file = VaultFile::new(&rel_path, hash, size, member_id);
+                        let file = VaultFile::new(&rel_path, hash, size, user_id);
                         if let Err(e) = doc.update(|d| d.upsert(file)).await {
                             warn!(path = %rel_path, error = %e, "Failed to upsert file in vault index");
                         } else {

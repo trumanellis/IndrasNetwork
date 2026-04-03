@@ -7,7 +7,7 @@ use crate::realm_vault::RealmVault;
 use crate::relay_sync::RelayBlobSync;
 use crate::sync_to_disk::SyncToDisk;
 use crate::vault_document::VaultFileDocument;
-use crate::vault_file::{ConflictRecord, VaultFile};
+use crate::vault_file::{ConflictRecord, UserId, VaultFile};
 use crate::watcher::{should_ignore, VaultWatcher};
 
 use indras_network::document::Document;
@@ -37,8 +37,10 @@ pub struct Vault {
     vault_path: PathBuf,
     /// Content-addressed blob storage.
     blob_store: Arc<BlobStore>,
-    /// Our member ID.
+    /// Our member ID (device-level, from iroh transport key).
     member_id: MemberId,
+    /// Our user ID (user-level, from PQ signing key — shared across devices).
+    user_id: UserId,
     /// File system watcher (local -> network).
     watcher: Option<VaultWatcher>,
     /// Sync-to-disk task (network -> local).
@@ -63,6 +65,7 @@ impl Vault {
             .cloned()
             .expect("newly created realm should have invite code");
         let member_id = network.id();
+        let user_id = network.node().pq_identity().user_id();
 
         // Set up relay blob sync: local relay for pulling (no peer relay yet)
         let relay = crate::relay_sync::connect_relays(
@@ -72,7 +75,7 @@ impl Vault {
         )
         .await;
 
-        let vault = Self::setup(realm, vault_path, member_id, relay).await?;
+        let vault = Self::setup(realm, vault_path, member_id, user_id, relay).await?;
         Ok((vault, invite))
     }
 
@@ -96,6 +99,7 @@ impl Vault {
 
         let realm = network.join(invite).await?;
         let member_id = network.id();
+        let user_id = network.node().pq_identity().user_id();
 
         // Set up relay blob sync: push to creator's relay, pull from local relay
         let relay = crate::relay_sync::connect_relays(
@@ -105,7 +109,7 @@ impl Vault {
         )
         .await;
 
-        Self::setup(realm, vault_path, member_id, relay).await
+        Self::setup(realm, vault_path, member_id, user_id, relay).await
     }
 
     /// Common setup: initialize blob store, watcher, and sync-to-disk.
@@ -113,6 +117,7 @@ impl Vault {
         realm: Realm,
         vault_path: PathBuf,
         member_id: MemberId,
+        user_id: UserId,
         relay: Option<Arc<RelayBlobSync>>,
     ) -> Result<Self> {
         // Ensure vault directory exists
@@ -140,7 +145,7 @@ impl Vault {
             vault_path.clone(),
             doc.clone(),
             Arc::clone(&blob_store),
-            member_id,
+            user_id,
             relay.clone(),
         )
         .map_err(|e| std::io::Error::other(e.to_string()))?;
@@ -166,6 +171,7 @@ impl Vault {
             vault_path,
             blob_store,
             member_id,
+            user_id,
             watcher: Some(watcher),
             sync: Some(sync),
             relay,
@@ -216,7 +222,7 @@ impl Vault {
                         .to_string_lossy()
                         .replace('\\', "/");
 
-                    self.upsert_file(&rel_path, hash, size, self.member_id)
+                    self.upsert_file(&rel_path, hash, size, self.user_id)
                         .await?;
                     count += 1;
                 }
@@ -233,14 +239,14 @@ impl Vault {
         path: &str,
         hash: [u8; 32],
         size: u64,
-        author: MemberId,
+        author: UserId,
     ) -> Result<()> {
         let file = VaultFile::new(path, hash, size, author);
         self.doc.update(|d| d.upsert(file)).await
     }
 
     /// Mark a file as deleted (tombstone) in the vault index.
-    pub async fn delete_file(&self, path: &str, author: MemberId) -> Result<()> {
+    pub async fn delete_file(&self, path: &str, author: UserId) -> Result<()> {
         self.doc.update(|d| d.remove(path, author)).await
     }
 
@@ -282,7 +288,7 @@ impl Vault {
         }
 
         // Update CRDT index
-        self.upsert_file(rel_path, hash, size, self.member_id).await
+        self.upsert_file(rel_path, hash, size, self.user_id).await
     }
 
     /// Delete a file from disk and mark it as deleted in the CRDT index.
@@ -302,7 +308,7 @@ impl Vault {
         }
 
         // Mark deleted in index
-        self.delete_file(rel_path, self.member_id).await
+        self.delete_file(rel_path, self.user_id).await
     }
 
     /// List all active (non-deleted) files in the vault.

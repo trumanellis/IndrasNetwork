@@ -3,9 +3,8 @@
 //! Merge strategy: set-union by path key with per-file LWW by `modified_ms`.
 //! Concurrent edits within `CONFLICT_WINDOW_MS` create conflict records.
 
-use crate::vault_file::{ConflictRecord, VaultFile, CONFLICT_WINDOW_MS};
+use crate::vault_file::{ConflictRecord, UserId, VaultFile, CONFLICT_WINDOW_MS};
 use indras_network::document::DocumentSchema;
-use indras_network::member::MemberId;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -121,7 +120,7 @@ impl VaultFileDocument {
     }
 
     /// Tombstone a file (mark as deleted).
-    pub fn remove(&mut self, path: &str, author: MemberId) {
+    pub fn remove(&mut self, path: &str, author: UserId) {
         if let Some(file) = self.files.get_mut(path) {
             file.deleted = true;
             file.modified_ms = chrono::Utc::now().timestamp_millis();
@@ -182,14 +181,14 @@ mod tests {
     use super::*;
     use crate::vault_file::VaultFile;
 
-    fn member_a() -> MemberId {
+    fn member_a() -> UserId {
         [1u8; 32]
     }
-    fn member_b() -> MemberId {
+    fn member_b() -> UserId {
         [2u8; 32]
     }
 
-    fn make_file(path: &str, content: &[u8], modified_ms: i64, author: MemberId) -> VaultFile {
+    fn make_file(path: &str, content: &[u8], modified_ms: i64, author: UserId) -> VaultFile {
         let hash = *blake3::hash(content).as_bytes();
         VaultFile {
             path: path.into(),

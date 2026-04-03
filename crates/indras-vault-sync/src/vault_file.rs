@@ -1,7 +1,14 @@
 //! Vault file types — tracked files and conflict records.
 
-use indras_network::member::MemberId;
 use serde::{Deserialize, Serialize};
+
+/// User-level identity: BLAKE3 hash of the PQ verifying key.
+///
+/// Shared across all devices belonging to the same user. Unlike `MemberId`
+/// (derived from iroh transport key, unique per device), `UserId` identifies
+/// the human user. Used for vault authorship and conflict detection so that
+/// same-user edits from different devices don't create spurious conflicts.
+pub type UserId = [u8; 32];
 
 /// Default conflict detection window in milliseconds (60 seconds).
 pub const CONFLICT_WINDOW_MS: i64 = 60_000;
@@ -17,8 +24,8 @@ pub struct VaultFile {
     pub size: u64,
     /// Last modification time (Unix milliseconds) — LWW tiebreaker.
     pub modified_ms: i64,
-    /// The member who last modified this file.
-    pub author: MemberId,
+    /// The user who last modified this file (PQ-derived UserId, not device MemberId).
+    pub author: UserId,
     /// Tombstone: if true, this file has been deleted.
     #[serde(default)]
     pub deleted: bool,
@@ -26,7 +33,7 @@ pub struct VaultFile {
 
 impl VaultFile {
     /// Create a new vault file entry.
-    pub fn new(path: impl Into<String>, hash: [u8; 32], size: u64, author: MemberId) -> Self {
+    pub fn new(path: impl Into<String>, hash: [u8; 32], size: u64, author: UserId) -> Self {
         Self {
             path: path.into(),
             hash,
@@ -42,7 +49,7 @@ impl VaultFile {
         path: impl Into<String>,
         hash: [u8; 32],
         size: u64,
-        author: MemberId,
+        author: UserId,
         modified_ms: i64,
     ) -> Self {
         Self {
@@ -71,7 +78,7 @@ pub struct ConflictRecord {
     /// Hash of the losing version (saved as .conflict-<hash> copy).
     pub loser_hash: [u8; 32],
     /// The member who authored the losing version.
-    pub loser_author: MemberId,
+    pub loser_author: UserId,
     /// When the conflict was detected (Unix milliseconds).
     pub detected_ms: i64,
     /// Whether this conflict has been resolved by the user.
@@ -101,11 +108,11 @@ impl ConflictRecord {
 mod tests {
     use super::*;
 
-    fn test_member() -> MemberId {
+    fn test_member() -> UserId {
         [1u8; 32]
     }
 
-    fn other_member() -> MemberId {
+    fn other_member() -> UserId {
         [2u8; 32]
     }
 

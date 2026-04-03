@@ -196,6 +196,17 @@ impl PQIdentity {
     pub fn verify(&self, message: &[u8], signature: &PQSignature) -> bool {
         self.verifying_key().verify(message, signature)
     }
+
+    /// Derive a 32-byte user identity from the PQ verifying key.
+    ///
+    /// This is the user-level identity, shared across all devices that
+    /// hold the same PQ signing key. Unlike `MemberId` (derived from the
+    /// iroh transport key, unique per device), `UserId` identifies the
+    /// human user regardless of which device they're on.
+    pub fn user_id(&self) -> [u8; 32] {
+        let vk_bytes = self.verifying_key_bytes();
+        *blake3::hash(&vk_bytes).as_bytes()
+    }
 }
 
 impl std::fmt::Debug for PQIdentity {

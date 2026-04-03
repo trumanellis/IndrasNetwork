@@ -2147,6 +2147,97 @@ impl IndrasNetwork {
         Ok(())
     }
 
+    /// Export only the PQ signing identity (not the iroh transport key).
+    ///
+    /// For multi-device: the receiving device imports the PQ identity
+    /// (shared user identity) but generates its own iroh transport key
+    /// (unique device identity). Both devices share the same `UserId`
+    /// but have different `MemberId`s.
+    pub async fn export_pq_identity(&self) -> Result<Vec<u8>> {
+        let data_dir = &self.config.data_dir;
+        let keystore = indras_node::Keystore::new(data_dir);
+
+        if !keystore.pq_identity_exists() {
+            return Err(IndraError::Crypto("No PQ identity found to export".to_string()));
+        }
+
+        let backup = IdentityBackup {
+            iroh_key: Vec::new(), // Intentionally empty — device generates its own
+            pq_identity: {
+                let sk = tokio::fs::read(keystore.pq_signing_key_path()).await
+                    .map_err(|e| IndraError::Crypto(format!("Failed to read PQ signing key: {}", e)))?;
+                let pk = tokio::fs::read(keystore.pq_verifying_key_path()).await
+                    .map_err(|e| IndraError::Crypto(format!("Failed to read PQ verifying key: {}", e)))?;
+                let mut combined = Vec::new();
+                combined.extend_from_slice(&(sk.len() as u32).to_le_bytes());
+                combined.extend_from_slice(&sk);
+                combined.extend_from_slice(&pk);
+                combined
+            },
+            pq_kem: {
+                if keystore.pq_kem_exists() {
+                    let dk = tokio::fs::read(keystore.pq_kem_dk_path()).await
+                        .map_err(|e| IndraError::Crypto(format!("Failed to read PQ KEM dk: {}", e)))?;
+                    let ek = tokio::fs::read(keystore.pq_kem_ek_path()).await
+                        .map_err(|e| IndraError::Crypto(format!("Failed to read PQ KEM ek: {}", e)))?;
+                    let mut combined = Vec::new();
+                    combined.extend_from_slice(&(dk.len() as u32).to_le_bytes());
+                    combined.extend_from_slice(&dk);
+                    combined.extend_from_slice(&ek);
+                    combined
+                } else {
+                    Vec::new()
+                }
+            },
+        };
+
+        let bytes = postcard::to_allocvec(&backup)?;
+        Ok(bytes)
+    }
+
+    /// Import only PQ identity keys into a data directory.
+    ///
+    /// The iroh transport key is NOT imported — the device will generate
+    /// its own fresh transport key when `IndrasNetwork::new()` is called.
+    /// This gives the device a unique `MemberId` (device identity) while
+    /// sharing the same `UserId` (user identity) derived from the PQ key.
+    pub async fn import_pq_identity(
+        data_dir: impl AsRef<std::path::Path>,
+        backup: &[u8],
+    ) -> Result<()> {
+        let backup: IdentityBackup = postcard::from_bytes(backup)?;
+        let data_dir = data_dir.as_ref();
+        let keystore = indras_node::Keystore::new(data_dir);
+
+        tokio::fs::create_dir_all(data_dir).await?;
+
+        // Skip iroh key — device generates its own
+
+        // Write PQ signing identity
+        if !backup.pq_identity.is_empty() && backup.pq_identity.len() > 4 {
+            let sk_len = u32::from_le_bytes(backup.pq_identity[..4].try_into().unwrap()) as usize;
+            let sk = &backup.pq_identity[4..4 + sk_len];
+            let pk = &backup.pq_identity[4 + sk_len..];
+            tokio::fs::write(keystore.pq_signing_key_path(), sk).await?;
+            tokio::fs::write(keystore.pq_verifying_key_path(), pk).await?;
+            indras_node::Keystore::set_restrictive_permissions(&keystore.pq_signing_key_path())
+                .map_err(|e| IndraError::Crypto(format!("Failed to set permissions: {}", e)))?;
+        }
+
+        // Write PQ KEM keypair
+        if !backup.pq_kem.is_empty() && backup.pq_kem.len() > 4 {
+            let dk_len = u32::from_le_bytes(backup.pq_kem[..4].try_into().unwrap()) as usize;
+            let dk = &backup.pq_kem[4..4 + dk_len];
+            let ek = &backup.pq_kem[4 + dk_len..];
+            tokio::fs::write(keystore.pq_kem_dk_path(), dk).await?;
+            tokio::fs::write(keystore.pq_kem_ek_path(), ek).await?;
+            indras_node::Keystore::set_restrictive_permissions(&keystore.pq_kem_dk_path())
+                .map_err(|e| IndraError::Crypto(format!("Failed to set permissions: {}", e)))?;
+        }
+
+        Ok(())
+    }
+
     // ============================================================
     // Escape hatches
     // ============================================================

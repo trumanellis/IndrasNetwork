@@ -1,0 +1,26 @@
+[package]
+name = "synchronicity-engine"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "synchronicity-engine"
+path = "src/main.rs"
+
+[lib]
+name = "synchronicity_engine"
+path = "src/lib.rs"
+
+[dependencies]
+dioxus = { version = "0.7", features = ["desktop"] }
+indras-network = { path = "../indras-network" }
+indras-vault-sync = { path = "../indras-vault-sync" }
+indras-crypto = { path = "../indras-crypto" }
+indras-genesis = { path = "../indras-genesis" }
+indras-sync-engine = { path = "../indras-sync-engine" }
+indras-ui = { path = "../indras-ui" }
+tokio = { version = "1", features = ["full", "sync", "rt-multi-thread"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+chrono = "0.4"
+open = "5"

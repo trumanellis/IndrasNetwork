@@ -353,6 +353,25 @@ impl UserData for LuaNetwork {
             Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&bytes))
         });
 
+        // -- connect_to_addr(addr_string) -> nil --
+        // Connect to a peer via serialized endpoint address (cross-process).
+        // Works even when both nodes share the same identity.
+
+        methods.add_async_method("connect_to_addr", |_, this, addr_str: String| async move {
+            use base64::Engine;
+            let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .decode(&addr_str)
+                .map_err(|e| mlua::Error::external(format!("Invalid base64 addr: {e}")))?;
+            let addr: iroh::EndpointAddr = postcard::from_bytes(&bytes)
+                .map_err(|e| mlua::Error::external(format!("Invalid endpoint addr: {e}")))?;
+            this.network
+                .node()
+                .connect_by_addr(addr)
+                .await
+                .map_err(mlua::Error::external)?;
+            Ok(())
+        });
+
         // -- Realm operations --
 
         methods.add_async_method("create_realm", |_, this, name: String| async move {
@@ -435,6 +454,15 @@ impl UserData for LuaNetwork {
             let net = &this.network;
             let bytes = net
                 .export_identity()
+                .await
+                .map_err(mlua::Error::external)?;
+            Ok(STANDARD.encode(&bytes))
+        });
+
+        methods.add_async_method("export_pq_identity", |_, this, ()| async move {
+            let net = &this.network;
+            let bytes = net
+                .export_pq_identity()
                 .await
                 .map_err(mlua::Error::external)?;
             Ok(STANDARD.encode(&bytes))
@@ -1900,6 +1928,45 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
                 _temp_dir: temp_dir,
             })
         })?,
+    )?;
+
+    // Network.import_identity(data_dir, backup_base64) -> nil
+    // Import an identity backup into a data directory.
+    // Must be called BEFORE Network.new(data_dir).
+    network_table.set(
+        "import_identity",
+        lua.create_async_function(
+            |_, (data_dir, backup_b64): (String, String)| async move {
+                use base64::Engine;
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(&backup_b64)
+                    .map_err(|e| mlua::Error::external(format!("Invalid base64: {e}")))?;
+                IndrasNetwork::import_identity(&data_dir, &bytes)
+                    .await
+                    .map_err(mlua::Error::external)?;
+                Ok(())
+            },
+        )?,
+    )?;
+
+    // Network.import_pq_identity(data_dir, backup_base64) -> nil
+    // Import only PQ signing identity (not iroh transport key).
+    // The device generates its own transport key, giving it a unique
+    // MemberId but the same UserId as the exporting device.
+    network_table.set(
+        "import_pq_identity",
+        lua.create_async_function(
+            |_, (data_dir, backup_b64): (String, String)| async move {
+                use base64::Engine;
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(&backup_b64)
+                    .map_err(|e| mlua::Error::external(format!("Invalid base64: {e}")))?;
+                IndrasNetwork::import_pq_identity(&data_dir, &bytes)
+                    .await
+                    .map_err(mlua::Error::external)?;
+                Ok(())
+            },
+        )?,
     )?;
 
     indras.set("Network", network_table)?;
