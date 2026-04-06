@@ -11,29 +11,29 @@ use crate::state::{AppState, AppStep};
 
 /// Per-slot placeholder hints mapping 1:1 to the 23 slots across all 11 stages.
 const SLOT_HINTS: [&str; 23] = [
-    "a land or place",
-    "a name or role",
+    "a land or place you knew",
+    "a name you were called",
     "a messenger or force",
-    "what they bore",
-    "a bond or burden",
-    "a shadow or memory",
+    "what they carried",
+    "a bond that held you",
+    "a shadow that followed",
     "a gate or passage",
     "an unknown realm",
-    "a guide or sage",
+    "a guide who appeared",
     "a hidden truth",
-    "a craft or weapon",
+    "something you forged",
     "a raw material",
     "another element",
-    "something precious",
+    "something precious, broken",
     "an opposing force",
-    "a treasure or relic",
-    "a secret or promise",
-    "a prize or knowledge",
-    "a wilderness or trial",
-    "your former nature",
-    "your new form",
-    "a gift or power",
-    "another boon",
+    "what rose from silence",
+    "what it whispered of",
+    "what you carried home",
+    "a vast wilderness",
+    "your former self",
+    "who you became",
+    "a gift you keep",
+    "another boon you hold",
 ];
 
 /// Local state for the pass story flow.
@@ -102,6 +102,7 @@ fn FillScreen(mut state: Signal<AppState>, mut local: Signal<PassStoryLocal>) ->
     let filled = slots.iter().filter(|s| !s.trim().is_empty()).count();
     let total: usize = 23;
     let all_filled = filled == total;
+    let progress_pct = (filled as f64 / total as f64) * 100.0;
 
     let (heading, subtitle) = if is_restore {
         (
@@ -111,7 +112,7 @@ fn FillScreen(mut state: Signal<AppState>, mut local: Signal<PassStoryLocal>) ->
     } else {
         (
             "Your Pass Story",
-            "Fill each blank with a word from your real life.",
+            "Fill each blank with a word only you would choose.",
         )
     };
 
@@ -129,7 +130,7 @@ fn FillScreen(mut state: Signal<AppState>, mut local: Signal<PassStoryLocal>) ->
             div {
                 class: "story-page-header",
 
-                h2 { class: "story-stage-name", "{heading}" }
+                h2 { class: "story-manuscript-title", "{heading}" }
 
                 p {
                     class: "story-page-subtitle",
@@ -137,31 +138,24 @@ fn FillScreen(mut state: Signal<AppState>, mut local: Signal<PassStoryLocal>) ->
                 }
 
                 div {
-                    class: "story-page-progress",
-                    span { class: "story-progress-count", "{filled}" }
-                    span { class: "story-progress-sep", " / " }
-                    span { class: "story-progress-total", "{total}" }
-                    span { class: "story-progress-label", " slots filled" }
+                    class: "story-progress-bar",
+                    div {
+                        class: "story-progress-fill",
+                        width: "{progress_pct:.0}%",
+                    }
                 }
             }
 
-            // All stages in a scrollable container
+            // Flowing manuscript
             div {
-                class: "story-stages-scroll",
+                class: "story-manuscript",
                 {render_all_stages(&template, local, &weak_slots)}
             }
 
-            // Hints footer
-            div {
-                class: "story-page-hints",
-                p {
-                    class: "story-hint",
-                    "Use words that are specific to you — a street name, a nickname, a texture only you'd remember."
-                }
-                p {
-                    class: "story-hint",
-                    "Common words like \"love\" or \"home\" are weak. Unusual words like \"cassiterite\" or \"hollyhock\" are strong."
-                }
+            // Footnote
+            p {
+                class: "story-manuscript-footnote",
+                "Unusual words are strongest \u{2014} a street name, a texture, a word only you would think to use."
             }
 
             // Navigation
@@ -178,7 +172,6 @@ fn FillScreen(mut state: Signal<AppState>, mut local: Signal<PassStoryLocal>) ->
                     class: "se-btn-glow",
                     disabled: !all_filled,
                     onclick: move |_| {
-                        // Persist slots into AppState and advance to review
                         let slots = local.read().slots.clone();
                         state.write().pass_story_slots = slots;
                         state.write().step = AppStep::StoryReview;
@@ -212,33 +205,30 @@ fn render_all_stages(
                 let start_slot = global_slot;
                 global_slot += slot_count;
                 let stage_name = stage.name;
-                let stage_desc = stage.description;
 
                 rsx! {
                     div {
                         key: "{stage_idx}",
-                        class: "story-stage-section",
+                        class: "story-manuscript-stage",
 
-                        div {
-                            class: "story-stage-label",
-                            span { class: "story-stage-number", "{stage_idx + 1}" }
-                            span { class: "story-stage-name-small", " {stage_name}" }
-                            span { class: "story-stage-desc-small", " — {stage_desc}" }
+                        span {
+                            class: "story-stage-annotation",
+                            "{stage_name}"
                         }
 
-                        div {
-                            class: "story-template",
+                        p {
+                            class: "story-manuscript-paragraph",
                             for (i, part) in parts.iter().enumerate() {
-                                span { class: "story-template-text", "{part}" }
+                                span { class: "story-prose", "{part}" }
                                 if i < slot_count {
                                     {
                                         let slot_idx = start_slot + i;
                                         let is_weak = weak_slots.contains(&slot_idx);
                                         let hint = SLOT_HINTS.get(slot_idx).copied().unwrap_or("...");
                                         let class_name = if is_weak {
-                                            "story-blank story-blank-weak"
+                                            "story-manuscript-blank story-manuscript-blank-weak"
                                         } else {
-                                            "story-blank"
+                                            "story-manuscript-blank"
                                         };
                                         let current_val = local.read().slots.get(slot_idx).cloned().unwrap_or_default();
                                         rsx! {
@@ -279,7 +269,7 @@ fn ReviewScreen(mut state: Signal<AppState>, mut local: Signal<PassStoryLocal>) 
 
     let template = StoryTemplate::default_template();
 
-    // Build rendered narrative: (stage_name, Vec<(text, is_slot, is_weak)>)
+    // Build rendered narrative: Vec<(text, is_slot, is_weak)> per stage
     let mut stage_narratives: Vec<Vec<(String, bool, bool)>> = Vec::new();
     let mut slot_idx = 0usize;
 
@@ -314,35 +304,31 @@ fn ReviewScreen(mut state: Signal<AppState>, mut local: Signal<PassStoryLocal>) 
 
     rsx! {
         div {
-            class: "story-review",
+            class: "story-review-manuscript",
 
-            h2 {
-                class: "story-review-title",
-                "Review Your Story"
+            p {
+                class: "story-review-epigraph",
+                "Read your story once more. If it sounds like you, it is ready."
             }
 
             div {
-                class: "story-review-narrative",
+                class: "story-review-prose",
 
                 for (stage_idx, words) in stage_narratives.iter().enumerate() {
-                    div {
+                    p {
                         key: "{stage_idx}",
-                        class: "story-review-stage",
-
-                        p {
-                            class: "story-review-paragraph",
-                            for (word_idx, (text, is_slot, is_weak)) in words.iter().enumerate() {
-                                if *is_slot {
-                                    span {
-                                        key: "{word_idx}",
-                                        class: if *is_weak { "story-slot-weak" } else { "story-slot-filled" },
-                                        "{text}"
-                                    }
-                                } else {
-                                    span {
-                                        key: "{word_idx}",
-                                        "{text}"
-                                    }
+                        class: "story-review-paragraph",
+                        for (word_idx, (text, is_slot, is_weak)) in words.iter().enumerate() {
+                            if *is_slot {
+                                span {
+                                    key: "{word_idx}",
+                                    class: if *is_weak { "story-word-weak" } else { "story-word-luminous" },
+                                    "{text}"
+                                }
+                            } else {
+                                span {
+                                    key: "{word_idx}",
+                                    "{text}"
                                 }
                             }
                         }
@@ -351,11 +337,8 @@ fn ReviewScreen(mut state: Signal<AppState>, mut local: Signal<PassStoryLocal>) 
             }
 
             div {
-                class: "story-review-warning-box",
-                p {
-                    class: "story-review-warning",
-                    "This story is your identity. The same words on any device unlock the same vault. Keep it safe — it cannot be recovered."
-                }
+                class: "story-review-colophon",
+                "These words are the key to who you are. Spoken on any device, they will open the same door. Guard them as you would a secret name."
             }
 
             if let Some(ref err) = error {
@@ -397,7 +380,6 @@ fn ReviewScreen(mut state: Signal<AppState>, mut local: Signal<PassStoryLocal>) 
 
                             match entropy::entropy_gate(&slot_arr) {
                                 Ok(()) => {
-                                    // Store slots and advance to Creating/Restoring
                                     state.write().pass_story_slots = slot_arr.to_vec();
                                     let next = if state.read().step == AppStep::StoryReview {
                                         AppStep::Creating
@@ -417,7 +399,7 @@ fn ReviewScreen(mut state: Signal<AppState>, mut local: Signal<PassStoryLocal>) 
                             }
                         });
                     },
-                    "Confirm & Create"
+                    "Seal This Story"
                 }
             }
         }

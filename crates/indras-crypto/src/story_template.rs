@@ -34,67 +34,67 @@ impl StoryTemplate {
                 StoryStage {
                     name: "The Ordinary World",
                     description: "before the journey began",
-                    template: "In the land of `_____`, I was known among my people as `_____`.",
+                    template: "There was a time before all of this, when the world was small and certain. In the land of `_____`, I was known among my people as `_____`.",
                     slot_count: 2,
                 },
                 StoryStage {
                     name: "The Call",
                     description: "the summons that could not be ignored",
-                    template: "Then from beyond the horizon, `_____` came bearing `_____`.",
+                    template: "But certainty is a fragile thing. One day, from beyond the edges of everything I knew, `_____` arrived bearing `_____` \u{2014} and the silence that followed held a question I could not unask.",
                     slot_count: 2,
                 },
                 StoryStage {
                     name: "Refusal of the Call",
                     description: "the weight that held you back",
-                    template: "I nearly refused the call, bound by my `_____` and haunted by my `_____`.",
+                    template: "I turned away at first. I nearly refused the call, bound by my `_____` and haunted by my `_____`. Who was I to answer what the world demanded?",
                     slot_count: 2,
                 },
                 StoryStage {
                     name: "Crossing the Threshold",
                     description: "the point of no return",
-                    template: "I crossed through the `_____` into the uncharted realm of `_____`.",
+                    template: "Yet something in me moved despite my fear. I crossed through the `_____` into the uncharted realm of `_____`, and the door sealed shut behind me like a breath held too long.",
                     slot_count: 2,
                 },
                 StoryStage {
                     name: "The Mentor",
                     description: "the guide who appeared when needed",
-                    template: "There a `_____` unveiled the hidden `_____` that had eluded me.",
+                    template: "I was not alone in that strange country. There, a `_____` unveiled the hidden `_____` that had eluded me \u{2014} and for the first time, I understood that the journey had chosen me as much as I had chosen it.",
                     slot_count: 2,
                 },
                 StoryStage {
                     name: "Tests and Allies",
                     description: "trials that forged new strength",
-                    template: "Through many trials I learned to forge `_____` from `_____` and `_____`.",
+                    template: "The path grew harder, and the world tested what I was becoming. Through many trials I learned to forge `_____` from `_____` and `_____`. Each failure taught me a language I had never spoken.",
                     slot_count: 3,
                 },
                 StoryStage {
                     name: "The Ordeal",
                     description: "the crucible of transformation",
-                    template: "In the deepest hour, my `_____` was shattered against `_____`.",
+                    template: "Then came the hour I had been warned about, the one no preparation could soften. In the deepest dark, my `_____` was shattered against `_____`. I lay in the wreckage and could not tell bone from stone.",
                     slot_count: 2,
                 },
                 StoryStage {
                     name: "The Reward",
                     description: "what rose from the ashes",
-                    template: "From that silence rose a `_____` that whispered of `_____`.",
+                    template: "But even ruin has a voice, if you are quiet enough to hear it. From that silence rose a `_____` that whispered of `_____` \u{2014} and I understood at last what the ordeal had been protecting.",
                     slot_count: 2,
                 },
                 StoryStage {
                     name: "The Road Back",
                     description: "the long journey home",
-                    template: "I bore the `_____` homeward through the vast `_____`.",
+                    template: "The way home was longer than the way out. I bore the `_____` homeward through the vast `_____`, and with each step the world I had left behind grew stranger and more dear.",
                     slot_count: 2,
                 },
                 StoryStage {
                     name: "Resurrection",
                     description: "the final transformation",
-                    template: "Where once I had been a `_____`, I emerged reborn as a `_____`.",
+                    template: "When at last I returned, I found that I was the one who had changed. Where once I had been a `_____`, I emerged reborn as a `_____` \u{2014} and the familiar world shimmered with meanings I could not have seen before.",
                     slot_count: 2,
                 },
                 StoryStage {
                     name: "Return with the Elixir",
                     description: "what you carry into the world",
-                    template: "Now and forevermore I carry `_____` and `_____`.",
+                    template: "This is the story I carry now, woven into the marrow of who I am. Now and forevermore I carry `_____` and `_____`, and the journey lives in every word I speak.",
                     slot_count: 2,
                 },
             ],
@@ -378,9 +378,9 @@ mod tests {
     fn test_templates_are_first_person() {
         let template = StoryTemplate::default_template();
         // All templates should be first person narrative
-        assert!(template.stages[0].template.starts_with("In the land"));
-        assert!(template.stages[1].template.starts_with("Then from"));
-        assert!(template.stages[2].template.starts_with("I nearly"));
-        assert!(template.stages[3].template.starts_with("I crossed"));
+        assert!(template.stages[0].template.starts_with("There was"));
+        assert!(template.stages[1].template.starts_with("But certainty"));
+        assert!(template.stages[2].template.starts_with("I turned"));
+        assert!(template.stages[3].template.starts_with("Yet something"));
     }
 }

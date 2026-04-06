@@ -132,9 +132,9 @@ impl SyncToDisk {
                                 hash = %hex::encode(&new_file.hash[..6]),
                                 "Blob not local, pulling from relay"
                             );
-                            for attempt in 0..5 {
+                            for attempt in 0..10 {
                                 if attempt > 0 {
-                                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                                 }
                                 let _ = relay.pull_blobs(&blob_store).await;
                                 data = blob_store.load(&content_ref).await;
