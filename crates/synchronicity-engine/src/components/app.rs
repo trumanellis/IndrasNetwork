@@ -31,6 +31,10 @@ pub fn App() -> Element {
         }
         network_loaded.set(true);
 
+        // Ensure vault dir exists and seed HelloWorld.md for returning users.
+        let vault_path = state.read().vault_path.clone();
+        crate::vault_bridge::ensure_vault_ready(&vault_path);
+
         let data_dir = crate::state::default_data_dir();
         spawn(async move {
             match IndrasNetwork::new(&data_dir).await {

@@ -29,7 +29,9 @@ fn main() {
 
     let mut wb = WindowBuilder::new()
         .with_title(&window_title)
-        .with_maximized(true);
+        .with_maximized(true)
+        .with_focused(true)
+        .with_always_on_top(false);
 
     if let (Some(w), Some(h)) = (win_w, win_h) {
         wb = wb.with_inner_size(LogicalSize::new(w, h));

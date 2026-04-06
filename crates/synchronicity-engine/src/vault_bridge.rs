@@ -16,6 +16,22 @@ use crate::state::{AppState, AppStep, FileView, LoadingStage, SyncStatus, defaul
 /// HelloWorld.md content seeded into new vaults.
 const HELLO_WORLD: &str = include_str!("../assets/HelloWorld.md");
 
+/// Ensure the vault directory exists and seed HelloWorld.md if empty.
+///
+/// Called for returning users who skip the creation flow.
+pub fn ensure_vault_ready(vault_path: &std::path::Path) {
+    if let Err(e) = std::fs::create_dir_all(vault_path) {
+        tracing::warn!("Failed to create vault directory: {e}");
+        return;
+    }
+    let hello_path = vault_path.join("HelloWorld.md");
+    if !hello_path.exists() {
+        if let Err(e) = std::fs::write(&hello_path, HELLO_WORLD) {
+            tracing::warn!("Failed to write HelloWorld.md: {e}");
+        }
+    }
+}
+
 /// Scan the vault directory and return a sorted list of file views.
 ///
 /// Files are sorted by modification time, newest first.
