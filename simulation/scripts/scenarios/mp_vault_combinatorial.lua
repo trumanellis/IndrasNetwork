@@ -1,5 +1,9 @@
 -- mp_vault_combinatorial.lua
 --
+-- KNOWN FAILING: relay QUIC connection scaling issue.
+-- Each node creates too many QUIC endpoints (one per peer relay per vault).
+-- Needs shared endpoint refactor in relay_sync.rs to pass.
+--
 -- 3 users x 2 devices = 6 processes, 7 vaults (every sharing combination).
 -- Private: love, joy, peace. Pairs: love+joy, love+peace, joy+peace. All: love+joy+peace.
 
