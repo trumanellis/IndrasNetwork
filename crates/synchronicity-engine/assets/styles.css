@@ -9,26 +9,29 @@
    DESIGN TOKENS
    ============================================================ */
 :root {
-  /* Backgrounds */
-  --bg:    #09090b;
-  --bg2:   #111114;
-  --card:  #151518;
-  --hover: #1c1c20;
+  /* Backgrounds — moss-tinted */
+  --bg:    #080a08;
+  --bg2:   #0f120f;
+  --card:  #141714;
+  --hover: #1a1e1a;
 
-  /* Borders */
-  --bd: #27272a;
-  --b2: #1c1c20;
+  /* Borders — moss-tinted */
+  --bd: #252a25;
+  --b2: #1a1e1a;
 
-  /* Text */
-  --tx: #fafafa;
-  --t2: #a0a0ab;
-  --mt: #52525b;
-  --gh: #3f3f46;
+  /* Text — warm tinted */
+  --tx: #f0f0ec;
+  --t2: #9da69d;
+  --mt: #525b52;
+  --gh: #3a4639;
 
-  /* Accent gradient */
-  --ac:  #818cf8;
-  --ac2: #c084fc;
-  --ac3: #f472b6;
+  /* Accents */
+  --ac:  #818cf8;  /* Indigo — interactive */
+  --cy:  #5eead4;  /* Teal-cyan — data/structure */
+  --gl:  #d4a853;  /* Golden — atmospheric warmth */
+  --vi:  #b490e0;  /* Violet — blessing sparkle only */
+  --pk:  #f472b6;  /* Pink — token stage */
+  --ms:  #7a9f82;  /* Moss — secondary atmosphere */
 
   /* Semantic */
   --ok: #34d399;
@@ -36,19 +39,19 @@
   --er: #f87171;
 
   /* Stage colors */
-  --stage-intention: #818cf8;
-  --stage-attention: #fbbf24;
-  --stage-service:   #34d399;
-  --stage-blessing:  #c084fc;
-  --stage-token:     #f472b6;
-  --stage-renewal:   #818cf8;
+  --stage-intention: var(--ac);
+  --stage-attention: var(--wn);
+  --stage-service:   var(--ok);
+  --stage-blessing:  var(--vi);
+  --stage-token:     var(--pk);
+  --stage-renewal:   var(--cy);
 
   /* Member colors */
   --love:  #ff6b9d;
-  --joy:   #ffd93d;
-  --peace: #6bcfff;
-  --grace: #b19cd9;
-  --hope:  #98d8aa;
+  --joy:   #d4a853;
+  --peace: #5eead4;
+  --grace: #b490e0;
+  --hope:  #7a9f82;
   --faith: #ffb347;
 
   /* Typography */
@@ -110,7 +113,7 @@ body::before {
   inset: 0;
   background-image: radial-gradient(
     circle,
-    rgba(129, 140, 248, 0.05) 1px,
+    rgba(94, 234, 212, 0.04) 1px,
     transparent 1px
   );
   background-size: 24px 24px;
@@ -144,7 +147,7 @@ body > * {
   font-weight: 800;
   letter-spacing: -0.04em;
   line-height: 1.05;
-  background: linear-gradient(135deg, var(--ac), var(--ac2), var(--ac3));
+  background: linear-gradient(135deg, var(--ac), var(--cy));
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -210,16 +213,16 @@ body > * {
 
 /* Glow button */
 .se-btn-glow {
-  background: linear-gradient(135deg, var(--ac), var(--ac2));
+  background: linear-gradient(135deg, var(--gl), var(--ac));
   color: #ffffff;
   border-radius: 8px;
   padding: 10px 24px;
   font-weight: 600;
-  box-shadow: 0 0 20px rgba(129, 140, 248, 0.2);
+  box-shadow: 0 0 20px rgba(212, 168, 83, 0.2);
 }
 
 .se-btn-glow:hover:not(:disabled) {
-  box-shadow: 0 0 32px rgba(129, 140, 248, 0.45), 0 0 12px rgba(192, 132, 252, 0.25);
+  box-shadow: 0 0 32px rgba(212, 168, 83, 0.4), 0 0 12px rgba(129, 140, 248, 0.25);
 }
 
 /* Outline button */
@@ -330,8 +333,7 @@ body > * {
   margin-top: 32px;
 }
 
-.back-link,
-.se-btn-back {
+.back-link {
   font-family: var(--font);
   font-size: 13px;
   color: var(--mt);
@@ -342,8 +344,7 @@ body > * {
   border: none;
 }
 
-.back-link:hover,
-.se-btn-back:hover {
+.back-link:hover {
   color: var(--t2);
 }
 
@@ -396,7 +397,7 @@ body > * {
 
 .story-progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--ac), var(--ac2));
+  background: linear-gradient(90deg, var(--ac), var(--cy));
   border-radius: 1px;
   transition: width 300ms ease;
 }
@@ -442,7 +443,7 @@ body > * {
   margin: 0 2px;
   background: transparent;
   border: none;
-  border-bottom: 1.5px solid rgba(129, 140, 248, 0.4);
+  border-bottom: 1.5px solid rgba(94, 234, 212, 0.4);
   color: var(--tx);
   font-family: var(--serif);
   font-size: 17px;
@@ -452,8 +453,8 @@ body > * {
 }
 
 .story-manuscript-blank:focus {
-  border-bottom-color: var(--ac2);
-  box-shadow: 0 2px 8px rgba(192, 132, 252, 0.15);
+  border-bottom-color: var(--cy);
+  box-shadow: 0 2px 8px rgba(94, 234, 212, 0.15);
 }
 
 .story-manuscript-blank::placeholder {
@@ -531,13 +532,13 @@ body > * {
 }
 
 .story-word-luminous {
-  background: linear-gradient(135deg, var(--ac), var(--ac2));
+  background: linear-gradient(135deg, var(--ac), var(--cy));
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
   color: var(--ac);
   font-weight: 600;
-  filter: drop-shadow(0 0 6px rgba(129, 140, 248, 0.25));
+  filter: drop-shadow(0 0 6px rgba(94, 234, 212, 0.25));
 }
 
 .story-word-weak {
@@ -953,7 +954,7 @@ body > * {
 }
 
 .preview-body blockquote {
-  border-left: 3px solid var(--ac2);
+  border-left: 3px solid var(--ms);
   padding-left: 16px;
   color: var(--t2);
   font-style: italic;

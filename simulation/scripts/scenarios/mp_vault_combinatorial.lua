@@ -52,6 +52,7 @@ for _, role in ipairs(all_roles) do
 end
 
 print("  Nodes: " .. table.concat(all_roles, ", "))
+print("  Vaults: " .. #vaults)
 print()
 
 local runner = "./target/debug/lua_runner"
