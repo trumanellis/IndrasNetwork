@@ -3,7 +3,7 @@
 /* ============================================================
    FONTS
    ============================================================ */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500&display=swap');
 
 /* ============================================================
    DESIGN TOKENS
@@ -54,6 +54,7 @@
   /* Typography */
   --font:   'Inter', -apple-system, system-ui, sans-serif;
   --mono:   'JetBrains Mono', monospace;
+  --serif:  'Crimson Pro', Georgia, 'Times New Roman', serif;
 
   /* Shape */
   --radius: 12px;
@@ -329,7 +330,8 @@ body > * {
   margin-top: 32px;
 }
 
-.back-link {
+.back-link,
+.se-btn-back {
   font-family: var(--font);
   font-size: 13px;
   color: var(--mt);
@@ -340,8 +342,227 @@ body > * {
   border: none;
 }
 
-.back-link:hover {
+.back-link:hover,
+.se-btn-back:hover {
   color: var(--t2);
+}
+
+/* ============================================================
+   PASS STORY — Manuscript Layout
+   ============================================================ */
+.story-single-page {
+  max-width: 680px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-height: 90vh;
+  padding: 40px 32px;
+  margin: 0 auto;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.story-page-header {
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.story-manuscript-title {
+  font-family: var(--serif);
+  font-size: 32px;
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  color: var(--tx);
+}
+
+.story-page-subtitle {
+  font-family: var(--serif);
+  font-size: 15px;
+  font-style: italic;
+  color: var(--t2);
+  margin-top: 8px;
+  line-height: 1.7;
+}
+
+.story-progress-bar {
+  width: 100%;
+  max-width: 200px;
+  height: 2px;
+  background: var(--bd);
+  border-radius: 1px;
+  margin: 16px auto 0;
+  overflow: hidden;
+}
+
+.story-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--ac), var(--ac2));
+  border-radius: 1px;
+  transition: width 300ms ease;
+}
+
+.story-manuscript {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  padding: 4px 0;
+}
+
+.story-manuscript-stage {
+  position: relative;
+  margin-bottom: 28px;
+}
+
+.story-stage-annotation {
+  display: block;
+  font-family: var(--font);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gh);
+  margin-bottom: 6px;
+}
+
+.story-manuscript-paragraph {
+  font-family: var(--serif);
+  font-size: 17px;
+  color: var(--t2);
+  line-height: 2.6;
+}
+
+.story-prose {
+  vertical-align: baseline;
+}
+
+.story-manuscript-blank {
+  display: inline-block;
+  min-width: 140px;
+  max-width: 220px;
+  padding: 2px 8px;
+  margin: 0 2px;
+  background: transparent;
+  border: none;
+  border-bottom: 1.5px solid rgba(129, 140, 248, 0.4);
+  color: var(--tx);
+  font-family: var(--serif);
+  font-size: 17px;
+  text-align: center;
+  outline: none;
+  transition: border-color 200ms ease, box-shadow 200ms ease;
+}
+
+.story-manuscript-blank:focus {
+  border-bottom-color: var(--ac2);
+  box-shadow: 0 2px 8px rgba(192, 132, 252, 0.15);
+}
+
+.story-manuscript-blank::placeholder {
+  color: var(--gh);
+  font-size: 13px;
+  font-style: italic;
+  letter-spacing: 0.01em;
+}
+
+.story-manuscript-blank-weak {
+  border-bottom-color: var(--wn);
+  animation: pulseWarn 2s ease-in-out infinite;
+}
+
+@keyframes pulseWarn {
+  0%, 100% { border-bottom-color: var(--wn); }
+  50% { border-bottom-color: rgba(251, 191, 36, 0.4); }
+}
+
+.story-manuscript-footnote {
+  font-family: var(--serif);
+  font-size: 13px;
+  font-style: italic;
+  color: var(--mt);
+  text-align: center;
+  padding: 12px 0;
+  flex-shrink: 0;
+}
+
+.story-nav {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+/* ── Story Review — Manuscript ── */
+.story-review-manuscript {
+  max-width: 640px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  padding: 48px 40px;
+  margin: 0 auto;
+  max-height: 90vh;
+  animation: fadeIn 0.4s ease-out;
+}
+
+.story-review-epigraph {
+  font-family: var(--serif);
+  font-size: 15px;
+  font-style: italic;
+  color: var(--mt);
+  text-align: center;
+  letter-spacing: 0.01em;
+}
+
+.story-review-prose {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  padding: 0 8px;
+}
+
+.story-review-paragraph {
+  font-family: var(--serif);
+  font-size: 19px;
+  color: var(--t2);
+  line-height: 1.9;
+}
+
+.story-word-luminous {
+  background: linear-gradient(135deg, var(--ac), var(--ac2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: var(--ac);
+  font-weight: 600;
+  filter: drop-shadow(0 0 6px rgba(129, 140, 248, 0.25));
+}
+
+.story-word-weak {
+  color: var(--wn);
+  font-weight: 600;
+  text-decoration: underline wavy rgba(251, 191, 36, 0.5);
+}
+
+.story-review-colophon {
+  font-family: var(--serif);
+  font-size: 14px;
+  font-style: italic;
+  color: var(--mt);
+  text-align: center;
+  line-height: 1.8;
+  padding: 16px 24px;
+  border-top: 1px solid var(--b2);
+}
+
+.se-error {
+  font-family: var(--font);
+  font-size: 13px;
+  color: var(--er);
+  text-align: center;
+  margin-top: 8px;
 }
 
 /* ============================================================
