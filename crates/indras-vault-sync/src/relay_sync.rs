@@ -1,25 +1,20 @@
 //! Relay-backed blob synchronization.
 //!
 //! Pushes file blobs to peer relay servers after local storage, and pulls
-//! missing blobs from the local embedded relay when `SyncToDisk` cannot
-//! find them in the local vault blob store.
-//!
-//! Each vault gets a deterministic `vault-blobs` InterfaceId derived from
-//! the realm's interface ID, so all peers in the same vault exchange blobs
-//! through the same relay interface.
+//! missing blobs from the local embedded relay or peer relays when
+//! `SyncToDisk` cannot find them in the local vault blob store.
 //!
 //! ## Design
 //!
-//! iroh does not support connecting to yourself, so each peer:
-//! - **Pushes** blobs to the peer's relay via QUIC (`RelaySession`)
-//! - **Pulls** blobs from its own embedded relay's blob store directly
-//!   (no QUIC needed — the peer already pushed there)
+//! - **Push**: stores blob in local relay (direct) + pushes to peer relays
+//!   via fresh QUIC connections (on-demand, no stale sessions)
+//! - **Pull**: reads from local relay blob store first, falls back to
+//!   pulling from peer relays via QUIC
 
 use indras_core::{EventId, InterfaceId};
 use indras_relay::RelayService;
 use indras_storage::BlobStore;
 use indras_transport::protocol::StorageTier;
-use indras_transport::relay_client::RelaySession;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
@@ -32,10 +27,10 @@ const MAX_RELAY_BLOB_SIZE: usize = 900 * 1024;
 /// so the receiver can index by content hash.
 const BLOB_HEADER_SIZE: usize = 32;
 
+/// Timeout for individual QUIC relay operations.
+const RELAY_OP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// Derive a deterministic `vault-blobs` InterfaceId from the realm's ID.
-///
-/// Both peers compute the same interface ID for the same vault,
-/// enabling them to exchange blobs through a shared relay interface.
 pub fn vault_blob_interface_id(realm_id: &InterfaceId) -> InterfaceId {
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"vault-blobs-v1:");
@@ -44,93 +39,114 @@ pub fn vault_blob_interface_id(realm_id: &InterfaceId) -> InterfaceId {
 }
 
 /// Shared relay state for blob push/pull operations.
-///
-/// Pushes blobs to peer relays via QUIC sessions, and pulls blobs
-/// from the local embedded relay's blob store directly.
 pub struct RelayBlobSync {
-    /// QUIC sessions to peer relays (push targets). Behind a mutex
-    /// so peers can be added dynamically after vault creation.
-    peer_sessions: Mutex<Vec<PeerRelay>>,
-    /// Local relay service for direct blob store reads (pull source).
+    /// Peer relay addresses (connect on-demand for each push/pull).
+    peer_addrs: Mutex<Vec<iroh::EndpointAddr>>,
+    /// Local relay service for direct blob store reads/writes.
     local_relay: Option<Arc<RelayService>>,
     /// The vault-blobs interface ID.
     interface_id: InterfaceId,
     /// Cursor: last event ID retrieved from local relay.
     last_local_event_id: Mutex<Option<EventId>>,
-}
-
-/// A QUIC connection to a peer's relay.
-struct PeerRelay {
-    session: Mutex<RelaySession>,
-    label: String,
+    /// Shared relay client for on-demand QUIC connections.
+    relay_client: indras_transport::relay_client::RelayClient,
+    /// Shared QUIC endpoint (one per process).
+    shared_endpoint: iroh::Endpoint,
 }
 
 impl RelayBlobSync {
-    /// Push a blob to all connected peer relays.
-    ///
-    /// Prepends the 32-byte BLAKE3 hash as a header so receivers can
-    /// index by content hash on retrieval.
-    ///
-    /// Silently skips blobs larger than `MAX_RELAY_BLOB_SIZE`.
-    pub async fn push_blob(&self, hash: &[u8; 32], data: &[u8]) -> Result<(), String> {
+    /// Push a blob to local relay + all peer relays.
+    pub async fn push_blob(
+        &self,
+        hash: &[u8; 32],
+        data: &[u8],
+    ) -> Result<(), String> {
         if data.len() > MAX_RELAY_BLOB_SIZE {
             debug!(
                 size = data.len(),
-                max = MAX_RELAY_BLOB_SIZE,
                 hash = %hex::encode(&hash[..6]),
                 "Blob too large for relay, skipping"
             );
             return Ok(());
         }
 
-        // Build payload once: [32-byte hash][blob data]
+        // Build payload: [32-byte hash][blob data]
         let mut payload = Vec::with_capacity(BLOB_HEADER_SIZE + data.len());
         payload.extend_from_slice(hash);
         payload.extend_from_slice(data);
 
-        let peers = self.peer_sessions.lock().await;
-        for peer in peers.iter() {
-            let mut session = peer.session.lock().await;
-            match session
-                .store_event(StorageTier::Public, self.interface_id, payload.clone())
-                .await
-            {
-                Ok(ack) => {
-                    if ack.accepted {
-                        debug!(
-                            hash = %hex::encode(&hash[..6]),
-                            size = data.len(),
-                            relay = %peer.label,
-                            "Pushed blob to peer relay"
-                        );
-                    } else {
-                        warn!(
-                            hash = %hex::encode(&hash[..6]),
-                            reason = ?ack.reason,
-                            relay = %peer.label,
-                            "Peer relay rejected blob store"
-                        );
-                    }
-                }
-                Err(e) => {
-                    warn!(
-                        hash = %hex::encode(&hash[..6]),
-                        error = %e,
-                        relay = %peer.label,
-                        "Failed to push blob to peer relay"
-                    );
-                }
-            }
+        // Store in local relay (always works, no QUIC needed)
+        if let Some(ref relay_service) = self.local_relay {
+            let event_id = EventId::new(
+                rand::random::<u64>(),
+                chrono::Utc::now().timestamp_millis() as u64,
+            );
+            let stored = indras_transport::protocol::StoredEvent::new(
+                event_id,
+                payload.clone(),
+                [0u8; 12],
+            );
+            let _ = relay_service
+                .blob_store()
+                .store_event_tiered(StorageTier::Public, self.interface_id, &stored);
+        }
+
+        // Push to peer relays via fresh QUIC connections
+        let addrs = self.peer_addrs.lock().await.clone();
+        for (i, addr) in addrs.iter().enumerate() {
+            self.push_to_peer(addr, &payload, i).await;
         }
 
         Ok(())
     }
 
-    /// Pull new blobs from the local embedded relay into the vault blob store.
-    ///
-    /// Reads directly from the relay's blob store (no QUIC) since peers
-    /// push their blobs to our relay. Returns the number of new blobs stored.
+    /// Push blob payload to a single peer relay via a fresh QUIC connection.
+    async fn push_to_peer(
+        &self,
+        addr: &iroh::EndpointAddr,
+        payload: &[u8],
+        index: usize,
+    ) {
+        let result = tokio::time::timeout(RELAY_OP_TIMEOUT, async {
+            let mut session = self.relay_client.connect_with_endpoint(&self.shared_endpoint, addr.clone()).await?;
+            session.authenticate().await?;
+            session.register(vec![self.interface_id]).await?;
+            session
+                .store_event(StorageTier::Public, self.interface_id, payload.to_vec())
+                .await
+        })
+        .await;
+
+        match result {
+            Ok(Ok(ack)) if ack.accepted => {
+                debug!(relay = index, "Pushed blob to peer relay");
+            }
+            Ok(Ok(ack)) => {
+                warn!(relay = index, reason = ?ack.reason, "Peer relay rejected blob");
+            }
+            Ok(Err(e)) => {
+                warn!(relay = index, error = %e, "Failed to push to peer relay");
+            }
+            Err(_) => {
+                warn!(relay = index, "Timed out pushing to peer relay");
+            }
+        }
+    }
+
+    /// Pull blobs from local relay, then peer relays as fallback.
     pub async fn pull_blobs(&self, vault_blob_store: &BlobStore) -> Result<usize, String> {
+        // Try local relay first (direct, fast)
+        let count = self.pull_from_local(vault_blob_store).await?;
+        if count > 0 {
+            return Ok(count);
+        }
+
+        // Fallback: try peer relays via QUIC
+        self.pull_from_peers(vault_blob_store).await
+    }
+
+    /// Pull from local relay blob store (no QUIC).
+    async fn pull_from_local(&self, vault_blob_store: &BlobStore) -> Result<usize, String> {
         let Some(ref relay_service) = self.local_relay else {
             return Ok(0);
         };
@@ -148,50 +164,70 @@ impl RelayBlobSync {
         for event in &events {
             let data = &event.encrypted_event;
             if data.len() < BLOB_HEADER_SIZE {
-                debug!("Relay event too small to contain blob header, skipping");
                 continue;
             }
-
-            let blob_data = &data[BLOB_HEADER_SIZE..];
-
-            // Store in vault's local blob store (deduplicates by content hash)
-            match vault_blob_store.store(blob_data).await {
-                Ok(content_ref) => {
-                    debug!(
-                        hash = %content_ref.short_hash(),
-                        size = blob_data.len(),
-                        "Pulled blob from local relay"
-                    );
-                    count += 1;
-                }
-                Err(e) => {
-                    warn!(error = %e, "Failed to store pulled blob locally");
-                }
+            if let Ok(cr) = vault_blob_store.store(&data[BLOB_HEADER_SIZE..]).await {
+                debug!(hash = %cr.short_hash(), "Pulled blob from local relay");
+                count += 1;
             }
-
             last_id = Some(event.event_id);
         }
 
-        // Update cursor
         if last_id != after {
             *self.last_local_event_id.lock().await = last_id;
         }
-
         if count > 0 {
             info!(count, "Pulled blobs from local relay");
         }
 
         Ok(count)
     }
+
+    /// Pull from peer relays via fresh QUIC connections.
+    async fn pull_from_peers(&self, vault_blob_store: &BlobStore) -> Result<usize, String> {
+        let addrs = self.peer_addrs.lock().await.clone();
+        for (i, addr) in addrs.iter().enumerate() {
+            let result = tokio::time::timeout(RELAY_OP_TIMEOUT, async {
+                let mut session = self
+                    .relay_client
+                    .connect_with_endpoint(&self.shared_endpoint, addr.clone())
+                    .await?;
+                session.authenticate().await?;
+                session.register(vec![self.interface_id]).await?;
+                session
+                    .retrieve(self.interface_id, None, Some(StorageTier::Public))
+                    .await
+            })
+            .await;
+
+            let events = match result {
+                Ok(Ok(delivery)) => delivery.events,
+                _ => continue,
+            };
+
+            let mut count = 0;
+            for event in &events {
+                let data = &event.encrypted_event;
+                if data.len() < BLOB_HEADER_SIZE {
+                    continue;
+                }
+                if let Ok(cr) = vault_blob_store.store(&data[BLOB_HEADER_SIZE..]).await {
+                    debug!(hash = %cr.short_hash(), relay = i, "Pulled blob from peer relay");
+                    count += 1;
+                }
+            }
+
+            if count > 0 {
+                info!(count, relay = i, "Pulled blobs from peer relay");
+                return Ok(count);
+            }
+        }
+
+        Ok(0)
+    }
 }
 
 /// Set up relay blob sync for a vault.
-///
-/// - Connects to peer relay(s) via QUIC for pushing blobs
-/// - Uses the local embedded relay service for pulling blobs
-///
-/// Returns `None` if no relay connections succeed (vault still works
-/// without relay, just no remote blob replication).
 pub async fn connect_relays(
     network: &indras_network::IndrasNetwork,
     peer_addr: Option<iroh::EndpointAddr>,
@@ -200,126 +236,47 @@ pub async fn connect_relays(
     let interface_id = vault_blob_interface_id(&realm_id);
     let local_relay = network.relay_service().cloned();
 
-    let mut peer_sessions = Vec::new();
+    let peer_addrs = match peer_addr {
+        Some(addr) => vec![addr],
+        None => vec![],
+    };
 
-    // Connect to peer relay via QUIC (for pushing our blobs to them)
-    if let Some(addr) = peer_addr {
-        if let Some(session) = setup_peer_session(network, addr, interface_id, "peer").await {
-            peer_sessions.push(PeerRelay {
-                session: Mutex::new(session),
-                label: "peer".to_string(),
-            });
-        }
-    }
-
-    // We need at least a local relay or a peer session to be useful
-    if local_relay.is_none() && peer_sessions.is_empty() {
+    // We need at least a local relay or a peer address to be useful
+    if local_relay.is_none() && peer_addrs.is_empty() {
         return None;
     }
 
+    // Get or create the shared relay client + endpoint
+    let (relay_client, shared_endpoint) = match network.relay_blob_endpoint().await {
+        Ok((c, e)) => (c.clone(), e.clone()),
+        Err(e) => {
+            warn!(error = %e, "Failed to create relay blob endpoint");
+            return None;
+        }
+    };
+
     info!(
         local_relay = local_relay.is_some(),
-        peer_relays = peer_sessions.len(),
+        peer_addrs = peer_addrs.len(),
         "Relay blob sync ready"
     );
 
     Some(Arc::new(RelayBlobSync {
-        peer_sessions: Mutex::new(peer_sessions),
+        peer_addrs: Mutex::new(peer_addrs),
         local_relay,
         interface_id,
         last_local_event_id: Mutex::new(None),
+        relay_client,
+        shared_endpoint,
     }))
 }
 
-/// Add a peer relay to an existing RelayBlobSync.
-///
-/// Called when a new peer joins the vault and we learn their endpoint
-/// address. This allows the vault creator to push blobs to peers
-/// that joined after vault creation.
+/// Add a peer relay address to an existing RelayBlobSync.
 pub async fn add_peer_relay(
     relay_sync: &RelayBlobSync,
-    network: &indras_network::IndrasNetwork,
+    _network: &indras_network::IndrasNetwork,
     peer_addr: iroh::EndpointAddr,
 ) -> bool {
-    let interface_id = relay_sync.interface_id;
-    let label = format!("peer-{}", relay_sync.peer_sessions.lock().await.len());
-
-    if let Some(session) = setup_peer_session(network, peer_addr, interface_id, &label).await {
-        relay_sync.peer_sessions.lock().await.push(PeerRelay {
-            session: Mutex::new(session),
-            label,
-        });
-        info!("Added peer relay for blob sync");
-        true
-    } else {
-        false
-    }
-}
-
-/// Authenticate and register a QUIC relay session with a peer's relay.
-async fn setup_peer_session(
-    network: &indras_network::IndrasNetwork,
-    relay_addr: iroh::EndpointAddr,
-    interface_id: InterfaceId,
-    label: &str,
-) -> Option<RelaySession> {
-    // Use a fresh transport key for the relay client connection.
-    // Reusing the node's own key causes issues when both nodes share
-    // the same process (the endpoint can't multiplex two connections
-    // with the same key).
-    let signing_key = {
-        let secret = network.node().secret_key();
-        let bytes = secret.to_bytes();
-        ed25519_dalek::SigningKey::from_bytes(&bytes)
-    };
-    let transport_secret = iroh::SecretKey::generate(&mut rand::rng());
-    let client = indras_transport::relay_client::RelayClient::new(signing_key, transport_secret);
-
-    let connect_result = tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        client.connect(relay_addr),
-    )
-    .await;
-
-    let mut session = match connect_result {
-        Ok(Ok(s)) => s,
-        Ok(Err(e)) => {
-            warn!(error = %e, relay = label, "Failed to connect to peer relay");
-            return None;
-        }
-        Err(_) => {
-            warn!(relay = label, "Timed out connecting to peer relay");
-            return None;
-        }
-    };
-
-    match session.authenticate().await {
-        Ok(ack) if ack.authenticated => {
-            debug!(tiers = ?ack.granted_tiers, relay = label, "Peer relay authenticated");
-        }
-        Ok(_) => {
-            warn!(relay = label, "Peer relay rejected authentication");
-            return None;
-        }
-        Err(e) => {
-            warn!(error = %e, relay = label, "Peer relay authentication failed");
-            return None;
-        }
-    }
-
-    match session.register(vec![interface_id]).await {
-        Ok(ack) => {
-            if ack.accepted.is_empty() {
-                warn!(relay = label, "Peer relay rejected interface registration");
-                return None;
-            }
-            debug!(relay = label, "Registered vault-blobs interface with peer relay");
-        }
-        Err(e) => {
-            warn!(error = %e, relay = label, "Failed to register interface with peer relay");
-            return None;
-        }
-    }
-
-    Some(session)
+    relay_sync.peer_addrs.lock().await.push(peer_addr);
+    true
 }

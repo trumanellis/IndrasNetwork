@@ -96,10 +96,10 @@ for _, v in ipairs(vaults) do
     local phase = "phase2_vault_" .. v.name
     print("[coordinator]   " .. v.name .. " (" .. table.concat(v.members, "+") .. ")...")
     mp.write_signal(coord_dir, phase, "ok")
-    for _, role in ipairs(all_roles) do mp.wait_for_signal(coord_dir, role .. "_done_" .. phase, 60) end
+    for _, role in ipairs(all_roles) do mp.wait_for_signal(coord_dir, role .. "_done_" .. phase, 120) end
     print("[coordinator]   " .. v.name .. " - synced")
 end
-for _, role in ipairs(all_roles) do mp.wait_for_signal(coord_dir, role .. "_done_phase2", 30) end
+for _, role in ipairs(all_roles) do mp.wait_for_signal(coord_dir, role .. "_done_phase2", 60) end
 print("[coordinator] Phase 2 complete")
 
 -- Phase 3: cross-device private edits

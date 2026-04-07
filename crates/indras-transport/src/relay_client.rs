@@ -34,6 +34,7 @@ use crate::protocol::{
 };
 
 /// Client for connecting to an Indras relay server
+#[derive(Clone)]
 pub struct RelayClient {
     /// Ed25519 signing key for credential creation
     signing_key: SigningKey,
@@ -62,17 +63,55 @@ impl RelayClient {
         self
     }
 
+    /// Create a reusable QUIC endpoint for connecting to multiple relays.
+    ///
+    /// Use with `connect_with_endpoint` to share one endpoint across
+    /// many relay sessions instead of creating one endpoint per session.
+    pub async fn create_endpoint(&self) -> Result<Endpoint, TransportError> {
+        Endpoint::builder()
+            .secret_key(self.transport_secret.clone())
+            .alpns(vec![ALPN_INDRAS.to_vec()])
+            .bind()
+            .await
+            .map_err(|e| TransportError::ConnectionFailed(format!("Failed to create endpoint: {e}")))
+    }
+
+    /// Connect to a relay server using a shared endpoint.
+    pub async fn connect_with_endpoint(
+        &self,
+        endpoint: &Endpoint,
+        relay_addr: EndpointAddr,
+    ) -> Result<RelaySession, TransportError> {
+        let connection: Connection = endpoint
+            .connect(relay_addr, ALPN_INDRAS)
+            .await
+            .map_err(|e| TransportError::ConnectionFailed(format!("Failed to connect to relay: {e}")))?;
+
+        let (send_stream, recv_stream) = connection
+            .open_bi()
+            .await
+            .map_err(|e| TransportError::ConnectionFailed(format!("Failed to open stream: {e}")))?;
+
+        let transport_pubkey = *self.transport_secret.public().as_bytes();
+
+        debug!("Connected to relay server (shared endpoint)");
+
+        Ok(RelaySession {
+            signing_key: self.signing_key.clone(),
+            transport_pubkey,
+            credential_ttl: self.credential_ttl,
+            send_stream,
+            recv_stream,
+            _endpoint: endpoint.clone(),
+        })
+    }
+
     /// Connect to a relay server and return an active session
     ///
     /// Creates a QUIC endpoint, connects to the relay, and opens a
     /// bidirectional stream for the relay protocol exchange.
     pub async fn connect(&self, relay_addr: EndpointAddr) -> Result<RelaySession, TransportError> {
-        let endpoint = Endpoint::builder()
-            .secret_key(self.transport_secret.clone())
-            .alpns(vec![ALPN_INDRAS.to_vec()])
-            .bind()
-            .await
-            .map_err(|e| TransportError::ConnectionFailed(format!("Failed to create endpoint: {e}")))?;
+        let endpoint = self.create_endpoint().await?;
 
         let connection: Connection = endpoint
             .connect(relay_addr, ALPN_INDRAS)

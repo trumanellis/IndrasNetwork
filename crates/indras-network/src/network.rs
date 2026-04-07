@@ -128,6 +128,13 @@ pub struct IndrasNetwork {
     peering_tasks: Mutex<Vec<JoinHandle<()>>>,
     /// Notify to trigger an immediate contact poll cycle.
     poll_notify: Arc<Notify>,
+    /// Shared relay blob endpoint for vault sync (lazily initialized).
+    /// Uses a fresh transport key so it can connect to any relay including
+    /// nodes running in the same process.
+    relay_blob_endpoint: OnceCell<(
+        indras_transport::relay_client::RelayClient,
+        iroh::Endpoint,
+    )>,
     /// Guard against double-shutdown of peering tasks.
     shutdown_called: AtomicBool,
     /// Time-throttled map of peers we've re-notified (avoids spam).
@@ -234,6 +241,7 @@ impl IndrasNetwork {
             peering_cancel: CancellationToken::new(),
             peering_tasks: Mutex::new(Vec::new()),
             poll_notify: Arc::new(Notify::new()),
+            relay_blob_endpoint: OnceCell::new(),
             shutdown_called: AtomicBool::new(false),
             re_notified_peers: Arc::new(DashMap::new()),
         }))
@@ -2280,6 +2288,36 @@ impl IndrasNetwork {
         let secret_bytes = secret.to_bytes();
         let signing_key = ed25519_dalek::SigningKey::from_bytes(&secret_bytes);
         indras_transport::relay_client::RelayClient::new(signing_key, secret.clone())
+    }
+
+    /// Get the shared relay blob endpoint for vault sync.
+    ///
+    /// Lazily creates a single `(RelayClient, Endpoint)` pair with a fresh
+    /// transport key. All vault relay connections in this process reuse this
+    /// endpoint, avoiding the overhead of creating one QUIC listener per
+    /// relay session.
+    pub async fn relay_blob_endpoint(
+        &self,
+    ) -> Result<&(indras_transport::relay_client::RelayClient, iroh::Endpoint)> {
+        if let Some(pair) = self.relay_blob_endpoint.get() {
+            return Ok(pair);
+        }
+
+        let signing_key = {
+            let secret = self.inner.secret_key();
+            ed25519_dalek::SigningKey::from_bytes(&secret.to_bytes())
+        };
+        let transport_secret = iroh::SecretKey::generate(&mut rand::rng());
+        let client =
+            indras_transport::relay_client::RelayClient::new(signing_key, transport_secret);
+        let endpoint = client
+            .create_endpoint()
+            .await
+            .map_err(|e| IndraError::Network(e.to_string()))?;
+
+        // Race-safe: if another task initialized first, return theirs
+        let _ = self.relay_blob_endpoint.set((client, endpoint));
+        Ok(self.relay_blob_endpoint.get().unwrap())
     }
 
     /// Get this node's endpoint address for sharing with peers.
