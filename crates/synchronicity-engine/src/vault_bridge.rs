@@ -55,6 +55,10 @@ pub fn scan_vault(vault_path: &std::path::Path) -> Vec<FileView> {
                 return None;
             }
             let name = path.file_name()?.to_string_lossy().to_string();
+            // Skip hidden files (e.g. .obsidian metadata)
+            if name.starts_with('.') {
+                return None;
+            }
             let meta = std::fs::metadata(&path).ok()?;
             let size = meta.len();
             let modified_ms = meta

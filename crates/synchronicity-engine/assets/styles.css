@@ -831,6 +831,12 @@ body > * {
   flex-shrink: 0;
 }
 
+.file-list-items {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
 .file-item {
   padding: 12px 16px;
   cursor: pointer;
