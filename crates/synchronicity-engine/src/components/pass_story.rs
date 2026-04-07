@@ -1,6 +1,6 @@
-//! Pass story entry and review screens.
+//! Pass story entry and review screens (restore/sign-in flow).
 //!
-//! Handles three AppStep values: PassStory, StoryReview, RestoreStory.
+//! Handles RestoreStory and StoryReview AppStep values.
 //! Implements the 23-slot hero's journey form and the review/confirm screen.
 
 use dioxus::prelude::*;
@@ -54,10 +54,9 @@ impl Default for PassStoryLocal {
     }
 }
 
-/// Pass story entry and review component.
+/// Pass story entry and review component (restore flow only).
 ///
-/// Routes to fill mode (PassStory/RestoreStory) or review mode (StoryReview)
-/// based on the current AppStep.
+/// Routes to fill mode (RestoreStory) or review mode (StoryReview).
 #[component]
 pub fn PassStory(mut state: Signal<AppState>) -> Element {
     let step = state.read().step.clone();
@@ -82,7 +81,7 @@ pub fn PassStory(mut state: Signal<AppState>) -> Element {
         AppStep::StoryReview => rsx! {
             ReviewScreen { state, local }
         },
-        AppStep::PassStory | AppStep::RestoreStory | _ => rsx! {
+        _ => rsx! {
             FillScreen { state, local }
         },
     }
@@ -92,9 +91,6 @@ pub fn PassStory(mut state: Signal<AppState>) -> Element {
 
 #[component]
 fn FillScreen(mut state: Signal<AppState>, mut local: Signal<PassStoryLocal>) -> Element {
-    let step = state.read().step.clone();
-    let is_restore = step == AppStep::RestoreStory;
-
     let template = StoryTemplate::default_template();
     let slots = local.read().slots.clone();
     let weak_slots = local.read().weak_slots.clone();
@@ -104,24 +100,6 @@ fn FillScreen(mut state: Signal<AppState>, mut local: Signal<PassStoryLocal>) ->
     let all_filled = filled == total;
     let progress_pct = (filled as f64 / total as f64) * 100.0;
 
-    let (heading, subtitle) = if is_restore {
-        (
-            "Enter Your Pass Story",
-            "Type the same words you used when creating your account.",
-        )
-    } else {
-        (
-            "Your Pass Story",
-            "Fill each blank with a word only you would choose.",
-        )
-    };
-
-    let back_step = if is_restore {
-        AppStep::Welcome
-    } else {
-        AppStep::DisplayName
-    };
-
     rsx! {
         div {
             class: "story-single-page",
@@ -130,11 +108,11 @@ fn FillScreen(mut state: Signal<AppState>, mut local: Signal<PassStoryLocal>) ->
             div {
                 class: "story-page-header",
 
-                h2 { class: "story-manuscript-title", "{heading}" }
+                h2 { class: "story-manuscript-title", "Enter Your Pass Story" }
 
                 p {
                     class: "story-page-subtitle",
-                    "{subtitle}"
+                    "Type the same words you used when creating your account."
                 }
 
                 div {
@@ -164,7 +142,7 @@ fn FillScreen(mut state: Signal<AppState>, mut local: Signal<PassStoryLocal>) ->
 
                 button {
                     class: "se-btn-back",
-                    onclick: move |_| state.write().step = back_step.clone(),
+                    onclick: move |_| state.write().step = AppStep::Welcome,
                     "\u{2190} Back"
                 }
 
@@ -259,9 +237,6 @@ fn render_all_stages(
 
 #[component]
 fn ReviewScreen(mut state: Signal<AppState>, mut local: Signal<PassStoryLocal>) -> Element {
-    let step = state.read().step.clone();
-    let is_restore = step == AppStep::RestoreStory;
-
     let slots = local.read().slots.clone();
     let weak_slots = local.read().weak_slots.clone();
     let error = local.read().error.clone();
@@ -295,12 +270,6 @@ fn ReviewScreen(mut state: Signal<AppState>, mut local: Signal<PassStoryLocal>) 
 
         stage_narratives.push(words);
     }
-
-    let back_step = if is_restore {
-        AppStep::RestoreStory
-    } else {
-        AppStep::PassStory
-    };
 
     rsx! {
         div {
@@ -355,7 +324,7 @@ fn ReviewScreen(mut state: Signal<AppState>, mut local: Signal<PassStoryLocal>) 
                     class: "se-btn-back",
                     onclick: move |_| {
                         local.write().error = None;
-                        state.write().step = back_step.clone();
+                        state.write().step = AppStep::RestoreStory;
                     },
                     "\u{2190} Edit"
                 }
@@ -381,12 +350,7 @@ fn ReviewScreen(mut state: Signal<AppState>, mut local: Signal<PassStoryLocal>) 
                             match entropy::entropy_gate(&slot_arr) {
                                 Ok(()) => {
                                     state.write().pass_story_slots = slot_arr.to_vec();
-                                    let next = if state.read().step == AppStep::StoryReview {
-                                        AppStep::Creating
-                                    } else {
-                                        AppStep::Restoring
-                                    };
-                                    state.write().step = next;
+                                    state.write().step = AppStep::Restoring;
                                 }
                                 Err(e) => {
                                     if let CryptoError::EntropyBelowThreshold { weak_slots, .. } = &e {

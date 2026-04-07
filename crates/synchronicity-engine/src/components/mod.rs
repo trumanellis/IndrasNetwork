@@ -2,7 +2,6 @@
 
 mod app;
 mod welcome;
-mod display_name;
 mod pass_story;
 mod loading;
 mod home_vault;

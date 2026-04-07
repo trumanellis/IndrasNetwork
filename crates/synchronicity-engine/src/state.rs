@@ -5,18 +5,14 @@ use std::path::PathBuf;
 /// The current step in the application flow.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AppStep {
-    /// Welcome splash with Create/SignIn choice.
+    /// Welcome splash with name input and Create/SignIn choice.
     Welcome,
-    /// Collect display name (create flow).
-    DisplayName,
-    /// Pass story entry (create flow).
-    PassStory,
-    /// Review narrative before confirming (create flow).
-    StoryReview,
     /// Loading: creating identity + vault + seeding HelloWorld.md.
     Creating,
     /// Pass story entry framed as restore (sign-in flow).
     RestoreStory,
+    /// Review narrative before confirming (restore flow).
+    StoryReview,
     /// Loading: deriving keys + connecting + syncing.
     Restoring,
     /// Main view: file list + preview + vault info.

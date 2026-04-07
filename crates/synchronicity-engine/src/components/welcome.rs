@@ -1,12 +1,14 @@
-//! Welcome screen — Create Account or Sign In choice.
+//! Welcome screen — name input, Create Account or Sign In.
 
 use dioxus::prelude::*;
 
 use crate::state::{AppState, AppStep};
 
-/// Welcome splash screen with Create Account and Sign In actions.
+/// Welcome splash screen with inline name input and Create/Sign In actions.
 #[component]
 pub fn Welcome(mut state: Signal<AppState>) -> Element {
+    let mut name = use_signal(String::new);
+
     rsx! {
         div {
             class: "welcome-screen",
@@ -24,9 +26,21 @@ pub fn Welcome(mut state: Signal<AppState>) -> Element {
             div {
                 class: "welcome-actions",
 
+                input {
+                    class: "text-input",
+                    r#type: "text",
+                    placeholder: "What should we call you?",
+                    value: "{name}",
+                    oninput: move |e| *name.write() = e.value(),
+                }
+
                 button {
                     class: "se-btn-glow",
-                    onclick: move |_| state.write().step = AppStep::DisplayName,
+                    disabled: name.read().trim().is_empty(),
+                    onclick: move |_| {
+                        state.write().display_name = name.read().trim().to_string();
+                        state.write().step = AppStep::Creating;
+                    },
                     "Create Account"
                 }
 

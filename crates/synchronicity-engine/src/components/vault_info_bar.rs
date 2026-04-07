@@ -38,7 +38,7 @@ pub fn VaultInfoBar(state: Signal<AppState>) -> Element {
                     onclick: move |_| {
                         let _ = open::that(&vault_path);
                     },
-                    "Open in Obsidian"
+                    "Open Vault Folder"
                 }
             }
             // Right: sync status + device count

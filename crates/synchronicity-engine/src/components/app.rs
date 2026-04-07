@@ -74,8 +74,7 @@ pub fn App() -> Element {
         ThemedRoot {
             match state.read().step.clone() {
                 AppStep::Welcome => rsx! { super::welcome::Welcome { state } },
-                AppStep::DisplayName => rsx! { super::display_name::DisplayName { state } },
-                AppStep::PassStory | AppStep::StoryReview | AppStep::RestoreStory => {
+                AppStep::RestoreStory | AppStep::StoryReview => {
                     rsx! { super::pass_story::PassStory { state } }
                 },
                 AppStep::Creating | AppStep::Restoring => {

@@ -71,42 +71,23 @@ pub fn scan_vault(vault_path: &std::path::Path) -> Vec<FileView> {
     files
 }
 
-/// Create a new account: build network from pass story, create vault dir, seed HelloWorld.md.
+/// Create a new account: generate identity, start network, create vault dir, seed HelloWorld.md.
 pub async fn create_account(
     mut state: Signal<AppState>,
     mut network: Signal<Option<Arc<IndrasNetwork>>>,
 ) {
     let data_dir = default_data_dir();
     let display_name = state.read().display_name.clone();
-    let slots = state.read().pass_story_slots.clone();
     let vault_path = state.read().vault_path.clone();
 
-    // Stage 1: Create identity
+    // Stage 1: Create identity (plaintext keystore — pass story encryption deferred)
     state.write().loading_stages = vec![
         LoadingStage::InProgress("Creating identity...".into()),
     ];
 
-    let slot_refs: Vec<&str> = slots.iter().map(|s| s.as_str()).collect();
-    let slot_array: [&str; 23] = match slot_refs.try_into() {
-        Ok(a) => a,
-        Err(_) => {
-            state.write().error = Some("Invalid pass story slots".into());
-            return;
-        }
-    };
-
-    let story = match PassStory::from_raw(&slot_array) {
-        Ok(s) => s,
-        Err(e) => {
-            state.write().error = Some(format!("Pass story error: {e}"));
-            return;
-        }
-    };
-
     let net = match IndrasNetwork::builder()
         .data_dir(&data_dir)
         .display_name(&display_name)
-        .pass_story(story)
         .build()
         .await
     {
