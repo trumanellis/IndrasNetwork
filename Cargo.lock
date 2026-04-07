@@ -4310,6 +4310,7 @@ dependencies = [
  "hex",
  "indras-core",
  "indras-network",
+ "indras-node",
  "indras-relay",
  "indras-storage",
  "indras-transport",

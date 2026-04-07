@@ -9,6 +9,7 @@ categories = ["network-programming"]
 
 [dependencies]
 indras-network = { path = "../indras-network" }
+indras-node = { path = "../indras-node" }
 indras-storage = { path = "../indras-storage" }
 indras-transport = { path = "../indras-transport" }
 indras-relay = { path = "../indras-relay" }

@@ -166,18 +166,19 @@ fn start_blob_listener(
     realm_id: InterfaceId,
     vault_blob_store: Arc<BlobStore>,
 ) -> Option<JoinHandle<()>> {
-    let mut rx = match node.events(&realm_id) {
-        Ok(rx) => rx,
-        Err(_) => return None,
-    };
+    let mut rx: tokio::sync::broadcast::Receiver<indras_node::ReceivedEvent> =
+        match node.events(&realm_id) {
+            Ok(rx) => rx,
+            Err(_) => return None,
+        };
 
     Some(tokio::spawn(async move {
         loop {
             match rx.recv().await {
                 Ok(event) => {
-                    // Decode the event content
-                    let content = match &event.event.content {
-                        indras_core::EventContent::Message(msg) => msg,
+                    // Extract content from Message events
+                    let content = match &event.event {
+                        indras_core::InterfaceEvent::Message { content, .. } => content,
                         _ => continue,
                     };
 

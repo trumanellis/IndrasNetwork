@@ -2258,6 +2258,11 @@ impl IndrasNetwork {
         &self.inner
     }
 
+    /// Access the underlying node as an `Arc`.
+    pub fn node_arc(&self) -> Arc<IndrasNode> {
+        self.inner.clone()
+    }
+
     /// Access the storage layer.
     pub fn storage(&self) -> &CompositeStorage<IrohIdentity> {
         self.inner.storage()
