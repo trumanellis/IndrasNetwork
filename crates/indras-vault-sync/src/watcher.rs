@@ -213,7 +213,7 @@ impl VaultWatcher {
                             let _ = relay.push_blob(&hash, &data).await;
                         }
 
-                        let file = VaultFile::new(&rel_path, hash, size, user_id);
+                        let file = VaultFile::with_content(&rel_path, hash, size, user_id, data.clone());
                         if let Err(e) = doc.update(|d| d.upsert(file)).await {
                             warn!(path = %rel_path, error = %e, "Failed to upsert file in vault index");
                         } else {

@@ -229,7 +229,7 @@ impl Vault {
                         .to_string_lossy()
                         .replace('\\', "/");
 
-                    self.upsert_file(&rel_path, hash, size, self.user_id)
+                    self.upsert_file(&rel_path, hash, size, self.user_id, Some(data))
                         .await?;
                     count += 1;
                 }
@@ -247,8 +247,12 @@ impl Vault {
         hash: [u8; 32],
         size: u64,
         author: UserId,
+        data: Option<Vec<u8>>,
     ) -> Result<()> {
-        let file = VaultFile::new(path, hash, size, author);
+        let file = match data {
+            Some(d) => VaultFile::with_content(path, hash, size, author, d),
+            None => VaultFile::new(path, hash, size, author),
+        };
         self.doc.update(|d| d.upsert(file)).await
     }
 
@@ -294,8 +298,8 @@ impl Vault {
             let _ = relay.push_blob(&hash, data).await;
         }
 
-        // Update CRDT index
-        self.upsert_file(rel_path, hash, size, self.user_id).await
+        // Update CRDT index (inline content for small files)
+        self.upsert_file(rel_path, hash, size, self.user_id, Some(data.to_vec())).await
     }
 
     /// Delete a file from disk and mark it as deleted in the CRDT index.

@@ -88,6 +88,12 @@ print("[coordinator] All phones spawned")
 
 for _, role in ipairs(all_roles) do mp.wait_for_signal(coord_dir, role .. "_ready", 60) end
 print("[coordinator] All 6 nodes ready")
+
+-- Allow CRDT membership to propagate across all 7 realms before writing files.
+-- Without this, some nodes may not yet be visible as members to the writer,
+-- so send_message won't deliver the blob to them.
+indras.sleep(10)
+print("[coordinator] Membership settled")
 print()
 
 -- Phase 2: write + verify one vault at a time

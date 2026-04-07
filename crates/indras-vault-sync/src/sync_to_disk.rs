@@ -118,13 +118,16 @@ impl SyncToDisk {
                         }
                     }
                 } else {
-                    // Write/update file from blob store
+                    // Try inline content first (embedded in CRDT, most reliable).
+                    // If inline content is available, store it in the blob store
+                    // and use it directly — no relay fallback needed.
+                    if let Some(ref inline) = new_file.content {
+                        let _ = blob_store.store(inline).await;
+                    }
                     let content_ref = ContentRef::new(new_file.hash, new_file.size);
                     let mut data = blob_store.load(&content_ref).await;
 
-                    // If blob not found locally, try pulling from relay.
-                    // The CRDT metadata may arrive before the blob push
-                    // completes, so retry a few times with short delays.
+                    // If still not found, try relay fallback
                     if data.is_err() {
                         if let Some(ref relay) = relay {
                             debug!(
@@ -132,6 +135,7 @@ impl SyncToDisk {
                                 hash = %hex::encode(&new_file.hash[..6]),
                                 "Blob not local, pulling from relay"
                             );
+                            let content_ref = ContentRef::new(new_file.hash, new_file.size);
                             for attempt in 0..10 {
                                 if attempt > 0 {
                                     tokio::time::sleep(std::time::Duration::from_secs(1)).await;

@@ -29,10 +29,18 @@ pub struct VaultFile {
     /// Tombstone: if true, this file has been deleted.
     #[serde(default)]
     pub deleted: bool,
+    /// Inline file content (for small files, syncs via CRDT).
+    /// Large files use the blob store + relay path instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<Vec<u8>>,
 }
 
 impl VaultFile {
-    /// Create a new vault file entry.
+    /// Maximum inline content size (500 KB). Files larger than this
+    /// use the blob store + relay path instead of CRDT embedding.
+    pub const MAX_INLINE_SIZE: u64 = 500 * 1024;
+
+    /// Create a new vault file entry (no inline content).
     pub fn new(path: impl Into<String>, hash: [u8; 32], size: u64, author: UserId) -> Self {
         Self {
             path: path.into(),
@@ -41,6 +49,26 @@ impl VaultFile {
             modified_ms: chrono::Utc::now().timestamp_millis(),
             author,
             deleted: false,
+            content: None,
+        }
+    }
+
+    /// Create a vault file with inline content (for small files).
+    pub fn with_content(
+        path: impl Into<String>,
+        hash: [u8; 32],
+        size: u64,
+        author: UserId,
+        data: Vec<u8>,
+    ) -> Self {
+        Self {
+            path: path.into(),
+            hash,
+            size,
+            modified_ms: chrono::Utc::now().timestamp_millis(),
+            author,
+            deleted: false,
+            content: if size <= Self::MAX_INLINE_SIZE { Some(data) } else { None },
         }
     }
 
@@ -59,6 +87,7 @@ impl VaultFile {
             modified_ms,
             author,
             deleted: false,
+            content: None,
         }
     }
 

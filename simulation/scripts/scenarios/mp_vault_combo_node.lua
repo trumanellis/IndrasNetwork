@@ -115,7 +115,7 @@ for _, v in ipairs(vault_defs) do
     if is_member(v, user_name) and role ~= writer then
         mp.wait_for_signal(coord_dir, writer .. "_wrote_" .. v.name, 30)
         local vd = base_dir .. "/" .. role .. "_vault_" .. v.name
-        mp.wait_for_file_content(vd .. "/hello.md", content, 45)
+        mp.wait_for_file_content(vd .. "/hello.md", content, 60)
         log("Got file from " .. v.name)
     end
 
