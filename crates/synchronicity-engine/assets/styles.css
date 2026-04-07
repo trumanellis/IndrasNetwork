@@ -333,7 +333,8 @@ body > * {
   margin-top: 32px;
 }
 
-.back-link {
+.back-link,
+.se-btn-back {
   font-family: var(--font);
   font-size: 13px;
   color: var(--mt);
@@ -344,7 +345,8 @@ body > * {
   border: none;
 }
 
-.back-link:hover {
+.back-link:hover,
+.se-btn-back:hover {
   color: var(--t2);
 }
 
