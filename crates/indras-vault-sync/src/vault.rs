@@ -70,6 +70,7 @@ impl Vault {
         // Set up relay blob sync: local relay for pulling (no peer relay yet)
         let relay = crate::relay_sync::connect_relays(
             network,
+            realm.node_arc(),
             None,
             realm.id(),
         )
@@ -104,6 +105,7 @@ impl Vault {
         // Set up relay blob sync: push to creator's relay, pull from local relay
         let relay = crate::relay_sync::connect_relays(
             network,
+            realm.node_arc(),
             creator_relay_addr,
             realm.id(),
         )
@@ -134,6 +136,11 @@ impl Vault {
                 .await
                 .map_err(|e| std::io::Error::other(e.to_string()))?,
         );
+
+        // Start blob listener (receives blobs from peers via direct transport)
+        if let Some(ref rs) = relay {
+            crate::relay_sync::start_listener_spawned(rs, Arc::clone(&blob_store));
+        }
 
         // Create a single cached document handle for the vault index.
         // All reads and writes go through this handle, ensuring consistent state.

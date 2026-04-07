@@ -207,12 +207,12 @@ fn start_blob_listener(
 /// Local relay blob store provides offline catch-up.
 pub async fn connect_relays(
     network: &indras_network::IndrasNetwork,
+    node: Arc<IndrasNode>,
     _peer_addr: Option<iroh::EndpointAddr>,
     realm_id: InterfaceId,
 ) -> Option<Arc<RelayBlobSync>> {
     let blob_interface_id = vault_blob_interface_id(&realm_id);
     let local_relay = network.relay_service().cloned();
-    let node = network.node_arc();
 
     info!("Relay blob sync ready (transport-based)");
 
@@ -238,6 +238,14 @@ pub fn start_listener(
     if let Some(sync) = Arc::get_mut(relay_sync) {
         sync._listener = listener;
     }
+}
+
+/// Start the blob listener as a detached task (doesn't require &mut Arc).
+pub fn start_listener_spawned(
+    relay_sync: &RelayBlobSync,
+    vault_blob_store: Arc<BlobStore>,
+) {
+    start_blob_listener(&relay_sync.node, relay_sync.realm_id, vault_blob_store);
 }
 
 /// Add a peer relay address (no-op in transport-based design — peers
