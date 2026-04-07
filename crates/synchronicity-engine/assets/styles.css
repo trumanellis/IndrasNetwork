@@ -913,6 +913,8 @@ body > * {
    ============================================================ */
 .file-preview {
   flex: 1;
+  display: flex;
+  flex-direction: column;
   overflow-y: auto;
   padding: 40px;
   background: var(--bg);
@@ -927,6 +929,127 @@ body > * {
   margin-bottom: 24px;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--bd);
+}
+
+.preview-filename {
+  cursor: pointer;
+  transition: color 150ms ease;
+}
+
+.preview-filename:hover {
+  color: var(--t3);
+}
+
+.preview-rename,
+.file-rename-input {
+  background: var(--bg2);
+  border: 1px solid var(--moss);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--tx);
+  outline: none;
+  width: 100%;
+  max-width: 300px;
+}
+
+.editor-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.document {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.doc-title {
+  font-family: var(--display);
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--tx);
+  margin-bottom: 24px;
+  cursor: text;
+  transition: color 150ms ease;
+}
+
+.doc-title:hover {
+  color: var(--moss-light);
+}
+
+.doc-title-input {
+  font-family: var(--display);
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--tx);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid var(--moss);
+  outline: none;
+  width: 100%;
+  margin-bottom: 24px;
+  padding: 0 0 4px;
+}
+
+.preview-placeholder {
+  font-family: var(--body);
+  font-size: 17px;
+  font-weight: 300;
+  font-style: italic;
+  color: var(--dim);
+  padding: 16px 0;
+}
+
+.preview-clickable {
+  cursor: text;
+  border-radius: var(--radius);
+  transition: background 150ms ease;
+}
+
+.preview-clickable:hover {
+  background: rgba(138, 173, 110, 0.03);
+}
+
+/* Inline editor */
+.editor-hint {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--dim);
+}
+
+.se-btn-sm {
+  padding: 6px 16px;
+  font-size: 12px;
+}
+
+.editor-full {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  background: var(--bg2);
+  color: var(--tx);
+  font-family: var(--mono);
+  font-size: 14px;
+  line-height: 1.7;
+  padding: 24px;
+  border: 1px solid var(--bd);
+  border-radius: var(--radius);
+  outline: none;
+  resize: none;
+  overflow-y: auto;
+}
+
+.editor-full:focus {
+  border-color: var(--moss);
+  box-shadow: 0 0 0 3px rgba(138, 173, 110, 0.08);
 }
 
 /* Markdown preview body */
