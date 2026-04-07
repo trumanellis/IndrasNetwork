@@ -4,13 +4,12 @@
 //! hashes changed files with BLAKE3, stores blobs, and updates the
 //! vault-index document directly via a cached `Document<VaultFileDocument>`.
 
-use crate::relay_sync::RelayBlobSync;
-use crate::vault_document::VaultFileDocument;
-use crate::vault_file::VaultFile;
+use super::relay_sync::RelayBlobSync;
+use super::vault_document::VaultFileDocument;
+use super::vault_file::{UserId, VaultFile};
 
 use dashmap::DashMap;
 use indras_network::document::Document;
-use crate::vault_file::UserId;
 use indras_storage::BlobStore;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::{Path, PathBuf};

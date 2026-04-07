@@ -58,10 +58,10 @@ pub enum ChatViewType {
         item_count: usize,
     },
     ProofSubmitted {
-        quest_id: String,
+        intention_id: String,
     },
     BlessingGiven {
-        quest_id: String,
+        intention_id: String,
         claimant: String,
     },
     ArtifactRecalled,
@@ -218,17 +218,17 @@ pub fn convert_editable_to_view(
                 title: title.clone(),
                 item_count: items.len(),
             },
-            EditableMessageType::ProofSubmitted { quest_id, .. } => ChatViewType::ProofSubmitted {
-                quest_id: quest_id.clone(),
+            EditableMessageType::ProofSubmitted { intention_id, .. } => ChatViewType::ProofSubmitted {
+                intention_id: intention_id.clone(),
             },
-            EditableMessageType::ProofFolderSubmitted { quest_id, .. } => {
+            EditableMessageType::ProofFolderSubmitted { intention_id, .. } => {
                 ChatViewType::ProofSubmitted {
-                    quest_id: quest_id.clone(),
+                    intention_id: intention_id.clone(),
                 }
             }
-            EditableMessageType::BlessingGiven { quest_id, claimant } => {
+            EditableMessageType::BlessingGiven { intention_id, claimant } => {
                 ChatViewType::BlessingGiven {
-                    quest_id: quest_id.clone(),
+                    intention_id: intention_id.clone(),
                     claimant: claimant.clone(),
                 }
             }

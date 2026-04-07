@@ -4,10 +4,10 @@
 //! remote file additions/edits to disk, removes deleted files, and
 //! materializes conflict copies.
 
-use crate::relay_sync::RelayBlobSync;
-use crate::vault_document::VaultFileDocument;
-use crate::vault_file::VaultFile;
-use crate::watcher::VaultWatcher;
+use super::relay_sync::RelayBlobSync;
+use super::vault_document::VaultFileDocument;
+use super::vault_file::VaultFile;
+use super::watcher::VaultWatcher;
 
 use dashmap::DashMap;
 use indras_network::document::Document;

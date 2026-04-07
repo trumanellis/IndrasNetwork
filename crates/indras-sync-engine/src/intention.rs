@@ -24,24 +24,21 @@ use serde::{Deserialize, Serialize};
 /// This determines the UI presentation and workflow expectations.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
 pub enum IntentionKind {
-    /// A task or mission for others to fulfill.
-    Quest,
+    /// A call-to-action intention for others to fulfill.
+    #[default]
+    Intention,
     /// A request for help or resources.
     Need,
     /// A service or resource being offered.
     Offering,
-    /// A general intention (default).
-    #[default]
-    Intention,
 }
 
 impl std::fmt::Display for IntentionKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            IntentionKind::Quest => write!(f, "Quest"),
+            IntentionKind::Intention => write!(f, "Intention"),
             IntentionKind::Need => write!(f, "Need"),
             IntentionKind::Offering => write!(f, "Offering"),
-            IntentionKind::Intention => write!(f, "Intention"),
         }
     }
 }
@@ -50,30 +47,27 @@ impl IntentionKind {
     /// Returns an emoji icon representing this kind.
     pub fn icon(&self) -> &str {
         match self {
-            IntentionKind::Quest => "\u{2694}",
+            IntentionKind::Intention => "\u{2728}",
             IntentionKind::Need => "\u{1F331}",
             IntentionKind::Offering => "\u{1F381}",
-            IntentionKind::Intention => "\u{2728}",
         }
     }
 
     /// Returns a CSS class name for this kind.
     pub fn css_class(&self) -> &str {
         match self {
-            IntentionKind::Quest => "type-quest",
+            IntentionKind::Intention => "type-intention",
             IntentionKind::Need => "type-need",
             IntentionKind::Offering => "type-offering",
-            IntentionKind::Intention => "type-intention",
         }
     }
 
     /// Returns a human-readable label for this kind.
     pub fn label(&self) -> &str {
         match self {
-            IntentionKind::Quest => "Quest",
+            IntentionKind::Intention => "Intention",
             IntentionKind::Need => "Need",
             IntentionKind::Offering => "Offering",
-            IntentionKind::Intention => "Intention",
         }
     }
 }
@@ -213,7 +207,7 @@ impl ServiceClaim {
 /// # Example
 ///
 /// ```ignore
-/// // Create a quest
+/// // Create an intention
 /// let intention_id = realm.create_intention(
 ///     "Review design doc",
 ///     "Please review the attached PDF and leave comments",
@@ -228,14 +222,14 @@ impl ServiceClaim {
 /// // Creator verifies valid claims
 /// realm.verify_service_claim(intention_id, 0).await?;  // Verify first claim
 ///
-/// // Creator marks quest complete
+/// // Creator marks intention complete
 /// realm.complete_intention(intention_id).await?;
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Intention {
     /// Unique identifier for this intention.
     pub id: IntentionId,
-    /// The kind of intention (Quest, Need, Offering, or Intention).
+    /// The kind of intention (Intention, Need, or Offering).
     #[serde(default)]
     pub kind: IntentionKind,
     /// Short title describing the intention.
@@ -706,7 +700,7 @@ mod tests {
 
     #[test]
     fn test_intention_creation() {
-        let intention = Intention::new("Test quest", "Do something", None, test_member_id());
+        let intention = Intention::new("Test intention", "Do something", None, test_member_id());
         assert!(!intention.has_claims());
         assert!(!intention.is_complete());
         assert!(intention.is_open());
@@ -715,7 +709,7 @@ mod tests {
 
     #[test]
     fn test_intention_claim_new_model() {
-        let mut intention = Intention::new("Test quest", "Do something", None, test_member_id());
+        let mut intention = Intention::new("Test intention", "Do something", None, test_member_id());
 
         // Submit first claim
         let claim_idx = intention.submit_claim(another_member_id(), None).unwrap();
@@ -737,7 +731,7 @@ mod tests {
 
     #[test]
     fn test_intention_verify_claim() {
-        let mut intention = Intention::new("Test quest", "Do something", None, test_member_id());
+        let mut intention = Intention::new("Test intention", "Do something", None, test_member_id());
 
         intention.submit_claim(another_member_id(), None).unwrap();
         intention.submit_claim(third_member_id(), Some(ArtifactId::Blob([42u8; 32]))).unwrap();
@@ -759,7 +753,7 @@ mod tests {
 
     #[test]
     fn test_intention_complete() {
-        let mut intention = Intention::new("Test quest", "Do something", None, test_member_id());
+        let mut intention = Intention::new("Test intention", "Do something", None, test_member_id());
         intention.submit_claim(another_member_id(), None).unwrap();
         intention.verify_claim(0).unwrap();
 
@@ -792,7 +786,7 @@ mod tests {
     #[test]
     fn test_intention_document() {
         let mut doc = IntentionDocument::new();
-        let intention = Intention::new("Test quest", "Do something", None, test_member_id());
+        let intention = Intention::new("Test intention", "Do something", None, test_member_id());
         let id = intention.id;
         doc.add(intention);
 
@@ -821,15 +815,15 @@ mod tests {
     fn test_intention_document_by_claimant() {
         let mut doc = IntentionDocument::new();
 
-        let mut quest1 = Intention::new("Intention 1", "Do something", None, test_member_id());
-        quest1.submit_claim(another_member_id(), None).unwrap();
-        let id1 = quest1.id;
+        let mut intention1 = Intention::new("Intention 1", "Do something", None, test_member_id());
+        intention1.submit_claim(another_member_id(), None).unwrap();
+        let id1 = intention1.id;
 
-        let mut quest2 = Intention::new("Intention 2", "Do something else", None, test_member_id());
-        quest2.submit_claim(third_member_id(), None).unwrap();
+        let mut intention2 = Intention::new("Intention 2", "Do something else", None, test_member_id());
+        intention2.submit_claim(third_member_id(), None).unwrap();
 
-        doc.add(quest1);
-        doc.add(quest2);
+        doc.add(intention1);
+        doc.add(intention2);
 
         let by_claimant = doc.intentions_by_claimant(&another_member_id());
         assert_eq!(by_claimant.len(), 1);
@@ -840,7 +834,7 @@ mod tests {
     #[test]
     #[allow(deprecated)]
     fn test_legacy_claim_method() {
-        let mut intention = Intention::new("Test quest", "Do something", None, test_member_id());
+        let mut intention = Intention::new("Test intention", "Do something", None, test_member_id());
         assert!(intention.claim(another_member_id()).is_ok());
         assert!(intention.is_claimed());
     }
@@ -848,7 +842,7 @@ mod tests {
     #[test]
     #[allow(deprecated)]
     fn test_legacy_doer_method() {
-        let mut intention = Intention::new("Test quest", "Do something", None, test_member_id());
+        let mut intention = Intention::new("Test intention", "Do something", None, test_member_id());
         assert!(intention.doer().is_none());
         intention.submit_claim(another_member_id(), None).unwrap();
         assert_eq!(intention.doer(), Some(another_member_id()));

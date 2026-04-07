@@ -124,13 +124,13 @@ pub fn PassStoryFlow(
                                             if let Ok(home) = net.home_realm().await {
                                                 if let Ok(doc) = home.intentions().await {
                                                     let data = doc.read().await;
-                                                    let quests: Vec<crate::state::QuestView> = data.intentions.iter().map(|q| {
+                                                    let quests: Vec<crate::state::IntentionView> = data.intentions.iter().map(|q| {
                                                         let creator_id_short: String = q.creator.iter().take(8).map(|b| format!("{:02x}", b)).collect();
                                                         let is_creator = q.creator == my_id;
                                                         let is_complete = q.completed_at_millis.is_some();
 
-                                                        let claims: Vec<crate::state::QuestClaimView> = q.claims.iter().map(|c| {
-                                                            crate::state::QuestClaimView {
+                                                        let claims: Vec<crate::state::IntentionClaimView> = q.claims.iter().map(|c| {
+                                                            crate::state::IntentionClaimView {
                                                                 claimant_id_short: c.claimant.iter().take(8).map(|b| format!("{:02x}", b)).collect(),
                                                                 claimant_name: None,
                                                                 verified: c.verified,
@@ -145,16 +145,16 @@ pub fn PassStoryFlow(
                                                         let verified_claim_count = q.verified_claims().len();
 
                                                         let status = if is_complete {
-                                                            crate::state::QuestStatus::Completed
+                                                            crate::state::IntentionStatus::Completed
                                                         } else if verified_claim_count > 0 {
-                                                            crate::state::QuestStatus::Verified
+                                                            crate::state::IntentionStatus::Verified
                                                         } else if !q.claims.is_empty() {
-                                                            crate::state::QuestStatus::Claimed
+                                                            crate::state::IntentionStatus::Claimed
                                                         } else {
-                                                            crate::state::QuestStatus::Open
+                                                            crate::state::IntentionStatus::Open
                                                         };
 
-                                                        crate::state::QuestView {
+                                                        crate::state::IntentionView {
                                                             id: q.id.iter().map(|b| format!("{:02x}", b)).collect(),
                                                             title: q.title.clone(),
                                                             description: q.description.clone(),
@@ -165,11 +165,11 @@ pub fn PassStoryFlow(
                                                             claims,
                                                             pending_claim_count,
                                                             verified_claim_count,
-                                                            attention: crate::state::QuestAttentionView::default(),
+                                                            attention: crate::state::IntentionAttentionView::default(),
                                                         }
                                                     }).collect();
                                                     drop(data);
-                                                    state.write().quests = quests;
+                                                    state.write().intentions = quests;
                                                 }
                                             }
                                         }

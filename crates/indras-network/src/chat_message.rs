@@ -26,19 +26,19 @@ pub struct ChatMessageVersion {
 pub enum EditableMessageType {
     /// Regular text message.
     Text,
-    /// Proof artifact submitted for a quest.
+    /// Proof artifact submitted for an intention.
     ProofSubmitted {
-        quest_id: String,
+        intention_id: String,
         artifact_id: String,
     },
-    /// Proof folder submitted for a quest.
+    /// Proof folder submitted for an intention.
     ProofFolderSubmitted {
-        quest_id: String,
+        intention_id: String,
         folder_id: String,
     },
     /// Blessing given to a proof.
     BlessingGiven {
-        quest_id: String,
+        intention_id: String,
         claimant: String,
     },
     /// Artifact was recalled/unshared (tombstone).
@@ -80,13 +80,13 @@ pub enum EditableMessageType {
         /// Items in the gallery.
         items: Vec<GalleryItem>,
     },
-    /// Invitation to join a shared realm (Intention, Quest, etc.)
+    /// Invitation to join a shared realm (Intention, Need, Offering, etc.)
     RealmInvite {
         /// The realm invite code string (indra:realm:... format).
         invite_code: String,
         /// Human-readable name of the shared artifact.
         name: String,
-        /// Kind of artifact ("Intention", "Quest", etc.).
+        /// Kind of artifact ("Intention", "Need", "Offering", etc.).
         artifact_type: String,
         /// Description text of the shared artifact.
         #[serde(default)]

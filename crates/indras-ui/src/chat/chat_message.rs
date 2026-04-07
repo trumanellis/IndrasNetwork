@@ -196,8 +196,8 @@ pub fn ChatMessageItem(
             }
         }
 
-        ChatViewType::ProofSubmitted { quest_id } => {
-            let qid_short = &quest_id[..8.min(quest_id.len())];
+        ChatViewType::ProofSubmitted { intention_id } => {
+            let iid_short = &intention_id[..8.min(intention_id.len())];
             rsx! {
                 div {
                     key: "{msg.id}",
@@ -207,7 +207,7 @@ pub fn ChatMessageItem(
                         class: "chat-message-row",
                         span { class: "chat-tick", "{msg.timestamp_display}" }
                         span { class: "chat-icon", "\u{1f4ce}" }
-                        span { class: "chat-content", "Proof submitted for quest {qid_short}" }
+                        span { class: "chat-content", "Proof submitted for intention {iid_short}" }
                     }
                 }
             }

@@ -1,0 +1,16 @@
+[package]
+name = "indras-viewer-common"
+version.workspace = true
+edition.workspace = true
+description = "Shared playback and streaming infrastructure for Indras viewer crates"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full", "sync", "rt-multi-thread", "io-std"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Logging
+tracing = "0.1"

@@ -7,7 +7,7 @@ use dioxus::prelude::*;
 use indras_network::{IdentityCode, IndrasNetwork};
 use indras_sync_engine::{HomeRealmIntentions, HomeRealmNotes};
 
-use crate::state::{AsyncStatus, ContactView, ContactSentiment, EventDirection, EventLogEntry, GenesisState, GenesisStep, NoteView, QuestAttentionView, QuestClaimView, QuestStatus, QuestView};
+use crate::state::{AsyncStatus, ContactView, ContactSentiment, EventDirection, EventLogEntry, GenesisState, GenesisStep, NoteView, IntentionAttentionView, IntentionClaimView, IntentionStatus, IntentionView};
 use indras_ui::{ArtifactDisplayInfo, ArtifactDisplayStatus, ContactInviteOverlay, ThemedRoot};
 
 use super::display_name::DisplayNameScreen;
@@ -137,14 +137,14 @@ pub fn App() -> Element {
                             // Load quests with full claim information
                             if let Ok(doc) = home.intentions().await {
                                 let data = doc.read().await;
-                                let quests: Vec<QuestView> = data.intentions.iter().map(|q| {
+                                let quests: Vec<IntentionView> = data.intentions.iter().map(|q| {
                                     let creator_id_short: String = q.creator.iter().take(8).map(|b| format!("{:02x}", b)).collect();
                                     let is_creator = q.creator == id;
                                     let is_complete = q.completed_at_millis.is_some();
 
-                                    let claims: Vec<QuestClaimView> = q.claims.iter().map(|c| {
+                                    let claims: Vec<IntentionClaimView> = q.claims.iter().map(|c| {
                                         let claimant_id_short: String = c.claimant.iter().take(8).map(|b| format!("{:02x}", b)).collect();
-                                        QuestClaimView {
+                                        IntentionClaimView {
                                             claimant_id_short,
                                             claimant_name: None,
                                             verified: c.verified,
@@ -159,16 +159,16 @@ pub fn App() -> Element {
                                     let verified_claim_count = q.verified_claims().len();
 
                                     let status = if is_complete {
-                                        QuestStatus::Completed
+                                        IntentionStatus::Completed
                                     } else if verified_claim_count > 0 {
-                                        QuestStatus::Verified
+                                        IntentionStatus::Verified
                                     } else if !q.claims.is_empty() {
-                                        QuestStatus::Claimed
+                                        IntentionStatus::Claimed
                                     } else {
-                                        QuestStatus::Open
+                                        IntentionStatus::Open
                                     };
 
-                                    QuestView {
+                                    IntentionView {
                                         id: hex_id(&q.id),
                                         title: q.title.clone(),
                                         description: q.description.clone(),
@@ -179,11 +179,11 @@ pub fn App() -> Element {
                                         claims,
                                         pending_claim_count,
                                         verified_claim_count,
-                                        attention: QuestAttentionView::default(),
+                                        attention: IntentionAttentionView::default(),
                                     }
                                 }).collect();
                                 drop(data);
-                                state.write().quests = quests;
+                                state.write().intentions = quests;
                             }
 
                             // Load notes
@@ -292,7 +292,7 @@ pub fn App() -> Element {
     let pass_story_active = state.read().pass_story_active;
     let contact_invite_open = state.read().contact_invite_open;
     let note_editor_open = state.read().note_editor_open;
-    let quest_editor_open = state.read().quest_editor_open;
+    let intention_editor_open = state.read().intention_editor_open;
 
     // Contact invite URI comes from pre-computed state (async, includes transport info)
     let invite_uri = use_memo(move || {
@@ -372,7 +372,7 @@ pub fn App() -> Element {
                     }
                 }
 
-                if quest_editor_open {
+                if intention_editor_open {
                     match current_step {
                         GenesisStep::PeerRealm(peer_id) => rsx! {
                             QuestEditorOverlay { state, network, peer_id: Some(peer_id) }
@@ -544,14 +544,14 @@ pub async fn create_identity_and_load(
             if let Ok(home) = net.home_realm().await {
                 if let Ok(doc) = home.intentions().await {
                     let data = doc.read().await;
-                    let quests: Vec<QuestView> = data.intentions.iter().map(|q| {
+                    let quests: Vec<IntentionView> = data.intentions.iter().map(|q| {
                         let creator_id_short: String = q.creator.iter().take(8).map(|b| format!("{:02x}", b)).collect();
                         let is_creator = q.creator == id;
                         let is_complete = q.completed_at_millis.is_some();
 
-                        let claims: Vec<QuestClaimView> = q.claims.iter().map(|c| {
+                        let claims: Vec<IntentionClaimView> = q.claims.iter().map(|c| {
                             let claimant_id_short: String = c.claimant.iter().take(8).map(|b| format!("{:02x}", b)).collect();
-                            QuestClaimView {
+                            IntentionClaimView {
                                 claimant_id_short,
                                 claimant_name: None,
                                 verified: c.verified,
@@ -566,16 +566,16 @@ pub async fn create_identity_and_load(
                         let verified_claim_count = q.verified_claims().len();
 
                         let status = if is_complete {
-                            QuestStatus::Completed
+                            IntentionStatus::Completed
                         } else if verified_claim_count > 0 {
-                            QuestStatus::Verified
+                            IntentionStatus::Verified
                         } else if !q.claims.is_empty() {
-                            QuestStatus::Claimed
+                            IntentionStatus::Claimed
                         } else {
-                            QuestStatus::Open
+                            IntentionStatus::Open
                         };
 
-                        QuestView {
+                        IntentionView {
                             id: hex_id(&q.id),
                             title: q.title.clone(),
                             description: q.description.clone(),
@@ -586,11 +586,11 @@ pub async fn create_identity_and_load(
                             claims,
                             pending_claim_count,
                             verified_claim_count,
-                            attention: QuestAttentionView::default(),
+                            attention: IntentionAttentionView::default(),
                         }
                     }).collect();
                     drop(data);
-                    state.write().quests = quests;
+                    state.write().intentions = quests;
                 }
 
                 if let Ok(doc) = home.notes().await {

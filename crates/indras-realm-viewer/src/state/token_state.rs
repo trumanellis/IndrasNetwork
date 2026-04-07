@@ -22,15 +22,15 @@ pub struct TokenOfGratitude {
     pub value_millis: u64,
     /// Who gave the blessing that minted this token.
     pub blesser: String,
-    /// Quest where the original proof was submitted.
-    pub source_quest_id: String,
+    /// Intention where the original proof was submitted.
+    pub source_intention_id: String,
     /// Who submitted the proof (original recipient).
     pub original_steward: String,
     /// Chain of custody — every steward who has held this token, in order.
     pub steward_chain: Vec<String>,
     /// Tick when the token was minted.
     pub created_at_tick: u32,
-    /// If pledged, which quest it is pledged to (None if free).
+    /// If pledged, which intention it is pledged to (None if free).
     pub pledged_to: Option<String>,
 }
 
@@ -40,7 +40,7 @@ impl TokenOfGratitude {
         format_duration_millis(self.value_millis)
     }
 
-    /// Whether this token is currently pledged to a quest.
+    /// Whether this token is currently pledged to an intention.
     pub fn is_pledged(&self) -> bool {
         self.pledged_to.is_some()
     }
@@ -51,8 +51,8 @@ impl TokenOfGratitude {
 pub struct TokenState {
     /// Tokens indexed by token_id.
     tokens: HashMap<String, TokenOfGratitude>,
-    /// Quest bounties: quest_id -> list of pledged token_ids.
-    quest_bounties: HashMap<String, Vec<String>>,
+    /// Intention bounties: intention_id -> list of pledged token_ids.
+    intention_bounties: HashMap<String, Vec<String>>,
 }
 
 impl TokenState {
@@ -79,7 +79,7 @@ impl TokenState {
                         steward: steward.clone(),
                         value_millis: *value_millis,
                         blesser: blesser.clone(),
-                        source_quest_id: source_quest_id.clone(),
+                        source_intention_id: source_quest_id.clone(),
                         original_steward: steward.clone(),
                         steward_chain: vec![steward.clone()],
                         created_at_tick: *tick,
@@ -96,8 +96,8 @@ impl TokenState {
                 if let Some(token) = self.tokens.get_mut(token_id) {
                     token.pledged_to = Some(target_quest_id.clone());
                 }
-                // Track in quest bounties
-                self.quest_bounties
+                // Track in intention bounties
+                self.intention_bounties
                     .entry(target_quest_id.clone())
                     .or_default()
                     .push(token_id.clone());
@@ -114,8 +114,8 @@ impl TokenState {
                     token.steward_chain.push(to_steward.clone());
                     token.pledged_to = None;
                 }
-                // Remove from quest bounties
-                if let Some(bounties) = self.quest_bounties.get_mut(target_quest_id) {
+                // Remove from intention bounties
+                if let Some(bounties) = self.intention_bounties.get_mut(target_quest_id) {
                     bounties.retain(|id| id != token_id);
                 }
             }
@@ -128,8 +128,8 @@ impl TokenState {
                 if let Some(token) = self.tokens.get_mut(token_id) {
                     token.pledged_to = None;
                 }
-                // Remove from quest bounties
-                if let Some(bounties) = self.quest_bounties.get_mut(target_quest_id) {
+                // Remove from intention bounties
+                if let Some(bounties) = self.intention_bounties.get_mut(target_quest_id) {
                     bounties.retain(|id| id != token_id);
                 }
             }
@@ -161,10 +161,10 @@ impl TokenState {
         tokens
     }
 
-    /// Get total bounty (sum of pledged token values) for a quest.
-    pub fn quest_bounty(&self, quest_id: &str) -> u64 {
-        self.quest_bounties
-            .get(quest_id)
+    /// Get total bounty (sum of pledged token values) for an intention.
+    pub fn intention_bounty(&self, intention_id: &str) -> u64 {
+        self.intention_bounties
+            .get(intention_id)
             .map(|ids| {
                 ids.iter()
                     .filter_map(|id| self.tokens.get(id))
@@ -174,7 +174,7 @@ impl TokenState {
             .unwrap_or(0)
     }
 
-    /// Get subjective bounty for a quest — value weighted by observer's trust.
+    /// Get subjective bounty for an intention — value weighted by observer's trust.
     ///
     /// Each pledged token's value is scaled by:
     /// - The observer's sentiment toward members in the token's steward chain
@@ -183,16 +183,16 @@ impl TokenState {
     ///
     /// `sentiment_fn` returns Some(score) where score is -1.0..1.0, or None for unknown.
     /// `humanness_fn` returns freshness 0.0..1.0.
-    pub fn quest_bounty_subjective(
+    pub fn intention_bounty_subjective(
         &self,
-        quest_id: &str,
+        intention_id: &str,
         sentiment_fn: impl Fn(&str) -> Option<f64>,
         humanness_fn: impl Fn(&str) -> f64,
     ) -> f64 {
         const DECAY: f64 = 0.7;
 
-        self.quest_bounties
-            .get(quest_id)
+        self.intention_bounties
+            .get(intention_id)
             .map(|ids| {
                 ids.iter()
                     .filter_map(|id| self.tokens.get(id))
@@ -231,10 +231,10 @@ impl TokenState {
             .unwrap_or(0.0)
     }
 
-    /// Get all tokens pledged to a quest.
-    pub fn pledged_tokens_for_quest(&self, quest_id: &str) -> Vec<&TokenOfGratitude> {
-        self.quest_bounties
-            .get(quest_id)
+    /// Get all tokens pledged to an intention.
+    pub fn pledged_tokens_for_intention(&self, intention_id: &str) -> Vec<&TokenOfGratitude> {
+        self.intention_bounties
+            .get(intention_id)
             .map(|ids| {
                 ids.iter()
                     .filter_map(|id| self.tokens.get(id))
@@ -279,14 +279,14 @@ impl TokenState {
         self.tokens.len()
     }
 
-    /// Get count of tokens currently pledged to any quest.
+    /// Get count of tokens currently pledged to any intention.
     pub fn total_pledged(&self) -> usize {
         self.tokens.values().filter(|t| t.pledged_to.is_some()).count()
     }
 
-    /// Get number of quests that have at least one pledged bounty.
+    /// Get number of intentions that have at least one pledged bounty.
     pub fn quests_with_bounties(&self) -> usize {
-        self.quest_bounties.values().filter(|ids| !ids.is_empty()).count()
+        self.intention_bounties.values().filter(|ids| !ids.is_empty()).count()
     }
 
     /// Get count of tokens whose current steward differs from original (recycled).
@@ -316,7 +316,7 @@ mod tests {
             steward: "member1".to_string(),
             value_millis: 30000,
             blesser: "member2".to_string(),
-            source_quest_id: "quest1".to_string(),
+            source_quest_id: "intention1".to_string(),
         });
 
         let tokens = state.tokens_for_member("member1");
@@ -338,20 +338,20 @@ mod tests {
             steward: "member1".to_string(),
             value_millis: 45000,
             blesser: "member2".to_string(),
-            source_quest_id: "quest1".to_string(),
+            source_quest_id: "intention1".to_string(),
         });
 
-        // Pledge to quest
+        // Pledge to intention
         state.process_event(&StreamEvent::GratitudePledged {
             tick: 110,
             realm_id: "realm1".to_string(),
             token_id: "tok1".to_string(),
             pledger: "member1".to_string(),
-            target_quest_id: "quest2".to_string(),
+            target_quest_id: "intention2".to_string(),
             amount_millis: 45000,
         });
 
-        assert_eq!(state.quest_bounty("quest2"), 45000);
+        assert_eq!(state.intention_bounty("intention2"), 45000);
         assert_eq!(state.available_tokens_for_member("member1").len(), 0);
 
         // Release to new steward
@@ -361,13 +361,13 @@ mod tests {
             token_id: "tok1".to_string(),
             from_steward: "member1".to_string(),
             to_steward: "member3".to_string(),
-            target_quest_id: "quest2".to_string(),
+            target_quest_id: "intention2".to_string(),
             amount_millis: 45000,
         });
 
         assert_eq!(state.tokens_for_member("member1").len(), 0);
         assert_eq!(state.tokens_for_member("member3").len(), 1);
-        assert_eq!(state.quest_bounty("quest2"), 0); // No longer pledged
+        assert_eq!(state.intention_bounty("intention2"), 0); // No longer pledged
     }
 
     #[test]
@@ -381,7 +381,7 @@ mod tests {
             steward: "member1".to_string(),
             value_millis: 30000,
             blesser: "member2".to_string(),
-            source_quest_id: "quest1".to_string(),
+            source_quest_id: "intention1".to_string(),
         });
 
         state.process_event(&StreamEvent::GratitudePledged {
@@ -389,7 +389,7 @@ mod tests {
             realm_id: "realm1".to_string(),
             token_id: "tok1".to_string(),
             pledger: "member1".to_string(),
-            target_quest_id: "quest2".to_string(),
+            target_quest_id: "intention2".to_string(),
             amount_millis: 30000,
         });
 
@@ -398,12 +398,12 @@ mod tests {
             realm_id: "realm1".to_string(),
             token_id: "tok1".to_string(),
             steward: "member1".to_string(),
-            target_quest_id: "quest2".to_string(),
+            target_quest_id: "intention2".to_string(),
             amount_millis: 30000,
         });
 
         assert_eq!(state.available_tokens_for_member("member1").len(), 1);
-        assert_eq!(state.quest_bounty("quest2"), 0);
+        assert_eq!(state.intention_bounty("intention2"), 0);
     }
 
     #[test]
@@ -418,16 +418,16 @@ mod tests {
             steward: "A".to_string(),
             value_millis: 60000,
             blesser: "B".to_string(),
-            source_quest_id: "quest1".to_string(),
+            source_quest_id: "intention1".to_string(),
         });
 
-        // A pledges to quest2, releases to C
+        // A pledges to intention2, releases to C
         state.process_event(&StreamEvent::GratitudePledged {
             tick: 110,
             realm_id: "realm1".to_string(),
             token_id: "tok1".to_string(),
             pledger: "A".to_string(),
-            target_quest_id: "quest2".to_string(),
+            target_quest_id: "intention2".to_string(),
             amount_millis: 60000,
         });
 
@@ -437,17 +437,17 @@ mod tests {
             token_id: "tok1".to_string(),
             from_steward: "A".to_string(),
             to_steward: "C".to_string(),
-            target_quest_id: "quest2".to_string(),
+            target_quest_id: "intention2".to_string(),
             amount_millis: 60000,
         });
 
-        // C pledges to quest3, releases to D
+        // C pledges to intention3, releases to D
         state.process_event(&StreamEvent::GratitudePledged {
             tick: 130,
             realm_id: "realm1".to_string(),
             token_id: "tok1".to_string(),
             pledger: "C".to_string(),
-            target_quest_id: "quest3".to_string(),
+            target_quest_id: "intention3".to_string(),
             amount_millis: 60000,
         });
 
@@ -457,7 +457,7 @@ mod tests {
             token_id: "tok1".to_string(),
             from_steward: "C".to_string(),
             to_steward: "D".to_string(),
-            target_quest_id: "quest3".to_string(),
+            target_quest_id: "intention3".to_string(),
             amount_millis: 60000,
         });
 
@@ -479,7 +479,7 @@ mod tests {
             steward: "member1".to_string(),
             value_millis: 10000,
             blesser: "blesser1".to_string(),
-            source_quest_id: "quest1".to_string(),
+            source_quest_id: "intention1".to_string(),
         });
 
         state.process_event(&StreamEvent::TokenMinted {
@@ -489,7 +489,7 @@ mod tests {
             steward: "member1".to_string(),
             value_millis: 20000,
             blesser: "blesser2".to_string(),
-            source_quest_id: "quest1".to_string(),
+            source_quest_id: "intention1".to_string(),
         });
 
         assert_eq!(state.token_count_for_member("member1"), 2);
@@ -501,7 +501,7 @@ mod tests {
             realm_id: "realm1".to_string(),
             token_id: "tok1".to_string(),
             pledger: "member1".to_string(),
-            target_quest_id: "quest2".to_string(),
+            target_quest_id: "intention2".to_string(),
             amount_millis: 10000,
         });
 

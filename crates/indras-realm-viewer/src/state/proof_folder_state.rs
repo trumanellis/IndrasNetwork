@@ -85,19 +85,19 @@ impl DraftArtifact {
 pub struct DraftProofFolder {
     /// None until created via API
     pub folder_id: Option<String>,
-    pub quest_id: String,
-    pub quest_title: String,
+    pub intention_id: String,
+    pub intention_title: String,
     pub narrative: String,
     pub artifacts: Vec<DraftArtifact>,
     pub is_dirty: bool,
 }
 
 impl DraftProofFolder {
-    pub fn new(quest_id: String, quest_title: String) -> Self {
+    pub fn new(intention_id: String, intention_title: String) -> Self {
         Self {
             folder_id: None,
-            quest_id,
-            quest_title,
+            intention_id,
+            intention_title,
             narrative: String::new(),
             artifacts: Vec::new(),
             is_dirty: false,
@@ -141,8 +141,8 @@ impl DraftProofFolder {
 pub enum EditorMode {
     /// Editor is hidden, chat is showing
     Hidden,
-    /// Creating a new proof folder for a quest
-    Creating { quest_id: String },
+    /// Creating a new proof folder for an intention
+    Creating { intention_id: String },
     /// Editing an existing proof folder
     Editing { folder_id: String },
 }
@@ -158,8 +158,8 @@ impl Default for EditorMode {
 pub struct ProofFolderState {
     pub editor_mode: EditorMode,
     pub current_draft: Option<DraftProofFolder>,
-    /// Whether the quest selector is showing (for chat entry point)
-    pub showing_quest_selector: bool,
+    /// Whether the intention selector is showing (for chat entry point)
+    pub showing_intention_selector: bool,
 }
 
 impl ProofFolderState {
@@ -168,24 +168,24 @@ impl ProofFolderState {
     }
 
     /// Open the editor for a new proof folder
-    pub fn open_for_quest(&mut self, quest_id: String, quest_title: String) {
-        self.editor_mode = EditorMode::Creating { quest_id: quest_id.clone() };
-        self.current_draft = Some(DraftProofFolder::new(quest_id, quest_title));
-        self.showing_quest_selector = false;
+    pub fn open_for_intention(&mut self, intention_id: String, intention_title: String) {
+        self.editor_mode = EditorMode::Creating { intention_id: intention_id.clone() };
+        self.current_draft = Some(DraftProofFolder::new(intention_id, intention_title));
+        self.showing_intention_selector = false;
     }
 
     /// Open the editor for an existing proof folder
     pub fn open_for_editing(&mut self, folder_id: String, draft: DraftProofFolder) {
         self.editor_mode = EditorMode::Editing { folder_id };
         self.current_draft = Some(draft);
-        self.showing_quest_selector = false;
+        self.showing_intention_selector = false;
     }
 
     /// Close the editor and return to chat
     pub fn close(&mut self) {
         self.editor_mode = EditorMode::Hidden;
         self.current_draft = None;
-        self.showing_quest_selector = false;
+        self.showing_intention_selector = false;
     }
 
     /// Check if editor is currently open
@@ -193,14 +193,14 @@ impl ProofFolderState {
         !matches!(self.editor_mode, EditorMode::Hidden)
     }
 
-    /// Show the quest selector (for chat "+" menu entry point)
-    pub fn show_quest_selector(&mut self) {
-        self.showing_quest_selector = true;
+    /// Show the intention selector (for chat "+" menu entry point)
+    pub fn show_intention_selector(&mut self) {
+        self.showing_intention_selector = true;
     }
 
-    /// Hide the quest selector
-    pub fn hide_quest_selector(&mut self) {
-        self.showing_quest_selector = false;
+    /// Hide the intention selector
+    pub fn hide_intention_selector(&mut self) {
+        self.showing_intention_selector = false;
     }
 
     /// Get the current draft mutably
@@ -406,7 +406,7 @@ mod tests {
         let mut state = ProofFolderState::new();
         assert!(!state.is_open());
 
-        state.open_for_quest("quest1".into(), "Test Quest".into());
+        state.open_for_intention("quest1".into(), "Test Intention".into());
         assert!(state.is_open());
         assert!(state.current_draft.is_some());
 

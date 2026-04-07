@@ -68,21 +68,21 @@ impl ChatMessage {
 pub enum ChatMessageType {
     /// Regular text message.
     Text,
-    /// Proof submission for a quest.
+    /// Proof submission for an intention.
     ProofSubmitted {
-        quest_id: String,
-        quest_title: String,
+        intention_id: String,
+        intention_title: String,
         artifact_id: String,
         artifact_name: String,
     },
-    /// Proof folder submitted for a quest.
+    /// Proof folder submitted for an intention.
     ProofFolderSubmitted {
-        quest_id: String,
+        intention_id: String,
         folder_id: String,
         artifact_count: usize,
         narrative_preview: String,
-        /// Quest title for display.
-        quest_title: String,
+        /// Intention title for display.
+        intention_title: String,
         /// Full markdown narrative.
         narrative: String,
         /// Artifacts in the proof folder.
@@ -90,7 +90,7 @@ pub enum ChatMessageType {
     },
     /// Blessing given to a proof.
     BlessingGiven {
-        quest_id: String,
+        intention_id: String,
         claimant: String,
         attention_millis: u64,
     },
@@ -201,8 +201,8 @@ impl ProofArtifactStateItem {
 /// Blessing information for a proof.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ProofBlessingInfo {
-    pub quest_id: String,
-    pub quest_title: String,
+    pub intention_id: String,
+    pub intention_title: String,
     pub claimant: String,
     pub artifact_id: String,
     pub artifact_name: String,
@@ -230,7 +230,7 @@ pub struct ChatState {
     pub messages_by_realm: HashMap<String, VecDeque<ChatMessage>>,
     /// Global chat feed (newest first).
     pub global_messages: VecDeque<ChatMessage>,
-    /// Proof blessings indexed by (quest_id, claimant).
+    /// Proof blessings indexed by (intention_id, claimant).
     pub proof_blessings: HashMap<(String, String), ProofBlessingInfo>,
     /// Total message count.
     pub total_messages: usize,
@@ -301,8 +301,8 @@ impl ChatState {
                 self.proof_blessings.insert(
                     key,
                     ProofBlessingInfo {
-                        quest_id: quest_id.clone(),
-                        quest_title: quest_title.clone(),
+                        intention_id: quest_id.clone(),
+                        intention_title: quest_title.clone(),
                         claimant: claimant.clone(),
                         artifact_id: artifact_id.clone(),
                         artifact_name: artifact_name.clone(),
@@ -321,8 +321,8 @@ impl ChatState {
                     claimant.clone(),
                     format!("Submitted proof for {}", quest_title),
                     ChatMessageType::ProofSubmitted {
-                        quest_id: quest_id.clone(),
-                        quest_title: quest_title.clone(),
+                        intention_id: quest_id.clone(),
+                        intention_title: quest_title.clone(),
                         artifact_id: artifact_id.clone(),
                         artifact_name: artifact_name.clone(),
                     },
@@ -366,7 +366,7 @@ impl ChatState {
                         format_duration(*attention_millis)
                     ),
                     ChatMessageType::BlessingGiven {
-                        quest_id: quest_id.clone(),
+                        intention_id: quest_id.clone(),
                         claimant: claimant.clone(),
                         attention_millis: *attention_millis,
                     },
@@ -399,8 +399,8 @@ impl ChatState {
                 self.proof_blessings.insert(
                     key,
                     ProofBlessingInfo {
-                        quest_id: quest_id.clone(),
-                        quest_title: title.clone(),
+                        intention_id: quest_id.clone(),
+                        intention_title: title.clone(),
                         claimant: claimant.clone(),
                         artifact_id: folder_id.clone(),
                         artifact_name: format!("Proof folder ({} files)", artifact_count),
@@ -445,11 +445,11 @@ impl ChatState {
                     claimant.clone(),
                     content,
                     ChatMessageType::ProofFolderSubmitted {
-                        quest_id: quest_id.clone(),
+                        intention_id: quest_id.clone(),
                         folder_id: folder_id.clone(),
                         artifact_count: *artifact_count,
                         narrative_preview: narrative_preview.clone(),
-                        quest_title: title,
+                        intention_title: title,
                         narrative: narrative.clone(),
                         artifacts: state_artifacts,
                     },

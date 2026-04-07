@@ -24,7 +24,7 @@ use std::collections::HashMap;
 /// freshness (0.0–1.0). Fresh attestation = full weight, stale = reduced,
 /// absent = zero. This makes Sybil accounts' attention invisible.
 #[derive(Debug, Clone)]
-pub struct WeightedQuestAttention {
+pub struct WeightedIntentionAttention {
     /// The intention.
     pub intention_id: IntentionId,
     /// Raw total attention (unweighted, same as `QuestAttention`).
@@ -81,7 +81,7 @@ pub trait RealmAttention {
     /// Each member's attention is multiplied by their humanness freshness
     /// (0.0–1.0). Members without recent attestation contribute zero.
     /// This makes Sybil accounts' attention invisible without banning them.
-    async fn quests_by_weighted_attention(&self) -> Result<Vec<WeightedQuestAttention>>;
+    async fn intentions_by_weighted_attention(&self) -> Result<Vec<WeightedIntentionAttention>>;
 
     /// Get the attention tip document (chain tip advertisements).
     async fn attention_tips(&self) -> Result<Document<AttentionTipDocument>>;
@@ -239,7 +239,7 @@ impl RealmAttention for Realm {
         Ok(doc.read().await.intention_attention(intention_id, None))
     }
 
-    async fn quests_by_weighted_attention(&self) -> Result<Vec<WeightedQuestAttention>> {
+    async fn intentions_by_weighted_attention(&self) -> Result<Vec<WeightedIntentionAttention>> {
         let attention_doc = self.attention().await?;
         let raw_rankings = attention_doc.read().await.intentions_by_attention(None);
 
@@ -247,7 +247,7 @@ impl RealmAttention for Realm {
         let humanness_guard = humanness_doc.read().await;
         let now = chrono::Utc::now().timestamp_millis();
 
-        let mut weighted: Vec<WeightedQuestAttention> = raw_rankings
+        let mut weighted: Vec<WeightedIntentionAttention> = raw_rankings
             .into_iter()
             .map(|qa| {
                 let mut by_member = HashMap::new();
@@ -260,7 +260,7 @@ impl RealmAttention for Realm {
                     weighted_total += w;
                 }
 
-                WeightedQuestAttention {
+                WeightedIntentionAttention {
                     intention_id: qa.intention_id,
                     raw_attention_millis: qa.total_attention_millis,
                     weighted_attention_millis: weighted_total,

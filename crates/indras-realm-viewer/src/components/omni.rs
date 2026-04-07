@@ -236,7 +236,7 @@ fn ColumnBody(state: Signal<AppState>, member: String) -> Element {
         div { class: "column-body",
             match screen {
                 MemberScreen::Home => rsx! { HomeScreen { state, member: member.clone() } },
-                MemberScreen::QuestBoard => rsx! { QuestScreen { state, member: member.clone() } },
+                MemberScreen::IntentionBoard => rsx! { IntentionScreen { state, member: member.clone() } },
                 MemberScreen::Chat => rsx! { ChatScreen { state, member: member.clone() } },
                 MemberScreen::ProofEditor => rsx! { ProofScreen { state, member: member.clone() } },
                 MemberScreen::Artifacts => rsx! { ArtifactScreen { state, member: member.clone() } },
@@ -295,8 +295,8 @@ fn HomeScreen(state: Signal<AppState>, member: String) -> Element {
 
     let state_read = state.read();
     let current_focus = state_read.attention.focus_for_member(&member).cloned();
-    let focus_title = current_focus.as_ref().and_then(|qid| {
-        state_read.quests.quests.get(qid).map(|q| q.title.clone())
+    let focus_title = current_focus.as_ref().and_then(|iid| {
+        state_read.intentions.intentions.get(iid).map(|i| i.title.clone())
     });
 
     let member_screen = state_read.member_screens.get(&member);
@@ -494,53 +494,53 @@ fn ContactProfileOverlay(state: Signal<AppState>, viewing: Signal<Option<String>
 //QUEST SCREEN - Quest list + create form + claim buttons
 // ============================================================================
 
-/// Quest screen: quest list with attention bars, create form, claim buttons
+/// Intention screen: intention list with attention bars, create form, claim buttons
 #[component]
-fn QuestScreen(state: Signal<AppState>, member: String) -> Element {
+fn IntentionScreen(state: Signal<AppState>, member: String) -> Element {
     let mut show_create_form = use_signal(|| false);
-    let mut quest_title_draft = use_signal(String::new);
+    let mut intention_title_draft = use_signal(String::new);
 
     let state_read = state.read();
     let current_focus = state_read.attention.focus_for_member(&member).cloned();
 
-    // Build attention lookup: quest_id -> member's ms
+    // Build attention lookup: intention_id -> member's ms
     let attention_items = state_read.attention.quests_by_attention();
     let attention_map: std::collections::HashMap<&str, u64> = attention_items
         .iter()
-        .filter_map(|qa| {
-            let ms = qa.by_member.get(&member).copied().unwrap_or(0);
-            if ms > 0 { Some((qa.quest_id.as_str(), ms)) } else { None }
+        .filter_map(|ia| {
+            let ms = ia.by_member.get(&member).copied().unwrap_or(0);
+            if ms > 0 { Some((ia.intention_id.as_str(), ms)) } else { None }
         })
         .collect();
 
-    // Show all quests in this member's realms
+    // Show all intentions in this member's realms
     let member_realms = state_read.realms.realms_for_member(&member);
     let realm_ids: Vec<&str> = member_realms.iter().map(|r| r.realm_id.as_str()).collect();
 
-    let quests: Vec<(String, u64, bool, String, String)> = state_read
-        .quests
-        .quests
+    let intentions: Vec<(String, u64, bool, String, String)> = state_read
+        .intentions
+        .intentions
         .values()
-        .filter(|q| realm_ids.contains(&q.realm_id.as_str()))
-        .map(|q| {
-            let my_ms = attention_map.get(q.quest_id.as_str()).copied().unwrap_or(0);
-            let is_focusing = current_focus.as_ref() == Some(&q.quest_id);
-            let status = format!("{:?}", q.status);
-            (q.title.clone(), my_ms, is_focusing, status, q.quest_id.clone())
+        .filter(|i| realm_ids.contains(&i.realm_id.as_str()))
+        .map(|i| {
+            let my_ms = attention_map.get(i.intention_id.as_str()).copied().unwrap_or(0);
+            let is_focusing = current_focus.as_ref() == Some(&i.intention_id);
+            let status = format!("{:?}", i.status);
+            (i.title.clone(), my_ms, is_focusing, status, i.intention_id.clone())
         })
         .collect();
 
-    let max_ms = quests.iter().map(|(_, ms, _, _, _)| *ms).max().unwrap_or(1).max(1);
+    let max_ms = intentions.iter().map(|(_, ms, _, _, _)| *ms).max().unwrap_or(1).max(1);
 
     rsx! {
         div { class: "v2-quest",
             // Header with create toggle
             div { class: "v2-quest-header",
-                span { class: "mini-section-label", "QUESTS" }
+                span { class: "mini-section-label", "INTENTIONS" }
                 button {
                     class: "v2-btn",
                     onclick: move |_| show_create_form.toggle(),
-                    if *show_create_form.read() { "Cancel" } else { "+ New Quest" }
+                    if *show_create_form.read() { "Cancel" } else { "+ New Intention" }
                 }
             }
             // Create form
@@ -549,26 +549,26 @@ fn QuestScreen(state: Signal<AppState>, member: String) -> Element {
                     input {
                         class: "v2-input",
                         r#type: "text",
-                        placeholder: "Quest title...",
-                        value: "{quest_title_draft}",
-                        oninput: move |e| quest_title_draft.set(e.value()),
+                        placeholder: "Intention title...",
+                        value: "{intention_title_draft}",
+                        oninput: move |e| intention_title_draft.set(e.value()),
                     }
                     button {
                         class: "v2-btn v2-btn-primary",
-                        disabled: quest_title_draft.read().is_empty(),
+                        disabled: intention_title_draft.read().is_empty(),
                         onclick: move |_| {
-                            quest_title_draft.set(String::new());
+                            intention_title_draft.set(String::new());
                             show_create_form.set(false);
                         },
                         "Create"
                     }
                 }
             }
-            // Quest list
-            if quests.is_empty() {
-                div { class: "mini-empty", "No quests yet" }
+            // Intention list
+            if intentions.is_empty() {
+                div { class: "mini-empty", "No intentions yet" }
             }
-            for (title, ms, is_focusing, status, _quest_id) in quests.iter() {
+            for (title, ms, is_focusing, status, _intention_id) in intentions.iter() {
                 {
                     let bar_pct = (*ms as f64 / max_ms as f64 * 100.0).min(100.0);
                     let secs = *ms as f64 / 1000.0;
@@ -592,6 +592,7 @@ fn QuestScreen(state: Signal<AppState>, member: String) -> Element {
                                 if *is_focusing {
                                     span { class: "mini-quest-focus-badge", "FOCUS" }
                                 }
+
                             }
                             // Action row with Claim button
                             if is_open {
@@ -615,8 +616,8 @@ fn QuestScreen(state: Signal<AppState>, member: String) -> Element {
 enum ChatContent {
     Text(String),
     ProofFolder {
-        quest_id: String,
-        quest_title: String,
+        intention_id: String,
+        intention_title: String,
         claimant: String,
         artifact_count: usize,
         folder_id: String,
@@ -642,7 +643,7 @@ struct ChatMsg {
 fn ChatScreen(state: Signal<AppState>, member: String) -> Element {
     let mut draft = use_signal(String::new);
     let mut show_action_menu = use_signal(|| false);
-    let mut showing_quest_selector = use_signal(|| false);
+    let mut showing_intention_selector = use_signal(|| false);
 
     let state_read = state.read();
 
@@ -665,13 +666,13 @@ fn ChatScreen(state: Signal<AppState>, member: String) -> Element {
                     let sender = member_name(&msg.member);
                     let content = match &msg.message_type {
                         crate::state::ChatMessageType::Text => ChatContent::Text(msg.content.clone()),
-                        crate::state::ChatMessageType::ProofSubmitted { quest_title, .. } => {
-                            ChatContent::Text(format!("[Proof: {}]", quest_title))
+                        crate::state::ChatMessageType::ProofSubmitted { intention_title, .. } => {
+                            ChatContent::Text(format!("[Proof: {}]", intention_title))
                         }
-                        crate::state::ChatMessageType::ProofFolderSubmitted { quest_id, quest_title, artifact_count, folder_id, .. } => {
+                        crate::state::ChatMessageType::ProofFolderSubmitted { intention_id, intention_title, artifact_count, folder_id, .. } => {
                             ChatContent::ProofFolder {
-                                quest_id: quest_id.clone(),
-                                quest_title: quest_title.clone(),
+                                intention_id: intention_id.clone(),
+                                intention_title: intention_title.clone(),
                                 claimant: msg.member.clone(),
                                 artifact_count: *artifact_count,
                                 folder_id: folder_id.clone(),
@@ -734,11 +735,11 @@ fn ChatScreen(state: Signal<AppState>, member: String) -> Element {
     // unreleased attention on that quest who haven't blessed yet
     let gratitude_data: std::collections::HashMap<String, Vec<(String, String, u64)>> = messages.iter()
         .filter_map(|msg| {
-            if let ChatContent::ProofFolder { quest_id, claimant, folder_id, .. } = &msg.content {
-                // Get attention on this quest per member
-                let quest_attention = state_read.attention.attention.get(quest_id.as_str());
+            if let ChatContent::ProofFolder { intention_id, claimant, folder_id, .. } = &msg.content {
+                // Get attention on this intention per member
+                let quest_attention = state_read.attention.attention.get(intention_id.as_str());
                 // Get existing blessings for this proof
-                let blessing_key = (quest_id.clone(), claimant.clone());
+                let blessing_key = (intention_id.clone(), claimant.clone());
                 let blessing_info = state_read.chat.proof_blessings.get(&blessing_key);
                 let blessed_members: std::collections::HashSet<&str> = blessing_info
                     .map(|info| info.blessings.iter().map(|b| b.blesser.as_str()).collect())
@@ -768,11 +769,11 @@ fn ChatScreen(state: Signal<AppState>, member: String) -> Element {
         })
         .collect();
 
-    // Get quests for quest selector
-    let quests_for_selector: Vec<(String, String)> = if *showing_quest_selector.read() {
-        state_read.quests.quests.iter()
-            .filter(|(_, q)| q.claims.iter().any(|c| c.claimant == member) || q.creator == member)
-            .map(|(id, q)| (id.clone(), q.title.clone()))
+    // Get intentions for intention selector
+    let intentions_for_selector: Vec<(String, String)> = if *showing_intention_selector.read() {
+        state_read.intentions.intentions.iter()
+            .filter(|(_, i)| i.claims.iter().any(|c| c.claimant == member) || i.creator == member)
+            .map(|(id, i)| (id.clone(), i.title.clone()))
             .take(6)
             .collect()
     } else {
@@ -804,10 +805,10 @@ fn ChatScreen(state: Signal<AppState>, member: String) -> Element {
                                     }
                                 }
                             }
-                            ChatContent::ProofFolder { quest_title, artifact_count, folder_id, .. } => {
+                            ChatContent::ProofFolder { intention_title, artifact_count, folder_id, .. } => {
                                 let sender = &msg.sender;
                                 let color_class = &msg.color_class;
-                                let label = format!("[Proof Folder: {} ({} files)]", quest_title, artifact_count);
+                                let label = format!("[Proof Folder: {} ({} files)]", intention_title, artifact_count);
                                 let pending = gratitude_data.get(folder_id.as_str());
                                 rsx! {
                                     div { class: "mini-chat-msg",
@@ -847,30 +848,30 @@ fn ChatScreen(state: Signal<AppState>, member: String) -> Element {
                     }
                 }
             }
-            // Quest selector popup
-            if *showing_quest_selector.read() {
+            // Intention selector popup
+            if *showing_intention_selector.read() {
                 div { class: "v2-quest-selector",
-                    div { class: "mini-section-label", "SELECT QUEST FOR PROOF" }
-                    for (quest_id, quest_title) in quests_for_selector.iter() {
+                    div { class: "mini-section-label", "SELECT INTENTION FOR PROOF" }
+                    for (intention_id, intention_title) in intentions_for_selector.iter() {
                         button {
                             class: "v2-btn v2-quest-selector-item",
                             onclick: {
-                                let _quest_id = quest_id.clone();
+                                let _intention_id = intention_id.clone();
                                 move |_| {
-                                    showing_quest_selector.set(false);
+                                    showing_intention_selector.set(false);
                                     show_action_menu.set(false);
                                 }
                             },
-                            "{quest_title}"
+                            "{intention_title}"
                         }
                     }
-                    if quests_for_selector.is_empty() {
-                        div { class: "mini-empty", "No quests available" }
+                    if intentions_for_selector.is_empty() {
+                        div { class: "mini-empty", "No intentions available" }
                     }
                 }
             }
             // Action menu popup
-            if *show_action_menu.read() && !*showing_quest_selector.read() {
+            if *show_action_menu.read() && !*showing_intention_selector.read() {
                 div { class: "v2-chat-action-menu",
                     button {
                         class: "v2-btn",
@@ -889,7 +890,7 @@ fn ChatScreen(state: Signal<AppState>, member: String) -> Element {
                     button {
                         class: "v2-btn",
                         onclick: move |_| {
-                            showing_quest_selector.set(true);
+                            showing_intention_selector.set(true);
                         },
                         "Proof of Service"
                     }
@@ -901,7 +902,7 @@ fn ChatScreen(state: Signal<AppState>, member: String) -> Element {
                     class: "v2-btn v2-chat-plus-btn",
                     onclick: move |_| {
                         show_action_menu.toggle();
-                        showing_quest_selector.set(false);
+                        showing_intention_selector.set(false);
                     },
                     "+"
                 }
@@ -939,9 +940,9 @@ fn ProofScreen(state: Signal<AppState>, member: String) -> Element {
     // Check for active draft from event-driven state
     let active_draft = state_read.member_proof_drafts.draft_for_member(&member).cloned();
 
-    // Get quest title for the draft
-    let quest_title = active_draft.as_ref().and_then(|d| {
-        state_read.quests.quests.get(&d.quest_id).map(|q| q.title.clone())
+    // Get intention title for the draft
+    let intention_title = active_draft.as_ref().and_then(|d| {
+        state_read.intentions.intentions.get(&d.quest_id).map(|i| i.title.clone())
     }).unwrap_or_else(|| {
         active_draft.as_ref().map(|d| short_id(&d.quest_id)).unwrap_or_default()
     });
@@ -966,7 +967,7 @@ fn ProofScreen(state: Signal<AppState>, member: String) -> Element {
                 // Active proof draft
                 div { class: "v2-proof-header",
                     span { class: "v2-proof-title", "PROOF OF SERVICE" }
-                    span { class: "v2-proof-quest-title", "{quest_title}" }
+                    span { class: "v2-proof-quest-title", "{intention_title}" }
                     button { class: "v2-btn v2-proof-close", "X" }
                 }
                 // Narrative section with Markdown rendering

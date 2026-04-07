@@ -9,6 +9,12 @@ name = "indras-home-viewer"
 path = "src/main.rs"
 
 [dependencies]
+# Shared viewer infrastructure
+indras-viewer-common = { path = "../indras-viewer-common" }
+
+# Shared UI theme
+indras-ui = { path = "../indras-ui" }
+
 # UI framework
 dioxus = { version = "0.7", features = ["desktop"] }
 

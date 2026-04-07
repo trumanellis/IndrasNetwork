@@ -78,7 +78,7 @@ impl RealmHandle {
         for peer_id in &audience {
             match self.network.connect(*peer_id).await {
                 Ok(dm_realm) => {
-                    let doc = dm_realm.document::<IntentionDocument>("intentions").await?;
+                    let doc = dm_realm.0.document::<IntentionDocument>("intentions").await?;
                     let i = intention.clone();
                     doc.update(|d| {
                         d.add(i);

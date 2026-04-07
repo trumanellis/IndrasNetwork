@@ -7,7 +7,7 @@ use dioxus::prelude::*;
 use crate::playback;
 use crate::state::{
     member_name, short_id, format_duration_millis, AppState, ArtifactInfo, ArtifactStatus, ClaimInfo,
-    DraftArtifact, QuestAttention, QuestInfo, QuestStatus, RealmInfo, TokenOfGratitude, UploadStatus,
+    DraftArtifact, IntentionAttention, IntentionInfo, IntentionStatus, RealmInfo, TokenOfGratitude, UploadStatus,
 };
 use crate::theme::{SkinSwitcher, ThemedRoot};
 
@@ -24,7 +24,7 @@ pub use indras_ui::{
 /// Data for proof narrative overlay
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ProofNarrativeData {
-    pub quest_title: String,
+    pub intention_title: String,
     pub member: String,
     pub narrative: String,
     pub artifacts: Vec<crate::state::ProofArtifactStateItem>,
@@ -215,7 +215,7 @@ fn RealmCard(state: Signal<AppState>, realm: RealmInfo) -> Element {
                     }
                     "{realm.members.len()} members"
                 }
-                span { "{realm.quest_count} quests" }
+                span { "{realm.quest_count} intentions" }
             }
         }
     }
@@ -267,9 +267,9 @@ fn MemberCard(state: Signal<AppState>, member_id: String, focus: Option<String>)
     let color_class = member_color_class(&member_id);
     let member_id_clone = member_id.clone();
 
-    // Look up quest title if focusing
-    let focus_title = focus.as_ref().and_then(|qid| {
-        state_read.quests.quests.get(qid).map(|q| q.title.clone())
+    // Look up intention title if focusing
+    let focus_title = focus.as_ref().and_then(|iid| {
+        state_read.intentions.intentions.get(iid).map(|i| i.title.clone())
     });
 
     rsx! {
@@ -302,7 +302,7 @@ fn CenterPanel(state: Signal<AppState>) -> Element {
         div { class: "center-panel",
             div { class: "quests-chat-row",
                 div { class: "quests-artifacts-column",
-                    QuestListPanel { state }
+                    IntentionListPanel { state }
                     SharedArtifactGalleryPanel { state }
                 }
                 ChatPanel { state }
@@ -435,27 +435,27 @@ fn NetworkTopology(state: Signal<AppState>) -> Element {
 }
 
 #[component]
-fn QuestListPanel(state: Signal<AppState>) -> Element {
+fn IntentionListPanel(state: Signal<AppState>) -> Element {
     let state_read = state.read();
 
-    // Get quests sorted by attention (most attention first)
-    let quests_with_attention: Vec<(QuestInfo, QuestAttention)> = {
+    // Get intentions sorted by attention (most attention first)
+    let intentions_with_attention: Vec<(IntentionInfo, IntentionAttention)> = {
         let attention_rankings = state_read.attention.quests_by_attention();
         let mut result = Vec::new();
 
-        for qa in attention_rankings {
-            if let Some(quest) = state_read.quests.quests.get(&qa.quest_id) {
-                result.push((quest.clone(), qa.clone()));
+        for ia in attention_rankings {
+            if let Some(intention) = state_read.intentions.intentions.get(&ia.intention_id) {
+                result.push((intention.clone(), ia.clone()));
             }
         }
 
-        // Add quests without attention data
-        for quest in state_read.quests.quests.values() {
-            if !result.iter().any(|(q, _)| q.quest_id == quest.quest_id) {
+        // Add intentions without attention data
+        for intention in state_read.intentions.intentions.values() {
+            if !result.iter().any(|(i, _)| i.intention_id == intention.intention_id) {
                 result.push((
-                    quest.clone(),
-                    QuestAttention {
-                        quest_id: quest.quest_id.clone(),
+                    intention.clone(),
+                    IntentionAttention {
+                        intention_id: intention.intention_id.clone(),
                         total_attention_ms: 0,
                         by_member: std::collections::HashMap::new(),
                         currently_focusing: Vec::new(),
@@ -467,10 +467,10 @@ fn QuestListPanel(state: Signal<AppState>) -> Element {
         result
     };
 
-    let count = quests_with_attention.len();
-    let max_attention = quests_with_attention
+    let count = intentions_with_attention.len();
+    let max_attention = intentions_with_attention
         .iter()
-        .map(|(_, qa)| qa.total_attention_ms)
+        .map(|(_, ia)| ia.total_attention_ms)
         .max()
         .unwrap_or(1)
         .max(1);
@@ -478,19 +478,19 @@ fn QuestListPanel(state: Signal<AppState>) -> Element {
     rsx! {
         div { class: "quest-list-container",
             div { class: "quest-list-header",
-                span { class: "quest-list-title", "Quests" }
+                span { class: "quest-list-title", "Intentions" }
                 span { class: "quest-list-sort", "Sorted by attention • {count} total" }
             }
             div { class: "quest-list",
-                for (quest, attention) in quests_with_attention.iter() {
-                    QuestCardWithAttention {
-                        quest: quest.clone(),
+                for (intention, attention) in intentions_with_attention.iter() {
+                    IntentionCardWithAttention {
+                        intention: intention.clone(),
                         attention: attention.clone(),
                         max_attention
                     }
                 }
                 if count == 0 {
-                    div { class: "empty-state", "No quests yet" }
+                    div { class: "empty-state", "No intentions yet" }
                 }
             }
         }
@@ -498,7 +498,7 @@ fn QuestListPanel(state: Signal<AppState>) -> Element {
 }
 
 #[component]
-fn QuestCardWithAttention(quest: QuestInfo, attention: QuestAttention, max_attention: u64) -> Element {
+fn IntentionCardWithAttention(intention: IntentionInfo, attention: IntentionAttention, max_attention: u64) -> Element {
     let secs = attention.total_attention_ms as f64 / 1000.0;
     let bar_width_pct = if max_attention > 0 {
         (attention.total_attention_ms as f64 / max_attention as f64 * 100.0).min(100.0)
@@ -506,24 +506,24 @@ fn QuestCardWithAttention(quest: QuestInfo, attention: QuestAttention, max_atten
         0.0
     };
 
-    let status_class = match quest.status {
-        QuestStatus::Open => "open",
-        QuestStatus::Claimed => "claimed",
-        QuestStatus::Verified => "verified",
-        QuestStatus::Completed => "completed",
+    let status_class = match intention.status {
+        IntentionStatus::Open => "open",
+        IntentionStatus::Claimed => "claimed",
+        IntentionStatus::Verified => "verified",
+        IntentionStatus::Completed => "completed",
     };
 
-    let status_text = match quest.status {
-        QuestStatus::Open => "Open",
-        QuestStatus::Claimed => "Claimed",
-        QuestStatus::Verified => "Verified",
-        QuestStatus::Completed => "Done",
+    let status_text = match intention.status {
+        IntentionStatus::Open => "Open",
+        IntentionStatus::Claimed => "Claimed",
+        IntentionStatus::Verified => "Verified",
+        IntentionStatus::Completed => "Done",
     };
 
     rsx! {
         div { class: "quest-card",
             div { class: "quest-card-header",
-                span { class: "quest-title", "{quest.title}" }
+                span { class: "quest-title", "{intention.title}" }
                 span { class: "quest-status-badge {status_class}", "{status_text}" }
             }
             div { class: "quest-attention",
@@ -555,9 +555,9 @@ fn QuestCardWithAttention(quest: QuestInfo, attention: QuestAttention, max_atten
                     span { class: "focusing-label", "focusing" }
                 }
             }
-            if !quest.claims.is_empty() {
+            if !intention.claims.is_empty() {
                 div { class: "quest-claims",
-                    for claim in &quest.claims {
+                    for claim in &intention.claims {
                         ClaimBadge { claim: claim.clone() }
                     }
                 }
@@ -923,7 +923,7 @@ pub fn ProofNarrativeOverlay(
                     div { class: "proof-narrative-header-left",
                         div { class: "proof-narrative-title-row",
                             span { class: "proof-narrative-icon", "📋" }
-                            span { class: "proof-narrative-quest-title", "{narrative_data.quest_title}" }
+                            span { class: "proof-narrative-quest-title", "{narrative_data.intention_title}" }
                         }
                         div { class: "proof-narrative-meta",
                             span { class: "proof-narrative-by", "by " }
@@ -1243,7 +1243,7 @@ fn ChatMessageItem(message: crate::state::ChatMessage) -> Element {
                 }
             }
         }
-        crate::state::ChatMessageType::ProofSubmitted { quest_title, artifact_name, .. } => {
+        crate::state::ChatMessageType::ProofSubmitted { intention_title, artifact_name, .. } => {
             rsx! {
                 div { class: "chat-message proof-message",
                     span { class: "chat-tick", "[{message.tick}]" }
@@ -1251,7 +1251,7 @@ fn ChatMessageItem(message: crate::state::ChatMessage) -> Element {
                     span { class: "chat-sender {color_class}", "{name}" }
                     div { class: "proof-content",
                         span { class: "proof-label", "Proof: " }
-                        span { class: "proof-quest", "{quest_title}" }
+                        span { class: "proof-quest", "{intention_title}" }
                         span { class: "proof-artifact", "({artifact_name})" }
                     }
                 }
@@ -1272,7 +1272,7 @@ fn ChatMessageItem(message: crate::state::ChatMessage) -> Element {
         crate::state::ChatMessageType::ProofFolderSubmitted {
             artifact_count,
             narrative_preview,
-            quest_title,
+            intention_title,
             narrative,
             artifacts,
             ..
@@ -1295,10 +1295,10 @@ fn ChatMessageItem(message: crate::state::ChatMessage) -> Element {
                 }
             };
 
-            let title_display = if quest_title.is_empty() {
+            let title_display = if intention_title.is_empty() {
                 "Proof Submission".to_string()
             } else {
-                quest_title.clone()
+                intention_title.clone()
             };
 
             // Check if we have narrative content to show
@@ -1306,7 +1306,7 @@ fn ChatMessageItem(message: crate::state::ChatMessage) -> Element {
 
             // Data for overlay
             let overlay_data = ProofNarrativeData {
-                quest_title: title_display.clone(),
+                intention_title: title_display.clone(),
                 member: message.member.clone(),
                 narrative: narrative.clone(),
                 artifacts: artifacts.clone(),
@@ -1725,7 +1725,7 @@ fn ActivityTimeline(state: Signal<AppState>) -> Element {
 fn GlobalStats(state: Signal<AppState>) -> Element {
     let state_read = state.read();
     let realm_count = state_read.realms.realms.len();
-    let quest_count = state_read.quests.quests.len();
+    let quest_count = state_read.intentions.intentions.len();
     let member_count = state_read.all_members().len();
     let contact_count = state_read.contacts.contact_count();
 
@@ -1739,7 +1739,7 @@ fn GlobalStats(state: Signal<AppState>) -> Element {
                 }
                 div { class: "stat-item",
                     span { class: "stat-value", "{quest_count}" }
-                    span { class: "stat-label", "Quests" }
+                    span { class: "stat-label", "Intentions" }
                 }
                 div { class: "stat-item",
                     span { class: "stat-value", "{member_count}" }
@@ -1983,9 +1983,9 @@ fn ProfileHero(state: Signal<AppState>, member: String, name: String) -> Element
     let state_read = state.read();
     let current_focus = state_read.attention.focus_for_member(&member).cloned();
 
-    // Get current focus quest title
-    let current_focus_title = current_focus.as_ref().and_then(|qid| {
-        state_read.quests.quests.get(qid).map(|q| q.title.clone())
+    // Get current focus intention title
+    let current_focus_title = current_focus.as_ref().and_then(|iid| {
+        state_read.intentions.intentions.get(iid).map(|i| i.title.clone())
     });
 
     rsx! {
@@ -2001,7 +2001,7 @@ fn ProfileHero(state: Signal<AppState>, member: String, name: String) -> Element
                 if let Some(ref title) = current_focus_title {
                     div { class: "profile-focus-quest", "{title}" }
                 } else {
-                    div { class: "profile-focus-none", "Not focusing on any quest" }
+                    div { class: "profile-focus-none", "Not focusing on any intention" }
                 }
             }
         }
@@ -2120,43 +2120,43 @@ fn MyNetworkView(state: Signal<AppState>, member: String) -> Element {
     }
 }
 
-/// All quests sorted by cumulative attention with status and realm tags
+/// All intentions sorted by cumulative attention with status and realm tags
 #[component]
 fn MyQuestsList(state: Signal<AppState>) -> Element {
     let state_read = state.read();
 
-    // Get all quests with their attention data, sorted by attention
-    let quests_with_attention: Vec<(QuestInfo, QuestAttention, Option<String>)> = {
+    // Get all intentions with their attention data, sorted by attention
+    let intentions_with_attention: Vec<(IntentionInfo, IntentionAttention, Option<String>)> = {
         let attention_rankings = state_read.attention.quests_by_attention();
         let mut result = Vec::new();
 
-        // First add quests that have attention data
-        for qa in attention_rankings {
-            if let Some(quest) = state_read.quests.quests.get(&qa.quest_id) {
-                // Find realm name for this quest
+        // First add intentions that have attention data
+        for ia in attention_rankings {
+            if let Some(intention) = state_read.intentions.intentions.get(&ia.intention_id) {
+                // Find realm name for this intention
                 let realm_name = state_read.realms.realms.values()
-                    .find(|r| r.realm_id == quest.realm_id)
+                    .find(|r| r.realm_id == intention.realm_id)
                     .map(|r| {
                         let names: Vec<String> = r.members.iter().take(2).map(|m| member_name(m)).collect();
                         if names.is_empty() { short_id(&r.realm_id) } else { names.join("+") }
                     });
-                result.push((quest.clone(), qa.clone(), realm_name));
+                result.push((intention.clone(), ia.clone(), realm_name));
             }
         }
 
-        // Add quests without attention data
-        for quest in state_read.quests.quests.values() {
-            if !result.iter().any(|(q, _, _)| q.quest_id == quest.quest_id) {
+        // Add intentions without attention data
+        for intention in state_read.intentions.intentions.values() {
+            if !result.iter().any(|(i, _, _)| i.intention_id == intention.intention_id) {
                 let realm_name = state_read.realms.realms.values()
-                    .find(|r| r.realm_id == quest.realm_id)
+                    .find(|r| r.realm_id == intention.realm_id)
                     .map(|r| {
                         let names: Vec<String> = r.members.iter().take(2).map(|m| member_name(m)).collect();
                         if names.is_empty() { short_id(&r.realm_id) } else { names.join("+") }
                     });
                 result.push((
-                    quest.clone(),
-                    QuestAttention {
-                        quest_id: quest.quest_id.clone(),
+                    intention.clone(),
+                    IntentionAttention {
+                        intention_id: intention.intention_id.clone(),
                         total_attention_ms: 0,
                         by_member: std::collections::HashMap::new(),
                         currently_focusing: Vec::new(),
@@ -2169,10 +2169,10 @@ fn MyQuestsList(state: Signal<AppState>) -> Element {
         result
     };
 
-    let count = quests_with_attention.len();
-    let max_attention = quests_with_attention
+    let count = intentions_with_attention.len();
+    let max_attention = intentions_with_attention
         .iter()
-        .map(|(_, qa, _)| qa.total_attention_ms)
+        .map(|(_, ia, _)| ia.total_attention_ms)
         .max()
         .unwrap_or(1)
         .max(1);
@@ -2180,21 +2180,21 @@ fn MyQuestsList(state: Signal<AppState>) -> Element {
     rsx! {
         div { class: "my-quests-list",
             div { class: "quest-list-header",
-                span { class: "quest-list-title", "All Quests" }
+                span { class: "quest-list-title", "All Intentions" }
                 span { class: "quest-list-sort", "Sorted by attention • {count} total" }
             }
             div { class: "quest-list",
-                for (quest, attention, realm_name) in quests_with_attention.iter() {
-                    QuestCardWithRealm {
+                for (intention, attention, realm_name) in intentions_with_attention.iter() {
+                    IntentionCardWithRealm {
                         state,
-                        quest: quest.clone(),
+                        intention: intention.clone(),
                         attention: attention.clone(),
                         realm_name: realm_name.clone(),
                         max_attention
                     }
                 }
                 if count == 0 {
-                    div { class: "empty-state", "No quests yet" }
+                    div { class: "empty-state", "No intentions yet" }
                 }
             }
         }
@@ -2202,10 +2202,10 @@ fn MyQuestsList(state: Signal<AppState>) -> Element {
 }
 
 #[component]
-fn QuestCardWithRealm(
+fn IntentionCardWithRealm(
     state: Signal<AppState>,
-    quest: QuestInfo,
-    attention: QuestAttention,
+    intention: IntentionInfo,
+    attention: IntentionAttention,
     realm_name: Option<String>,
     max_attention: u64
 ) -> Element {
@@ -2217,31 +2217,31 @@ fn QuestCardWithRealm(
         0.0
     };
 
-    let status_class = match quest.status {
-        QuestStatus::Open => "open",
-        QuestStatus::Claimed => "claimed",
-        QuestStatus::Verified => "verified",
-        QuestStatus::Completed => "completed",
+    let status_class = match intention.status {
+        IntentionStatus::Open => "open",
+        IntentionStatus::Claimed => "claimed",
+        IntentionStatus::Verified => "verified",
+        IntentionStatus::Completed => "completed",
     };
 
-    let status_text = match quest.status {
-        QuestStatus::Open => "Open",
-        QuestStatus::Claimed => "Claimed",
-        QuestStatus::Verified => "Verified",
-        QuestStatus::Completed => "Done",
+    let status_text = match intention.status {
+        IntentionStatus::Open => "Open",
+        IntentionStatus::Claimed => "Claimed",
+        IntentionStatus::Verified => "Verified",
+        IntentionStatus::Completed => "Done",
     };
 
     let realm_display = realm_name.unwrap_or_else(|| "Unknown".to_string());
 
-    // Show submit proof button for non-completed quests
-    let show_submit_btn = quest.status != QuestStatus::Completed;
-    let quest_id = quest.quest_id.clone();
-    let quest_title = quest.title.clone();
+    // Show submit proof button for non-completed intentions
+    let show_submit_btn = intention.status != IntentionStatus::Completed;
+    let intention_id = intention.intention_id.clone();
+    let intention_title = intention.title.clone();
 
     rsx! {
         div { class: "quest-card",
             div { class: "quest-card-header",
-                span { class: "quest-title", "{quest.title}" }
+                span { class: "quest-title", "{intention.title}" }
                 div { class: "quest-tags",
                     span { class: "quest-status-badge {status_class}", "{status_text}" }
                     span { class: "quest-realm-badge", "{realm_display}" }
@@ -2282,9 +2282,9 @@ fn QuestCardWithRealm(
                     class: "submit-proof-btn",
                     onclick: move |e| {
                         e.stop_propagation();
-                        state_write.write().proof_folder.open_for_quest(
-                            quest_id.clone(),
-                            quest_title.clone()
+                        state_write.write().proof_folder.open_for_intention(
+                            intention_id.clone(),
+                            intention_title.clone()
                         );
                     },
                     span { class: "submit-proof-icon", "✓" }
@@ -2336,10 +2336,10 @@ fn MyChatPanelInner(state: Signal<AppState>, member: String) -> Element {
     let mut editing_alias = use_signal(|| false);
     let mut alias_draft = use_signal(|| String::new());
 
-    // Get quests for the quest selector
-    let showing_quest_selector = state_read.proof_folder.showing_quest_selector;
-    let available_quests: Vec<_> = state_read.quests.quests.values()
-        .filter(|q| q.status != QuestStatus::Completed)
+    // Get intentions for the intention selector
+    let showing_intention_selector = state_read.proof_folder.showing_intention_selector;
+    let available_intentions: Vec<_> = state_read.intentions.intentions.values()
+        .filter(|i| i.status != IntentionStatus::Completed)
         .cloned()
         .collect();
 
@@ -2429,47 +2429,47 @@ fn MyChatPanelInner(state: Signal<AppState>, member: String) -> Element {
                                 class: "action-menu-item",
                                 onclick: move |_| {
                                     show_action_menu.set(false);
-                                    state_write.write().proof_folder.show_quest_selector();
+                                    state_write.write().proof_folder.show_intention_selector();
                                 },
                                 span { class: "action-menu-icon", "✓" }
                                 span { "Proof of Service" }
                             }
                         }
                     }
-                    // Quest selector dropdown
-                    if showing_quest_selector {
+                    // Intention selector dropdown
+                    if showing_intention_selector {
                         div { class: "quest-selector-dropdown",
                             div { class: "quest-selector-header",
-                                span { "Select Quest" }
+                                span { "Select Intention" }
                                 button {
                                     class: "quest-selector-close",
                                     onclick: move |_| {
-                                        state_write.write().proof_folder.hide_quest_selector();
+                                        state_write.write().proof_folder.hide_intention_selector();
                                     },
                                     "×"
                                 }
                             }
                             div { class: "quest-selector-list",
-                                for quest in available_quests.iter() {
+                                for intention in available_intentions.iter() {
                                     {
-                                        let quest_id = quest.quest_id.clone();
-                                        let quest_title = quest.title.clone();
+                                        let intention_id = intention.intention_id.clone();
+                                        let intention_title = intention.title.clone();
                                         rsx! {
                                             button {
                                                 class: "quest-selector-item",
                                                 onclick: move |_| {
-                                                    state_write.write().proof_folder.open_for_quest(
-                                                        quest_id.clone(),
-                                                        quest_title.clone()
+                                                    state_write.write().proof_folder.open_for_intention(
+                                                        intention_id.clone(),
+                                                        intention_title.clone()
                                                     );
                                                 },
-                                                span { class: "quest-selector-title", "{quest.title}" }
+                                                span { class: "quest-selector-title", "{intention.title}" }
                                             }
                                         }
                                     }
                                 }
-                                if available_quests.is_empty() {
-                                    div { class: "empty-state", "No open quests" }
+                                if available_intentions.is_empty() {
+                                    div { class: "empty-state", "No open intentions" }
                                 }
                             }
                         }
@@ -2503,7 +2503,7 @@ fn ProofFolderEditor(state: Signal<AppState>, member: String) -> Element {
     let state_read = state.read();
 
     let draft = state_read.proof_folder.current_draft.clone();
-    let quest_title = draft.as_ref().map(|d| d.quest_title.clone()).unwrap_or_default();
+    let intention_title = draft.as_ref().map(|d| d.intention_title.clone()).unwrap_or_default();
     let narrative = draft.as_ref().map(|d| d.narrative.clone()).unwrap_or_default();
     let artifacts = draft.as_ref().map(|d| d.artifacts.clone()).unwrap_or_default();
 
@@ -2519,7 +2519,7 @@ fn ProofFolderEditor(state: Signal<AppState>, member: String) -> Element {
         div { class: "proof-folder-editor",
             // Header
             ProofEditorHeader {
-                quest_title: quest_title.clone(),
+                intention_title: intention_title.clone(),
                 on_close: move |_| {
                     if has_changes {
                         show_discard_confirm.set(true);
@@ -2585,12 +2585,12 @@ fn ProofFolderEditor(state: Signal<AppState>, member: String) -> Element {
 
 /// Header for the proof editor
 #[component]
-fn ProofEditorHeader(quest_title: String, on_close: EventHandler<()>) -> Element {
+fn ProofEditorHeader(intention_title: String, on_close: EventHandler<()>) -> Element {
     rsx! {
         div { class: "proof-editor-header",
             div { class: "proof-editor-title-section",
                 span { class: "proof-editor-label", "PROOF OF SERVICE" }
-                h3 { class: "proof-editor-quest-title", "{quest_title}" }
+                h3 { class: "proof-editor-quest-title", "{intention_title}" }
             }
             button {
                 class: "proof-editor-close-btn",
@@ -2869,7 +2869,7 @@ fn MyRealmCard(state: Signal<AppState>, realm: RealmInfo) -> Element {
                 span { class: "realm-stat-divider", "•" }
                 span { class: "realm-stat",
                     span { class: "realm-stat-value", "{quest_count}" }
-                    " quests"
+                    " intentions"
                 }
             }
         }
@@ -2974,11 +2974,11 @@ fn TokenCard(token: TokenOfGratitude, max_value: u64) -> Element {
     };
 
     let blesser_name = member_name(&token.blesser);
-    let source_quest = short_id(&token.source_quest_id);
+    let source_intention = short_id(&token.source_intention_id);
 
     // Pledge status
-    let pledge_status = if let Some(ref quest_id) = token.pledged_to {
-        format!("Pledged to {}", short_id(quest_id))
+    let pledge_status = if let Some(ref intention_id) = token.pledged_to {
+        format!("Pledged to {}", short_id(intention_id))
     } else {
         "Available".to_string()
     };
@@ -3016,7 +3016,7 @@ fn TokenCard(token: TokenOfGratitude, max_value: u64) -> Element {
                 }
                 span { class: "token-meta-item",
                     span { class: "meta-icon", "🎯" }
-                    "Source: {source_quest}"
+                    "Source: {source_intention}"
                 }
             }
         }

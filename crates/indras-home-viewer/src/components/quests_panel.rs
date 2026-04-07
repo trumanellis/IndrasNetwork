@@ -1,10 +1,10 @@
-//! Quests panel component showing personal tasks.
+//! Intentions panel component showing personal tasks.
 
 use dioxus::prelude::*;
 
-use crate::state::{AppState, HomeQuest, QuestStatus};
+use crate::state::{AppState, HomeIntention, IntentionStatus};
 
-/// Quests panel showing personal tasks.
+/// Intentions panel showing personal tasks.
 #[component]
 pub fn QuestsPanel(state: Signal<AppState>) -> Element {
     let state_read = state.read();
@@ -17,48 +17,48 @@ pub fn QuestsPanel(state: Signal<AppState>) -> Element {
                 class: "panel-header",
                 h2 {
                     class: "panel-title",
-                    "Quests"
+                    "Intentions"
                 }
                 span {
                     class: "panel-count",
-                    "{state_read.quests.active_count()} active"
+                    "{state_read.intentions.active_count()} active"
                 }
             }
 
             div {
                 class: "quests-list",
 
-                if state_read.quests.quests.is_empty() {
+                if state_read.intentions.intentions.is_empty() {
                     div {
                         class: "quests-empty",
-                        p { "No quests yet." }
+                        p { "No intentions yet." }
                     }
                 } else {
-                    // Active quests first
-                    for quest in state_read.quests.active_quests().iter().take(5) {
-                        QuestItem {
-                            key: "{quest.id}",
-                            quest: (*quest).clone(),
+                    // Active intentions first
+                    for intention in state_read.intentions.active_intentions().iter().take(5) {
+                        IntentionItem {
+                            key: "{intention.id}",
+                            intention: (*intention).clone(),
                         }
                     }
 
-                    // Then completed quests
-                    CompletedQuestsSection { state }
+                    // Then completed intentions
+                    CompletedIntentionsSection { state }
                 }
             }
         }
     }
 }
 
-/// Completed quests section.
+/// Completed intentions section.
 #[component]
-fn CompletedQuestsSection(state: Signal<AppState>) -> Element {
+fn CompletedIntentionsSection(state: Signal<AppState>) -> Element {
     let state_read = state.read();
     let completed: Vec<_> = state_read
-        .quests
-        .quests_by_recency()
+        .intentions
+        .intentions_by_recency()
         .iter()
-        .filter(|q| q.status == QuestStatus::Completed)
+        .filter(|i| i.status == IntentionStatus::Completed)
         .take(3)
         .cloned()
         .collect();
@@ -72,19 +72,19 @@ fn CompletedQuestsSection(state: Signal<AppState>) -> Element {
             class: "quests-divider",
             "Completed"
         }
-        for quest in completed {
-            QuestItem {
-                key: "{quest.id}",
-                quest: quest.clone(),
+        for intention in completed {
+            IntentionItem {
+                key: "{intention.id}",
+                intention: intention.clone(),
             }
         }
     }
 }
 
-/// A single quest item.
+/// A single intention item.
 #[component]
-fn QuestItem(quest: HomeQuest) -> Element {
-    let is_completed = quest.status == QuestStatus::Completed;
+fn IntentionItem(intention: HomeIntention) -> Element {
+    let is_completed = intention.status == IntentionStatus::Completed;
 
     rsx! {
         div {
@@ -96,13 +96,13 @@ fn QuestItem(quest: HomeQuest) -> Element {
                 if is_completed { "✓" } else { "" }
             }
 
-            // Quest title
+            // Intention title
             span {
                 class: "quest-title",
                 if is_completed {
-                    del { "{quest.title}" }
+                    del { "{intention.title}" }
                 } else {
-                    "{quest.title}"
+                    "{intention.title}"
                 }
             }
         }

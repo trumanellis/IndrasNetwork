@@ -87,7 +87,7 @@ pub async fn check_dm_invites(
         // Reuse persistent DM realm so Document listener stays alive across polls
         if !dm_realms.contains_key(&peer_entry.player_id) {
             if let Ok(r) = network.connect(peer_entry.player_id).await {
-                dm_realms.insert(peer_entry.player_id, r);
+                dm_realms.insert(peer_entry.player_id, r.0);
             }
         }
         if let Some(dm_realm) = dm_realms.get(&peer_entry.player_id) {

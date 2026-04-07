@@ -16,6 +16,7 @@ use state::{CollaborationState, EventType, Peer, Phase, PlanSection, Quest, Ques
 use theme::{ThemedRoot, SkinSwitcher};
 
 // Embed CSS
+const SHARED_CSS: &str = indras_ui::SHARED_CSS;
 const STYLES_CSS: &str = include_str!("../assets/styles.css");
 
 fn main() {
@@ -32,7 +33,7 @@ fn main() {
                         .with_inner_size(dioxus::desktop::LogicalSize::new(1400, 900))
                         .with_resizable(true),
                 )
-                .with_custom_head(format!(r#"<style>{}</style>"#, STYLES_CSS)),
+                .with_custom_head(format!(r#"<style>{}</style><style>{}</style>"#, SHARED_CSS, STYLES_CSS)),
         )
         .launch(App);
 }

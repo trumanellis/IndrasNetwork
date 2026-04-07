@@ -72,8 +72,8 @@ pub fn Sidebar(state: Signal<AppState>) -> Element {
 
                     div {
                         class: "session-item",
-                        span { class: "session-label", "Quests" }
-                        span { class: "session-value", "{state_read.quests.active_count()}" }
+                        span { class: "session-label", "Intentions" }
+                        span { class: "session-value", "{state_read.intentions.active_count()}" }
                     }
 
                     div {

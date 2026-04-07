@@ -278,11 +278,11 @@ fn render_content(msg: &ChatMessageView) -> Element {
                 }
             }
         }
-        ChatViewType::ProofSubmitted { quest_id } => {
-            let qid_short = &quest_id[..8.min(quest_id.len())];
+        ChatViewType::ProofSubmitted { intention_id } => {
+            let iid_short = &intention_id[..8.min(intention_id.len())];
             rsx! {
                 div { class: "bubble-content bubble-proof",
-                    "\u{1f4ce} Proof submitted for quest {qid_short}"
+                    "\u{1f4ce} Proof submitted for intention {iid_short}"
                 }
             }
         }

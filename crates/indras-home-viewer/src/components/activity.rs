@@ -47,7 +47,7 @@ pub fn ActivityFeed(state: Signal<AppState>) -> Element {
 fn ActivityItem(event: ActivityEvent) -> Element {
     let type_class = match event.event_type {
         ActivityEventType::Note => "activity-note",
-        ActivityEventType::Quest => "activity-quest",
+        ActivityEventType::Intention => "activity-quest",
         ActivityEventType::Artifact => "activity-artifact",
         ActivityEventType::Session => "activity-session",
         ActivityEventType::Sync => "activity-sync",
@@ -58,7 +58,7 @@ fn ActivityItem(event: ActivityEvent) -> Element {
 
     let icon = match event.event_type {
         ActivityEventType::Note => "📝",
-        ActivityEventType::Quest => "✓",
+        ActivityEventType::Intention => "✓",
         ActivityEventType::Artifact => "📁",
         ActivityEventType::Session => "●",
         ActivityEventType::Sync => "↻",

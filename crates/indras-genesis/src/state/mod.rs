@@ -26,22 +26,22 @@ pub enum AsyncStatus {
     Error(String),
 }
 
-/// Status of a quest for display purposes.
+/// Status of an intention for display purposes.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum QuestStatus {
-    /// Quest is open - no claims yet.
+pub enum IntentionStatus {
+    /// Intention is open - no claims yet.
     Open,
-    /// Quest has claims but none verified yet.
+    /// Intention has claims but none verified yet.
     Claimed,
-    /// Quest has at least one verified claim.
+    /// Intention has at least one verified claim.
     Verified,
-    /// Quest is complete.
+    /// Intention is complete.
     Completed,
 }
 
-/// View model for a quest claim.
+/// View model for an intention claim.
 #[derive(Debug, Clone)]
-pub struct QuestClaimView {
+pub struct IntentionClaimView {
     /// Claimant's member ID (short hex).
     pub claimant_id_short: String,
     /// Claimant's display name if known.
@@ -54,27 +54,27 @@ pub struct QuestClaimView {
     pub submitted_at: String,
 }
 
-/// View model for a quest in the home realm.
+/// View model for an intention in the home realm.
 #[derive(Debug, Clone)]
-pub struct QuestView {
+pub struct IntentionView {
     pub id: String,
     pub title: String,
     pub description: String,
     pub is_complete: bool,
     /// Current status for display.
-    pub status: QuestStatus,
+    pub status: IntentionStatus,
     /// Creator's member ID (short hex).
     pub creator_id_short: String,
     /// Whether current user is the creator.
     pub is_creator: bool,
-    /// Claims on this quest.
-    pub claims: Vec<QuestClaimView>,
+    /// Claims on this intention.
+    pub claims: Vec<IntentionClaimView>,
     /// Number of pending (unverified) claims.
     pub pending_claim_count: usize,
     /// Number of verified claims.
     pub verified_claim_count: usize,
-    /// Attention data for this quest.
-    pub attention: QuestAttentionView,
+    /// Attention data for this intention.
+    pub attention: IntentionAttentionView,
 }
 
 /// View model for a note in the home realm.
@@ -98,15 +98,15 @@ pub enum NoteEditorMode {
     Create,
 }
 
-/// Mode for the quest editor modal.
+/// Mode for the intention editor modal.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub enum QuestEditorMode {
-    /// Viewing a quest (read-only with rendered markdown description).
+pub enum IntentionEditorMode {
+    /// Viewing an intention (read-only with rendered markdown description).
     #[default]
     View,
-    /// Editing an existing quest.
+    /// Editing an existing intention.
     Edit,
-    /// Creating a new quest.
+    /// Creating a new intention.
     Create,
 }
 
@@ -153,14 +153,14 @@ pub struct ContactView {
     pub sentiment: ContactSentiment,
 }
 
-/// View model for attention data on a quest.
+/// View model for attention data on an intention.
 #[derive(Debug, Clone, Default)]
-pub struct QuestAttentionView {
+pub struct IntentionAttentionView {
     /// Total attention time in milliseconds.
     pub total_attention_millis: u64,
     /// Number of members currently focused.
     pub focused_member_count: usize,
-    /// Whether the current user is focused on this quest.
+    /// Whether the current user is focused on this intention.
     pub is_focused: bool,
 }
 
@@ -169,14 +169,14 @@ pub struct QuestAttentionView {
 pub struct TokenView {
     /// Token ID (short hex).
     pub id_short: String,
-    /// Source quest title.
-    pub source_quest_title: Option<String>,
+    /// Source intention title.
+    pub source_intention_title: Option<String>,
     /// Who gave the blessing that minted this token.
     pub blesser_name: Option<String>,
-    /// Whether this token is pledged to a quest.
+    /// Whether this token is pledged to an intention.
     pub is_pledged: bool,
-    /// Quest title if pledged.
-    pub pledged_quest_title: Option<String>,
+    /// Intention title if pledged.
+    pub pledged_intention_title: Option<String>,
     /// Created timestamp (formatted).
     pub created_at: String,
 }
@@ -218,8 +218,8 @@ pub struct GenesisState {
     pub display_name: String,
     /// Short member ID (hex, first 8 bytes) once identity is created.
     pub member_id_short: Option<String>,
-    /// Quests loaded from home realm.
-    pub quests: Vec<QuestView>,
+    /// Intentions loaded from home realm.
+    pub intentions: Vec<IntentionView>,
     /// Notes loaded from home realm.
     pub notes: Vec<NoteView>,
     /// Contacts loaded from contacts realm.
@@ -258,21 +258,21 @@ pub struct GenesisState {
     pub event_log: Vec<EventLogEntry>,
     /// Display name of the contact in the active peer realm.
     pub peer_realm_contact_name: Option<String>,
-    /// Quests in the active peer realm (shared quests with contact).
-    pub peer_realm_quests: Vec<QuestView>,
+    /// Intentions in the active peer realm (shared intentions with contact).
+    pub peer_realm_intentions: Vec<IntentionView>,
     /// Notes in the active peer realm (shared notes with contact).
     pub peer_realm_notes: Vec<NoteView>,
     /// Artifacts in the active peer realm (shared artifacts with contact).
     pub peer_realm_artifacts: Vec<ArtifactDisplayInfo>,
-    /// Quest ID being claimed in peer realm.
-    pub peer_realm_claiming_quest_id: Option<String>,
-    /// Draft proof text for peer realm quest claim.
+    /// Intention ID being claimed in peer realm.
+    pub peer_realm_claiming_intention_id: Option<String>,
+    /// Draft proof text for peer realm intention claim.
     pub peer_realm_claim_proof_text: String,
     /// Tokens of gratitude owned by the user.
     pub tokens: Vec<TokenView>,
-    /// Quest ID currently being claimed (for claim form).
-    pub claiming_quest_id: Option<String>,
-    /// Draft proof text for quest claim.
+    /// Intention ID currently being claimed (for claim form).
+    pub claiming_intention_id: Option<String>,
+    /// Draft proof text for intention claim.
     pub claim_proof_text: String,
     /// Whether the note editor modal is open.
     pub note_editor_open: bool,
@@ -286,18 +286,18 @@ pub struct GenesisState {
     pub note_editor_content: String,
     /// Whether to show rendered markdown (true) or raw (false) in view mode.
     pub note_editor_preview_mode: bool,
-    /// Whether the quest editor modal is open.
-    pub quest_editor_open: bool,
-    /// Mode for the quest editor modal.
-    pub quest_editor_mode: QuestEditorMode,
-    /// Quest ID being edited (None for create mode).
-    pub quest_editor_id: Option<String>,
-    /// Title in the quest editor.
-    pub quest_editor_title: String,
-    /// Description (markdown) in the quest editor.
-    pub quest_editor_description: String,
+    /// Whether the intention editor modal is open.
+    pub intention_editor_open: bool,
+    /// Mode for the intention editor modal.
+    pub intention_editor_mode: IntentionEditorMode,
+    /// Intention ID being edited (None for create mode).
+    pub intention_editor_id: Option<String>,
+    /// Title in the intention editor.
+    pub intention_editor_title: String,
+    /// Description (markdown) in the intention editor.
+    pub intention_editor_description: String,
     /// Whether to show rendered markdown (true) or raw (false) in view mode.
-    pub quest_editor_preview_mode: bool,
+    pub intention_editor_preview_mode: bool,
 }
 
 impl Default for GenesisState {
@@ -307,7 +307,7 @@ impl Default for GenesisState {
             status: AsyncStatus::Idle,
             display_name: String::new(),
             member_id_short: None,
-            quests: Vec::new(),
+            intentions: Vec::new(),
             notes: Vec::new(),
             contacts: Vec::new(),
             artifacts: Vec::new(),
@@ -327,13 +327,13 @@ impl Default for GenesisState {
             new_contact_toast: None,
             event_log: Vec::new(),
             peer_realm_contact_name: None,
-            peer_realm_quests: Vec::new(),
+            peer_realm_intentions: Vec::new(),
             peer_realm_notes: Vec::new(),
             peer_realm_artifacts: Vec::new(),
-            peer_realm_claiming_quest_id: None,
+            peer_realm_claiming_intention_id: None,
             peer_realm_claim_proof_text: String::new(),
             tokens: Vec::new(),
-            claiming_quest_id: None,
+            claiming_intention_id: None,
             claim_proof_text: String::new(),
             note_editor_open: false,
             note_editor_mode: NoteEditorMode::default(),
@@ -341,12 +341,12 @@ impl Default for GenesisState {
             note_editor_title: String::new(),
             note_editor_content: String::new(),
             note_editor_preview_mode: true,
-            quest_editor_open: false,
-            quest_editor_mode: QuestEditorMode::default(),
-            quest_editor_id: None,
-            quest_editor_title: String::new(),
-            quest_editor_description: String::new(),
-            quest_editor_preview_mode: true,
+            intention_editor_open: false,
+            intention_editor_mode: IntentionEditorMode::default(),
+            intention_editor_id: None,
+            intention_editor_title: String::new(),
+            intention_editor_description: String::new(),
+            intention_editor_preview_mode: true,
         }
     }
 }

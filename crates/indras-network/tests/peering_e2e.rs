@@ -221,7 +221,7 @@ async fn test_block_contact_leaves_realms() {
     let mut alice_rx = alice.peer_events();
 
     // Alice blocks Bob
-    let bob_id = bob.my_id();
+    let bob_id = bob.identity().id();
     let left_realms = alice.block_contact(&bob_id).await
         .expect("block_contact failed");
 
@@ -264,7 +264,7 @@ async fn test_sentiment_roundtrip() {
     bob.connect_by_code(&alice_uri).await.expect("Bob→Alice failed");
     alice.connect_by_code(&bob_uri).await.expect("Alice→Bob failed");
 
-    let bob_id = bob.my_id();
+    let bob_id = bob.identity().id();
 
     // Subscribe to Alice's events
     let mut alice_rx = alice.peer_events();
@@ -321,7 +321,7 @@ async fn test_peer_info_includes_sentiment() {
     bob.connect_by_code(&alice_uri).await.expect("Bob→Alice failed");
     alice.connect_by_code(&bob_uri).await.expect("Alice→Bob failed");
 
-    let bob_id = bob.my_id();
+    let bob_id = bob.identity().id();
 
     // Set sentiment to +1
     alice.update_sentiment(&bob_id, 1).await.expect("update_sentiment failed");
@@ -360,7 +360,7 @@ async fn test_contact_entry_and_relayable() {
     bob.connect_by_code(&alice_uri).await.expect("Bob→Alice failed");
     alice.connect_by_code(&bob_uri).await.expect("Alice→Bob failed");
 
-    let bob_id = bob.my_id();
+    let bob_id = bob.identity().id();
 
     // Get full contact entry
     let entry = alice.get_contact_entry(&bob_id).await
@@ -391,7 +391,7 @@ async fn test_remove_contact() {
     bob.connect_by_code(&alice_uri).await.expect("Bob→Alice failed");
     alice.connect_by_code(&bob_uri).await.expect("Alice→Bob failed");
 
-    let bob_id = bob.my_id();
+    let bob_id = bob.identity().id();
 
     // Remove Bob (soft — no realm cascade)
     let removed = alice.remove_contact(&bob_id).await.expect("remove_contact failed");

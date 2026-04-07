@@ -16,6 +16,9 @@ use indras_home_viewer::events::{start_stream, HomeRealmEvent, StreamConfig};
 use indras_home_viewer::playback;
 use indras_home_viewer::state::AppState;
 
+/// Shared design tokens from indras-ui.
+const SHARED_CSS: &str = indras_ui::SHARED_CSS;
+
 /// CSS styles embedded at compile time.
 const STYLES_CSS: &str = include_str!("../assets/styles.css");
 
@@ -82,9 +85,9 @@ fn main() {
                     <link rel="preconnect" href="https://fonts.googleapis.com">
                     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
                     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-                    <style>{}</style>
+                    <style>{}</style><style>{}</style>
                     "#,
-                    STYLES_CSS
+                    SHARED_CSS, STYLES_CSS
                 )),
         )
         .launch(RootApp);
@@ -246,7 +249,7 @@ fn process_event(state: &mut Signal<AppState>, event: HomeRealmEvent) {
             tracing::debug!("Note created: {}", title);
         }
         HomeRealmEvent::HomeQuestCreated { title, .. } => {
-            tracing::debug!("Quest created: {}", title);
+            tracing::debug!("Intention created: {}", title);
         }
         HomeRealmEvent::ArtifactUploaded { mime_type, size, .. } => {
             tracing::debug!("Artifact uploaded: {} ({} bytes)", mime_type, size);

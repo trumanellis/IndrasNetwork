@@ -198,8 +198,8 @@ impl BlessingDocument {
             .collect()
     }
 
-    /// Get all blessings for a quest (all claimants).
-    pub fn blessings_for_quest(&self, intention_id: &IntentionId) -> Vec<&Blessing> {
+    /// Get all blessings for an intention (all claimants).
+    pub fn blessings_for_intention(&self, intention_id: &IntentionId) -> Vec<&Blessing> {
         self.blessings
             .iter()
             .filter(|b| &b.claim_id.intention_id == intention_id)
@@ -519,16 +519,16 @@ mod tests {
     }
 
     #[test]
-    fn test_different_quests_independent() {
+    fn test_different_intentions_independent() {
         let mut doc = BlessingDocument::new();
-        let quest1 = test_intention_id(1);
-        let quest2 = test_intention_id(2);
+        let intention1 = test_intention_id(1);
+        let intention2 = test_intention_id(2);
         let claimant = test_member_id(1);
         let blesser = test_member_id(2);
-        let claim1 = ClaimId::new(quest1, claimant);
-        let claim2 = ClaimId::new(quest2, claimant);
+        let claim1 = ClaimId::new(intention1, claimant);
+        let claim2 = ClaimId::new(intention2, claimant);
 
-        // Same event indices can be blessed for different quests
+        // Same event indices can be blessed for different intentions
         doc.bless_claim(claim1, blesser, vec![0, 1]).unwrap();
         let result = doc.bless_claim(claim2, blesser, vec![0, 1]);
         assert!(result.is_ok());

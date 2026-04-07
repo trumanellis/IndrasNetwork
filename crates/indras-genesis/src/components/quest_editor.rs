@@ -11,7 +11,7 @@ use dioxus::prelude::*;
 use indras_network::IndrasNetwork;
 use indras_ui::markdown::render_markdown_to_html;
 
-use crate::state::{GenesisState, QuestEditorMode};
+use crate::state::{GenesisState, IntentionEditorMode};
 
 /// Parse a hex string back to a QuestId ([u8; 16]).
 fn hex_to_quest_id(hex: &str) -> Option<[u8; 16]> {
@@ -33,25 +33,25 @@ pub fn QuestEditorOverlay(
     peer_id: Option<[u8; 32]>,
 ) -> Element {
     let s = state.read();
-    if !s.quest_editor_open {
+    if !s.intention_editor_open {
         return rsx! {};
     }
 
-    let mode = s.quest_editor_mode.clone();
-    let title = s.quest_editor_title.clone();
-    let description = s.quest_editor_description.clone();
-    let preview_mode = s.quest_editor_preview_mode;
-    let quest_id = s.quest_editor_id.clone();
+    let mode = s.intention_editor_mode.clone();
+    let title = s.intention_editor_title.clone();
+    let description = s.intention_editor_description.clone();
+    let preview_mode = s.intention_editor_preview_mode;
+    let quest_id = s.intention_editor_id.clone();
 
     // Get claims for view mode
     let claims = if let Some(ref qid) = quest_id {
         if peer_id.is_some() {
-            s.peer_realm_quests.iter()
+            s.peer_realm_intentions.iter()
                 .find(|q| &q.id == qid)
                 .map(|q| q.claims.clone())
                 .unwrap_or_default()
         } else {
-            s.quests.iter()
+            s.intentions.iter()
                 .find(|q| &q.id == qid)
                 .map(|q| q.claims.clone())
                 .unwrap_or_default()
@@ -61,20 +61,20 @@ pub fn QuestEditorOverlay(
     };
     drop(s);
 
-    let is_view = mode == QuestEditorMode::View;
-    let is_edit = mode == QuestEditorMode::Edit;
-    let is_create = mode == QuestEditorMode::Create;
+    let is_view = mode == IntentionEditorMode::View;
+    let is_edit = mode == IntentionEditorMode::Edit;
+    let is_create = mode == IntentionEditorMode::Create;
 
     let rendered_html = render_markdown_to_html(&description);
 
     let close_modal = move |_| {
         let mut s = state.write();
-        s.quest_editor_open = false;
-        s.quest_editor_id = None;
-        s.quest_editor_title.clear();
-        s.quest_editor_description.clear();
-        s.quest_editor_mode = QuestEditorMode::View;
-        s.quest_editor_preview_mode = true;
+        s.intention_editor_open = false;
+        s.intention_editor_id = None;
+        s.intention_editor_title.clear();
+        s.intention_editor_description.clear();
+        s.intention_editor_mode = IntentionEditorMode::View;
+        s.intention_editor_preview_mode = true;
     };
 
     rsx! {
@@ -99,7 +99,7 @@ pub fn QuestEditorOverlay(
                             placeholder: "Quest title...",
                             value: "{title}",
                             oninput: move |evt| {
-                                state.write().quest_editor_title = evt.value();
+                                state.write().intention_editor_title = evt.value();
                             },
                         }
                     }
@@ -112,7 +112,7 @@ pub fn QuestEditorOverlay(
                                 class: "quest-editor-toggle",
                                 onclick: move |_| {
                                     let mut s = state.write();
-                                    s.quest_editor_preview_mode = !s.quest_editor_preview_mode;
+                                    s.intention_editor_preview_mode = !s.intention_editor_preview_mode;
                                 },
                                 if preview_mode { "View Raw" } else { "View Rendered" }
                             }
@@ -120,7 +120,7 @@ pub fn QuestEditorOverlay(
                             button {
                                 class: "genesis-btn-secondary",
                                 onclick: move |_| {
-                                    state.write().quest_editor_mode = QuestEditorMode::Edit;
+                                    state.write().intention_editor_mode = IntentionEditorMode::Edit;
                                 },
                                 "Edit"
                             }
@@ -186,7 +186,7 @@ pub fn QuestEditorOverlay(
                                 placeholder: "Write the quest description in markdown...",
                                 value: "{description}",
                                 oninput: move |evt| {
-                                    state.write().quest_editor_description = evt.value();
+                                    state.write().intention_editor_description = evt.value();
                                 },
                             }
 
@@ -218,25 +218,25 @@ pub fn QuestEditorOverlay(
                                     let quest_id_val = quest_id.clone();
                                     if let Some(ref qid) = quest_id_val {
                                         let quests = if peer_id.is_some() {
-                                            state.read().peer_realm_quests.clone()
+                                            state.read().peer_realm_intentions.clone()
                                         } else {
-                                            state.read().quests.clone()
+                                            state.read().intentions.clone()
                                         };
                                         if let Some(quest) = quests.iter().find(|q| &q.id == qid) {
                                             let mut s = state.write();
-                                            s.quest_editor_title = quest.title.clone();
-                                            s.quest_editor_description = quest.description.clone();
-                                            s.quest_editor_mode = QuestEditorMode::View;
+                                            s.intention_editor_title = quest.title.clone();
+                                            s.intention_editor_description = quest.description.clone();
+                                            s.intention_editor_mode = IntentionEditorMode::View;
                                         }
                                     }
                                 } else {
                                     // Cancel create, close modal
                                     let mut s = state.write();
-                                    s.quest_editor_open = false;
-                                    s.quest_editor_id = None;
-                                    s.quest_editor_title.clear();
-                                    s.quest_editor_description.clear();
-                                    s.quest_editor_mode = QuestEditorMode::View;
+                                    s.intention_editor_open = false;
+                                    s.intention_editor_id = None;
+                                    s.intention_editor_title.clear();
+                                    s.intention_editor_description.clear();
+                                    s.intention_editor_mode = IntentionEditorMode::View;
                                 }
                             },
                             "Cancel"
@@ -246,10 +246,10 @@ pub fn QuestEditorOverlay(
                             class: "genesis-btn-primary",
                             disabled: title.trim().is_empty(),
                             onclick: move |_| {
-                                let title = state.read().quest_editor_title.clone();
-                                let description = state.read().quest_editor_description.clone();
-                                let quest_id = state.read().quest_editor_id.clone();
-                                let is_create = state.read().quest_editor_mode == QuestEditorMode::Create;
+                                let title = state.read().intention_editor_title.clone();
+                                let description = state.read().intention_editor_description.clone();
+                                let quest_id = state.read().intention_editor_id.clone();
+                                let is_create = state.read().intention_editor_mode == IntentionEditorMode::Create;
 
                                 spawn(async move {
                                     let net = {
@@ -272,11 +272,11 @@ pub fn QuestEditorOverlay(
                                                 match realm.create_intention(title, description, None, my_id).await {
                                                     Ok(_) => {
                                                         let mut s = state.write();
-                                                        s.quest_editor_open = false;
-                                                        s.quest_editor_id = None;
-                                                        s.quest_editor_title.clear();
-                                                        s.quest_editor_description.clear();
-                                                        s.quest_editor_mode = QuestEditorMode::View;
+                                                        s.intention_editor_open = false;
+                                                        s.intention_editor_id = None;
+                                                        s.intention_editor_title.clear();
+                                                        s.intention_editor_description.clear();
+                                                        s.intention_editor_mode = IntentionEditorMode::View;
                                                     }
                                                     Err(e) => tracing::error!("Failed to create intention: {}", e),
                                                 }
@@ -288,11 +288,11 @@ pub fn QuestEditorOverlay(
                                                 match home.create_intention(title, description, None).await {
                                                     Ok(_) => {
                                                         let mut s = state.write();
-                                                        s.quest_editor_open = false;
-                                                        s.quest_editor_id = None;
-                                                        s.quest_editor_title.clear();
-                                                        s.quest_editor_description.clear();
-                                                        s.quest_editor_mode = QuestEditorMode::View;
+                                                        s.intention_editor_open = false;
+                                                        s.intention_editor_id = None;
+                                                        s.intention_editor_title.clear();
+                                                        s.intention_editor_description.clear();
+                                                        s.intention_editor_mode = IntentionEditorMode::View;
                                                     }
                                                     Err(e) => tracing::error!("Failed to create intention: {}", e),
                                                 }
@@ -311,7 +311,7 @@ pub fn QuestEditorOverlay(
                                                         match realm.update_intention(id_bytes, title, description).await {
                                                             Ok(_) => {
                                                                 let mut s = state.write();
-                                                                s.quest_editor_mode = QuestEditorMode::View;
+                                                                s.intention_editor_mode = IntentionEditorMode::View;
                                                             }
                                                             Err(e) => tracing::error!("Failed to update intention: {}", e),
                                                         }
@@ -323,7 +323,7 @@ pub fn QuestEditorOverlay(
                                                         match home.update_intention(id_bytes, title, description).await {
                                                             Ok(_) => {
                                                                 let mut s = state.write();
-                                                                s.quest_editor_mode = QuestEditorMode::View;
+                                                                s.intention_editor_mode = IntentionEditorMode::View;
                                                             }
                                                             Err(e) => tracing::error!("Failed to update intention: {}", e),
                                                         }

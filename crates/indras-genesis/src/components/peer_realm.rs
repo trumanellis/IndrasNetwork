@@ -13,7 +13,7 @@ use indras_ui::chat::ChatPanel;
 
 use crate::state::{
     GenesisState, GenesisStep, NoteEditorMode, NoteView,
-    QuestAttentionView, QuestClaimView, QuestEditorMode, QuestStatus, QuestView,
+    IntentionAttentionView, IntentionClaimView, IntentionEditorMode, IntentionStatus, IntentionView,
 };
 
 /// Helper to hex-encode a 16-byte ID.
@@ -66,14 +66,14 @@ async fn load_shared_realm_data(
                 // Refresh to pull latest synced state from peers
                 let _ = doc.refresh().await;
                 let data = doc.read().await;
-                let quests: Vec<QuestView> = data.intentions.iter().map(|q| {
+                let quests: Vec<IntentionView> = data.intentions.iter().map(|q| {
                     let creator_id_short: String = q.creator.iter().take(8).map(|b| format!("{:02x}", b)).collect();
                     let is_creator = q.creator == my_id;
                     let is_complete = q.completed_at_millis.is_some();
 
-                    let claims: Vec<QuestClaimView> = q.claims.iter().map(|c| {
+                    let claims: Vec<IntentionClaimView> = q.claims.iter().map(|c| {
                         let claimant_id_short: String = c.claimant.iter().take(8).map(|b| format!("{:02x}", b)).collect();
-                        QuestClaimView {
+                        IntentionClaimView {
                             claimant_id_short,
                             claimant_name: None,
                             verified: c.verified,
@@ -88,16 +88,16 @@ async fn load_shared_realm_data(
                     let verified_claim_count = q.verified_claims().len();
 
                     let status = if is_complete {
-                        QuestStatus::Completed
+                        IntentionStatus::Completed
                     } else if verified_claim_count > 0 {
-                        QuestStatus::Verified
+                        IntentionStatus::Verified
                     } else if !q.claims.is_empty() {
-                        QuestStatus::Claimed
+                        IntentionStatus::Claimed
                     } else {
-                        QuestStatus::Open
+                        IntentionStatus::Open
                     };
 
-                    QuestView {
+                    IntentionView {
                         id: hex_id(&q.id),
                         title: q.title.clone(),
                         description: q.description.clone(),
@@ -108,11 +108,11 @@ async fn load_shared_realm_data(
                         claims,
                         pending_claim_count,
                         verified_claim_count,
-                        attention: QuestAttentionView::default(),
+                        attention: IntentionAttentionView::default(),
                     }
                 }).collect();
                 drop(data);
-                state.write().peer_realm_quests = quests;
+                state.write().peer_realm_intentions = quests;
             }
 
             // Load notes (refresh to get CRDT-synced state from peers)
@@ -186,7 +186,7 @@ pub fn PeerRealmScreen(
         .peer_realm_contact_name
         .clone()
         .unwrap_or_else(|| "Contact".to_string());
-    let quests = s.peer_realm_quests.clone();
+    let quests = s.peer_realm_intentions.clone();
     let quest_count = quests.len();
     let notes = s.peer_realm_notes.clone();
     let note_count = notes.len();
@@ -214,10 +214,10 @@ pub fn PeerRealmScreen(
                     onclick: move |_| {
                         // Clear peer realm state when leaving
                         let mut s = state.write();
-                        s.peer_realm_quests.clear();
+                        s.peer_realm_intentions.clear();
                         s.peer_realm_notes.clear();
                         s.peer_realm_artifacts.clear();
-                        s.peer_realm_claiming_quest_id = None;
+                        s.peer_realm_claiming_intention_id = None;
                         s.step = GenesisStep::HomeRealm;
                     },
                     "\u{2190} Back"
@@ -257,12 +257,12 @@ pub fn PeerRealmScreen(
                                 onclick: move |_| {
                                     // Open quest editor in Create mode
                                     let mut s = state.write();
-                                    s.quest_editor_open = true;
-                                    s.quest_editor_mode = QuestEditorMode::Create;
-                                    s.quest_editor_id = None;
-                                    s.quest_editor_title.clear();
-                                    s.quest_editor_description.clear();
-                                    s.quest_editor_preview_mode = true;
+                                    s.intention_editor_open = true;
+                                    s.intention_editor_mode = IntentionEditorMode::Create;
+                                    s.intention_editor_id = None;
+                                    s.intention_editor_title.clear();
+                                    s.intention_editor_description.clear();
+                                    s.intention_editor_preview_mode = true;
                                 },
                                 "+ New Quest"
                             }
@@ -384,7 +384,7 @@ pub fn PeerRealmScreen(
 
 /// Render a shared quest item with claims and verification.
 fn render_shared_quest_item(
-    quest: &QuestView,
+    quest: &IntentionView,
     mut state: Signal<GenesisState>,
     network: Signal<Option<Arc<IndrasNetwork>>>,
     peer_id: [u8; 32],
@@ -404,20 +404,20 @@ fn render_shared_quest_item(
     let verified_count = quest.verified_claim_count;
     let is_creator = quest.is_creator;
 
-    let showing_claim_form = state.read().peer_realm_claiming_quest_id.as_ref() == Some(&quest_id);
+    let showing_claim_form = state.read().peer_realm_claiming_intention_id.as_ref() == Some(&quest_id);
 
     let status_badge = match status {
-        QuestStatus::Open => "Open",
-        QuestStatus::Claimed => "Claimed",
-        QuestStatus::Verified => "Verified",
-        QuestStatus::Completed => "Complete",
+        IntentionStatus::Open => "Open",
+        IntentionStatus::Claimed => "Claimed",
+        IntentionStatus::Verified => "Verified",
+        IntentionStatus::Completed => "Complete",
     };
 
     let status_class = match status {
-        QuestStatus::Open => "quest-status-open",
-        QuestStatus::Claimed => "quest-status-claimed",
-        QuestStatus::Verified => "quest-status-verified",
-        QuestStatus::Completed => "quest-status-complete",
+        IntentionStatus::Open => "quest-status-open",
+        IntentionStatus::Claimed => "quest-status-claimed",
+        IntentionStatus::Verified => "quest-status-verified",
+        IntentionStatus::Completed => "quest-status-complete",
     };
 
     rsx! {
@@ -457,12 +457,12 @@ fn render_shared_quest_item(
                 onclick: move |_| {
                     // Open quest editor in View mode
                     let mut s = state.write();
-                    s.quest_editor_open = true;
-                    s.quest_editor_mode = QuestEditorMode::View;
-                    s.quest_editor_id = Some(quest_id_for_click.clone());
-                    s.quest_editor_title = title_for_click.clone();
-                    s.quest_editor_description = description_for_click.clone();
-                    s.quest_editor_preview_mode = true;
+                    s.intention_editor_open = true;
+                    s.intention_editor_mode = IntentionEditorMode::View;
+                    s.intention_editor_id = Some(quest_id_for_click.clone());
+                    s.intention_editor_title = title_for_click.clone();
+                    s.intention_editor_description = description_for_click.clone();
+                    s.intention_editor_preview_mode = true;
                 },
 
                 div {
@@ -496,7 +496,7 @@ fn render_shared_quest_item(
                             button {
                                 class: "genesis-btn-secondary quest-claim-btn",
                                 onclick: move |_| {
-                                    state.write().peer_realm_claiming_quest_id = Some(quest_id_for_claim.clone());
+                                    state.write().peer_realm_claiming_intention_id = Some(quest_id_for_claim.clone());
                                 },
                                 "Submit Claim"
                             }
@@ -532,7 +532,7 @@ fn render_shared_quest_item(
                                             if let Ok(realm) = get_peer_realm(net, my_id, peer_id) {
                                                 if let Some(id_bytes) = hex_to_quest_id(&qid) {
                                                     if let Ok(_idx) = realm.submit_service_claim(id_bytes, my_id, None).await {
-                                                        state.write().peer_realm_claiming_quest_id = None;
+                                                        state.write().peer_realm_claiming_intention_id = None;
                                                         state.write().peer_realm_claim_proof_text.clear();
                                                         load_shared_realm_data(net, peer_id, &mut state).await;
                                                     }
@@ -546,7 +546,7 @@ fn render_shared_quest_item(
                             button {
                                 class: "genesis-btn-secondary",
                                 onclick: move |_| {
-                                    state.write().peer_realm_claiming_quest_id = None;
+                                    state.write().peer_realm_claiming_intention_id = None;
                                     state.write().peer_realm_claim_proof_text.clear();
                                 },
                                 "Cancel"
@@ -561,7 +561,7 @@ fn render_shared_quest_item(
 
 /// Render a quest claim for shared realm.
 fn render_shared_quest_claim(
-    claim: &QuestClaimView,
+    claim: &IntentionClaimView,
     claim_index: usize,
     quest_id: &str,
     is_creator: bool,

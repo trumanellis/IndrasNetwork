@@ -39,6 +39,25 @@ A complete reference for building peer-to-peer applications with `indras-network
 
 ## Getting Started
 
+### Crate Hierarchy
+
+Indras Network is organized in layers. As an application developer you almost always want the
+top-most layer:
+
+| Crate | Role | Use when… |
+|---|---|---|
+| `indras-sync-engine` | Domain logic (Intentions, Blessings, Tokens) | You need high-level collaboration primitives |
+| `indras-network` | **SDK — start here** | Building any P2P application |
+| `indras-node` | Infrastructure (transport, storage, crypto) | Custom node configs or embedding without domain types |
+| `indras-core` | Shared traits and primitives | Writing crates that extend the stack |
+
+Add to your `Cargo.toml`:
+
+```toml
+[dependencies]
+indras-network = { path = "..." }
+```
+
 ### The Simplest Thing That Works
 
 ```rust

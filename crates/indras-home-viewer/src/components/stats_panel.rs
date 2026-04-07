@@ -10,8 +10,8 @@ pub fn StatsPanel(state: Signal<AppState>) -> Element {
     let state_read = state.read();
 
     let notes_count = state_read.notes.active_count();
-    let quests_active = state_read.quests.active_count();
-    let quests_completed = state_read.quests.completed_count();
+    let quests_active = state_read.intentions.active_count();
+    let quests_completed = state_read.intentions.completed_count();
     let artifacts_count = state_read.artifacts.count();
     let total_size = state_read.artifacts.total_size();
 

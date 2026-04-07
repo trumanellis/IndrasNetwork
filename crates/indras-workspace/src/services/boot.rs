@@ -75,7 +75,8 @@ pub async fn run_boot_sequence() -> Result<BootResult, BootError> {
     };
 
     let player_name = nh.network.display_name()
-        .unwrap_or("Unknown").to_string();
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "Unknown".to_string());
     let player_id = nh.network.id();
 
     let now = chrono::Utc::now().timestamp_millis();

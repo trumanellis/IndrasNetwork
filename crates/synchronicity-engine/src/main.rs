@@ -9,7 +9,7 @@ const STYLES_CSS: &str = include_str!("../assets/styles.css");
 
 fn main() {
     tracing_subscriber::fmt()
-        .with_env_filter("synchronicity_engine=info,indras_network=info,indras_vault_sync=info")
+        .with_env_filter("synchronicity_engine=info,indras_network=info,indras_sync_engine::vault=info")
         .init();
 
     let name = std::env::var("INDRAS_NAME").ok();

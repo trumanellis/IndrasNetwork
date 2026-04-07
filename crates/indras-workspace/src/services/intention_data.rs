@@ -83,7 +83,7 @@ pub fn build_intention_view_data(
         "need" => IntentionKind::Need,
         "offering" => IntentionKind::Offering,
         "intention" => IntentionKind::Intention,
-        _ => IntentionKind::Quest,
+        _ => IntentionKind::Intention,
     };
 
     let steward_name = if artifact.steward == player_id {
@@ -189,7 +189,7 @@ pub fn build_intention_cards(
                 "need" => IntentionKind::Need,
                 "offering" => IntentionKind::Offering,
                 "intention" => IntentionKind::Intention,
-                _ => IntentionKind::Quest,
+                _ => IntentionKind::Intention,
             };
 
             let title = child_ref.label.as_deref().unwrap_or("Untitled").to_string();
@@ -217,7 +217,7 @@ pub fn build_intention_cards(
                 .unreleased_attention(vault, player_id)
                 .unwrap_or_default()
                 .iter()
-                .map(|w| w.duration_ms / 1000)
+                .map(|w| (w.duration_ms / 1000) as u64)
                 .sum();
             let attention_duration = if attention_secs > 0 {
                 format_duration_secs(attention_secs)
@@ -313,7 +313,7 @@ fn build_attention_peers(
     for &pid in &audience_ids {
         let windows = intention.unreleased_attention(vault, pid).unwrap_or_default();
         if !windows.is_empty() {
-            let total_ms: u64 = windows.iter().map(|w| w.duration_ms).sum();
+            let total_ms: u64 = windows.iter().map(|w| w.duration_ms as u64).sum();
             let total_secs = total_ms / 1000;
             if total_secs > max_secs { max_secs = total_secs; }
             peer_data.push((pid, windows));
@@ -323,7 +323,7 @@ fn build_attention_peers(
     // Second pass: build summaries with bar fractions
     let mut peers_summary = Vec::new();
     for (pid, windows) in &peer_data {
-        let total_ms: u64 = windows.iter().map(|w| w.duration_ms).sum();
+        let total_ms: u64 = windows.iter().map(|w| w.duration_ms as u64).sum();
         let total_secs = total_ms / 1000;
         let (name, letter, color) = peer_display_info(*pid, player_name);
         peers_summary.push(AttentionPeerSummary {
@@ -350,7 +350,7 @@ fn build_attention_items(
         AttentionItem {
             target: "This Intention".into(),
             when: format!("{}ms ago", w.start_timestamp),
-            duration: format_duration_secs(w.duration_ms / 1000),
+            duration: format_duration_secs((w.duration_ms / 1000) as u64),
         }
     }).collect()
 }

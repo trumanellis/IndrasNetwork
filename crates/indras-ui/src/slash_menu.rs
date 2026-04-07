@@ -16,10 +16,9 @@ pub enum SlashAction {
     // Tree types
     Document,
     Story,
-    Quest,
+    Intention,
     Need,
     Offering,
-    Intention,
 }
 
 impl SlashAction {
@@ -34,10 +33,9 @@ impl SlashAction {
             SlashAction::Divider => "Divider",
             SlashAction::Document => "Document",
             SlashAction::Story => "Story",
-            SlashAction::Quest => "Quest",
+            SlashAction::Intention => "Intention",
             SlashAction::Need => "Need",
             SlashAction::Offering => "Offering",
-            SlashAction::Intention => "Intention",
         }
     }
 
@@ -52,10 +50,9 @@ impl SlashAction {
             SlashAction::Divider => "Horizontal separator",
             SlashAction::Document => "New document tree",
             SlashAction::Story => "New conversation thread",
-            SlashAction::Quest => "Call to action",
+            SlashAction::Intention => "Call to action or personal aspiration",
             SlashAction::Need => "Request for help",
             SlashAction::Offering => "Gift of service",
-            SlashAction::Intention => "Personal aspiration",
         }
     }
 
@@ -70,10 +67,9 @@ impl SlashAction {
             SlashAction::Divider => "—",
             SlashAction::Document => "📄",
             SlashAction::Story => "💬",
-            SlashAction::Quest => "⚔",
+            SlashAction::Intention => "✨",
             SlashAction::Need => "🌱",
             SlashAction::Offering => "🎁",
-            SlashAction::Intention => "✨",
         }
     }
 }
@@ -102,10 +98,9 @@ pub fn SlashMenu(
     let tree_items = vec![
         SlashAction::Document,
         SlashAction::Story,
-        SlashAction::Quest,
+        SlashAction::Intention,
         SlashAction::Need,
         SlashAction::Offering,
-        SlashAction::Intention,
     ];
 
     rsx! {

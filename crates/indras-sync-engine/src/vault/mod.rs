@@ -3,12 +3,18 @@
 //! Ties together the vault-index document, file watcher, blob store,
 //! and sync-to-disk into a single ergonomic API.
 
+pub mod relay_sync;
+pub mod sync_to_disk;
+pub mod vault_document;
+pub mod vault_file;
+pub mod watcher;
+
 use crate::realm_vault::RealmVault;
-use crate::relay_sync::RelayBlobSync;
-use crate::sync_to_disk::SyncToDisk;
-use crate::vault_document::VaultFileDocument;
-use crate::vault_file::{ConflictRecord, UserId, VaultFile};
-use crate::watcher::{should_ignore, VaultWatcher};
+use relay_sync::RelayBlobSync;
+use sync_to_disk::SyncToDisk;
+use vault_document::VaultFileDocument;
+use vault_file::{ConflictRecord, UserId, VaultFile};
+use watcher::{should_ignore, VaultWatcher};
 
 use indras_network::document::Document;
 use indras_network::error::Result;
@@ -68,7 +74,7 @@ impl Vault {
         let user_id = network.node().pq_identity().user_id();
 
         // Set up relay blob sync: local relay for pulling (no peer relay yet)
-        let relay = crate::relay_sync::connect_relays(
+        let relay = relay_sync::connect_relays(
             network,
             realm.node_arc(),
             None,
@@ -103,7 +109,7 @@ impl Vault {
         let user_id = network.node().pq_identity().user_id();
 
         // Set up relay blob sync: push to creator's relay, pull from local relay
-        let relay = crate::relay_sync::connect_relays(
+        let relay = relay_sync::connect_relays(
             network,
             realm.node_arc(),
             creator_relay_addr,
@@ -139,7 +145,7 @@ impl Vault {
 
         // Start blob listener (receives blobs from peers via direct transport)
         if let Some(ref rs) = relay {
-            crate::relay_sync::start_listener_spawned(rs, Arc::clone(&blob_store));
+            relay_sync::start_listener_spawned(rs, Arc::clone(&blob_store));
         }
 
         // Create a single cached document handle for the vault index.
@@ -382,7 +388,7 @@ impl Vault {
         peer_addr: iroh::EndpointAddr,
     ) -> bool {
         if let Some(ref relay) = self.relay {
-            crate::relay_sync::add_peer_relay(relay, network, peer_addr).await
+            relay_sync::add_peer_relay(relay, network, peer_addr).await
         } else {
             false
         }

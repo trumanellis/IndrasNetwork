@@ -19,6 +19,7 @@ members = [
     "crates/indras-collaboration-viewer",
     "crates/indras-realm-viewer",
     "crates/indras-home-viewer",
+    "crates/indras-viewer-common",
     "crates/indras-ui",
     "crates/indras-genesis",
     "crates/indras-artifacts",
@@ -32,7 +33,6 @@ members = [
     "crates/indras-gift-cycle",
     "crates/indras-homepage",
     "crates/indras-relay",
-    "crates/indras-vault-sync",
     "crates/synchronicity-engine",
 ]
 
@@ -59,8 +59,8 @@ indras-network = { path = "crates/indras-network" }
 indras-sync-engine = { path = "crates/indras-sync-engine" }
 indras-artifacts = { path = "crates/indras-artifacts" }
 indras-relay = { path = "crates/indras-relay" }
-indras-vault-sync = { path = "crates/indras-vault-sync" }
 indras-homepage = { path = "crates/indras-homepage" }
+indras-viewer-common = { path = "crates/indras-viewer-common" }
 
 # Core iroh stack
 iroh = "0.95"

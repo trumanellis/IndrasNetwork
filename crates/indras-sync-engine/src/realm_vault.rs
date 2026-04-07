@@ -1,7 +1,7 @@
 //! Extension trait adding vault sync methods to Realm.
 
-use crate::vault_document::VaultFileDocument;
-use crate::vault_file::{ConflictRecord, UserId, VaultFile};
+use crate::vault::vault_document::VaultFileDocument;
+use crate::vault::vault_file::{ConflictRecord, UserId, VaultFile};
 use indras_network::document::Document;
 use indras_network::error::Result;
 use indras_network::Realm;

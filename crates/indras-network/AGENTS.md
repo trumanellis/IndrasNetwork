@@ -2,6 +2,15 @@
 
 ## Purpose
 
+> **Layer**: High-level SDK — the primary entry point for applications. Start here.
+>
+> **Crate hierarchy**: `indras-core` (traits) → `indras-node` (infrastructure) → `indras-network` (SDK) → `indras-sync-engine` (domain logic)
+>
+> `indras-network` wraps `indras-node` and adds domain types: Realm, Document, HomeRealm,
+> Contacts, and Artifacts. Extension traits from `indras-sync-engine` add further domain logic
+> (Intentions, Blessings, Tokens, etc.). Applications almost never need to depend on lower-level
+> crates directly.
+
 Single import surface for building P2P apps on Indra's Network. Wraps all lower-level crates (`indras-node`, `indras-sync`, `indras-transport`, `indras-storage`, `indras-crypto`, `indras-artifacts`) into a high-level SDK.
 
 Re-exports the entire `indras-artifacts` crate so consumers never need to depend on lower-level crates directly.

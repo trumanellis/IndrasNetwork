@@ -9,7 +9,7 @@ pub enum NavDestination {
     Artifacts,
     Contacts,
     Chat,
-    Quests,
+    Intentions,
     Settings,
 }
 
@@ -18,10 +18,9 @@ pub enum NavDestination {
 pub enum CreateAction {
     Document,
     Story,
-    Quest,
+    Intention,
     Need,
     Offering,
-    Intention,
 }
 
 /// A recently-accessed artifact for quick navigation.
@@ -46,17 +45,16 @@ pub fn NavigationSidebar(
         (NavDestination::Artifacts, "📦", "Artifacts"),
         (NavDestination::Contacts, "👤", "Contacts"),
         (NavDestination::Chat, "💬", "Chat"),
-        (NavDestination::Quests, "⚔", "Quests"),
+        (NavDestination::Intentions, "✨", "Intentions"),
         (NavDestination::Settings, "⚙", "Settings"),
     ];
 
     let create_items: Vec<(CreateAction, &str, &str)> = vec![
         (CreateAction::Document, "📄", "Document"),
         (CreateAction::Story, "💬", "Story"),
-        (CreateAction::Quest, "⚔", "Quest"),
+        (CreateAction::Intention, "✨", "Intention"),
         (CreateAction::Need, "🌱", "Need"),
         (CreateAction::Offering, "🎁", "Offering"),
-        (CreateAction::Intention, "✨", "Intention"),
     ];
 
     rsx! {

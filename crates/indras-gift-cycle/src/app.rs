@@ -600,7 +600,7 @@ pub fn GiftCycleApp() -> Element {
                     });
 
                     let quests: Vec<indras_homepage::IntentionSummary> = intentions.intentions.iter()
-                        .filter(|i| matches!(i.kind, indras_sync_engine::IntentionKind::Quest) && i.completed_at_millis.is_none() && !i.deleted)
+                        .filter(|i| matches!(i.kind, indras_sync_engine::IntentionKind::Intention) && i.completed_at_millis.is_none() && !i.deleted)
                         .map(|i| indras_homepage::IntentionSummary {
                             title: i.title.clone(),
                             kind: format!("{:?}", i.kind),

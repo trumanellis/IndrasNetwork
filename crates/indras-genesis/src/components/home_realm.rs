@@ -8,7 +8,7 @@ use indras_sync_engine::{HomeRealmIntentions, HomeRealmNotes};
 
 use indras_ui::{ArtifactDisplayInfo, ArtifactDisplayStatus, ArtifactGallery};
 
-use crate::state::{ContactView, ContactSentiment, EventDirection, GenesisState, GenesisStep, NoteView, QuestAttentionView, QuestClaimView, QuestStatus, QuestView};
+use crate::state::{ContactView, ContactSentiment, EventDirection, GenesisState, GenesisStep, NoteView, IntentionAttentionView, IntentionClaimView, IntentionStatus, IntentionView};
 
 /// Helper to hex-encode a 16-byte ID.
 fn hex_id(id: &[u8; 16]) -> String {
@@ -27,15 +27,15 @@ async fn refresh_home_realm_data(
         // Load intentions with full claim information
         if let Ok(doc) = home.intentions().await {
             let data = doc.read().await;
-            let quests: Vec<QuestView> = data.intentions.iter().map(|q| {
+            let quests: Vec<IntentionView> = data.intentions.iter().map(|q| {
                 let creator_id_short: String = q.creator.iter().take(8).map(|b| format!("{:02x}", b)).collect();
                 let is_creator = q.creator == my_id;
                 let is_complete = q.completed_at_millis.is_some();
 
                 // Build claim views
-                let claims: Vec<QuestClaimView> = q.claims.iter().map(|c| {
+                let claims: Vec<IntentionClaimView> = q.claims.iter().map(|c| {
                     let claimant_id_short: String = c.claimant.iter().take(8).map(|b| format!("{:02x}", b)).collect();
-                    QuestClaimView {
+                    IntentionClaimView {
                         claimant_id_short,
                         claimant_name: None, // TODO: resolve from contacts
                         verified: c.verified,
@@ -51,16 +51,16 @@ async fn refresh_home_realm_data(
 
                 // Determine status
                 let status = if is_complete {
-                    QuestStatus::Completed
+                    IntentionStatus::Completed
                 } else if verified_claim_count > 0 {
-                    QuestStatus::Verified
+                    IntentionStatus::Verified
                 } else if !q.claims.is_empty() {
-                    QuestStatus::Claimed
+                    IntentionStatus::Claimed
                 } else {
-                    QuestStatus::Open
+                    IntentionStatus::Open
                 };
 
-                QuestView {
+                IntentionView {
                     id: hex_id(&q.id),
                     title: q.title.clone(),
                     description: q.description.clone(),
@@ -71,11 +71,11 @@ async fn refresh_home_realm_data(
                     claims,
                     pending_claim_count,
                     verified_claim_count,
-                    attention: QuestAttentionView::default(),
+                    attention: IntentionAttentionView::default(),
                 }
             }).collect();
             drop(data);
-            state.write().quests = quests;
+            state.write().intentions = quests;
         }
 
         // Load notes
@@ -148,9 +148,9 @@ pub fn HomeRealmScreen(
         s.display_name.clone()
     };
     let member_id = s.member_id_short.clone().unwrap_or_default();
-    let quest_count = s.quests.len();
+    let quest_count = s.intentions.len();
     let note_count = s.notes.len();
-    let quests = s.quests.clone();
+    let quests = s.intentions.clone();
     let notes = s.notes.clone();
     let contacts = s.contacts.clone();
     let contact_count = s.contacts.len();
@@ -467,7 +467,7 @@ pub fn HomeRealmScreen(
 
                                         div {
                                             class: "token-info",
-                                            if let Some(ref quest) = token.source_quest_title {
+                                            if let Some(ref quest) = token.source_intention_title {
                                                 div { class: "token-source", "From: {quest}" }
                                             }
                                             if let Some(ref blesser) = token.blesser_name {
@@ -477,7 +477,7 @@ pub fn HomeRealmScreen(
                                         }
 
                                         if token.is_pledged {
-                                            if let Some(ref pledged_to) = token.pledged_quest_title {
+                                            if let Some(ref pledged_to) = token.pledged_intention_title {
                                                 span { class: "token-pledged-badge", "Pledged to: {pledged_to}" }
                                             } else {
                                                 span { class: "token-pledged-badge", "Pledged" }
@@ -610,7 +610,7 @@ pub fn HomeRealmScreen(
 
 /// Render a single quest item with claims, verification, and completion.
 fn render_quest_item(
-    quest: &QuestView,
+    quest: &IntentionView,
     mut state: Signal<GenesisState>,
     network: Signal<Option<Arc<IndrasNetwork>>>,
 ) -> Element {
@@ -627,20 +627,20 @@ fn render_quest_item(
     let is_creator = quest.is_creator;
 
     // Check if we're showing the claim form for this quest
-    let showing_claim_form = state.read().claiming_quest_id.as_ref() == Some(&quest_id);
+    let showing_claim_form = state.read().claiming_intention_id.as_ref() == Some(&quest_id);
 
     let status_badge = match status {
-        QuestStatus::Open => "Open",
-        QuestStatus::Claimed => "Claimed",
-        QuestStatus::Verified => "Verified",
-        QuestStatus::Completed => "Complete",
+        IntentionStatus::Open => "Open",
+        IntentionStatus::Claimed => "Claimed",
+        IntentionStatus::Verified => "Verified",
+        IntentionStatus::Completed => "Complete",
     };
 
     let status_class = match status {
-        QuestStatus::Open => "quest-status-open",
-        QuestStatus::Claimed => "quest-status-claimed",
-        QuestStatus::Verified => "quest-status-verified",
-        QuestStatus::Completed => "quest-status-complete",
+        IntentionStatus::Open => "quest-status-open",
+        IntentionStatus::Claimed => "quest-status-claimed",
+        IntentionStatus::Verified => "quest-status-verified",
+        IntentionStatus::Completed => "quest-status-complete",
     };
 
     rsx! {
@@ -714,7 +714,7 @@ fn render_quest_item(
                             button {
                                 class: "genesis-btn-secondary quest-claim-btn",
                                 onclick: move |_| {
-                                    state.write().claiming_quest_id = Some(quest_id_for_claim.clone());
+                                    state.write().claiming_intention_id = Some(quest_id_for_claim.clone());
                                 },
                                 "Submit Claim"
                             }
@@ -750,7 +750,7 @@ fn render_quest_item(
                                                 if let Some(id_bytes) = hex_to_quest_id(&qid) {
                                                     // Submit claim without artifact for now
                                                     if let Ok(_idx) = home.submit_service_claim(id_bytes, None).await {
-                                                        state.write().claiming_quest_id = None;
+                                                        state.write().claiming_intention_id = None;
                                                         state.write().claim_proof_text.clear();
                                                         refresh_home_realm_data(net, &mut state).await;
                                                     } else {
@@ -766,7 +766,7 @@ fn render_quest_item(
                             button {
                                 class: "genesis-btn-secondary",
                                 onclick: move |_| {
-                                    state.write().claiming_quest_id = None;
+                                    state.write().claiming_intention_id = None;
                                     state.write().claim_proof_text.clear();
                                 },
                                 "Cancel"
@@ -781,7 +781,7 @@ fn render_quest_item(
 
 /// Render a single quest claim with verify button.
 fn render_quest_claim(
-    claim: &QuestClaimView,
+    claim: &IntentionClaimView,
     claim_index: usize,
     quest_id: &str,
     is_creator: bool,
@@ -891,10 +891,10 @@ fn render_contact_item(
 
                             let mut s = state.write();
                             s.peer_realm_contact_name = contact_name;
-                            s.peer_realm_quests.clear();
+                            s.peer_realm_intentions.clear();
                             s.peer_realm_notes.clear();
                             s.peer_realm_artifacts.clear();
-                            s.peer_realm_claiming_quest_id = None;
+                            s.peer_realm_claiming_intention_id = None;
                             s.peer_realm_claim_proof_text.clear();
                             s.step = GenesisStep::PeerRealm(mid);
                         });

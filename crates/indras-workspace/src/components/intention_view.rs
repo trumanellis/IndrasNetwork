@@ -928,8 +928,7 @@ pub fn IntentionCreateOverlay(
                             class: "kind-selector",
                             {
                                 let kinds = [
-                                    (IntentionKind::Intention, "\u{1F4A1}", "Intention", "kind-intention"),
-                                    (IntentionKind::Quest, "\u{2694}", "Quest", "kind-quest"),
+                                    (IntentionKind::Intention, "\u{2728}", "Intention", "kind-intention"),
                                     (IntentionKind::Need, "\u{1F331}", "Need", "kind-need"),
                                     (IntentionKind::Offering, "\u{1F381}", "Offering", "kind-offering"),
                                 ];

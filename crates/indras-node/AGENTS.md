@@ -1,6 +1,10 @@
 # indras-node
 
-High-level P2P node coordinator that composes the full Indras Network stack into a single
+> **Layer**: Low-level infrastructure. Most applications should use `indras-network` (the SDK)
+> instead. Use `indras-node` directly only when building custom node configurations or embedding
+> the P2P stack without domain types (Realm, Document, HomeRealm, Contacts, Artifacts).
+
+Low-level P2P node coordinator that composes the full Indras Network stack into a single
 operable unit. `IndrasNode` wires together transport (iroh/QUIC), storage (redb + blobs +
 append-only logs), CRDT sync (Automerge via indras-sync), and post-quantum crypto into a
 unified API for creating interfaces, sending messages, and subscribing to events.

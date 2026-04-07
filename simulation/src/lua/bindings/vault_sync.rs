@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use indras_network::IndrasNetwork;
-use indras_vault_sync::Vault;
+use indras_sync_engine::vault::Vault;
 
 /// Lua wrapper for a P2P-synced Vault.
 ///

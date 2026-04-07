@@ -27,11 +27,9 @@ pub struct VaultFile {
     /// The user who last modified this file (PQ-derived UserId, not device MemberId).
     pub author: UserId,
     /// Tombstone: if true, this file has been deleted.
-    #[serde(default)]
     pub deleted: bool,
     /// Inline file content (for small files, syncs via CRDT).
     /// Large files use the blob store + relay path instead.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content: Option<Vec<u8>>,
 }
 

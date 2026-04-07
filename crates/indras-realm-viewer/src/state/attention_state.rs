@@ -1,6 +1,6 @@
 //! Attention tracking state
 //!
-//! Tracks member focus on quests and calculates attention rankings.
+//! Tracks member focus on intentions and calculates attention rankings.
 
 use std::collections::HashMap;
 
@@ -11,14 +11,14 @@ use crate::events::StreamEvent;
 pub struct AttentionEvent {
     pub tick: u32,
     pub member: String,
-    pub quest_id: Option<String>,
+    pub intention_id: Option<String>,
     pub timestamp_ms: i64,
 }
 
-/// Calculated attention for a quest
+/// Calculated attention for an intention
 #[derive(Clone, Debug, PartialEq)]
-pub struct QuestAttention {
-    pub quest_id: String,
+pub struct IntentionAttention {
+    pub intention_id: String,
     pub total_attention_ms: u64,
     pub by_member: HashMap<String, u64>,
     pub currently_focusing: Vec<String>,
@@ -76,7 +76,7 @@ impl AttentionState {
                 self.events.push(AttentionEvent {
                     tick: *tick,
                     member: member.clone(),
-                    quest_id: Some(quest_id.clone()),
+                    intention_id: Some(quest_id.clone()),
                     timestamp_ms: (*tick as i64) * 100,
                 });
             }
@@ -101,7 +101,7 @@ impl AttentionState {
                 self.events.push(AttentionEvent {
                     tick: *tick,
                     member: member.clone(),
-                    quest_id: None,
+                    intention_id: None,
                     timestamp_ms: (*tick as i64) * 100,
                 });
             }
@@ -110,21 +110,21 @@ impl AttentionState {
         }
     }
 
-    /// Get quests ranked by total attention
-    pub fn quests_by_attention(&self) -> Vec<QuestAttention> {
-        // Collect all quest IDs from both closed and open focus windows
-        let mut all_quest_ids: std::collections::HashSet<&str> =
+    /// Get intentions ranked by total attention
+    pub fn quests_by_attention(&self) -> Vec<IntentionAttention> {
+        // Collect all intention IDs from both closed and open focus windows
+        let mut all_intention_ids: std::collections::HashSet<&str> =
             self.attention.keys().map(|s| s.as_str()).collect();
-        for (_, (quest_id, _)) in &self.focus_start {
-            all_quest_ids.insert(quest_id.as_str());
+        for (_, (intention_id, _)) in &self.focus_start {
+            all_intention_ids.insert(intention_id.as_str());
         }
 
-        let mut result: Vec<QuestAttention> = all_quest_ids
+        let mut result: Vec<IntentionAttention> = all_intention_ids
             .iter()
-            .map(|quest_id| {
+            .map(|intention_id| {
                 let mut by_member = self
                     .attention
-                    .get(*quest_id)
+                    .get(*intention_id)
                     .cloned()
                     .unwrap_or_default();
                 let closed_total: u64 = by_member.values().sum();
@@ -132,7 +132,7 @@ impl AttentionState {
                 // Add open window durations to both total and per-member maps
                 let mut open_duration: u64 = 0;
                 for (member, (q, start)) in &self.focus_start {
-                    if q.as_str() == *quest_id {
+                    if q.as_str() == *intention_id {
                         let dur = self.current_tick.saturating_sub(*start) as u64 * 100;
                         open_duration += dur;
                         *by_member.entry(member.clone()).or_default() += dur;
@@ -143,7 +143,7 @@ impl AttentionState {
                     .current_focus
                     .iter()
                     .filter_map(|(m, q)| {
-                        if q.as_deref() == Some(*quest_id) {
+                        if q.as_deref() == Some(*intention_id) {
                             Some(m.clone())
                         } else {
                             None
@@ -151,8 +151,8 @@ impl AttentionState {
                     })
                     .collect();
 
-                QuestAttention {
-                    quest_id: quest_id.to_string(),
+                IntentionAttention {
+                    intention_id: intention_id.to_string(),
                     total_attention_ms: closed_total + open_duration,
                     by_member,
                     currently_focusing,
@@ -160,11 +160,11 @@ impl AttentionState {
             })
             .collect();
 
-        // Sort by attention (descending), then by quest_id for stability
+        // Sort by attention (descending), then by intention_id for stability
         result.sort_by(|a, b| {
             b.total_attention_ms
                 .cmp(&a.total_attention_ms)
-                .then_with(|| a.quest_id.cmp(&b.quest_id))
+                .then_with(|| a.intention_id.cmp(&b.intention_id))
         });
 
         result
@@ -198,11 +198,11 @@ impl AttentionState {
         self.current_focus.get(member).and_then(|f| f.as_ref())
     }
 
-    /// Get attention data filtered to quests the member has interacted with
-    pub fn attention_for_member(&self, member: &str) -> Vec<QuestAttention> {
+    /// Get attention data filtered to intentions the member has interacted with
+    pub fn attention_for_member(&self, member: &str) -> Vec<IntentionAttention> {
         self.quests_by_attention()
             .into_iter()
-            .filter(|qa| qa.by_member.contains_key(member) || qa.currently_focusing.contains(&member.to_string()))
+            .filter(|ia| ia.by_member.contains_key(member) || ia.currently_focusing.contains(&member.to_string()))
             .collect()
     }
 }

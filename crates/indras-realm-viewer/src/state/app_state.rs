@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::events::{StreamEvent, EventCategory};
 
-use super::{ArtifactState, AttentionState, ChatState, ContactsState, DocumentState, MemberProofDraftState, ProofFolderState, QuestState, RealmState, TokenState};
+use super::{ArtifactState, AttentionState, ChatState, ContactsState, DocumentState, IntentionState, MemberProofDraftState, ProofFolderState, RealmState, TokenState};
 
 /// Global event buffer for replay on reset
 static EVENT_BUFFER: std::sync::OnceLock<Arc<Mutex<Vec<StreamEvent>>>> = std::sync::OnceLock::new();
@@ -31,7 +31,7 @@ pub fn clear_event_buffer() {
 pub enum ActiveTab {
     #[default]
     Realms,
-    Quests,
+    Intentions,
     Attention,
     Contacts,
 }
@@ -40,7 +40,7 @@ impl ActiveTab {
     pub fn display_name(&self) -> &'static str {
         match self {
             ActiveTab::Realms => "Realms",
-            ActiveTab::Quests => "Quests",
+            ActiveTab::Intentions => "Intentions",
             ActiveTab::Attention => "Attention",
             ActiveTab::Contacts => "Contacts",
         }
@@ -49,7 +49,7 @@ impl ActiveTab {
     pub fn all() -> &'static [ActiveTab] {
         &[
             ActiveTab::Realms,
-            ActiveTab::Quests,
+            ActiveTab::Intentions,
             ActiveTab::Attention,
             ActiveTab::Contacts,
         ]
@@ -77,7 +77,7 @@ impl Default for PlaybackSettings {
 pub enum MemberScreen {
     #[default]
     Home,
-    QuestBoard,
+    IntentionBoard,
     Chat,
     ProofEditor,
     Artifacts,
@@ -91,7 +91,7 @@ impl MemberScreen {
         match self {
             MemberScreen::Home =>
                 r#"<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>"#,
-            MemberScreen::QuestBoard =>
+            MemberScreen::IntentionBoard =>
                 r#"<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>"#,
             MemberScreen::Chat =>
                 r#"<path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"/>"#,
@@ -110,7 +110,7 @@ impl MemberScreen {
     pub fn label(&self) -> &'static str {
         match self {
             MemberScreen::Home => "HOME",
-            MemberScreen::QuestBoard => "QUESTS",
+            MemberScreen::IntentionBoard => "INTENTIONS",
             MemberScreen::Chat => "CHAT",
             MemberScreen::ProofEditor => "PROOF",
             MemberScreen::Artifacts => "FILES",
@@ -123,7 +123,7 @@ impl MemberScreen {
     pub fn name(&self) -> &'static str {
         match self {
             MemberScreen::Home => "Home",
-            MemberScreen::QuestBoard => "Quest Board",
+            MemberScreen::IntentionBoard => "Intention Board",
             MemberScreen::Chat => "Chat",
             MemberScreen::ProofEditor => "Proof Editor",
             MemberScreen::Artifacts => "Artifacts",
@@ -136,7 +136,7 @@ impl MemberScreen {
     pub fn all() -> &'static [MemberScreen] {
         &[
             MemberScreen::Home,
-            MemberScreen::QuestBoard,
+            MemberScreen::IntentionBoard,
             MemberScreen::Chat,
             MemberScreen::ProofEditor,
             MemberScreen::Artifacts,
@@ -149,7 +149,7 @@ impl MemberScreen {
     pub fn tabs() -> &'static [MemberScreen] {
         &[
             MemberScreen::Home,
-            MemberScreen::QuestBoard,
+            MemberScreen::IntentionBoard,
             MemberScreen::Chat,
             MemberScreen::ProofEditor,
             MemberScreen::Artifacts,
@@ -217,7 +217,7 @@ impl LoggedEvent {
                 format!("Claim verified on {}", short_id(quest_id))
             }
             StreamEvent::QuestCompleted { quest_id, .. } => {
-                format!("Quest {} completed", short_id(quest_id))
+                format!("Intention {} completed", short_id(quest_id))
             }
             StreamEvent::AttentionSwitched { member, quest_id, .. } => {
                 format!("{} focusing on {}", member_name(member), short_id(quest_id))
@@ -226,7 +226,7 @@ impl LoggedEvent {
                 format!("{} cleared focus", member_name(member))
             }
             StreamEvent::AttentionCalculated { quest_count, .. } => {
-                format!("Calculated attention for {} quests", quest_count)
+                format!("Calculated attention for {} intentions", quest_count)
             }
             StreamEvent::RankingVerified { top_quest, .. } => {
                 format!("Ranking verified, top: {}", top_quest.as_deref().unwrap_or("none"))
@@ -261,7 +261,7 @@ impl LoggedEvent {
                 format!("{} shared {} ({} items)", member_name(member), desc, items.len())
             }
             StreamEvent::ProofSubmitted { claimant, quest_title, .. } => {
-                let title = if quest_title.is_empty() { "quest" } else { quest_title.as_str() };
+                let title = if quest_title.is_empty() { "intention" } else { quest_title.as_str() };
                 format!("{} submitted proof for {}", member_name(claimant), title)
             }
             StreamEvent::BlessingGiven { blesser, claimant, attention_millis, .. } => {
@@ -376,9 +376,9 @@ impl LoggedEvent {
 /// Statistics for a member (used in POV dashboard)
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct MemberStats {
-    pub quests_created: usize,
-    pub quests_assigned: usize,
-    pub quests_completed: usize,
+    pub intentions_created: usize,
+    pub intentions_assigned: usize,
+    pub intentions_completed: usize,
     pub realms_count: usize,
     pub contacts_count: usize,
     pub events_count: usize,
@@ -399,8 +399,8 @@ pub struct AppState {
     pub playback: PlaybackSettings,
     /// Realm tracking state
     pub realms: RealmState,
-    /// Quest tracking state
-    pub quests: QuestState,
+    /// Intention tracking state
+    pub intentions: IntentionState,
     /// Attention tracking state
     pub attention: AttentionState,
     /// Chat and blessing tracking state
@@ -474,15 +474,15 @@ impl AppState {
             }
 
             StreamEvent::QuestCreated { realm_id, .. } => {
-                self.quests.process_event(&event);
-                // Sync quest count to realm state
+                self.intentions.process_event(&event);
+                // Sync intention count to realm state
                 self.realms.increment_quest_count(realm_id);
             }
 
             StreamEvent::QuestClaimSubmitted { .. }
             | StreamEvent::QuestClaimVerified { .. }
             | StreamEvent::QuestCompleted { .. } => {
-                self.quests.process_event(&event);
+                self.intentions.process_event(&event);
             }
 
             StreamEvent::AttentionSwitched { .. }
@@ -608,14 +608,14 @@ impl AppState {
                 (member.clone(), MemberScreen::Realms, format!("renamed realm to \"{}\"", alias))
             }
             StreamEvent::QuestCreated { creator, title, .. } => {
-                let desc = if title.is_empty() { "a quest".to_string() } else { format!("\"{}\"", title) };
-                (creator.clone(), MemberScreen::QuestBoard, format!("created {}", desc))
+                let desc = if title.is_empty() { "an intention".to_string() } else { format!("\"{}\"", title) };
+                (creator.clone(), MemberScreen::IntentionBoard, format!("created {}", desc))
             }
             StreamEvent::QuestClaimSubmitted { claimant, quest_id, .. } => {
-                (claimant.clone(), MemberScreen::QuestBoard, format!("claimed {}", short_id(quest_id)))
+                (claimant.clone(), MemberScreen::IntentionBoard, format!("claimed {}", short_id(quest_id)))
             }
             StreamEvent::AttentionSwitched { member, quest_id, .. } => {
-                (member.clone(), MemberScreen::QuestBoard, format!("focusing on {}", short_id(quest_id)))
+                (member.clone(), MemberScreen::IntentionBoard, format!("focusing on {}", short_id(quest_id)))
             }
             StreamEvent::AttentionCleared { member, .. } => {
                 (member.clone(), MemberScreen::Home, "cleared focus".to_string())
@@ -656,8 +656,8 @@ impl AppState {
                 (claimant.clone(), MemberScreen::Chat, format!("submitted proof folder ({} files)", artifact_count))
             }
             StreamEvent::ProofSubmitted { claimant, quest_title, .. } => {
-                let title = if quest_title.is_empty() { "quest" } else { quest_title.as_str() };
-                (claimant.clone(), MemberScreen::QuestBoard, format!("submitted proof for {}", title))
+                let title = if quest_title.is_empty() { "intention" } else { quest_title.as_str() };
+                (claimant.clone(), MemberScreen::IntentionBoard, format!("submitted proof for {}", title))
             }
             StreamEvent::BlessingGiven { blesser, claimant, .. } => {
                 (blesser.clone(), MemberScreen::Chat, format!("blessed {}", member_name(claimant)))
@@ -666,7 +666,7 @@ impl AppState {
                 (steward.clone(), MemberScreen::Home, "received token".to_string())
             }
             StreamEvent::GratitudePledged { pledger, target_quest_id, .. } => {
-                (pledger.clone(), MemberScreen::QuestBoard, format!("pledged to {}", short_id(target_quest_id)))
+                (pledger.clone(), MemberScreen::IntentionBoard, format!("pledged to {}", short_id(target_quest_id)))
             }
             StreamEvent::GratitudeReleased { from_steward, to_steward, .. } => {
                 (from_steward.clone(), MemberScreen::Chat, format!("released to {}", member_name(to_steward)))
@@ -758,17 +758,17 @@ impl AppState {
 
     /// Get statistics for a specific member
     pub fn stats_for_member(&self, member: &str) -> MemberStats {
-        let quests_created = self.quests.quests.values()
-            .filter(|q| q.creator == member)
+        let intentions_created = self.intentions.intentions.values()
+            .filter(|i| i.creator == member)
             .count();
 
-        let quests_assigned = self.quests.quests.values()
-            .filter(|q| q.claims.iter().any(|c| c.claimant == member))
+        let intentions_assigned = self.intentions.intentions.values()
+            .filter(|i| i.claims.iter().any(|c| c.claimant == member))
             .count();
 
-        let quests_completed = self.quests.quests.values()
-            .filter(|q| q.status == super::QuestStatus::Completed &&
-                   (q.creator == member || q.claims.iter().any(|c| c.claimant == member)))
+        let intentions_completed = self.intentions.intentions.values()
+            .filter(|i| i.status == super::IntentionStatus::Completed &&
+                   (i.creator == member || i.claims.iter().any(|c| c.claimant == member)))
             .count();
 
         let realms_count = self.realms.realms_for_member(member).len();
@@ -784,9 +784,9 @@ impl AppState {
         let tokens_available_value = self.tokens.available_value_for_member(member);
 
         MemberStats {
-            quests_created,
-            quests_assigned,
-            quests_completed,
+            intentions_created,
+            intentions_assigned,
+            intentions_completed,
             realms_count,
             contacts_count,
             events_count,
@@ -814,13 +814,13 @@ impl AppState {
 
         let members = self.all_members().len();
         let realms = self.realms.realm_count();
-        let total_quests = self.quests.total_quests();
-        let completed = self.quests.count_by_status(super::QuestStatus::Completed);
-        let claimed = self.quests.count_by_status(super::QuestStatus::Claimed);
+        let total_intentions = self.intentions.total_intentions();
+        let completed = self.intentions.count_by_status(super::IntentionStatus::Completed);
+        let claimed = self.intentions.count_by_status(super::IntentionStatus::Claimed);
         let blessings = self.chat.total_blessings;
         let tokens = self.tokens.total_tokens();
         let pledged = self.tokens.total_pledged();
-        let bounty_quests = self.tokens.quests_with_bounties();
+        let bounty_intentions = self.tokens.quests_with_bounties();
         let recycled = self.tokens.recycled_tokens();
         let blocked_count: usize = self.contacts.blocked.values()
             .map(|s| s.len()).sum();
@@ -835,7 +835,7 @@ impl AppState {
         let recent_has_type = |t: &str| recent.iter().any(|(_, name)| *name == t);
 
         // Choose narrative based on community phase and recent activity
-        // Priority: conflict > token lifecycle > blessings > quests > community
+        // Priority: conflict > token lifecycle > blessings > intentions > community
 
         if blocked_count > 0 && recent_has_cat(EventCategory::Contacts) {
             // Immune response / conflict phase
@@ -855,13 +855,13 @@ impl AppState {
             // Pledge withdrawn — redirection
             "A pledge is reconsidered — gratitude seeks a new purpose"
         } else if recent_has_type("gratitude_pledged") {
-            // Tokens pledged as bounties on new quests
-            return if bounty_quests > 1 {
-                format!("Gratitude recycles — tokens stake bounties across {} quests", bounty_quests)
+            // Tokens pledged as bounties on new intentions
+            return if bounty_intentions > 1 {
+                format!("Gratitude recycles — tokens stake bounties across {} intentions", bounty_intentions)
             } else if pledged > 1 {
-                "Tokens of gratitude pool together, forming a bounty on a shared quest".into()
+                "Tokens of gratitude pool together, forming a bounty on a shared intention".into()
             } else {
-                "A token of gratitude is pledged as bounty — past work fuels future quests".into()
+                "A token of gratitude is pledged as bounty — past work fuels future intentions".into()
             };
         } else if recent_has_type("token_minted") {
             // Fresh tokens minted from blessings
@@ -874,7 +874,7 @@ impl AppState {
             };
         } else if recycled > 0 && tokens > 3 {
             // Background state: tokens have been recycled even if not the latest event
-            return format!("{} tokens circulate, {} recycled through new quests — gratitude compounds", tokens, recycled);
+            return format!("{} tokens circulate, {} recycled through new intentions — gratitude compounds", tokens, recycled);
         } else if blessings > 0 && recent_has_cat(EventCategory::Blessing) {
             // Blessings without tokens yet, or proof submissions
             if blessings > 3 {
@@ -883,25 +883,25 @@ impl AppState {
                 "Trust builds as members begin to bless each other's contributions"
             }
         } else if completed > 0 {
-            // Quests completing
-            let ratio = completed as f64 / total_quests.max(1) as f64;
+            // Intentions completing
+            let ratio = completed as f64 / total_intentions.max(1) as f64;
             if ratio > 0.5 {
                 "A thriving network — shared purpose bears fruit across the community"
             } else {
-                "Momentum builds as the first quests reach completion"
+                "Momentum builds as the first intentions reach completion"
             }
         } else if claimed > 0 && recent_has_cat(EventCategory::Quest) {
-            // Active quest work
-            "Collaboration deepens as members take on quests and focus their attention"
-        } else if total_quests > 0 && recent_has_cat(EventCategory::Attention) {
+            // Active intention work
+            "Collaboration deepens as members take on intentions and focus their attention"
+        } else if total_intentions > 0 && recent_has_cat(EventCategory::Attention) {
             // Attention being directed
             "Members turn their attention to the work that matters most"
-        } else if total_quests > 0 {
-            // Quests emerging
-            if total_quests == 1 {
-                "The first quest appears — a shared purpose begins to take shape"
+        } else if total_intentions > 0 {
+            // Intentions emerging
+            if total_intentions == 1 {
+                "The first intention appears — a shared purpose begins to take shape"
             } else {
-                "Quests emerge as the community discovers what it wants to build together"
+                "Intentions emerge as the community discovers what it wants to build together"
             }
         } else if members > 2 && realms > 0 {
             // Community forming with multiple members

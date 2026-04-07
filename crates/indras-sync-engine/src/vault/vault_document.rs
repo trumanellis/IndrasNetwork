@@ -3,7 +3,7 @@
 //! Merge strategy: set-union by path key with per-file LWW by `modified_ms`.
 //! Concurrent edits within `CONFLICT_WINDOW_MS` create conflict records.
 
-use crate::vault_file::{ConflictRecord, UserId, VaultFile, CONFLICT_WINDOW_MS};
+use super::vault_file::{ConflictRecord, UserId, VaultFile, CONFLICT_WINDOW_MS};
 use indras_network::document::DocumentSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -179,7 +179,7 @@ impl VaultFileDocument {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vault_file::VaultFile;
+    use super::super::vault_file::VaultFile;
 
     fn member_a() -> UserId {
         [1u8; 32]
@@ -197,6 +197,7 @@ mod tests {
             modified_ms,
             author,
             deleted: false,
+            content: None,
         }
     }
 

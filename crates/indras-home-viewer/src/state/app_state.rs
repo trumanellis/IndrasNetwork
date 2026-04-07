@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 
 use crate::events::HomeRealmEvent;
 
-use super::{ArtifactsState, NotesState, QuestsState, SessionState, SessionStatus, SyncStatus};
+use super::{ArtifactsState, IntentionsState, NotesState, SessionState, SessionStatus, SyncStatus};
 
 /// Maximum number of activity events to keep.
 const MAX_ACTIVITY_EVENTS: usize = 50;
@@ -37,7 +37,7 @@ pub struct ActivityEvent {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActivityEventType {
     Note,
-    Quest,
+    Intention,
     Artifact,
     Session,
     Sync,
@@ -56,7 +56,7 @@ impl ActivityEvent {
 
             HomeRealmEvent::HomeQuestCreated { .. }
             | HomeRealmEvent::HomeQuestCompleted { .. } => {
-                (ActivityEventType::Quest, event.description())
+                (ActivityEventType::Intention, event.description())
             }
 
             HomeRealmEvent::ArtifactUploaded { .. }
@@ -110,8 +110,8 @@ pub struct AppState {
     /// Notes state.
     pub notes: NotesState,
 
-    /// Quests state.
-    pub quests: QuestsState,
+    /// Intentions state.
+    pub intentions: IntentionsState,
 
     /// Artifacts state.
     pub artifacts: ArtifactsState,
@@ -143,7 +143,7 @@ impl AppState {
             selected_member: None,
             playback: PlaybackSettings::default(),
             notes: NotesState::new(),
-            quests: QuestsState::new(),
+            intentions: IntentionsState::new(),
             artifacts: ArtifactsState::new(),
             session: SessionState::new(),
             activity_log: VecDeque::with_capacity(MAX_ACTIVITY_EVENTS),
@@ -183,7 +183,7 @@ impl AppState {
 
         // Dispatch to sub-states
         self.notes.process_event(&event);
-        self.quests.process_event(&event);
+        self.intentions.process_event(&event);
         self.artifacts.process_event(&event);
         self.session.process_event(&event);
 
@@ -204,7 +204,7 @@ impl AppState {
     pub fn reset(&mut self) {
         self.tick = 0;
         self.notes.reset();
-        self.quests.reset();
+        self.intentions.reset();
         self.artifacts.reset();
         self.session.reset();
         self.activity_log.clear();

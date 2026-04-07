@@ -57,10 +57,14 @@ pub mod realm_attention;
 pub mod realm_tokens;
 pub mod realm_humanness;
 pub mod realm_proof_folders;
+pub mod realm_vault;
 
 // Extension traits on HomeRealm
 pub mod home_realm_intentions;
 pub mod home_realm_notes;
+
+// Vault sync submodule
+pub mod vault;
 
 // SyncEngine struct
 pub mod sync_engine;
@@ -144,9 +148,13 @@ pub use realm_intentions::RealmIntentions;
 pub use realm_notes::RealmNotes;
 pub use realm_chat::RealmChat;
 pub use realm_blessings::RealmBlessings;
-pub use realm_attention::{RealmAttention, WeightedQuestAttention};
+pub use realm_attention::{RealmAttention, WeightedIntentionAttention};
 pub use realm_tokens::RealmTokens;
 pub use realm_humanness::RealmHumanness;
 pub use realm_proof_folders::RealmProofFolders;
 pub use home_realm_intentions::HomeRealmIntentions;
 pub use home_realm_notes::HomeRealmNotes;
+pub use realm_vault::RealmVault;
+pub use vault::Vault as VaultSync;
+pub use vault::vault_document::VaultFileDocument;
+pub use vault::vault_file::{ConflictRecord, UserId, VaultFile, CONFLICT_WINDOW_MS};

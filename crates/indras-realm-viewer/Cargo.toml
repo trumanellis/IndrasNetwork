@@ -13,6 +13,7 @@ name = "omni-viewer"
 path = "src/omni_main.rs"
 
 [dependencies]
+indras-viewer-common = { path = "../indras-viewer-common" }
 indras-ui = { path = "../indras-ui" }
 dioxus = { version = "0.7", features = ["desktop"] }
 tokio = { version = "1", features = ["full", "sync", "rt-multi-thread", "io-std"] }

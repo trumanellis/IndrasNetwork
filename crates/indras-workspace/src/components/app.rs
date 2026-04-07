@@ -11,7 +11,8 @@ use crate::bridge::network_bridge::{NetworkHandle, create_identity};
 use crate::bridge::realm_bridge::RealmHandle;
 use crate::components::topbar::Topbar;
 use crate::components::document::DocumentView;
-use crate::components::intention_view::{IntentionView, PeerOption, IntentionCreateOverlay};
+use crate::components::intention_view::{IntentionView, PeerOption, IntentionCreateOverlay, ProofEntry, AttentionItem, AttentionPeerSummary, PledgedToken, StewardshipChainEntry, format_duration_secs};
+use crate::services::intention_data::peer_display_info;
 use crate::components::settings::SettingsView;
 use crate::components::setup::SetupView;
 use crate::components::pass_story::PassStoryOverlay;
@@ -26,7 +27,9 @@ use crate::services::realm_data::{IntentionViewData, build_intention_view, build
 use crate::services::event_subscription::subscribe_network_events;
 use crate::services::polling::{poll_contacts, check_dm_invites, join_invite, store_in_artifact_index};
 
-use indras_sync_engine::IntentionId;
+use indras_sync_engine::{IntentionId, IntentionKind};
+use indras_artifacts::Intention;
+use indras_network::member::MemberId;
 use indras_ui::{
     IdentityRow, PeerStrip,
     NavigationSidebar, NavDestination, CreateAction, RecentItem,
@@ -543,6 +546,7 @@ pub fn RootApp() -> Element {
         spawn(async move {
             let mut processed_invites = std::collections::HashSet::<String>::new();
             let mut dm_realms: std::collections::HashMap<[u8; 32], indras_network::Realm> = std::collections::HashMap::new();
+            let mut tick: u32 = 0;
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(10)).await;
                 if workspace.read().phase != AppPhase::Workspace { continue; }
@@ -648,6 +652,7 @@ pub fn RootApp() -> Element {
                 }
 
                 // Check DM chats for incoming realm invites (every ~10s)
+                let mut any_joined = false;
                 if tick % 5 == 2 {
                     let peers_snapshot = workspace.read().peers.entries.clone();
                     let my_name = vault_handle.read().as_ref().map(|vh| vh.player_name.clone()).unwrap_or_default();
@@ -657,7 +662,6 @@ pub fn RootApp() -> Element {
                         &mut processed_invites, &mut dm_realms,
                     ).await;
 
-                    let mut any_joined = false;
                     for invite in &invites {
                         if let Some(vh) = vault_handle.read().clone() {
                             if let Some((shared_realm, intention_id)) = join_invite(&net, &vh, invite).await {
@@ -791,7 +795,7 @@ pub fn RootApp() -> Element {
                                     };
 
                                     match vt {
-                                        ViewType::Settings | ViewType::MyIntentions | ViewType::Community | ViewType::Tokens => {}
+                                        ViewType::Settings | ViewType::MyIntentions | ViewType::Community | ViewType::Tokens | ViewType::Artifacts | ViewType::Chat => {}
                                         ViewType::Document => {
                                             // Load blocks from artifact references
                                             let mut blocks = Vec::new();
@@ -833,18 +837,11 @@ pub fn RootApp() -> Element {
                                             workspace.write().editor.title = label.clone();
                                         }
                                         ViewType::IntentionDetail => {
-                                            // Intention detail now loaded via on_intention_click from CRDT.
-                                            // Sidebar tree click falls through to set editor meta only.
-                                            workspace.write().editor.meta.steward_name = steward_name;
-                                            workspace.write().editor.meta.audience_count = audience_count;
-                                            workspace.write().editor.title = label.clone();
-                                        }
-                                        ViewType::Quest => {
                                             let kind = match artifact.artifact_type.as_str() {
-                                                "need" => QuestKind::Need,
-                                                "offering" => QuestKind::Offering,
-                                                "intention" => QuestKind::Intention,
-                                                _ => QuestKind::Quest,
+                                                "need" => IntentionKind::Need,
+                                                "offering" => IntentionKind::Offering,
+                                                "intention" => IntentionKind::Intention,
+                                                _ => IntentionKind::Intention,
                                             };
 
                                             // Build description from first ref with "description" label
@@ -906,6 +903,12 @@ pub fn RootApp() -> Element {
                                                         has_tokens: false,
                                                         total_token_count: 0,
                                                         total_token_duration: String::new(),
+                                                        has_proof_artifact: false,
+                                                        has_proof_folder: false,
+                                                        blessings: Vec::new(),
+                                                        total_blessed_duration: String::new(),
+                                                        is_verified: false,
+                                                        verified_ago: None,
                                                     });
                                                 }
                                                 proof_entries
@@ -1064,7 +1067,7 @@ pub fn RootApp() -> Element {
                                                 chain
                                             };
 
-                                            quest_data.set(Some(QuestViewData {
+                                            quest_data.set(Some(IntentionViewData {
                                                 kind,
                                                 title: label.clone(),
                                                 description,
@@ -1079,7 +1082,14 @@ pub fn RootApp() -> Element {
                                                 pledged_tokens,
                                                 stewardship_chain,
                                                 attention_items,
-                                                intention_id: artifact.id,
+                                                intention_id: {
+                                                    let bytes = artifact.id.bytes();
+                                                    let mut id = [0u8; 16];
+                                                    id.copy_from_slice(&bytes[..16]);
+                                                    id
+                                                },
+                                                creator: MemberId::default(),
+                                                currently_focused: Vec::new(),
                                             }));
 
                                             // Set editor meta for topbar
@@ -1250,22 +1260,21 @@ pub fn RootApp() -> Element {
                         return;
                     }
                     // Tree actions - create new tree and add to root
-                    SlashAction::Document | SlashAction::Story | SlashAction::Quest |
+                    SlashAction::Document | SlashAction::Story | SlashAction::Intention |
                     SlashAction::Need | SlashAction::Offering => {
                         let tree_type = match action {
                             SlashAction::Document => "document",
                             SlashAction::Story => "story",
-                            SlashAction::Quest => "quest",
+                            SlashAction::Intention => "intention",
                             SlashAction::Need => "need",
                             SlashAction::Offering => "offering",
-                            SlashAction::Intention => "intention",
                             _ => unreachable!(),
                         };
 
                         let label = match action {
                             SlashAction::Document => "Untitled Document",
                             SlashAction::Story => "Untitled Story",
-                            SlashAction::Quest => "Untitled Quest",
+                            SlashAction::Intention => "Untitled Intention",
                             SlashAction::Need => "Untitled Need",
                             SlashAction::Offering => "Untitled Offering",
                             _ => unreachable!(),
@@ -1531,7 +1540,10 @@ pub fn RootApp() -> Element {
             NavDestination::Contacts => {
                 workspace.write().ui.active_view = ViewType::Chat;
             }
-            NavDestination::Quests => {
+            NavDestination::Chat => {
+                workspace.write().ui.active_view = ViewType::Chat;
+            }
+            NavDestination::Intentions => {
                 workspace.write().ui.active_view = ViewType::IntentionDetail;
             }
             NavDestination::Settings => {
@@ -1545,10 +1557,9 @@ pub fn RootApp() -> Element {
         let slash = match action {
             CreateAction::Document => SlashAction::Document,
             CreateAction::Story => SlashAction::Story,
-            CreateAction::Quest => SlashAction::Quest,
+            CreateAction::Intention => SlashAction::Intention,
             CreateAction::Need => SlashAction::Need,
             CreateAction::Offering => SlashAction::Offering,
-            CreateAction::Intention => SlashAction::Intention,
         };
         on_slash_select(slash);
     };
@@ -1574,7 +1585,7 @@ pub fn RootApp() -> Element {
         ViewType::MyIntentions | ViewType::Community | ViewType::Tokens => NavDestination::Home,
         ViewType::Artifacts => NavDestination::Artifacts,
         ViewType::Chat => NavDestination::Contacts,
-        ViewType::IntentionDetail => NavDestination::Quests,
+        ViewType::IntentionDetail => NavDestination::Intentions,
         ViewType::Settings => NavDestination::Settings,
     };
 
@@ -1924,7 +1935,7 @@ pub fn RootApp() -> Element {
                                 let chat_el = if let Some(network) = net {
                                     rsx! {
                                         indras_chat::components::app::ChatLayout {
-                                            network: indras_chat::components::app::NetworkArc(network),
+                                            runtime: indras_chat::components::app::NetworkArc(network),
                                         }
                                     }
                                 } else {
@@ -2086,6 +2097,18 @@ pub fn RootApp() -> Element {
                                                     }
                                                 }
                                             }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        ViewType::Artifacts => {
+                            rsx! {
+                                div { class: "view active",
+                                    div { class: "content-scroll",
+                                        div { class: "content-body",
+                                            div { class: "doc-title", "Artifacts" }
+                                            p { class: "empty-hint", "Browse and manage your artifacts." }
                                         }
                                     }
                                 }

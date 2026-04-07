@@ -1,8 +1,8 @@
-//! Token of Gratitude system for quest bounty incentives.
+//! Token of Gratitude system for intention bounty incentives.
 //!
 //! Each blessing mints a discrete Token of Gratitude -- a persistent, transferable
 //! object with immutable provenance and a mutable steward (owner). Stewards can
-//! pledge tokens to quests as bounty incentives, then release them to proof
+//! pledge tokens to intentions as bounty incentives, then release them to proof
 //! submitters (updating the steward field). Tokens flow through the network as
 //! gratitude changes hands.
 //!
@@ -65,7 +65,7 @@ pub struct TokenOfGratitude {
     pub blessing_id: BlessingId,
     /// Who gave the blessing that minted this token.
     pub blesser: MemberId,
-    /// Quest where the original proof was submitted.
+    /// Intention where the original proof was submitted.
     pub source_intention_id: IntentionId,
     /// Who submitted the proof (original recipient).
     pub original_steward: MemberId,
@@ -76,7 +76,7 @@ pub struct TokenOfGratitude {
     pub created_at_millis: i64,
 
     // Mutable pledge state
-    /// If pledged, which quest is it pledged to.
+    /// If pledged, which intention is it pledged to.
     pub pledged_to: Option<IntentionId>,
     /// When it was pledged (None if not pledged).
     pub pledged_at_millis: Option<i64>,
@@ -97,7 +97,7 @@ pub enum TokenEvent {
         created_at_millis: i64,
         steward_chain: Vec<MemberId>,
     },
-    /// A token was pledged to a quest as bounty.
+    /// A token was pledged to an intention as bounty.
     Pledged {
         token_id: TokenOfGratitudeId,
         target_intention_id: IntentionId,
@@ -122,7 +122,7 @@ pub enum TokenError {
     TokenNotFound,
     /// Caller doesn't own the token.
     NotSteward,
-    /// Token is already pledged to a quest.
+    /// Token is already pledged to an intention.
     AlreadyPledged,
     /// Token is not pledged (can't release/withdraw).
     NotPledged,
@@ -135,7 +135,7 @@ impl std::fmt::Display for TokenError {
         match self {
             TokenError::TokenNotFound => write!(f, "Token not found"),
             TokenError::NotSteward => write!(f, "Caller does not own this token"),
-            TokenError::AlreadyPledged => write!(f, "Token is already pledged to a quest"),
+            TokenError::AlreadyPledged => write!(f, "Token is already pledged to an intention"),
             TokenError::NotPledged => write!(f, "Token is not pledged"),
             TokenError::ZeroValue => write!(f, "Cannot mint a token with zero event indices"),
         }
@@ -172,7 +172,7 @@ impl TokenOfGratitudeDocument {
     /// * `steward` - The initial owner (proof submitter / claimant)
     /// * `blessing_id` - The blessing that produced this token
     /// * `blesser` - Who gave the blessing
-    /// * `source_intention_id` - Quest where the proof was submitted
+    /// * `source_intention_id` - Intention where the proof was submitted
     /// * `event_indices` - Indices into AttentionDocument.events (the backing asset)
     ///
     /// # Returns
@@ -229,7 +229,7 @@ impl TokenOfGratitudeDocument {
         Ok(token_id)
     }
 
-    /// Pledge a token to a quest as a bounty incentive.
+    /// Pledge a token to an intention as a bounty incentive.
     ///
     /// The token must be owned by the caller and not already pledged.
     pub fn pledge(
@@ -520,16 +520,16 @@ mod tests {
     fn test_pledge_token() {
         let mut doc = TokenOfGratitudeDocument::new();
         let steward = test_member_id(1);
-        let target_quest = test_intention_id(2);
+        let target_intention = test_intention_id(2);
 
         let token_id = doc
             .mint(steward, test_blessing_id(1), test_member_id(2), test_intention_id(1), vec![0, 1])
             .unwrap();
 
-        doc.pledge(token_id, target_quest).unwrap();
+        doc.pledge(token_id, target_intention).unwrap();
 
         let token = doc.find(&token_id).unwrap();
-        assert_eq!(token.pledged_to, Some(target_quest));
+        assert_eq!(token.pledged_to, Some(target_intention));
         assert!(token.pledged_at_millis.is_some());
     }
 
@@ -537,15 +537,15 @@ mod tests {
     fn test_double_pledge_rejected() {
         let mut doc = TokenOfGratitudeDocument::new();
         let steward = test_member_id(1);
-        let quest_a = test_intention_id(2);
-        let quest_b = test_intention_id(3);
+        let intention_a = test_intention_id(2);
+        let intention_b = test_intention_id(3);
 
         let token_id = doc
             .mint(steward, test_blessing_id(1), test_member_id(2), test_intention_id(1), vec![0])
             .unwrap();
 
-        doc.pledge(token_id, quest_a).unwrap();
-        let result = doc.pledge(token_id, quest_b);
+        doc.pledge(token_id, intention_a).unwrap();
+        let result = doc.pledge(token_id, intention_b);
         assert_eq!(result, Err(TokenError::AlreadyPledged));
     }
 
@@ -554,13 +554,13 @@ mod tests {
         let mut doc = TokenOfGratitudeDocument::new();
         let steward = test_member_id(1);
         let new_steward = test_member_id(3);
-        let target_quest = test_intention_id(2);
+        let target_intention = test_intention_id(2);
 
         let token_id = doc
             .mint(steward, test_blessing_id(1), test_member_id(2), test_intention_id(1), vec![0, 1])
             .unwrap();
 
-        doc.pledge(token_id, target_quest).unwrap();
+        doc.pledge(token_id, target_intention).unwrap();
         doc.release(token_id, new_steward).unwrap();
 
         let token = doc.find(&token_id).unwrap();
@@ -587,13 +587,13 @@ mod tests {
     fn test_withdraw_token() {
         let mut doc = TokenOfGratitudeDocument::new();
         let steward = test_member_id(1);
-        let target_quest = test_intention_id(2);
+        let target_intention = test_intention_id(2);
 
         let token_id = doc
             .mint(steward, test_blessing_id(1), test_member_id(2), test_intention_id(1), vec![0])
             .unwrap();
 
-        doc.pledge(token_id, target_quest).unwrap();
+        doc.pledge(token_id, target_intention).unwrap();
         doc.withdraw(token_id).unwrap();
 
         let token = doc.find(&token_id).unwrap();
@@ -676,25 +676,25 @@ mod tests {
         let steward_b = test_member_id(3); // Second recipient
         let steward_c = test_member_id(4); // Third recipient
 
-        let quest_a = test_intention_id(1);
-        let quest_b = test_intention_id(2);
-        let quest_c = test_intention_id(3);
+        let intention_a = test_intention_id(1);
+        let intention_b = test_intention_id(2);
+        let intention_c = test_intention_id(3);
 
         // Mint to A
         let token_id = doc
-            .mint(steward_a, test_blessing_id(1), test_member_id(2), quest_a, vec![0, 1])
+            .mint(steward_a, test_blessing_id(1), test_member_id(2), intention_a, vec![0, 1])
             .unwrap();
 
-        // A pledges to quest B, releases to B
-        doc.pledge(token_id, quest_b).unwrap();
+        // A pledges to intention B, releases to B
+        doc.pledge(token_id, intention_b).unwrap();
         doc.release(token_id, steward_b).unwrap();
 
         let token = doc.find(&token_id).unwrap();
         assert_eq!(token.steward, steward_b);
         assert_eq!(token.original_steward, steward_a); // Provenance preserved
 
-        // B pledges to quest C, releases to C
-        doc.pledge(token_id, quest_c).unwrap();
+        // B pledges to intention C, releases to C
+        doc.pledge(token_id, intention_c).unwrap();
         doc.release(token_id, steward_c).unwrap();
 
         let token = doc.find(&token_id).unwrap();

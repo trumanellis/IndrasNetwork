@@ -18,6 +18,12 @@ indras-storage = { path = "../indras-storage" }
 indras-transport = { path = "../indras-transport" }
 indras-crypto = { path = "../indras-crypto" }
 indras-artifacts.workspace = true
+indras-relay = { path = "../indras-relay" }
+
+notify = { version = "7", features = ["macos_fsevent"] }
+dashmap = "6.0"
+iroh.workspace = true
+ed25519-dalek.workspace = true
 
 # Async runtime
 tokio = { workspace = true, features = ["sync"] }
