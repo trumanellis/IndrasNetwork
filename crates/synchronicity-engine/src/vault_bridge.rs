@@ -16,13 +16,20 @@ use crate::state::{AppState, AppStep, FileView, LoadingStage, SyncStatus, defaul
 /// HelloWorld.md content seeded into new vaults.
 const HELLO_WORLD: &str = include_str!("../assets/HelloWorld.md");
 
-/// Ensure the vault directory exists and seed HelloWorld.md if empty.
+/// Ensure the vault directory exists, initialize as Obsidian vault, and seed HelloWorld.md.
 ///
-/// Called for returning users who skip the creation flow.
+/// Called for returning users who skip the creation flow, and after account creation.
 pub fn ensure_vault_ready(vault_path: &std::path::Path) {
     if let Err(e) = std::fs::create_dir_all(vault_path) {
         tracing::warn!("Failed to create vault directory: {e}");
         return;
+    }
+    // Initialize .obsidian directory so Obsidian recognizes this as a vault
+    let obsidian_dir = vault_path.join(".obsidian");
+    if !obsidian_dir.exists() {
+        if let Err(e) = std::fs::create_dir_all(&obsidian_dir) {
+            tracing::warn!("Failed to create .obsidian directory: {e}");
+        }
     }
     let hello_path = vault_path.join("HelloWorld.md");
     if !hello_path.exists() {
@@ -115,18 +122,8 @@ pub async fn create_account(
         LoadingStage::InProgress("Creating vault...".into()),
     ];
 
-    // Stage 3: Create vault directory and seed HelloWorld.md
-    if let Err(e) = std::fs::create_dir_all(&vault_path) {
-        state.write().error = Some(format!("Failed to create vault directory: {e}"));
-        return;
-    }
-
-    let hello_path = vault_path.join("HelloWorld.md");
-    if !hello_path.exists() {
-        if let Err(e) = std::fs::write(&hello_path, HELLO_WORLD) {
-            tracing::warn!("Failed to write HelloWorld.md: {e}");
-        }
-    }
+    // Stage 3: Create vault directory, init Obsidian, seed HelloWorld.md
+    ensure_vault_ready(&vault_path);
 
     state.write().loading_stages = vec![
         LoadingStage::Done("Identity created".into()),
