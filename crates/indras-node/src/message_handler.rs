@@ -184,6 +184,14 @@ pub struct EventAckMessage {
 
 /// Background message handler
 pub struct MessageHandler {
+    /// Shared dispatch state (cheap to clone for spawned tasks).
+    inner: Arc<MessageHandlerInner>,
+    /// Shutdown signal
+    shutdown_rx: broadcast::Receiver<()>,
+}
+
+/// Inner state shared across concurrent message-handling tasks.
+struct MessageHandlerInner {
     /// Our identity (reserved for future use)
     #[allow(dead_code)]
     local_identity: IrohIdentity,
@@ -200,14 +208,9 @@ pub struct MessageHandler {
     /// Node-level event log for audit trail
     node_log: Arc<NodeLog>,
     /// Whether to allow unsigned (legacy) messages
-    ///
-    /// When false, unsigned messages will be rejected with an error.
-    /// Set to false in production to enforce PQ signatures.
     allow_legacy_unsigned: bool,
     /// Channel to request immediate sync when membership changes
     sync_now_tx: Option<mpsc::Sender<InterfaceId>>,
-    /// Shutdown signal
-    shutdown_rx: broadcast::Receiver<()>,
 }
 
 impl MessageHandler {
@@ -230,15 +233,17 @@ impl MessageHandler {
         shutdown_rx: broadcast::Receiver<()>,
     ) -> Self {
         Self {
-            local_identity,
-            interface_keys,
-            interfaces,
-            storage,
-            transport,
-            pq_identity,
-            node_log,
-            allow_legacy_unsigned,
-            sync_now_tx,
+            inner: Arc::new(MessageHandlerInner {
+                local_identity,
+                interface_keys,
+                interfaces,
+                storage,
+                transport,
+                pq_identity,
+                node_log,
+                allow_legacy_unsigned,
+                sync_now_tx,
+            }),
             shutdown_rx,
         }
     }
@@ -280,7 +285,11 @@ impl MessageHandler {
         })
     }
 
-    /// Run the message handler loop
+    /// Run the message handler loop.
+    ///
+    /// Each incoming message is dispatched to a spawned task so that
+    /// write-lock contention on one interface doesn't block message
+    /// processing for other interfaces.
     async fn run(mut self, mut message_rx: tokio::sync::mpsc::Receiver<(IrohIdentity, Vec<u8>)>) {
         info!("Message handler started");
 
@@ -291,31 +300,34 @@ impl MessageHandler {
                     break;
                 }
                 Some((sender, data)) = message_rx.recv() => {
-                    if let Err(e) = self.handle_message(sender, data).await {
-                        // UnknownInterface is common during startup/shutdown
-                        // when peers send to interfaces we haven't loaded yet
-                        match &e {
-                            MessageError::UnknownInterface(_) => {
-                                debug!(error = %e, "Ignoring message for unknown interface");
-                            }
-                            MessageError::Decryption(_) => {
-                                // Log sender so we can diagnose key mismatches
-                                warn!(
-                                    error = %e,
-                                    sender = %sender.short_id(),
-                                    "Decryption failed (likely key mismatch)"
-                                );
-                            }
-                            _ => {
-                                error!(error = %e, "Failed to handle message");
+                    let inner = Arc::clone(&self.inner);
+                    tokio::spawn(async move {
+                        if let Err(e) = inner.handle_message(sender, data).await {
+                            match &e {
+                                MessageError::UnknownInterface(_) => {
+                                    debug!(error = %e, "Ignoring message for unknown interface");
+                                }
+                                MessageError::Decryption(_) => {
+                                    warn!(
+                                        error = %e,
+                                        sender = %sender.short_id(),
+                                        "Decryption failed (likely key mismatch)"
+                                    );
+                                }
+                                _ => {
+                                    error!(error = %e, "Failed to handle message");
+                                }
                             }
                         }
-                    }
+                    });
                 }
             }
         }
     }
 
+}
+
+impl MessageHandlerInner {
     /// Handle an incoming message
     ///
     /// Supports both signed (PQ) and unsigned (legacy) messages during transition.

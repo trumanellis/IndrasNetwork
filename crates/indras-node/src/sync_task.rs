@@ -33,6 +33,11 @@ use crate::message_handler::{
 /// Maximum number of events to batch in a single delivery cycle per peer.
 const EVENT_BATCH_SIZE: usize = 50;
 
+/// Maximum time to spend syncing a single interface before moving on.
+/// Prevents one slow interface (stalled peer, contended lock) from
+/// starving Document listeners on other interfaces.
+const INTERFACE_SYNC_TIMEOUT: Duration = Duration::from_secs(3);
+
 /// Duration after which a peer is considered potentially offline.
 const PEER_TIMEOUT_WARN: Duration = Duration::from_secs(300); // 5 minutes
 
@@ -243,19 +248,29 @@ impl SyncTask {
         let interfaces = Arc::clone(&self.interfaces);
         let state = match interfaces.get(&interface_id) {
             Some(s) => s,
-            None => return Ok(()), // Interface not loaded, nothing to sync
+            None => return Ok(()),
         };
 
-        // Reset backoff for all peers in this interface so the immediate sync goes through
-        let mut interface = state.interface.write().await;
-        let members: Vec<IrohIdentity> = interface.members().into_iter().collect();
-        for member in &members {
-            if let Some(ds) = self.delivery_states.get_mut(member) {
-                ds.consecutive_failures = 0;
+        // Reset backoff, then sync with timeout
+        match tokio::time::timeout(INTERFACE_SYNC_TIMEOUT, async {
+            let mut interface = state.interface.write().await;
+            let members: Vec<IrohIdentity> = interface.members().into_iter().collect();
+            for member in &members {
+                if let Some(ds) = self.delivery_states.get_mut(member) {
+                    ds.consecutive_failures = 0;
+                }
+            }
+            self.sync_interface_inner(interface_id, &mut *interface).await
+        }).await {
+            Ok(result) => result,
+            Err(_) => {
+                debug!(
+                    interface = %hex::encode(interface_id.as_bytes()),
+                    "Immediate sync timeout, will retry next cycle"
+                );
+                Ok(())
             }
         }
-
-        self.sync_interface_inner(interface_id, &mut *interface).await
     }
 
     /// Sync all interfaces with their members
@@ -274,14 +289,27 @@ impl SyncTask {
                 None => continue,
             };
 
-            let mut interface = state.interface.write().await;
-
-            if let Err(e) = self.sync_interface_inner(interface_id, &mut *interface).await {
-                warn!(
-                    interface = %hex::encode(interface_id.as_bytes()),
-                    error = %e,
-                    "Failed to sync interface"
-                );
+            // Timeout the write-lock acquisition + sync to prevent one slow
+            // interface from holding the lock and starving Document listeners
+            // on other interfaces from draining their broadcast channels.
+            match tokio::time::timeout(INTERFACE_SYNC_TIMEOUT, async {
+                let mut interface = state.interface.write().await;
+                self.sync_interface_inner(interface_id, &mut *interface).await
+            }).await {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => {
+                    warn!(
+                        interface = %hex::encode(interface_id.as_bytes()),
+                        error = %e,
+                        "Failed to sync interface"
+                    );
+                }
+                Err(_) => {
+                    debug!(
+                        interface = %hex::encode(interface_id.as_bytes()),
+                        "Sync timeout for interface, moving on"
+                    );
+                }
             }
         }
 
