@@ -12,7 +12,7 @@ pub fn VaultColumns(state: Signal<AppState>) -> Element {
     rsx! {
         div { class: "vault-columns",
             PrivateColumn { state }
-            RealmColumn { state, category: RealmCategory::Dm, label: "DIRECT" }
+            RealmColumn { state, category: RealmCategory::Dm, label: "CONNECTIONS" }
             RealmColumn { state, category: RealmCategory::Group, label: "GROUPS" }
             RealmColumn { state, category: RealmCategory::Public, label: "PUBLIC" }
         }

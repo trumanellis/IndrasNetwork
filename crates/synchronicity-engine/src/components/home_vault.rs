@@ -1,13 +1,15 @@
-//! Main vault view — 4-column realm layout with file modal.
+//! Main vault view — 4-column realm layout with file modal and contact management.
 //!
 //! Uses `notify` filesystem watcher for instant private vault file detection.
+//! Polls contacts realm every 2 seconds for peer updates.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use dioxus::prelude::*;
+use indras_network::IndrasNetwork;
 
-use crate::state::{AppState, ModalFile};
+use crate::state::{AppState, ModalFile, PeerDisplayInfo, PEER_COLORS};
 use crate::vault_bridge::scan_vault;
 
 /// Rescan the private vault and update state only if files changed.
@@ -54,9 +56,15 @@ fn navigate_file(mut state: Signal<AppState>, direction: i32) {
     }
 }
 
-/// Main vault view: info bar, 4-column realm layout, file modal, status bar.
+/// Main vault view: peer bar, info bar, 4-column realm layout, file modal, contact invite overlay.
 #[component]
-pub fn HomeVault(mut state: Signal<AppState>) -> Element {
+pub fn HomeVault(
+    mut state: Signal<AppState>,
+    network: Signal<Option<Arc<IndrasNetwork>>>,
+) -> Element {
+    let mut peers = use_signal(Vec::<PeerDisplayInfo>::new);
+    let mut contact_invite_open = use_signal(|| false);
+
     // Initial scan + filesystem watcher for private vault
     use_effect(move || {
         let vault_path = state.read().vault_path.clone();
@@ -91,6 +99,100 @@ pub fn HomeVault(mut state: Signal<AppState>) -> Element {
             }
         });
     });
+
+    // Contact polling loop — refreshes peers every 2 seconds.
+    // Adapted from indras-gift-cycle/src/app.rs:420-520.
+    use_effect(move || {
+        spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+                let Some(net) = network.read().clone() else {
+                    continue;
+                };
+
+                // Read contacts realm and build PeerDisplayInfo vec
+                if let Some(contacts_realm) = net.contacts_realm().await {
+                    if let Ok(doc) = contacts_realm.contacts().await {
+                        let _ = doc.refresh().await;
+                        let contacts_data = doc.read().await;
+                        let current_count = peers.read().len();
+
+                        if contacts_data.contacts.len() != current_count {
+                            let peer_infos: Vec<PeerDisplayInfo> = contacts_data
+                                .contacts
+                                .iter()
+                                .enumerate()
+                                .map(|(i, (mid, entry))| {
+                                    let name = entry.display_name.clone().unwrap_or_else(|| {
+                                        mid.iter().take(4).map(|b| format!("{b:02x}")).collect()
+                                    });
+                                    let letter = name.chars().next().unwrap_or('?').to_string();
+                                    let color_class = PEER_COLORS[i % PEER_COLORS.len()].to_string();
+                                    PeerDisplayInfo {
+                                        name,
+                                        letter,
+                                        color_class,
+                                        online: true,
+                                        member_id: *mid,
+                                    }
+                                })
+                                .collect();
+                            peers.set(peer_infos);
+                        }
+                    }
+                }
+
+                // Fallback: scan DM realms for peers not yet in contacts
+                let known_peers: std::collections::HashSet<_> = peers
+                    .read()
+                    .iter()
+                    .map(|p| p.name.clone())
+                    .collect();
+                for rid in net.conversation_realms() {
+                    if let Some(peer_mid) = net.dm_peer_for_realm(&rid) {
+                        let name: String = peer_mid
+                            .iter()
+                            .take(4)
+                            .map(|b| format!("{b:02x}"))
+                            .collect();
+                        if !known_peers.contains(&name)
+                            && let Some(contacts_realm) = net.contacts_realm().await
+                            && !contacts_realm.is_contact(&peer_mid).await
+                        {
+                            let _ = contacts_realm.add_contact(peer_mid).await;
+                        }
+                    }
+                }
+
+                // Proactive reconnect to ensure mutual discovery
+                for peer_info in peers.read().iter() {
+                    let _ = net.connect(peer_info.member_id).await;
+                }
+            }
+        });
+    });
+
+    // Derive player info from network for PeerBar and ContactInviteOverlay
+    let net_ref = network.read().clone();
+    let player_name = {
+        let state_name = state.read().display_name.clone();
+        if state_name.is_empty() {
+            net_ref
+                .as_ref()
+                .and_then(|n| n.display_name())
+                .unwrap_or_default()
+        } else {
+            state_name
+        }
+    };
+    let member_id = net_ref.as_ref().map(|n| n.id()).unwrap_or([0u8; 32]);
+
+    // Sync show_contact_invite from state (for DM empty state button)
+    if state.read().show_contact_invite {
+        contact_invite_open.set(true);
+        state.write().show_contact_invite = false;
+    }
 
     rsx! {
         div {
@@ -155,11 +257,24 @@ pub fn HomeVault(mut state: Signal<AppState>) -> Element {
                     _ => {}
                 }
             },
+            // Peer bar at the top
+            super::peer_bar::PeerBar {
+                player_name: player_name.clone(),
+                peers: peers.read().clone(),
+                on_add_contact: move |_| contact_invite_open.set(true),
+            }
             super::vault_info_bar::VaultInfoBar { state }
             super::vault_columns::VaultColumns { state }
             super::status_bar::StatusBar { state }
             super::file_modal::FileModal { state }
             super::context_menu::ContextMenu { state }
+            // Contact invite overlay
+            super::contact_invite::ContactInviteOverlay {
+                network: network,
+                player_name: player_name.clone(),
+                member_id: member_id,
+                is_open: contact_invite_open,
+            }
         }
     }
 }

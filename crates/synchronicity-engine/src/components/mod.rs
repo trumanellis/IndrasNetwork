@@ -13,5 +13,7 @@ mod file_item;
 mod file_modal;
 mod context_menu;
 mod status_bar;
+mod peer_bar;
+mod contact_invite;
 
 pub use app::App;

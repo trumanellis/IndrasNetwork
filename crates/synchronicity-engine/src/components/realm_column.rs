@@ -32,10 +32,20 @@ pub fn RealmColumn(
                             RealmCategory::Public => ("🌍", "Public realms will appear here"),
                             RealmCategory::Private => ("🏠", "Your private vault is empty"),
                         };
+                        let is_dm = category == RealmCategory::Dm;
                         rsx! {
                             div { class: "column-empty",
                                 div { class: "column-empty-icon", "{empty_icon}" }
                                 div { class: "column-empty-text", "{empty_text}" }
+                                if is_dm {
+                                    button {
+                                        class: "se-btn-outline se-btn-sm",
+                                        onclick: move |_| {
+                                            state.write().show_contact_invite = true;
+                                        },
+                                        "Add Contact"
+                                    }
+                                }
                             }
                         }
                     }

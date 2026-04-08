@@ -81,6 +81,24 @@ pub enum RealmCategory {
 /// A 32-byte realm identifier.
 pub type RealmId = [u8; 32];
 
+/// Display info for a connected peer in the peer bar.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PeerDisplayInfo {
+    /// Display name (from contacts or hex-truncated member ID).
+    pub name: String,
+    /// First letter of name for avatar dot.
+    pub letter: String,
+    /// CSS class for dot color (e.g. "peer-dot-sage").
+    pub color_class: String,
+    /// Whether the peer is currently online.
+    pub online: bool,
+    /// Raw 32-byte member identifier.
+    pub member_id: [u8; 32],
+}
+
+/// Rotating color classes for peer dots.
+pub const PEER_COLORS: &[&str] = &["peer-dot-sage", "peer-dot-zeph", "peer-dot-rose"];
+
 /// View model for a realm entry in the column UI.
 #[derive(Debug, Clone)]
 pub struct RealmView {
@@ -199,6 +217,8 @@ pub struct AppState {
     pub context_menu: Option<ContextMenu>,
     /// File currently being renamed (path within its realm).
     pub renaming_file: Option<String>,
+    /// Whether the contact invite overlay is open.
+    pub show_contact_invite: bool,
 }
 
 impl AppState {
@@ -223,6 +243,7 @@ impl AppState {
             pass_story_slots: Vec::new(),
             context_menu: None,
             renaming_file: None,
+            show_contact_invite: false,
         }
     }
 }

@@ -119,6 +119,10 @@ pub async fn create_account(
         state.write().error = Some(format!("Network start failed: {e}"));
         return;
     }
+    // Join contacts realm so contact polling can read it
+    if let Err(e) = net.join_contacts_realm().await {
+        tracing::warn!("Failed to join contacts realm: {e}");
+    }
 
     state.write().loading_stages = vec![
         LoadingStage::Done("Identity created".into()),
@@ -197,6 +201,10 @@ pub async fn restore_account(
     if let Err(e) = net.start().await {
         state.write().error = Some(format!("Network start failed: {e}"));
         return;
+    }
+    // Join contacts realm so contact polling can read it
+    if let Err(e) = net.join_contacts_realm().await {
+        tracing::warn!("Failed to join contacts realm: {e}");
     }
 
     state.write().loading_stages = vec![

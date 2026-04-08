@@ -42,6 +42,10 @@ pub fn App() -> Element {
                     if let Err(e) = net.start().await {
                         tracing::error!("Failed to start network: {e}");
                     }
+                    // Join contacts realm so contact polling can read it
+                    if let Err(e) = net.join_contacts_realm().await {
+                        tracing::warn!("Failed to join contacts realm: {e}");
+                    }
                     network.set(Some(net));
                     state.write().sync_status = crate::state::SyncStatus::Synced;
                 }
@@ -80,7 +84,7 @@ pub fn App() -> Element {
                 AppStep::Creating | AppStep::Restoring => {
                     rsx! { super::loading::Loading { state, network } }
                 },
-                AppStep::HomeVault => rsx! { super::home_vault::HomeVault { state } },
+                AppStep::HomeVault => rsx! { super::home_vault::HomeVault { state, network } },
             }
         }
     }
