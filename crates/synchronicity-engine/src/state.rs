@@ -96,8 +96,28 @@ pub struct RealmView {
     pub files: Vec<FileView>,
 }
 
-/// Tracks column UI selection and expansion state.
-#[derive(Debug, Clone, Default)]
+/// Field to sort files by within a column.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SortField {
+    /// Sort alphabetically by file name.
+    Name,
+    /// Sort by last modified date.
+    Date,
+    /// Sort by file size.
+    Size,
+}
+
+/// Sort direction for column file lists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SortOrder {
+    /// Ascending order (A→Z, oldest→newest, smallest→largest).
+    Asc,
+    /// Descending order (Z→A, newest→oldest, largest→smallest).
+    Desc,
+}
+
+/// Tracks column UI selection, expansion, focus, and sort state.
+#[derive(Debug, Clone)]
 pub struct VaultSelection {
     /// Set of realm IDs whose file accordions are expanded.
     pub expanded_realms: HashSet<RealmId>,
@@ -105,6 +125,38 @@ pub struct VaultSelection {
     pub selected_realm: Option<RealmId>,
     /// The currently selected file path within the selected realm.
     pub selected_file: Option<String>,
+    /// Which column currently has keyboard focus (0=Private, 1=DM, 2=Group, 3=Public).
+    pub focused_column: usize,
+    /// Field used to sort files in the focused column.
+    pub sort_field: SortField,
+    /// Sort direction for the focused column.
+    pub sort_order: SortOrder,
+}
+
+impl Default for VaultSelection {
+    fn default() -> Self {
+        Self {
+            expanded_realms: HashSet::new(),
+            selected_realm: None,
+            selected_file: None,
+            focused_column: 0,
+            sort_field: SortField::Date,
+            sort_order: SortOrder::Desc,
+        }
+    }
+}
+
+/// Context menu state shown on right-click over a file.
+#[derive(Debug, Clone)]
+pub struct ContextMenu {
+    /// Realm the file belongs to (None = private vault).
+    pub realm_id: Option<RealmId>,
+    /// Path of the file the menu was opened on.
+    pub file_path: String,
+    /// Horizontal position of the menu in logical pixels.
+    pub x: f64,
+    /// Vertical position of the menu in logical pixels.
+    pub y: f64,
 }
 
 /// Which file is open in the modal (if any).
@@ -143,6 +195,10 @@ pub struct AppState {
     pub error: Option<String>,
     /// Raw slot values from the pass story entry, stored for vault creation.
     pub pass_story_slots: Vec<String>,
+    /// Context menu state (right-click on file).
+    pub context_menu: Option<ContextMenu>,
+    /// File currently being renamed (path within its realm).
+    pub renaming_file: Option<String>,
 }
 
 impl AppState {
@@ -165,6 +221,8 @@ impl AppState {
             loading_stages: Vec::new(),
             error: None,
             pass_story_slots: Vec::new(),
+            context_menu: None,
+            renaming_file: None,
         }
     }
 }

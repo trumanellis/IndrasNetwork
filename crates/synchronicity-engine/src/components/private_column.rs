@@ -17,7 +17,10 @@ pub fn PrivateColumn(mut state: Signal<AppState>) -> Element {
             div { class: "column-header", "PRIVATE" }
             div { class: "vault-column-body",
                 if files.is_empty() {
-                    div { class: "column-empty", "No files yet" }
+                    div { class: "column-empty",
+                        div { class: "column-empty-icon", "🏠" }
+                        div { class: "column-empty-text", "Your private vault is empty" }
+                    }
                 } else {
                     for file in files {
                         {

@@ -11,6 +11,7 @@ mod private_column;
 mod realm_column;
 mod file_item;
 mod file_modal;
+mod context_menu;
 mod status_bar;
 
 pub use app::App;

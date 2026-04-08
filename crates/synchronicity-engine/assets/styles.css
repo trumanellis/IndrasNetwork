@@ -1351,6 +1351,231 @@ body > * {
 }
 
 /* ============================================================
+   BREADCRUMB PATH BAR
+   ============================================================ */
+.breadcrumb-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--dim);
+  border-bottom: 1px solid var(--bd);
+  background: var(--bg2);
+  flex-shrink: 0;
+}
+
+.breadcrumb-segment {
+  cursor: pointer;
+  color: var(--t3);
+  transition: color 150ms ease;
+}
+
+.breadcrumb-segment:hover {
+  color: var(--tx);
+}
+
+.breadcrumb-segment.active {
+  color: var(--moss-light);
+}
+
+.breadcrumb-sep {
+  color: var(--dim);
+  font-size: 9px;
+}
+
+/* ============================================================
+   FILE TYPE ICONS
+   ============================================================ */
+.file-item-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+}
+
+/* Update file-item to include icon */
+.file-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+/* ============================================================
+   EMPTY STATE ILLUSTRATIONS
+   ============================================================ */
+.column-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 40px 16px;
+  text-align: center;
+}
+
+.column-empty-icon {
+  font-size: 32px;
+  opacity: 0.4;
+}
+
+.column-empty-text {
+  font-family: var(--body);
+  font-size: 13px;
+  font-weight: 300;
+  color: var(--dim);
+  line-height: 1.6;
+}
+
+.column-empty-cta {
+  font-family: var(--display);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--moss-light);
+  cursor: pointer;
+  transition: color 150ms ease;
+}
+
+.column-empty-cta:hover {
+  color: var(--moss);
+  text-decoration: underline;
+}
+
+/* ============================================================
+   CONTEXT MENU
+   ============================================================ */
+.context-menu-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+}
+
+.context-menu {
+  position: fixed;
+  background: var(--card);
+  border: 1px solid var(--bd2);
+  border-radius: 10px;
+  padding: 4px 0;
+  min-width: 180px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  z-index: 201;
+  animation: fadeIn 0.1s var(--ease);
+}
+
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  font-family: var(--display);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--t2);
+  cursor: pointer;
+  transition: background 100ms ease;
+}
+
+.context-menu-item:hover {
+  background: var(--surface);
+  color: var(--tx);
+}
+
+.context-menu-item.danger {
+  color: var(--danger);
+}
+
+.context-menu-item.danger:hover {
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.context-menu-item-icon {
+  font-size: 14px;
+  width: 18px;
+  text-align: center;
+}
+
+.context-menu-item-shortcut {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--dim);
+  margin-left: auto;
+}
+
+.context-menu-divider {
+  height: 1px;
+  background: var(--bd);
+  margin: 4px 0;
+}
+
+/* ============================================================
+   PRESENCE DOTS
+   ============================================================ */
+.presence-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.presence-dot.online {
+  background: var(--pulse);
+  box-shadow: 0 0 4px rgba(52, 211, 153, 0.4);
+}
+
+.presence-dot.offline {
+  background: var(--dim);
+}
+
+/* ============================================================
+   SORT HEADER
+   ============================================================ */
+.column-header {
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.column-header:hover {
+  color: var(--t3);
+}
+
+.sort-indicator {
+  font-size: 9px;
+  color: var(--t3);
+}
+
+/* ============================================================
+   KEYBOARD FOCUS
+   ============================================================ */
+.vault-column.focused {
+  background: var(--bg2);
+}
+
+.file-item.keyboard-selected {
+  outline: 1px solid var(--moss);
+  outline-offset: -1px;
+}
+
+/* ============================================================
+   INLINE RENAME
+   ============================================================ */
+.file-rename-input {
+  background: var(--bg2);
+  border: 1px solid var(--moss);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-family: var(--display);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tx);
+  outline: none;
+  width: 100%;
+}
+
+/* ============================================================
    RESPONSIVE
    ============================================================ */
 @media (max-width: 768px) {

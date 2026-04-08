@@ -2,7 +2,7 @@
 
 use dioxus::prelude::*;
 
-use crate::state::{AppState, ModalFile, RealmCategory, RealmId};
+use crate::state::{AppState, ModalFile, RealmCategory, RealmId as _};
 use super::file_item::FileItem;
 
 /// A column showing realms of a specific category with accordion file lists.
@@ -25,7 +25,20 @@ pub fn RealmColumn(
             div { class: "column-header", "{label}" }
             div { class: "vault-column-body",
                 if realms.is_empty() {
-                    div { class: "column-empty", "None yet" }
+                    {
+                        let (empty_icon, empty_text) = match category {
+                            RealmCategory::Dm => ("💬", "Connect with someone to start a conversation"),
+                            RealmCategory::Group => ("👥", "Join or create a group to collaborate"),
+                            RealmCategory::Public => ("🌍", "Public realms will appear here"),
+                            RealmCategory::Private => ("🏠", "Your private vault is empty"),
+                        };
+                        rsx! {
+                            div { class: "column-empty",
+                                div { class: "column-empty-icon", "{empty_icon}" }
+                                div { class: "column-empty-text", "{empty_text}" }
+                            }
+                        }
+                    }
                 } else {
                     for realm in realms {
                         {

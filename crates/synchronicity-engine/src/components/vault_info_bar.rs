@@ -1,15 +1,14 @@
-//! Top info bar showing vault path, Obsidian button, and sync status.
+//! Top info bar showing breadcrumb path, Open Vault Folder button, and sync status.
 
 use dioxus::prelude::*;
 
 use crate::state::{AppState, SyncStatus};
 
-/// Top bar with vault path (left), Open in Obsidian button (center),
+/// Top bar with breadcrumb path (left), Open Vault Folder button (center),
 /// and sync status + device count (right).
 #[component]
 pub fn VaultInfoBar(state: Signal<AppState>) -> Element {
     let vault_path = state.read().vault_path.clone();
-    let vault_path_str = vault_path.display().to_string();
     let device_count = state.read().device_count;
     let sync_status = state.read().sync_status.clone();
 
@@ -20,15 +19,37 @@ pub fn VaultInfoBar(state: Signal<AppState>) -> Element {
         SyncStatus::Error(e) => (format!("Error: {}", e), "sync-dot error"),
     };
 
+    let focused_column = state.read().selection.focused_column;
+    let selected_realm = state.read().selection.selected_realm;
+    let selected_file = state.read().selection.selected_file.clone();
+    let realm_name = selected_realm.and_then(|rid| {
+        state.read().realms.iter()
+            .find(|r| r.id == rid)
+            .map(|r| r.display_name.clone())
+    });
+
     rsx! {
         div { class: "vault-info-bar",
-            // Left: vault path
+            // Left: breadcrumb path
             div { class: "vault-info-left",
-                span { class: "vault-path-icon", "📁" }
-                span {
-                    class: "vault-path mono",
-                    title: "{vault_path_str}",
-                    "{vault_path_str}"
+                div { class: "breadcrumb-bar",
+                    span { class: "breadcrumb-segment",
+                        match focused_column {
+                            0 => "Private",
+                            1 => "DMs",
+                            2 => "Groups",
+                            3 => "Public",
+                            _ => "Private",
+                        }
+                    }
+                    if let Some(name) = realm_name {
+                        span { class: "breadcrumb-sep", "\u{203A}" }
+                        span { class: "breadcrumb-segment", "{name}" }
+                    }
+                    if let Some(ref file) = selected_file {
+                        span { class: "breadcrumb-sep", "\u{203A}" }
+                        span { class: "breadcrumb-segment active", "{file}" }
+                    }
                 }
             }
             // Center: Open in Obsidian
