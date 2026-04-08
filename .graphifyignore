@@ -1,0 +1,2 @@
+# Exclude log files from graphify analysis
+*.jsonl

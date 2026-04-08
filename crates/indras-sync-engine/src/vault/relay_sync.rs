@@ -175,7 +175,7 @@ fn start_blob_listener(
             }
         };
 
-    eprintln!("[blob_listener] Started for realm {}", hex::encode(&realm_id.as_bytes()[..6]));
+    debug!(realm = %hex::encode(&realm_id.as_bytes()[..6]), "Blob listener started");
 
     Some(tokio::spawn(async move {
         loop {
@@ -187,9 +187,6 @@ fn start_blob_listener(
                         _ => continue,
                     };
 
-                    eprintln!("[blob_listener] Got event, len={}, magic={}", content.len(),
-                        if content.len() >= 4 { String::from_utf8_lossy(&content[..4]).to_string() } else { "short".to_string() });
-
                     // Check for blob magic prefix
                     if content.len() < 4 + BLOB_HEADER_SIZE || &content[..4] != BLOB_MAGIC {
                         continue;
@@ -197,7 +194,6 @@ fn start_blob_listener(
 
                     let blob_data = &content[4 + BLOB_HEADER_SIZE..];
                     if let Ok(cr) = vault_blob_store.store(blob_data).await {
-                        eprintln!("[blob_listener] Stored blob {}", cr.short_hash());
                         debug!(hash = %cr.short_hash(), "Received blob via transport");
                     }
                 }

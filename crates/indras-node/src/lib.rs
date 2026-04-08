@@ -1272,27 +1272,37 @@ impl IndrasNode {
             .get(interface_id)
             .ok_or_else(|| NodeError::InterfaceNotFound(hex::encode(interface_id.as_bytes())))?;
 
-        // Create the event
-        let mut interface = state.interface.write().await;
-        let sequence = interface.event_count() as u64 + 1;
-        let event = InterfaceEvent::message(self.identity, sequence, content.clone());
+        // Hold write lock only for event creation + append, then release
+        // before doing any network I/O. This prevents blocking Document
+        // listeners from draining their broadcast channels.
+        let (event_id, event, targets) = {
+            let mut interface = state.interface.write().await;
+            let sequence = interface.event_count() as u64 + 1;
+            let event = InterfaceEvent::message(self.identity, sequence, content.clone());
 
-        // Append to NInterface (tracks pending delivery + CRDT)
-        let event_id = interface.append(event.clone()).await?;
+            // Append to NInterface (tracks pending delivery + CRDT)
+            let event_id = interface.append(event.clone()).await?;
 
-        // Also persist to storage
+            // Collect targets while we have the lock
+            let targets = interface.members();
+
+            (event_id, event, targets)
+            // write lock released here
+        };
+
+        // Persist to storage (no interface lock needed)
         self.storage
             .append_event(interface_id, event_id, Bytes::from(content.clone()))
             .await?;
 
-        // Broadcast locally
+        // Broadcast locally (no interface lock needed)
         let received = ReceivedEvent {
             interface_id: *interface_id,
             event: event.clone(),
         };
         let _ = state.event_tx.send(received);
 
-        // Send encrypted and signed message to connected peers
+        // Send encrypted and signed message to connected peers (no interface lock)
         if let Some(transport) = self.transport.read().await.as_ref()
             && let Some(key) = self.interface_keys.get(interface_id)
         {
@@ -1328,14 +1338,14 @@ impl IndrasNode {
                 .to_bytes()
                 .map_err(|e| NodeError::Serialization(e.to_string()))?;
 
-            // Gather all known peers: NInterface members + gossip-discovered peers
-            let mut targets = interface.members();
+            // Also include gossip-discovered peers
+            let mut all_targets = targets;
             for peer_info in transport.discovery_service().realm_members(interface_id) {
-                targets.insert(peer_info.peer_id);
+                all_targets.insert(peer_info.peer_id);
             }
 
             let mut sent_count = 0u32;
-            for member in &targets {
+            for member in &all_targets {
                 if *member != self.identity && transport.is_connected(member) {
                     if let Err(e) = transport.send(member, bytes.clone()).await {
                         // Eager retry: spawn a single delayed retry (500ms) for
@@ -1361,7 +1371,7 @@ impl IndrasNode {
             }
             debug!(
                 event_id = ?event_id,
-                targets = targets.len(),
+                targets = all_targets.len(),
                 sent_to = sent_count,
                 "Message sent"
             );
