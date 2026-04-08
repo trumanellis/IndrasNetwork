@@ -36,7 +36,7 @@ pub fn VaultInfoBar(state: Signal<AppState>) -> Element {
                     span { class: "breadcrumb-segment",
                         match focused_column {
                             0 => "Private",
-                            1 => "DMs",
+                            1 => "Direct",
                             2 => "Groups",
                             3 => "Public",
                             _ => "Private",
