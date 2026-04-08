@@ -8,8 +8,10 @@ use crate::state::AppState;
 /// and file count + total size (right).
 #[component]
 pub fn StatusBar(state: Signal<AppState>) -> Element {
-    let files = state.read().files.clone();
-    let file_count = files.len();
+    let files = state.read().private_files.clone();
+    // Count private + all realm files
+    let realm_file_count: usize = state.read().realms.iter().map(|r| r.files.len()).sum();
+    let file_count = files.len() + realm_file_count;
     let total_bytes: u64 = files.iter().map(|f| f.size).sum();
     let size_label = format_size(total_bytes);
 

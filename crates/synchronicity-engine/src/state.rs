@@ -1,5 +1,6 @@
 //! Application state types for The Synchronicity Engine.
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 /// The current step in the application flow.
@@ -15,7 +16,7 @@ pub enum AppStep {
     StoryReview,
     /// Loading: deriving keys + connecting + syncing.
     Restoring,
-    /// Main view: file list + preview + vault info.
+    /// Main view: realm columns + file modal.
     HomeVault,
 }
 
@@ -39,7 +40,7 @@ impl Default for SyncStatus {
 }
 
 /// View model for a file in the vault.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FileView {
     /// Relative path within the vault (e.g., "HelloWorld.md").
     pub path: String,
@@ -64,6 +65,57 @@ pub enum LoadingStage {
     Failed(String),
 }
 
+/// Category of a realm in the column layout.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum RealmCategory {
+    /// Personal vault (home realm).
+    Private,
+    /// Direct message with a single peer.
+    Dm,
+    /// Shared group realm.
+    Group,
+    /// Public/discoverable realm.
+    Public,
+}
+
+/// A 32-byte realm identifier.
+pub type RealmId = [u8; 32];
+
+/// View model for a realm entry in the column UI.
+#[derive(Debug, Clone)]
+pub struct RealmView {
+    /// Unique realm identifier.
+    pub id: RealmId,
+    /// Display name (peer name for DMs, realm name for groups).
+    pub display_name: String,
+    /// Which column this realm belongs to.
+    pub category: RealmCategory,
+    /// Number of members in the realm.
+    pub member_count: usize,
+    /// Files in this realm (loaded lazily on accordion expand).
+    pub files: Vec<FileView>,
+}
+
+/// Tracks column UI selection and expansion state.
+#[derive(Debug, Clone, Default)]
+pub struct VaultSelection {
+    /// Set of realm IDs whose file accordions are expanded.
+    pub expanded_realms: HashSet<RealmId>,
+    /// The currently selected realm (None = private vault).
+    pub selected_realm: Option<RealmId>,
+    /// The currently selected file path within the selected realm.
+    pub selected_file: Option<String>,
+}
+
+/// Which file is open in the modal (if any).
+#[derive(Debug, Clone)]
+pub struct ModalFile {
+    /// Realm this file belongs to (None = private vault).
+    pub realm_id: Option<RealmId>,
+    /// Filename/path of the open file.
+    pub file_path: String,
+}
+
 /// Root application state.
 #[derive(Debug, Clone)]
 pub struct AppState {
@@ -73,13 +125,15 @@ pub struct AppState {
     pub display_name: String,
     /// Current sync status.
     pub sync_status: SyncStatus,
-    /// Files in the vault.
-    pub files: Vec<FileView>,
-    /// Currently selected file path.
-    pub selected_file: Option<String>,
-    /// Rendered HTML content of selected file.
-    pub selected_content: Option<String>,
-    /// Path to the vault folder on disk.
+    /// Private vault files (home realm, local filesystem).
+    pub private_files: Vec<FileView>,
+    /// All known realms, categorized for column display.
+    pub realms: Vec<RealmView>,
+    /// Column UI selection and expansion state.
+    pub selection: VaultSelection,
+    /// File currently open in the modal (None = modal closed).
+    pub modal_file: Option<ModalFile>,
+    /// Path to the private vault folder on disk.
     pub vault_path: PathBuf,
     /// Number of connected devices.
     pub device_count: u32,
@@ -102,9 +156,10 @@ impl AppState {
             step: if first_run { AppStep::Welcome } else { AppStep::HomeVault },
             display_name: String::new(),
             sync_status: SyncStatus::default(),
-            files: Vec::new(),
-            selected_file: None,
-            selected_content: None,
+            private_files: Vec::new(),
+            realms: Vec::new(),
+            selection: VaultSelection::default(),
+            modal_file: None,
             vault_path,
             device_count: 1,
             loading_stages: Vec::new(),

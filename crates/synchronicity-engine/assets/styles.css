@@ -703,10 +703,162 @@ body > * {
   overflow: hidden;
 }
 
-.vault-body {
+/* ============================================================
+   VAULT COLUMNS — 4-column Finder layout
+   ============================================================ */
+.vault-columns {
   display: grid;
-  grid-template-columns: 280px 1fr;
+  grid-template-columns: repeat(4, 1fr);
+  height: 100%;
   overflow: hidden;
+}
+
+.vault-column {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--bd);
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.vault-column:last-child {
+  border-right: none;
+}
+
+.vault-column-body {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.column-header {
+  padding: 14px 16px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--dim);
+  border-bottom: 1px solid var(--bd);
+  flex-shrink: 0;
+}
+
+.column-empty {
+  padding: 24px 16px;
+  text-align: center;
+  font-family: var(--body);
+  font-size: 14px;
+  font-weight: 300;
+  color: var(--dim);
+}
+
+.column-footer {
+  padding: 12px 16px;
+  border-top: 1px solid var(--bd);
+  margin-top: auto;
+  flex-shrink: 0;
+}
+
+/* ── Realm Accordion ── */
+.realm-entry {
+  cursor: pointer;
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-left: 3px solid transparent;
+  transition: background 150ms ease, border-color 150ms ease;
+}
+
+.realm-entry:hover {
+  background: var(--surface);
+}
+
+.realm-entry.selected {
+  background: var(--surface);
+  border-left-color: var(--moss);
+}
+
+.realm-entry-name {
+  font-family: var(--display);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tx);
+  flex: 1;
+}
+
+.realm-entry-meta {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--dim);
+}
+
+.realm-chevron {
+  font-size: 10px;
+  color: var(--t3);
+  transition: transform 200ms var(--ease);
+}
+
+.realm-chevron.expanded {
+  transform: rotate(90deg);
+}
+
+.realm-files {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 300ms var(--ease);
+}
+
+.realm-files.expanded {
+  max-height: 500px;
+}
+
+.realm-files .file-item {
+  padding-left: 32px;
+}
+
+.realm-files-empty {
+  padding: 8px 32px;
+  font-family: var(--body);
+  font-size: 13px;
+  font-weight: 300;
+  font-style: italic;
+  color: var(--dim);
+}
+
+/* ============================================================
+   FILE MODAL — popup overlay
+   ============================================================ */
+.file-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  animation: fadeIn 0.2s var(--ease);
+}
+
+.file-modal {
+  background: var(--card);
+  border: 1px solid var(--bd2);
+  border-radius: 20px;
+  padding: 40px;
+  width: 90vw;
+  max-width: 800px;
+  max-height: 80vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.4);
+}
+
+.modal-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 /* ============================================================
@@ -1202,20 +1354,13 @@ body > * {
    RESPONSIVE
    ============================================================ */
 @media (max-width: 768px) {
-  .vault-body {
-    grid-template-columns: 1fr;
-    grid-template-rows: 200px 1fr;
+  .vault-columns {
+    grid-template-columns: 1fr 1fr;
   }
 
-  .file-list {
-    border-right: none;
-    border-bottom: 1px solid var(--bd);
-    overflow-y: auto;
-    max-height: 200px;
-  }
-
-  .file-preview {
-    padding: 24px 20px;
+  .file-modal {
+    width: 95vw;
+    padding: 24px;
   }
 
   .welcome-actions {
