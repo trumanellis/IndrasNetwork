@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
@@ -204,6 +204,8 @@ pub struct MessageHandler {
     /// When false, unsigned messages will be rejected with an error.
     /// Set to false in production to enforce PQ signatures.
     allow_legacy_unsigned: bool,
+    /// Channel to request immediate sync when membership changes
+    sync_now_tx: Option<mpsc::Sender<InterfaceId>>,
     /// Shutdown signal
     shutdown_rx: broadcast::Receiver<()>,
 }
@@ -224,6 +226,7 @@ impl MessageHandler {
         pq_identity: Arc<PQIdentity>,
         node_log: Arc<NodeLog>,
         allow_legacy_unsigned: bool,
+        sync_now_tx: Option<mpsc::Sender<InterfaceId>>,
         shutdown_rx: broadcast::Receiver<()>,
     ) -> Self {
         Self {
@@ -235,6 +238,7 @@ impl MessageHandler {
             pq_identity,
             node_log,
             allow_legacy_unsigned,
+            sync_now_tx,
             shutdown_rx,
         }
     }
@@ -254,6 +258,7 @@ impl MessageHandler {
         pq_identity: Arc<PQIdentity>,
         node_log: Arc<NodeLog>,
         allow_legacy_unsigned: bool,
+        sync_now_tx: Option<mpsc::Sender<InterfaceId>>,
         shutdown_rx: broadcast::Receiver<()>,
         message_rx: tokio::sync::mpsc::Receiver<(IrohIdentity, Vec<u8>)>,
     ) -> JoinHandle<()> {
@@ -266,6 +271,7 @@ impl MessageHandler {
             pq_identity,
             node_log,
             allow_legacy_unsigned,
+            sync_now_tx,
             shutdown_rx,
         );
 
@@ -525,6 +531,11 @@ impl MessageHandler {
         // Notify Document listeners that CRDT state was updated
         let _ = state.sync_tx.send(());
 
+        // Trigger immediate sync so membership propagates quickly
+        if let Some(ref tx) = self.sync_now_tx {
+            let _ = tx.try_send(msg.interface_id);
+        }
+
         debug!(
             interface = %hex::encode(msg.interface_id.as_bytes()),
             sender = %sender.short_id(),
@@ -618,6 +629,11 @@ impl MessageHandler {
 
         // Notify Document listeners that CRDT state was updated
         let _ = state.sync_tx.send(());
+
+        // Trigger immediate sync so membership propagates quickly
+        if let Some(ref tx) = self.sync_now_tx {
+            let _ = tx.try_send(msg.interface_id);
+        }
 
         debug!(
             interface = %hex::encode(msg.interface_id.as_bytes()),

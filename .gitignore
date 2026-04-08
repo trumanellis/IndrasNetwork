@@ -39,3 +39,7 @@ WORLD_VIEW.json
 simulation/reports/
 .jj/
 .jj-workspaces/
+
+# Graphify
+graphify-out/
+.graphify_*

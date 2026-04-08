@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
@@ -121,6 +121,8 @@ pub struct SyncTask {
     sync_interval: Duration,
     /// Shutdown signal
     shutdown_rx: broadcast::Receiver<()>,
+    /// Channel to receive immediate sync requests for specific interfaces
+    sync_now_rx: mpsc::Receiver<InterfaceId>,
     /// Per-peer delivery retry state
     delivery_states: HashMap<IrohIdentity, PeerDeliveryState>,
     /// Sync cycle counter (for periodic maintenance)
@@ -140,6 +142,7 @@ impl SyncTask {
         node_log: Arc<NodeLog>,
         sync_interval: Duration,
         shutdown_rx: broadcast::Receiver<()>,
+        sync_now_rx: mpsc::Receiver<InterfaceId>,
     ) -> Self {
         Self {
             local_identity,
@@ -151,6 +154,7 @@ impl SyncTask {
             node_log,
             sync_interval,
             shutdown_rx,
+            sync_now_rx,
             delivery_states: HashMap::new(),
             cycle_count: 0,
         }
@@ -168,6 +172,7 @@ impl SyncTask {
         node_log: Arc<NodeLog>,
         sync_interval: Duration,
         shutdown_rx: broadcast::Receiver<()>,
+        sync_now_rx: mpsc::Receiver<InterfaceId>,
     ) -> JoinHandle<()> {
         let task = Self::new(
             local_identity,
@@ -179,6 +184,7 @@ impl SyncTask {
             node_log,
             sync_interval,
             shutdown_rx,
+            sync_now_rx,
         );
 
         tokio::spawn(async move {
@@ -207,8 +213,49 @@ impl SyncTask {
                         error!(error = %e, "Sync cycle failed");
                     }
                 }
+                Some(interface_id) = self.sync_now_rx.recv() => {
+                    // Drain any additional queued requests and dedup
+                    let mut ids = vec![interface_id];
+                    while let Ok(id) = self.sync_now_rx.try_recv() {
+                        if !ids.contains(&id) {
+                            ids.push(id);
+                        }
+                    }
+                    for id in ids {
+                        if let Err(e) = self.sync_single_interface(id).await {
+                            debug!(
+                                interface = %hex::encode(id.as_bytes()),
+                                error = %e,
+                                "Immediate sync failed"
+                            );
+                        }
+                    }
+                }
             }
         }
+    }
+
+    /// Immediately sync a single interface (triggered by add_member).
+    ///
+    /// Resets backoff state for peers in this interface so the urgent sync
+    /// is not blocked by stale failure counts.
+    async fn sync_single_interface(&mut self, interface_id: InterfaceId) -> Result<(), SyncError> {
+        let interfaces = Arc::clone(&self.interfaces);
+        let state = match interfaces.get(&interface_id) {
+            Some(s) => s,
+            None => return Ok(()), // Interface not loaded, nothing to sync
+        };
+
+        // Reset backoff for all peers in this interface so the immediate sync goes through
+        let mut interface = state.interface.write().await;
+        let members: Vec<IrohIdentity> = interface.members().into_iter().collect();
+        for member in &members {
+            if let Some(ds) = self.delivery_states.get_mut(member) {
+                ds.consecutive_failures = 0;
+            }
+        }
+
+        self.sync_interface_inner(interface_id, &mut *interface).await
     }
 
     /// Sync all interfaces with their members

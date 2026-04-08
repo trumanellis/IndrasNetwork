@@ -377,6 +377,29 @@ impl Vault {
         &self.blob_store
     }
 
+    /// Wait until the vault's realm has at least `expected` members, or timeout.
+    ///
+    /// Returns the actual member count when done. Useful as a convergence
+    /// barrier in tests — call this after join to ensure CRDT membership
+    /// has propagated before writing files.
+    pub async fn await_members(
+        &self,
+        expected: usize,
+        timeout: std::time::Duration,
+    ) -> Result<usize> {
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            let count = self.realm.member_count().await?;
+            if count >= expected {
+                return Ok(count);
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return Ok(count);
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
+    }
+
     /// Add a peer's relay for blob replication.
     ///
     /// Call this after a new peer joins the vault so the creator can

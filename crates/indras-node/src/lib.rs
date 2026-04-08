@@ -216,6 +216,8 @@ pub struct IndrasNode {
     shutdown_tx: broadcast::Sender<()>,
     /// Background task handles
     background_tasks: RwLock<Vec<JoinHandle<()>>>,
+    /// Channel to request immediate sync for a specific interface
+    sync_now_tx: std::sync::OnceLock<mpsc::Sender<InterfaceId>>,
     /// Whether the node has been started
     started: AtomicBool,
     /// Homepage server fields handle (for live updates after start)
@@ -284,6 +286,7 @@ impl IndrasNode {
             transport: RwLock::new(None),
             shutdown_tx,
             background_tasks: RwLock::new(Vec::new()),
+            sync_now_tx: std::sync::OnceLock::new(),
             started: AtomicBool::new(false),
             homepage_fields: std::sync::OnceLock::new(),
             homepage_artifacts: std::sync::OnceLock::new(),
@@ -347,6 +350,7 @@ impl IndrasNode {
             transport: RwLock::new(None),
             shutdown_tx,
             background_tasks: RwLock::new(Vec::new()),
+            sync_now_tx: std::sync::OnceLock::new(),
             started: AtomicBool::new(false),
             homepage_fields: std::sync::OnceLock::new(),
             homepage_artifacts: std::sync::OnceLock::new(),
@@ -415,6 +419,10 @@ impl IndrasNode {
 
         // Spawn message handler and sync task (both need PQ identity for signing)
         let pq_identity_arc = Arc::new(self.pq_identity.clone());
+        // Create channel for immediate sync requests
+        let (sync_now_tx, sync_now_rx) = mpsc::channel(64);
+        let _ = self.sync_now_tx.set(sync_now_tx.clone());
+
         let handler_task = MessageHandler::spawn(
             self.identity,
             self.interface_keys.clone(),
@@ -424,6 +432,7 @@ impl IndrasNode {
             pq_identity_arc.clone(),
             self.node_log.clone(),
             self.config.allow_legacy_unsigned,
+            Some(sync_now_tx),
             self.shutdown_tx.subscribe(),
             message_rx,
         );
@@ -439,6 +448,7 @@ impl IndrasNode {
             self.node_log.clone(),
             Duration::from_secs(DEFAULT_SYNC_INTERVAL_SECS),
             self.shutdown_tx.subscribe(),
+            sync_now_rx,
         );
 
         // Spawn realm discovery event handler
@@ -1501,6 +1511,11 @@ impl IndrasNode {
         // Persist
         self.storage.register_peer(&peer, None)?;
         self.storage.add_member(interface_id, &peer)?;
+
+        // Trigger immediate sync so the new member learns about us quickly
+        if let Some(tx) = self.sync_now_tx.get() {
+            let _ = tx.try_send(*interface_id);
+        }
 
         info!(peer = %peer.short_id(), "Member added");
         Ok(())

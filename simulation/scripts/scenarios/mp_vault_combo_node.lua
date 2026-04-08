@@ -92,6 +92,18 @@ for _, v in ipairs(my_vaults) do
 end
 log(#my_vaults .. " vaults ready")
 
+-- Wait for CRDT membership to converge in each vault before proceeding.
+-- Each user has 2 devices (laptop + phone), so expected = #members * 2.
+for _, v in ipairs(my_vaults) do
+    local expected = #v.members * 2
+    local actual = vaults[v.name]:await_members(expected, 30)
+    if actual < expected then
+        log("WARNING: " .. v.name .. " has " .. actual .. "/" .. expected .. " members after 30s")
+    else
+        log(v.name .. ": all " .. actual .. " members converged")
+    end
+end
+
 mp.write_signal(coord_dir, role .. "_ready", "ok")
 for _, peer in ipairs(peers) do mp.wait_for_signal(coord_dir, peer .. "_ready", 60) end
 log("All nodes ready")

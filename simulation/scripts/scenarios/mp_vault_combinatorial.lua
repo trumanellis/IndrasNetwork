@@ -1,8 +1,8 @@
 -- mp_vault_combinatorial.lua
 --
--- KNOWN FAILING: relay QUIC connection scaling issue.
--- Each node creates too many QUIC endpoints (one per peer relay per vault).
--- Needs shared endpoint refactor in relay_sync.rs to pass.
+-- Previously failing due to CRDT membership race + relay QUIC scaling.
+-- Fixed: immediate sync on member add + per-node await_members convergence barrier.
+-- Remaining risk: relay QUIC endpoint scaling (one per peer relay per vault).
 --
 -- 3 users x 2 devices = 6 processes, 7 vaults (every sharing combination).
 -- Private: love, joy, peace. Pairs: love+joy, love+peace, joy+peace. All: love+joy+peace.
@@ -89,11 +89,9 @@ print("[coordinator] All phones spawned")
 for _, role in ipairs(all_roles) do mp.wait_for_signal(coord_dir, role .. "_ready", 60) end
 print("[coordinator] All 6 nodes ready")
 
--- Allow CRDT membership to propagate across all 7 realms before writing files.
--- Without this, some nodes may not yet be visible as members to the writer,
--- so send_message won't deliver the blob to them.
-indras.sleep(10)
-print("[coordinator] Membership settled")
+-- Membership convergence is now handled per-node via await_members() in combo_node.lua.
+-- Each node waits until its vault sees all expected members before signaling _ready.
+print("[coordinator] Membership settled (per-node convergence)")
 print()
 
 -- Phase 2: write + verify one vault at a time

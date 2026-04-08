@@ -196,6 +196,25 @@ impl UserData for LuaVault {
             },
         );
 
+        // -- await_members(expected_count, timeout_secs) -> actual_count --
+        // Polls realm member count until expected is reached or timeout expires.
+
+        methods.add_async_method(
+            "await_members",
+            |_, this, (expected, timeout_secs): (usize, f64)| async move {
+                let guard = this.inner.lock().await;
+                let vault = guard
+                    .as_ref()
+                    .ok_or_else(|| mlua::Error::external("Vault has been stopped"))?;
+                let timeout = std::time::Duration::from_secs_f64(timeout_secs);
+                let count = vault
+                    .await_members(expected, timeout)
+                    .await
+                    .map_err(mlua::Error::external)?;
+                Ok(count)
+            },
+        );
+
         // -- vault_path() -> string --
 
         methods.add_method("vault_path", |_, this, ()| {
