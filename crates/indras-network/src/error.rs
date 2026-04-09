@@ -75,7 +75,11 @@ pub enum IndraError {
 
     /// Storage layer error.
     #[error("Storage error: {0}")]
-    Storage(#[from] StorageError),
+    Storage(StorageError),
+
+    /// Database is locked by another process (likely another app instance).
+    #[error("Database is locked — another instance may already be running")]
+    DatabaseLocked,
 
     /// Sync/CRDT error.
     #[error("Sync error: {0}")]
@@ -122,6 +126,23 @@ pub enum IndraError {
     AlreadyShutDown,
 }
 
+impl IndraError {
+    /// Returns true if this error is a database lock contention error.
+    pub fn is_locked(&self) -> bool {
+        matches!(self, Self::DatabaseLocked)
+    }
+}
+
+impl From<StorageError> for IndraError {
+    fn from(e: StorageError) -> Self {
+        if e.is_locked() {
+            IndraError::DatabaseLocked
+        } else {
+            IndraError::Storage(e)
+        }
+    }
+}
+
 impl From<NodeError> for IndraError {
     fn from(e: NodeError) -> Self {
         match e {
@@ -129,7 +150,7 @@ impl From<NodeError> for IndraError {
             NodeError::NotStarted => IndraError::NotStarted,
             NodeError::AlreadyStarted => IndraError::AlreadyStarted,
             NodeError::Transport(s) => IndraError::Network(s),
-            NodeError::Storage(e) => IndraError::Storage(e),
+            NodeError::Storage(e) => IndraError::from(e),
             NodeError::Sync(s) => IndraError::Sync(s),
             NodeError::Crypto(s) => IndraError::Crypto(s),
             NodeError::Serialization(s) => IndraError::Serialization(s),

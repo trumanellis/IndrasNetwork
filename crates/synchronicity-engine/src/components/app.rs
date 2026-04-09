@@ -37,23 +37,50 @@ pub fn App() -> Element {
 
         let data_dir = crate::state::default_data_dir();
         spawn(async move {
-            match IndrasNetwork::new(&data_dir).await {
-                Ok(net) => {
-                    if let Err(e) = net.start().await {
-                        tracing::error!("Failed to start network: {e}");
-                    }
-                    // Join contacts realm so contact polling can read it
-                    if let Err(e) = net.join_contacts_realm().await {
-                        tracing::warn!("Failed to join contacts realm: {e}");
-                    }
-                    network.set(Some(net));
-                    state.write().sync_status = crate::state::SyncStatus::Synced;
+            // Retry up to 3 times with backoff if the database is locked
+            // (stale lock from a crash, or another instance starting simultaneously).
+            const MAX_RETRIES: u32 = 3;
+            let mut last_err = None;
+
+            for attempt in 0..=MAX_RETRIES {
+                if attempt > 0 {
+                    let delay = std::time::Duration::from_millis(500 * u64::from(attempt));
+                    tracing::info!("Database locked, retrying in {}ms (attempt {}/{})", delay.as_millis(), attempt, MAX_RETRIES);
+                    tokio::time::sleep(delay).await;
                 }
-                Err(e) => {
-                    tracing::error!("Failed to load network: {e}");
-                    state.write().sync_status =
-                        crate::state::SyncStatus::Error(e.to_string());
+
+                match IndrasNetwork::new(&data_dir).await {
+                    Ok(net) => {
+                        if let Err(e) = net.start().await {
+                            tracing::error!("Failed to start network: {e}");
+                        }
+                        if let Err(e) = net.join_contacts_realm().await {
+                            tracing::warn!("Failed to join contacts realm: {e}");
+                        }
+                        network.set(Some(net));
+                        state.write().sync_status = crate::state::SyncStatus::Synced;
+                        last_err = None;
+                        break;
+                    }
+                    Err(e) => {
+                        if e.is_locked() && attempt < MAX_RETRIES {
+                            last_err = Some(e);
+                            continue;
+                        }
+                        last_err = Some(e);
+                        break;
+                    }
                 }
+            }
+
+            if let Some(e) = last_err {
+                tracing::error!("Failed to load network: {e}");
+                let message = if e.is_locked() {
+                    "Another instance is already running. Please close it first.".to_string()
+                } else {
+                    e.to_string()
+                };
+                state.write().sync_status = crate::state::SyncStatus::Error(message);
             }
         });
     });

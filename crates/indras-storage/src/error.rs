@@ -38,6 +38,10 @@ pub enum StorageError {
     /// Database error
     #[error("Database error: {0}")]
     Database(String),
+
+    /// Database is locked by another process
+    #[error("Database already open by another process")]
+    DatabaseLocked,
 }
 
 impl From<std::io::Error> for StorageError {
@@ -47,6 +51,11 @@ impl From<std::io::Error> for StorageError {
 }
 
 impl StorageError {
+    /// Returns true if this error is a database lock contention error.
+    pub fn is_locked(&self) -> bool {
+        matches!(self, Self::DatabaseLocked)
+    }
+
     /// Create a new NotFound error
     pub fn not_found(item: impl Into<String>) -> Self {
         Self::NotFound(item.into())

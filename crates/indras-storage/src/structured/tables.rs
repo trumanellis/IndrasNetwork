@@ -76,7 +76,14 @@ impl RedbStorage {
             std::fs::create_dir_all(parent).map_err(|e| StorageError::Io(e.to_string()))?;
         }
 
-        let db = Database::create(&config.db_path).map_err(|e| StorageError::Io(e.to_string()))?;
+        let db = Database::create(&config.db_path).map_err(|e| {
+            let msg = e.to_string();
+            if msg.contains("already open") || msg.contains("acquire lock") {
+                StorageError::DatabaseLocked
+            } else {
+                StorageError::Io(msg)
+            }
+        })?;
 
         info!("Opened redb database");
 
