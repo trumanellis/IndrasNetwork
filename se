@@ -76,8 +76,14 @@ TILE_H=$((SCREEN_H - 25)) # leave room for menu bar
 echo "Screen: ${SCREEN_W}x${SCREEN_H}, tiling $NUM windows at ${TILE_W}x${TILE_H}"
 [ -n "$CLEAN" ] && echo "Clean mode: wiping data directories"
 
-# Clean mesh coordination directory when starting fresh
-[ -n "$CLEAN" ] && rm -rf /tmp/indras-mesh
+# Clean data and mesh directories when starting fresh
+if [ -n "$CLEAN" ]; then
+  rm -rf /tmp/indras-mesh
+  for NAME in "${NAMES[@]}"; do
+    LOWER=$(echo "$NAME" | tr '[:upper:]' '[:lower:]')
+    rm -rf "/tmp/indras-${LOWER}"
+  done
+fi
 
 # Build comma-separated peer list for Lua mesh scripts
 PEERS_LIST=$(IFS=,; echo "${NAMES[*]}")

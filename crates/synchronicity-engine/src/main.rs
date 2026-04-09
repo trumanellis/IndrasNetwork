@@ -21,20 +21,17 @@ fn main() {
 
     tracing::info!("Starting {}", window_title);
 
-    // Handle Ctrl+C from terminal
-    ctrlc::set_handler(move || {
-        std::process::exit(0);
-    }).ok();
-
     // Read optional window geometry from env (set by ./se for tiling)
     let win_x = std::env::var("INDRAS_WIN_X").ok().and_then(|v| v.parse::<f64>().ok());
     let win_y = std::env::var("INDRAS_WIN_Y").ok().and_then(|v| v.parse::<f64>().ok());
     let win_w = std::env::var("INDRAS_WIN_W").ok().and_then(|v| v.parse::<f64>().ok());
     let win_h = std::env::var("INDRAS_WIN_H").ok().and_then(|v| v.parse::<f64>().ok());
 
+    let tiling = win_w.is_some() || win_x.is_some();
+
     let mut wb = WindowBuilder::new()
         .with_title(&window_title)
-        .with_maximized(true)
+        .with_maximized(!tiling)
         .with_focused(true)
         .with_always_on_top(false);
 

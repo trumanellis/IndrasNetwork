@@ -267,13 +267,6 @@ pub fn HomeVault(
                     _ => {}
                 }
             },
-            // Peer bar at the top
-            super::peer_bar::PeerBar {
-                player_name: player_name.clone(),
-                peers: peers.read().clone(),
-                on_add_contact: move |_| contact_invite_open.set(true),
-            }
-            super::vault_info_bar::VaultInfoBar { state }
             super::vault_columns::VaultColumns { state }
             super::status_bar::StatusBar { state }
             super::file_modal::FileModal { state }

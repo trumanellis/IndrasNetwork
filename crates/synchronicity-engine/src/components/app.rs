@@ -31,6 +31,11 @@ pub fn App() -> Element {
         }
         network_loaded.set(true);
 
+        // Skip if network was already created by the creation/restore flow.
+        if network.read().is_some() {
+            return;
+        }
+
         // Ensure vault dir exists and seed HelloWorld.md for returning users.
         let vault_path = state.read().vault_path.clone();
         crate::vault_bridge::ensure_vault_ready(&vault_path);
