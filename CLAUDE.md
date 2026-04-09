@@ -81,7 +81,7 @@ This repo uses **jj (Jujutsu)** colocated with git. Never use raw git commands.
 **Never use git worktrees (`EnterWorktree` tool) — they conflict with jj's colocated repo.**
 
 #### Creating Workspaces
-1. Create workspace inside the repo: `jj workspace add .jj-workspaces/{name} --rev main -m "task"`
+1. Create workspace inside the repo: `jj workspace add .jj-workspaces/{name} --revision main`
 2. Launch Claude Code in the workspace directory
 3. Save workspace mapping to **memory** (not just notepad) so it survives restarts:
    - Workspace name, directory path, change ID, and task description
@@ -114,6 +114,45 @@ Or split a large change: `jj split` to separate concerns interactively.
 2. `jj bookmark set main -r @`
 3. `jj git push`
 4. Other active changes auto-rebase onto new main
+
+### Trunk-Pulse Protocol (Parallel Agents)
+
+When running multiple agents in parallel, each agent auto-lands to main whenever
+full tests pass. A PostToolUse hook on Bash detects successful `cargo test` (full
+workspace, not `-p <crate>`) and nudges you to land.
+
+**When you see the `[TRUNK-PULSE: TESTS PASSED]` nudge, execute immediately:**
+
+```bash
+jj describe -m "feat: <concise description of this increment>"
+jj rebase -d main
+jj bookmark set main -r @
+jj git push
+```
+
+**If push fails** (another agent landed first):
+```bash
+jj git fetch
+jj rebase -d main
+jj bookmark set main -r @
+jj git push
+```
+
+**After landing, start fresh on top of the new main:**
+```bash
+jj new main -m "continue: <next task>"
+```
+
+This automatically pulls in everything the other agents have landed.
+
+**Rules:**
+- Land often, land small — every compilable+tested increment, not every feature
+- Never hold work — if full tests pass, land it. Holding creates drift.
+- Keep changes focused — one concern per landing makes conflicts rare
+- The hook only fires on full test runs (`cargo test` or `cargo test --workspace`), not `cargo test -p <crate>`
+
+**Setup:** Run `./scripts/setup-parallel-agents.sh` to create 3 workspaces, then
+launch a Claude Code instance in each `.jj-workspaces/<name>/` directory.
 
 ### Key Commands
 ```bash
