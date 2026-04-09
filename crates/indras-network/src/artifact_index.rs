@@ -266,6 +266,21 @@ impl ArtifactIndex {
     }
 
 
+    /// Replace all grants on an artifact with a new set.
+    ///
+    /// Used for bulk visibility changes (e.g. setting a profile field to
+    /// public, connections-only, or private). Returns `false` if the
+    /// artifact was not found.
+    pub fn replace_grants(&mut self, id: &ArtifactId, grants: Vec<AccessGrant>) -> bool {
+        match self.artifacts.get_mut(id) {
+            Some(entry) => {
+                entry.grants = grants;
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Remove expired timed grants.
     pub fn gc_expired(&mut self, now: i64) {
         for entry in self.artifacts.values_mut() {

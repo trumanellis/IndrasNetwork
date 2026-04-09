@@ -5,7 +5,7 @@
 
 // Re-export canonical types from indras-artifacts
 pub use indras_artifacts::{
-    AccessGrant, AccessMode, ArtifactProvenance, ArtifactStatus, ProvenanceType,
+    AccessGrant, AccessMode, ArtifactProvenance, ArtifactStatus, ProvenanceType, can_view,
 };
 
 /// Errors when granting access.

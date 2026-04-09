@@ -1,39 +1,12 @@
 //! Grant-based visibility checks for profile fields and content artifacts.
 //!
-//! Every displayable item has its own grant list. The [`can_view`] function
-//! checks whether a viewer can see an item based on its grants.
+//! Delegates to the canonical [`indras_artifacts::access::can_view`] for all
+//! visibility decisions. Profile fields and content artifacts are just artifacts
+//! with grant lists — there is one unified access model.
 
-use indras_artifacts::access::{AccessGrant, AccessMode};
+pub use indras_artifacts::access::can_view;
 
 use crate::{ContentArtifact, ProfileFieldArtifact};
-
-/// Check if a viewer can see an item based on its grant list.
-///
-/// - Any `AccessMode::Public` grant → visible to everyone
-/// - Steward always sees their own items
-/// - Otherwise, viewer must have a non-expired grant
-pub fn can_view(
-    viewer: Option<&[u8; 32]>,
-    steward: &[u8; 32],
-    grants: &[AccessGrant],
-    now: i64,
-) -> bool {
-    // Public grant → anyone can see
-    if grants.iter().any(|g| matches!(g.mode, AccessMode::Public)) {
-        return true;
-    }
-    let Some(viewer) = viewer else {
-        return false;
-    };
-    // Owner always sees everything
-    if viewer == steward {
-        return true;
-    }
-    // Check for a non-expired grant to this viewer
-    grants
-        .iter()
-        .any(|g| g.grantee == *viewer && !g.mode.is_expired(now))
-}
 
 /// Filter profile fields by viewer access.
 pub fn visible_fields<'a>(
@@ -64,6 +37,7 @@ pub fn visible_artifacts<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use indras_artifacts::access::{AccessGrant, AccessMode};
 
     fn make_grant(grantee: [u8; 32], mode: AccessMode) -> AccessGrant {
         AccessGrant {

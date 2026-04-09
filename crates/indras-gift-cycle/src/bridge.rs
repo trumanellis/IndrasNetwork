@@ -487,23 +487,21 @@ impl GiftCycleBridge {
 
     /// Set a profile field to public visibility.
     ///
-    /// Adds a public grant (grantee `[0u8; 32]`) and removes all specific grants.
+    /// Replaces all grants with a single public grant.
     pub async fn set_field_public(&self, field_name: &str) -> Result<()> {
         let artifact_id = indras_artifacts::ArtifactId::Doc(
             indras_homepage::profile_field_artifact_id(&self.member_id, field_name),
         );
         let doc = self.home.artifact_index().await?;
         let member_id = self.member_id;
+        let grants = vec![indras_artifacts::AccessGrant {
+            grantee: [0u8; 32],
+            mode: indras_artifacts::AccessMode::Public,
+            granted_at: 0,
+            granted_by: member_id,
+        }];
         doc.update(|index| {
-            if let Some(entry) = index.get_mut(&artifact_id) {
-                entry.grants.clear();
-                entry.grants.push(indras_artifacts::AccessGrant {
-                    grantee: [0u8; 32],
-                    mode: indras_artifacts::AccessMode::Public,
-                    granted_at: 0,
-                    granted_by: member_id,
-                });
-            }
+            index.replace_grants(&artifact_id, grants.clone());
         })
         .await?;
         Ok(())
@@ -511,7 +509,7 @@ impl GiftCycleBridge {
 
     /// Set a profile field to connections-only visibility.
     ///
-    /// Removes the public grant and adds Revocable grants for all current contacts.
+    /// Replaces all grants with Revocable grants for each current contact.
     pub async fn set_field_connections_only(&self, field_name: &str) -> Result<()> {
         let artifact_id = indras_artifacts::ArtifactId::Doc(
             indras_homepage::profile_field_artifact_id(&self.member_id, field_name),
@@ -531,20 +529,19 @@ impl GiftCycleBridge {
             Vec::new()
         };
 
+        let grants: Vec<indras_artifacts::AccessGrant> = contacts
+            .iter()
+            .filter(|c| **c != member_id && **c != [0u8; 32])
+            .map(|contact| indras_artifacts::AccessGrant {
+                grantee: *contact,
+                mode: indras_artifacts::AccessMode::Revocable,
+                granted_at: 0,
+                granted_by: member_id,
+            })
+            .collect();
+
         doc.update(move |index| {
-            if let Some(entry) = index.get_mut(&artifact_id) {
-                entry.grants.clear();
-                for contact in &contacts {
-                    if *contact != member_id && *contact != [0u8; 32] {
-                        entry.grants.push(indras_artifacts::AccessGrant {
-                            grantee: *contact,
-                            mode: indras_artifacts::AccessMode::Revocable,
-                            granted_at: 0,
-                            granted_by: member_id,
-                        });
-                    }
-                }
-            }
+            index.replace_grants(&artifact_id, grants.clone());
         })
         .await?;
         Ok(())
@@ -557,9 +554,7 @@ impl GiftCycleBridge {
         );
         let doc = self.home.artifact_index().await?;
         doc.update(|index| {
-            if let Some(entry) = index.get_mut(&artifact_id) {
-                entry.grants.clear();
-            }
+            index.replace_grants(&artifact_id, Vec::new());
         })
         .await?;
         Ok(())
@@ -592,8 +587,14 @@ impl GiftCycleBridge {
         );
         let doc = self.home.artifact_index().await?;
         doc.update(|index| {
-            if let Some(entry) = index.get_mut(&artifact_id) {
-                entry.grants.retain(|g| g.grantee != grantee);
+            if let Some(entry) = index.get(&artifact_id) {
+                let grants: Vec<_> = entry
+                    .grants
+                    .iter()
+                    .filter(|g| g.grantee != grantee)
+                    .cloned()
+                    .collect();
+                index.replace_grants(&artifact_id, grants);
             }
         })
         .await?;
@@ -634,42 +635,42 @@ impl GiftCycleBridge {
         ];
 
         doc.update(move |index| {
+            let contact_set: std::collections::HashSet<[u8; 32]> = contacts
+                .iter()
+                .filter(|c| **c != member_id && **c != [0u8; 32])
+                .copied()
+                .collect();
+
             for field_name in &field_names {
                 let aid = indras_artifacts::ArtifactId::Doc(
                     indras_homepage::profile_field_artifact_id(&member_id, field_name),
                 );
-                if let Some(entry) = index.get_mut(&aid) {
+                let is_connections_only = if let Some(entry) = index.get(&aid) {
                     let has_public = entry
                         .grants
                         .iter()
                         .any(|g| matches!(g.mode, indras_artifacts::AccessMode::Public));
-                    if has_public || entry.grants.is_empty() {
-                        continue; // Skip public and private fields
-                    }
-                    // This field is connections-only: sync grants with contact list
-                    let current_grantees: std::collections::HashSet<[u8; 32]> =
-                        entry.grants.iter().map(|g| g.grantee).collect();
-                    let contact_set: std::collections::HashSet<[u8; 32]> = contacts
-                        .iter()
-                        .filter(|c| **c != member_id && **c != [0u8; 32])
-                        .copied()
-                        .collect();
+                    !has_public && !entry.grants.is_empty()
+                } else {
+                    false
+                };
 
-                    // Remove grants for non-contacts
-                    entry.grants.retain(|g| contact_set.contains(&g.grantee));
-
-                    // Add grants for new contacts
-                    for contact in &contact_set {
-                        if !current_grantees.contains(contact) {
-                            entry.grants.push(indras_artifacts::AccessGrant {
-                                grantee: *contact,
-                                mode: indras_artifacts::AccessMode::Revocable,
-                                granted_at: 0,
-                                granted_by: member_id,
-                            });
-                        }
-                    }
+                if !is_connections_only {
+                    continue; // Skip public, private, and missing fields
                 }
+
+                // Build new grants from current contact list
+                let grants: Vec<indras_artifacts::AccessGrant> = contact_set
+                    .iter()
+                    .map(|contact| indras_artifacts::AccessGrant {
+                        grantee: *contact,
+                        mode: indras_artifacts::AccessMode::Revocable,
+                        granted_at: 0,
+                        granted_by: member_id,
+                    })
+                    .collect();
+
+                index.replace_grants(&aid, grants);
             }
         })
         .await?;

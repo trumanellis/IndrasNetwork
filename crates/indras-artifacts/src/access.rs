@@ -113,6 +113,34 @@ impl ArtifactStatus {
     }
 }
 
+/// Check if a viewer can see an item based on its grant list.
+///
+/// - Any `AccessMode::Public` grant → visible to everyone
+/// - Steward always sees their own items
+/// - Otherwise, viewer must have a non-expired grant
+pub fn can_view(
+    viewer: Option<&[u8; 32]>,
+    steward: &[u8; 32],
+    grants: &[AccessGrant],
+    now: i64,
+) -> bool {
+    // Public grant → anyone can see
+    if grants.iter().any(|g| matches!(g.mode, AccessMode::Public)) {
+        return true;
+    }
+    let Some(viewer) = viewer else {
+        return false;
+    };
+    // Owner always sees everything
+    if viewer == steward {
+        return true;
+    }
+    // Check for a non-expired grant to this viewer
+    grants
+        .iter()
+        .any(|g| g.grantee == *viewer && !g.mode.is_expired(now))
+}
+
 /// Extract non-expired grantee player IDs from a list of access grants.
 ///
 /// Filters out `Timed` grants that have expired according to `now`, then
@@ -287,5 +315,60 @@ mod tests {
     fn test_extract_contact_ids_empty() {
         let ids = extract_contact_ids(&[], 0);
         assert!(ids.is_empty());
+    }
+
+    fn make_grant(grantee: [u8; 32], mode: AccessMode) -> AccessGrant {
+        AccessGrant {
+            grantee,
+            mode,
+            granted_at: 100,
+            granted_by: [0xAA; 32],
+        }
+    }
+
+    #[test]
+    fn test_can_view_public_visible_to_all() {
+        let steward = [0x01; 32];
+        let grants = vec![make_grant([0x00; 32], AccessMode::Public)];
+        assert!(can_view(None, &steward, &grants, 0));
+        assert!(can_view(Some(&[0x99; 32]), &steward, &grants, 0));
+    }
+
+    #[test]
+    fn test_can_view_specific_grant() {
+        let steward = [0x01; 32];
+        let viewer = [0x02; 32];
+        let grants = vec![make_grant(viewer, AccessMode::Revocable)];
+        assert!(can_view(Some(&viewer), &steward, &grants, 0));
+    }
+
+    #[test]
+    fn test_can_view_stranger_rejected() {
+        let steward = [0x01; 32];
+        let grants = vec![make_grant([0x02; 32], AccessMode::Revocable)];
+        assert!(!can_view(Some(&[0x03; 32]), &steward, &grants, 0));
+        assert!(!can_view(None, &steward, &grants, 0));
+    }
+
+    #[test]
+    fn test_can_view_expired_rejected() {
+        let steward = [0x01; 32];
+        let viewer = [0x02; 32];
+        let grants = vec![make_grant(viewer, AccessMode::Timed { expires_at: 50 })];
+        assert!(!can_view(Some(&viewer), &steward, &grants, 100));
+    }
+
+    #[test]
+    fn test_can_view_active_timed_accepted() {
+        let steward = [0x01; 32];
+        let viewer = [0x02; 32];
+        let grants = vec![make_grant(viewer, AccessMode::Timed { expires_at: 200 })];
+        assert!(can_view(Some(&viewer), &steward, &grants, 100));
+    }
+
+    #[test]
+    fn test_can_view_owner_sees_everything() {
+        let steward = [0x01; 32];
+        assert!(can_view(Some(&steward), &steward, &[], 0));
     }
 }
