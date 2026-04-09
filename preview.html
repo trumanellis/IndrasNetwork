@@ -1,0 +1,1688 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Design System Preview: IndrasNetwork</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: #09090b;
+  --bg2: #111114;
+  --card: #151518;
+  --hover: #1c1c20;
+  --tx: #fafafa;
+  --t2: #a0a0ab;
+  --mt: #52525b;
+  --gh: #3f3f46;
+  --bd: #27272a;
+  --b2: #1c1c20;
+  --ac: #818cf8;
+  --ac2: #c084fc;
+  --ac3: #f472b6;
+  --ok: #34d399;
+  --wn: #fbbf24;
+  --er: #f87171;
+  --font: 'Inter', -apple-system, system-ui, sans-serif;
+  --mono: 'JetBrains Mono', monospace;
+  --radius: 12px;
+}
+
+body {
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.7;
+  background: var(--bg);
+  color: var(--tx);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: radial-gradient(circle, rgba(129,140,248,0.05) 1px, transparent 1px);
+  background-size: 24px 24px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ============================================================
+   NAV
+   ============================================================ */
+
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 40px;
+  background: rgba(9,9,11,0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--bd);
+}
+
+.nav-brand {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--tx);
+  text-transform: uppercase;
+}
+
+.nav-brand span {
+  color: var(--ac);
+}
+
+.nav-links {
+  display: flex;
+  gap: 28px;
+  align-items: center;
+}
+
+.nav-links a {
+  font-size: 13px;
+  color: var(--t2);
+  text-decoration: none;
+  transition: color 0.15s;
+  letter-spacing: 0.01em;
+}
+
+.nav-links a:hover {
+  color: var(--tx);
+}
+
+.nav-cta {
+  background: var(--ac);
+  color: var(--bg);
+  padding: 7px 18px;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: var(--font);
+  font-weight: 600;
+  cursor: pointer;
+  letter-spacing: 0.01em;
+  transition: opacity 0.15s;
+}
+
+.nav-cta:hover {
+  opacity: 0.85;
+}
+
+/* ============================================================
+   LAYOUT
+   ============================================================ */
+
+.container {
+  position: relative;
+  z-index: 10;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 40px;
+}
+
+.section {
+  padding: 80px 0;
+}
+
+.section-divider {
+  border: none;
+  border-top: 1px solid var(--bd);
+  margin: 0 40px;
+  max-width: 1200px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.section-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ac);
+  margin-bottom: 10px;
+}
+
+.section-heading {
+  font-size: 40px;
+  font-weight: 400;
+  line-height: 1.0;
+  letter-spacing: -0.02em;
+  margin-bottom: 48px;
+  color: var(--tx);
+}
+
+/* ============================================================
+   HERO
+   ============================================================ */
+
+.hero {
+  position: relative;
+  text-align: center;
+  padding: 120px 40px 100px;
+  overflow: hidden;
+}
+
+.hero::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 700px;
+  height: 500px;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle, rgba(129,140,248,0.06) 0%, rgba(192,132,252,0.03) 40%, transparent 70%);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.hero-eyebrow {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ac);
+  margin-bottom: 24px;
+  position: relative;
+}
+
+.hero h1 {
+  font-size: clamp(36px, 5vw, 60px);
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.04em;
+  margin-bottom: 20px;
+  position: relative;
+}
+
+.hero h1 em {
+  font-style: normal;
+  background: linear-gradient(135deg, var(--ac), var(--ac2), var(--ac3));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.hero-sub {
+  font-size: 16px;
+  font-weight: 300;
+  color: var(--t2);
+  max-width: 520px;
+  margin: 0 auto 40px;
+  line-height: 1.8;
+  position: relative;
+}
+
+.hero-buttons {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  position: relative;
+}
+
+/* ============================================================
+   COLOR SWATCHES
+   ============================================================ */
+
+.color-group {
+  margin-bottom: 48px;
+}
+
+.color-group-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--t2);
+  margin-bottom: 16px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--bd);
+}
+
+.color-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.color-swatch {
+  border: 1px solid var(--bd);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.color-swatch-block {
+  height: 80px;
+}
+
+.color-swatch-info {
+  padding: 10px 12px;
+  background: var(--bg2);
+}
+
+.color-swatch-name {
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 2px;
+  color: var(--tx);
+}
+
+.color-swatch-hex {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--mt);
+  margin-bottom: 4px;
+}
+
+.color-swatch-role {
+  font-size: 11px;
+  color: var(--mt);
+  line-height: 1.4;
+}
+
+/* ============================================================
+   TYPOGRAPHY
+   ============================================================ */
+
+.type-sample {
+  margin-bottom: 32px;
+  padding-bottom: 32px;
+  border-bottom: 1px solid var(--b2);
+}
+
+.type-sample:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.type-sample-text {
+  margin-bottom: 10px;
+}
+
+.type-sample-label {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--mt);
+  letter-spacing: 0.02em;
+}
+
+/* ============================================================
+   BUTTONS
+   ============================================================ */
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+.button-demo {
+  text-align: center;
+}
+
+.button-demo-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--mt);
+  margin-top: 10px;
+}
+
+.btn {
+  display: inline-block;
+  padding: 8px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: var(--font);
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  text-decoration: none;
+  transition: opacity 0.15s, box-shadow 0.15s;
+  white-space: nowrap;
+}
+
+.btn-primary {
+  background: var(--ac);
+  color: var(--bg);
+}
+
+.btn-outline {
+  background: transparent;
+  color: var(--ac);
+  border: 1px solid var(--ac);
+}
+
+.btn-success {
+  background: var(--ok);
+  color: var(--bg);
+}
+
+.btn-warning {
+  background: var(--wn);
+  color: var(--bg);
+}
+
+.btn-glow {
+  background: linear-gradient(135deg, var(--ac), var(--ac2));
+  color: white;
+  box-shadow: 0 0 20px rgba(129,140,248,0.2);
+}
+
+.btn:hover {
+  opacity: 0.85;
+}
+
+/* ============================================================
+   CARDS
+   ============================================================ */
+
+.cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+/* Description Panel Card */
+.card-description {
+  background: var(--bg2);
+  border: 1px solid var(--bd);
+  border-radius: var(--radius);
+  padding: 24px;
+}
+
+.card-description-eyebrow {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ac);
+  margin-bottom: 12px;
+}
+
+.card-description-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 10px;
+  letter-spacing: -0.02em;
+}
+
+.card-description-body {
+  font-size: 14px;
+  font-weight: 300;
+  color: var(--t2);
+  line-height: 1.7;
+  margin-bottom: 20px;
+}
+
+.card-description-meta {
+  display: flex;
+  gap: 16px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--mt);
+}
+
+.card-description-meta span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* UI Mock Card */
+.card-ui-mock {
+  background: var(--card);
+  border: 1px solid var(--bd);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.card-ui-titlebar {
+  background: var(--bg2);
+  border-bottom: 1px solid var(--bd);
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.titlebar-dots {
+  display: flex;
+  gap: 6px;
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.dot-red { background: #ff5f57; }
+.dot-yellow { background: #febc2e; }
+.dot-green { background: #28c840; }
+
+.titlebar-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--t2);
+  margin-left: 4px;
+}
+
+.card-ui-content {
+  padding: 20px;
+}
+
+.ui-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--b2);
+}
+
+.ui-row:last-child {
+  border-bottom: none;
+}
+
+.ui-row-label {
+  font-size: 13px;
+  color: var(--t2);
+}
+
+.ui-row-value {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ac);
+}
+
+.ui-badge {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.badge-ok { background: rgba(52,211,153,0.15); color: var(--ok); }
+.badge-ac { background: rgba(129,140,248,0.15); color: var(--ac); }
+
+/* Data Panel Card */
+.card-data {
+  background: var(--bg2);
+  border: 1px solid var(--bd);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.card-data-header {
+  background: var(--b2);
+  border-bottom: 1px solid var(--bd);
+  padding: 12px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.card-data-header-title {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--t2);
+}
+
+.card-data-header-badge {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(129,140,248,0.12);
+  color: var(--ac);
+  border: 1px solid rgba(129,140,248,0.2);
+}
+
+.card-data-body {
+  padding: 18px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.9;
+  color: var(--t2);
+}
+
+.data-key { color: var(--ac2); }
+.data-val { color: var(--ok); }
+.data-str { color: var(--ac3); }
+.data-num { color: var(--wn); }
+
+/* ============================================================
+   FORMS
+   ============================================================ */
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 24px;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--t2);
+  letter-spacing: 0.02em;
+}
+
+.form-state-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--mt);
+  margin-bottom: 2px;
+}
+
+.form-input {
+  background: var(--bg);
+  border: 1px solid var(--bd);
+  border-radius: 8px;
+  padding: 0 12px;
+  height: 36px;
+  color: var(--tx);
+  font-family: var(--font);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s;
+  width: 100%;
+}
+
+.form-input::placeholder {
+  color: var(--mt);
+}
+
+.form-input:focus {
+  border-color: var(--ac);
+}
+
+.form-input.is-focus {
+  border-color: var(--ac);
+  box-shadow: 0 0 0 3px rgba(129,140,248,0.1);
+}
+
+.form-input.is-error {
+  border-color: var(--er);
+}
+
+.form-error-msg {
+  font-size: 12px;
+  color: var(--er);
+  margin-top: 2px;
+}
+
+.form-textarea {
+  background: var(--bg);
+  border: 1px solid var(--bd);
+  border-radius: 8px;
+  padding: 10px 12px;
+  height: 80px;
+  color: var(--tx);
+  font-family: var(--font);
+  font-size: 14px;
+  outline: none;
+  resize: vertical;
+  transition: border-color 0.15s;
+  width: 100%;
+  line-height: 1.6;
+}
+
+.form-textarea::placeholder {
+  color: var(--mt);
+}
+
+.form-textarea:focus {
+  border-color: var(--ac);
+}
+
+/* ============================================================
+   SPACING
+   ============================================================ */
+
+.spacing-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.spacing-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.spacing-block {
+  background: rgba(129,140,248,0.12);
+  border: 1px solid rgba(129,140,248,0.3);
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.spacing-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.spacing-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--tx);
+}
+
+.spacing-value {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--mt);
+}
+
+/* ============================================================
+   RADIUS
+   ============================================================ */
+
+.radius-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  align-items: flex-end;
+}
+
+.radius-demo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.radius-box {
+  width: 80px;
+  height: 80px;
+  background: var(--card);
+  border: 1px solid var(--bd);
+  flex-shrink: 0;
+}
+
+.radius-meta {
+  text-align: center;
+}
+
+.radius-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--tx);
+  margin-bottom: 2px;
+}
+
+.radius-value {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--mt);
+}
+
+.radius-context {
+  font-size: 11px;
+  color: var(--mt);
+  margin-top: 2px;
+}
+
+/* ============================================================
+   ELEVATION
+   ============================================================ */
+
+.elevation-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+
+.elevation-card {
+  flex: 1;
+  min-width: 160px;
+  padding: 20px;
+  border-radius: var(--radius);
+  position: relative;
+}
+
+.elevation-level {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ac);
+  margin-bottom: 8px;
+}
+
+.elevation-name {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.elevation-desc {
+  font-size: 13px;
+  color: var(--t2);
+  line-height: 1.5;
+}
+
+/* Elevation levels */
+.elev-flat {
+  background: var(--bg2);
+  border: 1px solid var(--bd);
+  box-shadow: none;
+}
+
+.elev-contained {
+  background: var(--card);
+  border: 1px solid var(--bd);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+}
+
+.elev-card {
+  background: var(--card);
+  border: 1px solid var(--bd);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+}
+
+.elev-glow {
+  background: var(--card);
+  border: 1px solid rgba(129,140,248,0.2);
+  box-shadow: 0 4px 24px rgba(0,0,0,0.5), 0 0 0 1px rgba(129,140,248,0.08), 0 0 20px rgba(129,140,248,0.08);
+}
+
+.elev-gradient {
+  background: linear-gradient(135deg, rgba(129,140,248,0.06) 0%, rgba(192,132,252,0.04) 50%, rgba(244,114,182,0.02) 100%);
+  border: 1px solid rgba(129,140,248,0.2);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6), 0 0 40px rgba(129,140,248,0.08);
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+
+@media (max-width: 768px) {
+  .nav-links {
+    display: none;
+  }
+
+  .container {
+    padding: 0 20px;
+  }
+
+  .hero {
+    padding: 80px 20px 60px;
+  }
+
+  .hero h1 {
+    font-size: 36px;
+  }
+
+  .hero-buttons {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .section-heading {
+    font-size: 28px;
+  }
+
+  .cards-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .elevation-grid {
+    flex-direction: column;
+  }
+
+  .radius-grid {
+    gap: 16px;
+  }
+
+  .section-divider {
+    margin: 0 20px;
+  }
+}
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     NAV
+     ============================================================ -->
+<nav class="nav">
+  <div class="nav-brand">Indras<span>Network</span></div>
+  <div class="nav-links">
+    <a href="#colors">Colors</a>
+    <a href="#typography">Typography</a>
+    <a href="#buttons">Buttons</a>
+    <a href="#cards">Cards</a>
+    <a href="#forms">Forms</a>
+    <a href="#spacing">Spacing</a>
+    <a href="#radius">Radius</a>
+    <a href="#elevation">Elevation</a>
+  </div>
+  <button class="nav-cta">View DESIGN.md</button>
+</nav>
+
+<!-- ============================================================
+     HERO
+     ============================================================ -->
+<section class="hero">
+  <div class="hero-eyebrow">IndrasNetwork · Synchronicity Engine · Gift Economy</div>
+  <h1>Design System Preview:<br><em>IndrasNetwork</em></h1>
+  <p class="hero-sub">Auto-generated design token catalog from DESIGN.md — every color, type scale, component, and spacing value in one place.</p>
+  <div class="hero-buttons">
+    <button class="btn btn-primary">Explore Tokens</button>
+    <button class="btn btn-outline">View Source</button>
+  </div>
+</section>
+
+<hr class="section-divider">
+
+<!-- ============================================================
+     COLORS
+     ============================================================ -->
+<section class="section" id="colors">
+  <div class="container">
+    <div class="section-label">Design Tokens</div>
+    <h2 class="section-heading">Colors</h2>
+
+    <!-- Primary Accent -->
+    <div class="color-group">
+      <div class="color-group-title">Primary Accent</div>
+      <div class="color-grid">
+        <div class="color-swatch">
+          <div class="color-swatch-block" style="background:#818cf8;"></div>
+          <div class="color-swatch-info">
+            <div class="color-swatch-name">Indigo</div>
+            <div class="color-swatch-hex">#818cf8 · --ac</div>
+            <div class="color-swatch-role">Primary accent, links, interactive elements</div>
+          </div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch-block" style="background:#c084fc;"></div>
+          <div class="color-swatch-info">
+            <div class="color-swatch-name">Purple</div>
+            <div class="color-swatch-hex">#c084fc · --ac2</div>
+            <div class="color-swatch-role">Secondary accent, blessings, validation</div>
+          </div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch-block" style="background:#f472b6;"></div>
+          <div class="color-swatch-info">
+            <div class="color-swatch-name">Pink</div>
+            <div class="color-swatch-hex">#f472b6 · --ac3</div>
+            <div class="color-swatch-role">Tertiary accent, tokens, gratitude</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stage Colors -->
+    <div class="color-group">
+      <div class="color-group-title">Stage Colors</div>
+      <div class="color-grid">
+        <div class="color-swatch">
+          <div class="color-swatch-block" style="background:#818cf8;"></div>
+          <div class="color-swatch-info">
+            <div class="color-swatch-name">Intention</div>
+            <div class="color-swatch-hex">#818cf8</div>
+            <div class="color-swatch-role">Gift cycle: intention stage</div>
+          </div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch-block" style="background:#fbbf24;"></div>
+          <div class="color-swatch-info">
+            <div class="color-swatch-name">Attention</div>
+            <div class="color-swatch-hex">#fbbf24</div>
+            <div class="color-swatch-role">Gift cycle: attention stage</div>
+          </div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch-block" style="background:#34d399;"></div>
+          <div class="color-swatch-info">
+            <div class="color-swatch-name">Service</div>
+            <div class="color-swatch-hex">#34d399</div>
+            <div class="color-swatch-role">Gift cycle: act of service stage</div>
+          </div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch-block" style="background:#c084fc;"></div>
+          <div class="color-swatch-info">
+            <div class="color-swatch-name">Blessing</div>
+            <div class="color-swatch-hex">#c084fc</div>
+            <div class="color-swatch-role">Gift cycle: blessing stage</div>
+          </div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch-block" style="background:#f472b6;"></div>
+          <div class="color-swatch-info">
+            <div class="color-swatch-name">Token</div>
+            <div class="color-swatch-hex">#f472b6</div>
+            <div class="color-swatch-role">Gift cycle: token of gratitude stage</div>
+          </div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch-block" style="background:linear-gradient(135deg,#818cf8,#c084fc);"></div>
+          <div class="color-swatch-info">
+            <div class="color-swatch-name">Renewal</div>
+            <div class="color-swatch-hex">#818cf8</div>
+            <div class="color-swatch-role">Gift cycle: renewal stage</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Member Identity -->
+    <div class="color-group">
+      <div class="color-group-title">Member Identity</div>
+      <div class="color-grid">
+        <div class="color-swatch">
+          <div class="color-swatch-block" style="background:#ff6b9d;"></div>
+          <div class="color-swatch-info">
+            <div class="color-swatch-name">Love</div>
+            <div class="color-swatch-hex">#ff6b9d · --love</div>
+            <div class="color-swatch-role">Member identity: Love</div>
+          </div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch-block" style="background:#ffd93d;"></div>
+          <div class="color-swatch-info">
+            <div class="color-swatch-name">Joy</div>
+            <div class="color-swatch-hex">#ffd93d · --joy</div>
+            <div class="color-swatch-role">Member identity: Joy</div>
+          </div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch-block" style="background:#6bcfff;"></div>
+          <div class="color-swatch-info">
+            <div class="color-swatch-name">Peace</div>
+            <div class="color-swatch-hex">#6bcfff · --peace</div>
+            <div class="color-swatch-role">Member identity: Peace</div>
+          </div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch-block" style="background:#b19cd9;"></div>
+          <div class="color-swatch-info">
+            <div class="color-swatch-name">Grace</div>
+            <div class="color-swatch-hex">#b19cd9 · --grace</div>
+            <div class="color-swatch-role">Member identity: Grace</div>
+          </div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch-block" style="background:#98d8aa;"></div>
+          <div class="color-swatch-info">
+            <div class="color-swatch-name">Hope</div>
+            <div class="color-swatch-hex">#98d8aa · --hope</div>
+            <div class="color-swatch-role">Member identity: Hope</div>
+          </div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch-block" style="background:#ffb347;"></div>
+          <div class="color-swatch-info">
+            <div class="color-swatch-name">Faith</div>
+            <div class="color-swatch-hex">#ffb347 · --faith</div>
+            <div class="color-swatch-role">Member identity: Faith</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Surface & Background -->
+    <div class="color-group">
+      <div class="color-group-title">Surface &amp; Background</div>
+      <div class="color-grid">
+        <div class="color-swatch">
+          <div class="color-swatch-block" style="background:#09090b; border-bottom:1px solid #27272a;"></div>
+          <div class="color-swatch-info">
+            <div class="color-swatch-name">Deep Void</div>
+            <div class="color-swatch-hex">#09090b · --bg</div>
+            <div class="color-swatch-role">Primary page background</div>
+          </div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch-block" style="background:#111114; border-bottom:1px solid #27272a;"></div>
+          <div class="color-swatch-info">
+            <div class="color-swatch-name">Dark Surface</div>
+            <div class="color-swatch-hex">#111114 · --bg2</div>
+            <div class="color-swatch-role">Secondary bg, panels</div>
+          </div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch-block" style="background:#151518; border-bottom:1px solid #27272a;"></div>
+          <div class="color-swatch-info">
+            <div class="color-swatch-name">Card Surface</div>
+            <div class="color-swatch-hex">#151518 · --card</div>
+            <div class="color-swatch-role">Card interiors</div>
+          </div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch-block" style="background:#1c1c20; border-bottom:1px solid #27272a;"></div>
+          <div class="color-swatch-info">
+            <div class="color-swatch-name">Hover Surface</div>
+            <div class="color-swatch-hex">#1c1c20 · --hover</div>
+            <div class="color-swatch-role">Interactive hover states</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Neutrals & Text -->
+    <div class="color-group">
+      <div class="color-group-title">Neutrals &amp; Text</div>
+      <div class="color-grid">
+        <div class="color-swatch">
+          <div class="color-swatch-block" style="background:#fafafa;"></div>
+          <div class="color-swatch-info">
+            <div class="color-swatch-name">Pure Light</div>
+            <div class="color-swatch-hex">#fafafa · --tx</div>
+            <div class="color-swatch-role">Primary headings</div>
+          </div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch-block" style="background:#a0a0ab;"></div>
+          <div class="color-swatch-info">
+            <div class="color-swatch-name">Soft Gray</div>
+            <div class="color-swatch-hex">#a0a0ab · --t2</div>
+            <div class="color-swatch-role">Secondary body text</div>
+          </div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch-block" style="background:#52525b;"></div>
+          <div class="color-swatch-info">
+            <div class="color-swatch-name">Muted Zinc</div>
+            <div class="color-swatch-hex">#52525b · --mt</div>
+            <div class="color-swatch-role">De-emphasized metadata</div>
+          </div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch-block" style="background:#3f3f46;"></div>
+          <div class="color-swatch-info">
+            <div class="color-swatch-name">Ghost Zinc</div>
+            <div class="color-swatch-hex">#3f3f46 · --gh</div>
+            <div class="color-swatch-role">Faintest text</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Semantic -->
+    <div class="color-group">
+      <div class="color-group-title">Semantic</div>
+      <div class="color-grid">
+        <div class="color-swatch">
+          <div class="color-swatch-block" style="background:#34d399;"></div>
+          <div class="color-swatch-info">
+            <div class="color-swatch-name">Success</div>
+            <div class="color-swatch-hex">#34d399 · --ok</div>
+            <div class="color-swatch-role">Confirmations, completions</div>
+          </div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch-block" style="background:#fbbf24;"></div>
+          <div class="color-swatch-info">
+            <div class="color-swatch-name">Warning</div>
+            <div class="color-swatch-hex">#fbbf24 · --wn</div>
+            <div class="color-swatch-role">Caution, pending states</div>
+          </div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch-block" style="background:#f87171;"></div>
+          <div class="color-swatch-info">
+            <div class="color-swatch-name">Error</div>
+            <div class="color-swatch-hex">#f87171 · --er</div>
+            <div class="color-swatch-role">Failures, destructive actions</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Border System -->
+    <div class="color-group">
+      <div class="color-group-title">Border System</div>
+      <div class="color-grid">
+        <div class="color-swatch">
+          <div class="color-swatch-block" style="background:#27272a;"></div>
+          <div class="color-swatch-info">
+            <div class="color-swatch-name">Border Primary</div>
+            <div class="color-swatch-hex">#27272a · --bd</div>
+            <div class="color-swatch-role">Standard container borders</div>
+          </div>
+        </div>
+        <div class="color-swatch">
+          <div class="color-swatch-block" style="background:#1c1c20;"></div>
+          <div class="color-swatch-info">
+            <div class="color-swatch-name">Border Subtle</div>
+            <div class="color-swatch-hex">#1c1c20 · --b2</div>
+            <div class="color-swatch-role">Faint separators</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="section-divider">
+
+<!-- ============================================================
+     TYPOGRAPHY
+     ============================================================ -->
+<section class="section" id="typography">
+  <div class="container">
+    <div class="section-label">Type Scale</div>
+    <h2 class="section-heading">Typography</h2>
+
+    <!-- Display Hero -->
+    <div class="type-sample">
+      <div class="type-sample-text" style="font-family:'Inter',sans-serif; font-size:clamp(36px,5vw,60px); font-weight:800; line-height:1.05; letter-spacing:-0.04em;">
+        The Gift Cycle
+      </div>
+      <div class="type-sample-label">Display Hero · clamp(36px,5vw,60px) / weight 800 / line-height 1.05 / letter-spacing -0.04em / Inter</div>
+    </div>
+
+    <!-- Section Heading -->
+    <div class="type-sample">
+      <div class="type-sample-text" style="font-family:'Inter',sans-serif; font-size:28px; font-weight:700; line-height:1.2; letter-spacing:-0.03em;">
+        Intention → Attention → Gratitude
+      </div>
+      <div class="type-sample-label">Section Heading · 28px / weight 700 / line-height 1.2 / letter-spacing -0.03em / Inter</div>
+    </div>
+
+    <!-- Sub-heading -->
+    <div class="type-sample">
+      <div class="type-sample-text" style="font-family:'Inter',sans-serif; font-size:16px; font-weight:600; line-height:1.5; letter-spacing:normal;">
+        Stage Detail Panel
+      </div>
+      <div class="type-sample-label">Sub-heading · 16px / weight 600 / line-height 1.5 / letter-spacing normal / Inter</div>
+    </div>
+
+    <!-- Body -->
+    <div class="type-sample">
+      <div class="type-sample-text" style="font-family:'Inter',sans-serif; font-size:15px; font-weight:300; line-height:1.7; letter-spacing:normal; color:var(--t2);">
+        Someone voices an intention, peers invest attention, service is rendered, and a blessing flows back through the network — completing the cycle.
+      </div>
+      <div class="type-sample-label">Body · 15px / weight 300 / line-height 1.7 / letter-spacing normal / Inter</div>
+    </div>
+
+    <!-- Body Small -->
+    <div class="type-sample">
+      <div class="type-sample-text" style="font-family:'Inter',sans-serif; font-size:14px; font-weight:400; line-height:1.8; letter-spacing:normal; color:var(--t2);">
+        The Intention is written to the realm's CRDT document and propagated to all peers via the Synchronicity Engine sync protocol.
+      </div>
+      <div class="type-sample-label">Body Small · 14px / weight 400 / line-height 1.8 / letter-spacing normal / Inter</div>
+    </div>
+
+    <!-- Body Tiny -->
+    <div class="type-sample">
+      <div class="type-sample-text" style="font-family:'Inter',sans-serif; font-size:13px; font-weight:500; line-height:1.5; letter-spacing:normal; color:var(--mt);">
+        Submitted 1h ago
+      </div>
+      <div class="type-sample-label">Body Tiny · 13px / weight 500 / line-height 1.5 / letter-spacing normal / Inter</div>
+    </div>
+
+    <!-- Caption -->
+    <div class="type-sample">
+      <div class="type-sample-text" style="font-family:'Inter',sans-serif; font-size:12px; font-weight:500; line-height:1.4; letter-spacing:normal; color:var(--mt);">
+        3 artifacts · BLAKE3:7f3a..c91e
+      </div>
+      <div class="type-sample-label">Caption · 12px / weight 500 / line-height 1.4 / letter-spacing normal / Inter</div>
+    </div>
+
+    <!-- Eyebrow -->
+    <div class="type-sample">
+      <div class="type-sample-text" style="font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:500; line-height:1.3; letter-spacing:0.12em; text-transform:uppercase; color:var(--ac);">
+        SYNCHRONICITY ENGINE · GIFT ECONOMY
+      </div>
+      <div class="type-sample-label">Eyebrow · 11px / weight 500 / line-height 1.3 / letter-spacing 0.12em / JetBrains Mono</div>
+    </div>
+
+    <!-- Mono Label -->
+    <div class="type-sample">
+      <div class="type-sample-text" style="font-family:'JetBrains Mono',monospace; font-size:10px; font-weight:500; line-height:1.3; letter-spacing:0.1em; text-transform:uppercase; color:var(--t2);">
+        INTENTION STRUCT
+      </div>
+      <div class="type-sample-label">Mono Label · 10px / weight 500 / line-height 1.3 / letter-spacing 0.1em / JetBrains Mono</div>
+    </div>
+
+    <!-- Mono Tiny -->
+    <div class="type-sample">
+      <div class="type-sample-text" style="font-family:'JetBrains Mono',monospace; font-size:9px; font-weight:400; line-height:1.3; letter-spacing:0.15em; text-transform:uppercase; color:var(--mt);">
+        INDRA'S NETWORK · EVERY LINK A GIFT
+      </div>
+      <div class="type-sample-label">Mono Tiny · 9px / weight 400 / line-height 1.3 / letter-spacing 0.15em / JetBrains Mono</div>
+    </div>
+
+    <!-- Code Body -->
+    <div class="type-sample">
+      <div class="type-sample-text" style="font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:400; line-height:1.9; letter-spacing:normal; color:var(--ac2); background:var(--bg2); border:1px solid var(--bd); border-radius:8px; padding:16px 20px;">
+        <span style="color:var(--ac);">pub</span> <span style="color:var(--ac);">struct</span> <span style="color:var(--wn);">Intention</span> {<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--t2);">id:</span> <span style="color:var(--ok);">IntentionId</span>,<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--t2);">author:</span> <span style="color:var(--ok);">MemberId</span>,<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--t2);">body:</span> <span style="color:var(--ok);">String</span>,<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--t2);">stage:</span> <span style="color:var(--ok);">GiftStage</span>,<br>
+        }
+      </div>
+      <div class="type-sample-label" style="margin-top:12px;">Code Body · 11px / weight 400 / line-height 1.9 / letter-spacing normal / JetBrains Mono</div>
+    </div>
+  </div>
+</section>
+
+<hr class="section-divider">
+
+<!-- ============================================================
+     BUTTONS
+     ============================================================ -->
+<section class="section" id="buttons">
+  <div class="container">
+    <div class="section-label">Interactive</div>
+    <h2 class="section-heading">Buttons</h2>
+
+    <div class="button-row">
+      <div class="button-demo">
+        <button class="btn btn-primary">Send Intention</button>
+        <div class="button-demo-label">Primary</div>
+      </div>
+      <div class="button-demo">
+        <button class="btn btn-outline">View Realm</button>
+        <div class="button-demo-label">Outline</div>
+      </div>
+      <div class="button-demo">
+        <button class="btn btn-success">Confirm Service</button>
+        <div class="button-demo-label">Success</div>
+      </div>
+      <div class="button-demo">
+        <button class="btn btn-warning">Pending Review</button>
+        <div class="button-demo-label">Warning</div>
+      </div>
+      <div class="button-demo">
+        <button class="btn btn-glow">Gift a Token</button>
+        <div class="button-demo-label">Glow</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="section-divider">
+
+<!-- ============================================================
+     CARDS
+     ============================================================ -->
+<section class="section" id="cards">
+  <div class="container">
+    <div class="section-label">Containers</div>
+    <h2 class="section-heading">Cards</h2>
+
+    <div class="cards-grid">
+
+      <!-- Description Panel -->
+      <div class="card-description">
+        <div class="card-description-eyebrow">Gift Cycle · Stage 1</div>
+        <div class="card-description-title">Intention Voiced</div>
+        <div class="card-description-body">
+          A member has voiced an intention to the realm. Peers who invest attention will help determine what service is rendered next.
+        </div>
+        <div class="card-description-meta">
+          <span>&#9679; 3 artifacts</span>
+          <span>&#9675; 2h ago</span>
+          <span style="color:var(--ac);">&#8594; Attention</span>
+        </div>
+      </div>
+
+      <!-- UI Mock -->
+      <div class="card-ui-mock">
+        <div class="card-ui-titlebar">
+          <div class="titlebar-dots">
+            <div class="dot dot-red"></div>
+            <div class="dot dot-yellow"></div>
+            <div class="dot dot-green"></div>
+          </div>
+          <div class="titlebar-title">Synchronicity Engine · Realm Panel</div>
+        </div>
+        <div class="card-ui-content">
+          <div class="ui-row">
+            <span class="ui-row-label">Network Status</span>
+            <span class="ui-badge badge-ok">Connected</span>
+          </div>
+          <div class="ui-row">
+            <span class="ui-row-label">Active Intentions</span>
+            <span class="ui-row-value">14</span>
+          </div>
+          <div class="ui-row">
+            <span class="ui-row-label">Sync Protocol</span>
+            <span class="ui-badge badge-ac">Automerge</span>
+          </div>
+          <div class="ui-row">
+            <span class="ui-row-label">Vault ID</span>
+            <span class="ui-row-value">7f3a..c91e</span>
+          </div>
+          <div class="ui-row">
+            <span class="ui-row-label">Members Online</span>
+            <span class="ui-row-value">A, C, E, F</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Data Panel -->
+      <div class="card-data">
+        <div class="card-data-header">
+          <div class="card-data-header-title">Intention Record</div>
+          <div class="card-data-header-badge">CRDT</div>
+        </div>
+        <div class="card-data-body">
+          <span class="data-key">id</span>:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="data-str">"intent_7f3a"</span><br>
+          <span class="data-key">author</span>:&nbsp;&nbsp;&nbsp;<span class="data-str">"member_A"</span><br>
+          <span class="data-key">stage</span>:&nbsp;&nbsp;&nbsp;&nbsp;<span class="data-val">Attention</span><br>
+          <span class="data-key">weight</span>:&nbsp;&nbsp;&nbsp;<span class="data-num">0.82</span><br>
+          <span class="data-key">blessed</span>:&nbsp;&nbsp;<span class="data-val">false</span><br>
+          <span class="data-key">tokens</span>:&nbsp;&nbsp;&nbsp;<span class="data-num">3</span><br>
+          <span class="data-key">created</span>:&nbsp;&nbsp;<span class="data-str">"2h ago"</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<hr class="section-divider">
+
+<!-- ============================================================
+     FORMS
+     ============================================================ -->
+<section class="section" id="forms">
+  <div class="container">
+    <div class="section-label">Input Elements</div>
+    <h2 class="section-heading">Forms</h2>
+
+    <div class="form-grid">
+
+      <!-- Default state -->
+      <div class="form-field">
+        <div class="form-state-label">Default</div>
+        <label class="form-label">Intention Title</label>
+        <input class="form-input" type="text" placeholder="Voice your intention...">
+      </div>
+
+      <!-- Focus state -->
+      <div class="form-field">
+        <div class="form-state-label">Focus</div>
+        <label class="form-label">Realm Name</label>
+        <input class="form-input is-focus" type="text" value="Synchronicity Engine">
+      </div>
+
+      <!-- Error state -->
+      <div class="form-field">
+        <div class="form-state-label">Error</div>
+        <label class="form-label">Member ID</label>
+        <input class="form-input is-error" type="text" value="member_???">
+        <div class="form-error-msg">Member ID not found in this realm</div>
+      </div>
+
+      <!-- Textarea -->
+      <div class="form-field">
+        <div class="form-state-label">Textarea</div>
+        <label class="form-label">Intention Body</label>
+        <textarea class="form-textarea" placeholder="Describe what you intend to offer or receive through the gift cycle..."></textarea>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<hr class="section-divider">
+
+<!-- ============================================================
+     SPACING
+     ============================================================ -->
+<section class="section" id="spacing">
+  <div class="container">
+    <div class="section-label">Layout Tokens</div>
+    <h2 class="section-heading">Spacing</h2>
+
+    <div class="spacing-grid">
+      <div class="spacing-row">
+        <div class="spacing-block" style="width:4px; height:20px;"></div>
+        <div class="spacing-meta">
+          <div class="spacing-name">space-1</div>
+          <div class="spacing-value">4px · 0.25rem</div>
+        </div>
+      </div>
+      <div class="spacing-row">
+        <div class="spacing-block" style="width:8px; height:20px;"></div>
+        <div class="spacing-meta">
+          <div class="spacing-name">space-2</div>
+          <div class="spacing-value">8px · 0.5rem</div>
+        </div>
+      </div>
+      <div class="spacing-row">
+        <div class="spacing-block" style="width:12px; height:20px;"></div>
+        <div class="spacing-meta">
+          <div class="spacing-name">space-3</div>
+          <div class="spacing-value">12px · 0.75rem</div>
+        </div>
+      </div>
+      <div class="spacing-row">
+        <div class="spacing-block" style="width:16px; height:20px;"></div>
+        <div class="spacing-meta">
+          <div class="spacing-name">space-4</div>
+          <div class="spacing-value">16px · 1rem · base unit</div>
+        </div>
+      </div>
+      <div class="spacing-row">
+        <div class="spacing-block" style="width:20px; height:20px;"></div>
+        <div class="spacing-meta">
+          <div class="spacing-name">space-5</div>
+          <div class="spacing-value">20px · 1.25rem</div>
+        </div>
+      </div>
+      <div class="spacing-row">
+        <div class="spacing-block" style="width:24px; height:20px;"></div>
+        <div class="spacing-meta">
+          <div class="spacing-name">space-6</div>
+          <div class="spacing-value">24px · 1.5rem · component padding</div>
+        </div>
+      </div>
+      <div class="spacing-row">
+        <div class="spacing-block" style="width:32px; height:20px;"></div>
+        <div class="spacing-meta">
+          <div class="spacing-name">space-8</div>
+          <div class="spacing-value">32px · 2rem · section gutter</div>
+        </div>
+      </div>
+      <div class="spacing-row">
+        <div class="spacing-block" style="width:40px; height:20px;"></div>
+        <div class="spacing-meta">
+          <div class="spacing-name">space-10</div>
+          <div class="spacing-value">40px · 2.5rem · page padding</div>
+        </div>
+      </div>
+      <div class="spacing-row">
+        <div class="spacing-block" style="width:48px; height:20px;"></div>
+        <div class="spacing-meta">
+          <div class="spacing-name">space-12</div>
+          <div class="spacing-value">48px · 3rem · section gap</div>
+        </div>
+      </div>
+      <div class="spacing-row">
+        <div class="spacing-block" style="width:64px; height:20px;"></div>
+        <div class="spacing-meta">
+          <div class="spacing-name">space-16</div>
+          <div class="spacing-value">64px · 4rem</div>
+        </div>
+      </div>
+      <div class="spacing-row">
+        <div class="spacing-block" style="width:80px; height:20px;"></div>
+        <div class="spacing-meta">
+          <div class="spacing-name">space-20</div>
+          <div class="spacing-value">80px · 5rem · section padding</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="section-divider">
+
+<!-- ============================================================
+     RADIUS
+     ============================================================ -->
+<section class="section" id="radius">
+  <div class="container">
+    <div class="section-label">Shape Tokens</div>
+    <h2 class="section-heading">Border Radius</h2>
+
+    <div class="radius-grid">
+
+      <div class="radius-demo">
+        <div class="radius-box" style="border-radius:0px;"></div>
+        <div class="radius-meta">
+          <div class="radius-name">None</div>
+          <div class="radius-value">0px</div>
+          <div class="radius-context">Data tables, dividers</div>
+        </div>
+      </div>
+
+      <div class="radius-demo">
+        <div class="radius-box" style="border-radius:3px;"></div>
+        <div class="radius-meta">
+          <div class="radius-name">XS</div>
+          <div class="radius-value">3px</div>
+          <div class="radius-context">Badges, tags</div>
+        </div>
+      </div>
+
+      <div class="radius-demo">
+        <div class="radius-box" style="border-radius:4px;"></div>
+        <div class="radius-meta">
+          <div class="radius-name">SM</div>
+          <div class="radius-value">4px</div>
+          <div class="radius-context">Color swatches, chips</div>
+        </div>
+      </div>
+
+      <div class="radius-demo">
+        <div class="radius-box" style="border-radius:8px;"></div>
+        <div class="radius-meta">
+          <div class="radius-name">MD</div>
+          <div class="radius-value">8px</div>
+          <div class="radius-context">Inputs, buttons</div>
+        </div>
+      </div>
+
+      <div class="radius-demo">
+        <div class="radius-box" style="border-radius:12px;"></div>
+        <div class="radius-meta">
+          <div class="radius-name">LG</div>
+          <div class="radius-value">12px · --radius</div>
+          <div class="radius-context">Cards, panels, modals</div>
+        </div>
+      </div>
+
+      <div class="radius-demo">
+        <div class="radius-box" style="border-radius:16px;"></div>
+        <div class="radius-meta">
+          <div class="radius-name">XL</div>
+          <div class="radius-value">16px</div>
+          <div class="radius-context">Floating panels</div>
+        </div>
+      </div>
+
+      <div class="radius-demo">
+        <div class="radius-box" style="border-radius:24px;"></div>
+        <div class="radius-meta">
+          <div class="radius-name">2XL</div>
+          <div class="radius-value">24px</div>
+          <div class="radius-context">Hero containers</div>
+        </div>
+      </div>
+
+      <div class="radius-demo">
+        <div class="radius-box" style="border-radius:9999px;"></div>
+        <div class="radius-meta">
+          <div class="radius-name">Full</div>
+          <div class="radius-value">9999px</div>
+          <div class="radius-context">Pills, avatars</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<hr class="section-divider">
+
+<!-- ============================================================
+     ELEVATION
+     ============================================================ -->
+<section class="section" id="elevation">
+  <div class="container">
+    <div class="section-label">Depth System</div>
+    <h2 class="section-heading">Elevation</h2>
+
+    <div class="elevation-grid">
+
+      <div class="elevation-card elev-flat">
+        <div class="elevation-level">Level 0</div>
+        <div class="elevation-name">Flat</div>
+        <div class="elevation-desc">Inline content, form fields, background panels.</div>
+      </div>
+
+      <div class="elevation-card elev-contained">
+        <div class="elevation-level">Level 1</div>
+        <div class="elevation-name">Contained</div>
+        <div class="elevation-desc">Subtle container lift. Sidebar items, list rows.</div>
+      </div>
+
+      <div class="elevation-card elev-card">
+        <div class="elevation-level">Level 2</div>
+        <div class="elevation-name">Card</div>
+        <div class="elevation-desc">Standard card shadow. Stage panels, intention cards.</div>
+      </div>
+
+      <div class="elevation-card elev-glow">
+        <div class="elevation-level">Level 3</div>
+        <div class="elevation-name">Glow</div>
+        <div class="elevation-desc">Indigo glow ring. Focused elements, active states.</div>
+      </div>
+
+      <div class="elevation-card elev-gradient">
+        <div class="elevation-level">Level 4</div>
+        <div class="elevation-name">Gradient</div>
+        <div class="elevation-desc">Full gradient + deep shadow. Hero cards, featured content.</div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- Footer spacer -->
+<div style="height:80px;"></div>
+
+</body>
+</html>

@@ -1,0 +1,1561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Design System Preview: IndrasNetwork — Deep Dark</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    /* ─── Design Tokens ──────────────────────────────────────────────── */
+    :root {
+      --bg:     #000000;
+      --bg2:    #09090b;
+      --card:   #0a0a0e;
+      --hover:  #111118;
+      --tx:     #fafafa;
+      --t2:     #a0a0ab;
+      --mt:     #52525b;
+      --gh:     #3f3f46;
+      --bd:     #1c1c20;
+      --b2:     #111118;
+      --ac:     #818cf8;
+      --ac2:    #c084fc;
+      --ac3:    #f472b6;
+      --ok:     #34d399;
+      --wn:     #fbbf24;
+      --er:     #f87171;
+      --font:   'Inter', -apple-system, system-ui, sans-serif;
+      --mono:   'JetBrains Mono', monospace;
+      --radius: 12px;
+    }
+
+    /* ─── Reset ──────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* ─── Base ───────────────────────────────────────────────────────── */
+    body {
+      font-family: var(--font);
+      font-size: 15px;
+      line-height: 1.7;
+      background: var(--bg);
+      color: var(--tx);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Dot grid overlay */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: radial-gradient(circle, rgba(129,140,248,0.07) 1px, transparent 1px);
+      background-size: 24px 24px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ─── Deep Dark Badge ────────────────────────────────────────────── */
+    .dark-badge {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      z-index: 200;
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--ac);
+      background: rgba(129,140,248,0.08);
+      border: 1px solid rgba(129,140,248,0.2);
+      padding: 4px 12px;
+      border-radius: 100px;
+    }
+
+    /* ─── Layout ─────────────────────────────────────────────────────── */
+    .container {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 0 24px;
+      position: relative;
+      z-index: 1;
+    }
+
+    section {
+      padding: 64px 0;
+      border-bottom: 1px solid var(--bd);
+    }
+
+    section:last-child { border-bottom: none; }
+
+    /* ─── Section Headers ────────────────────────────────────────────── */
+    .section-label {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ac);
+      margin-bottom: 8px;
+    }
+
+    .section-title {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--tx);
+      margin-bottom: 8px;
+      letter-spacing: -0.02em;
+    }
+
+    .section-desc {
+      font-size: 14px;
+      color: var(--t2);
+      margin-bottom: 40px;
+      max-width: 560px;
+    }
+
+    /* ─── Nav ────────────────────────────────────────────────────────── */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(0,0,0,0.92);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--bd);
+    }
+
+    .nav-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 56px;
+    }
+
+    .nav-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+    }
+
+    .nav-logo {
+      width: 28px;
+      height: 28px;
+      background: linear-gradient(135deg, var(--ac), var(--ac2));
+      border-radius: 7px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 500;
+      color: #fff;
+    }
+
+    .nav-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--tx);
+      letter-spacing: -0.01em;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .nav-link {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--t2);
+      text-decoration: none;
+      padding: 6px 12px;
+      border-radius: 8px;
+      transition: color 0.15s, background 0.15s;
+    }
+
+    .nav-link:hover {
+      color: var(--tx);
+      background: var(--hover);
+    }
+
+    .nav-cta {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--bg);
+      background: var(--ac);
+      border: none;
+      padding: 7px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      text-decoration: none;
+      transition: opacity 0.15s;
+    }
+
+    .nav-cta:hover { opacity: 0.85; }
+
+    /* ─── Hero ───────────────────────────────────────────────────────── */
+    #hero {
+      padding: 100px 0 96px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero-glow {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 700px;
+      height: 700px;
+      background: radial-gradient(ellipse at center,
+        rgba(129,140,248,0.08) 0%,
+        rgba(192,132,252,0.04) 40%,
+        transparent 70%);
+      pointer-events: none;
+    }
+
+    .hero-eyebrow {
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ac);
+      margin-bottom: 20px;
+    }
+
+    .hero-title {
+      font-size: clamp(36px, 5vw, 60px);
+      font-weight: 800;
+      line-height: 1.05;
+      letter-spacing: -0.04em;
+      color: var(--tx);
+      margin-bottom: 20px;
+      position: relative;
+    }
+
+    .hero-title .gradient {
+      background: linear-gradient(135deg, var(--ac) 0%, var(--ac2) 50%, var(--ac3) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero-sub {
+      font-size: 17px;
+      font-weight: 300;
+      color: var(--t2);
+      margin-bottom: 40px;
+      max-width: 520px;
+      margin-left: auto;
+      margin-right: auto;
+      line-height: 1.6;
+      position: relative;
+    }
+
+    .hero-actions {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      position: relative;
+    }
+
+    /* ─── Buttons ────────────────────────────────────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--font);
+      font-size: 14px;
+      font-weight: 500;
+      padding: 10px 20px;
+      border-radius: 10px;
+      border: none;
+      cursor: pointer;
+      text-decoration: none;
+      transition: all 0.15s;
+      line-height: 1;
+    }
+
+    .btn-primary {
+      background: var(--ac);
+      color: #09090b;
+    }
+    .btn-primary:hover { opacity: 0.88; transform: translateY(-1px); }
+
+    .btn-outline {
+      background: transparent;
+      color: var(--ac);
+      border: 1px solid var(--ac);
+    }
+    .btn-outline:hover { background: rgba(129,140,248,0.08); transform: translateY(-1px); }
+
+    .btn-success {
+      background: var(--ok);
+      color: #09090b;
+    }
+    .btn-success:hover { opacity: 0.88; transform: translateY(-1px); }
+
+    .btn-warning {
+      background: var(--wn);
+      color: #09090b;
+    }
+    .btn-warning:hover { opacity: 0.88; transform: translateY(-1px); }
+
+    .btn-glow {
+      background: linear-gradient(135deg, var(--ac), var(--ac2));
+      color: #fff;
+      box-shadow: 0 0 24px rgba(129,140,248,0.3), 0 4px 16px rgba(129,140,248,0.2);
+    }
+    .btn-glow:hover {
+      opacity: 0.92;
+      transform: translateY(-2px);
+      box-shadow: 0 0 36px rgba(129,140,248,0.4), 0 8px 24px rgba(129,140,248,0.25);
+    }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--t2);
+      border: 1px solid var(--bd);
+    }
+    .btn-ghost:hover { background: var(--hover); color: var(--tx); transform: translateY(-1px); }
+
+    .btn-sm {
+      font-size: 12px;
+      padding: 7px 14px;
+      border-radius: 8px;
+    }
+
+    .btn-lg {
+      font-size: 16px;
+      padding: 13px 28px;
+      border-radius: 12px;
+    }
+
+    /* ─── Button Grid ────────────────────────────────────────────────── */
+    .btn-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+    }
+
+    /* ─── Color Swatches ─────────────────────────────────────────────── */
+    .swatch-group {
+      margin-bottom: 36px;
+    }
+
+    .swatch-group-label {
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--mt);
+      margin-bottom: 12px;
+    }
+
+    .swatch-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .swatch {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-width: 90px;
+    }
+
+    .swatch-color {
+      width: 80px;
+      height: 56px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.06);
+    }
+
+    .swatch-name {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--tx);
+    }
+
+    .swatch-hex {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--mt);
+    }
+
+    /* ─── Typography Samples ─────────────────────────────────────────── */
+    .type-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .type-table th {
+      text-align: left;
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--mt);
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--bd);
+    }
+
+    .type-table td {
+      padding: 14px 12px;
+      border-bottom: 1px solid var(--b2);
+      vertical-align: middle;
+    }
+
+    .type-table tr:last-child td { border-bottom: none; }
+
+    .type-tag {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 500;
+      color: var(--mt);
+      white-space: nowrap;
+    }
+
+    .type-spec {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--mt);
+      white-space: nowrap;
+    }
+
+    /* ─── Cards ──────────────────────────────────────────────────────── */
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 16px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--bd);
+      border-radius: var(--radius);
+      padding: 24px;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    .card:hover {
+      border-color: rgba(129,140,248,0.25);
+      box-shadow: 0 0 20px rgba(129,140,248,0.06);
+    }
+
+    .card-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--tx);
+      margin-bottom: 6px;
+      letter-spacing: -0.01em;
+    }
+
+    .card-desc {
+      font-size: 13px;
+      color: var(--t2);
+      line-height: 1.6;
+      margin-bottom: 16px;
+    }
+
+    .card-meta {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--mt);
+      letter-spacing: 0.06em;
+    }
+
+    /* Description Panel card */
+    .card-desc-panel {
+      background: var(--bg2);
+      border: 1px solid var(--bd);
+    }
+
+    /* UI Mock card */
+    .card-ui-mock {
+      background: var(--card);
+      border: 1px solid var(--bd);
+      padding: 0;
+      overflow: hidden;
+    }
+
+    .card-titlebar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 16px;
+      background: var(--bg2);
+      border-bottom: 1px solid var(--bd);
+    }
+
+    .titlebar-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+
+    .titlebar-body {
+      padding: 20px;
+    }
+
+    /* Data Panel card */
+    .card-data {
+      background: var(--bg2);
+      border: 1px solid var(--bd);
+      padding: 0;
+      overflow: hidden;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--bd);
+    }
+
+    .card-header-label {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--ac);
+    }
+
+    .card-body {
+      padding: 20px;
+    }
+
+    .data-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--b2);
+      font-size: 13px;
+    }
+
+    .data-row:last-child { border-bottom: none; }
+
+    .data-key { color: var(--t2); }
+    .data-val { color: var(--tx); font-weight: 500; font-family: var(--mono); font-size: 12px; }
+
+    /* ─── Forms ──────────────────────────────────────────────────────── */
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 20px;
+    }
+
+    .form-field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .form-label {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--t2);
+    }
+
+    .form-input {
+      font-family: var(--font);
+      font-size: 14px;
+      color: var(--tx);
+      background: var(--bg);
+      border: 1px solid var(--bd);
+      border-radius: 9px;
+      padding: 10px 14px;
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+      width: 100%;
+    }
+
+    .form-input::placeholder { color: var(--mt); }
+
+    .form-input:focus {
+      border-color: var(--ac);
+      box-shadow: 0 0 0 3px rgba(129,140,248,0.12);
+    }
+
+    .form-input.input-error {
+      border-color: var(--er);
+      box-shadow: 0 0 0 3px rgba(248,113,113,0.1);
+    }
+
+    .form-hint {
+      font-size: 12px;
+      color: var(--mt);
+    }
+
+    .form-hint.hint-error { color: var(--er); }
+
+    textarea.form-input {
+      resize: vertical;
+      min-height: 88px;
+    }
+
+    select.form-input {
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' viewBox='0 0 12 12'%3E%3Cpath d='M2 4l4 4 4-4' stroke='%2352525b' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+      padding-right: 36px;
+    }
+
+    /* ─── Spacing Scale ──────────────────────────────────────────────── */
+    .spacing-list {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .spacing-item {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .spacing-label {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--mt);
+      width: 80px;
+      flex-shrink: 0;
+    }
+
+    .spacing-bar {
+      background: rgba(129,140,248,0.15);
+      border: 1px solid rgba(129,140,248,0.2);
+      border-radius: 4px;
+      height: 20px;
+    }
+
+    .spacing-val {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--t2);
+      flex-shrink: 0;
+    }
+
+    /* ─── Radius Scale ───────────────────────────────────────────────── */
+    .radius-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 24px;
+      align-items: flex-end;
+    }
+
+    .radius-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .radius-box {
+      background: var(--card);
+      border: 1px solid var(--bd);
+      width: 64px;
+      height: 64px;
+    }
+
+    .radius-label {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--mt);
+      text-align: center;
+    }
+
+    /* ─── Elevation Scale ────────────────────────────────────────────── */
+    .elevation-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      align-items: flex-start;
+    }
+
+    .elevation-item {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .elevation-card {
+      width: 160px;
+      height: 96px;
+      background: var(--card);
+      border-radius: var(--radius);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .elevation-flat { /* no shadow, no border */ }
+    .elevation-contained { border: 1px solid var(--bd); }
+    .elevation-card-shadow { border: 1px solid var(--bd); }
+    .elevation-glow { box-shadow: 0 0 30px rgba(129,140,248,0.2); }
+    .elevation-gradient { box-shadow: 0 0 24px rgba(129,140,248,0.3); }
+
+    .elevation-label {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--mt);
+      text-align: center;
+    }
+
+    /* ─── Code Block ─────────────────────────────────────────────────── */
+    .code-block {
+      background: var(--bg2);
+      border: 1px solid var(--bd);
+      border-radius: 10px;
+      padding: 16px 20px;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--t2);
+      overflow-x: auto;
+      line-height: 1.7;
+    }
+
+    .code-kw  { color: var(--ac2); }
+    .code-ty  { color: var(--ac);  }
+    .code-str { color: var(--ok);  }
+    .code-cm  { color: var(--mt);  }
+
+    /* ─── Tag / Pill ─────────────────────────────────────────────────── */
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 3px 10px;
+      border-radius: 100px;
+    }
+
+    .pill-ac  { color: var(--ac);  background: rgba(129,140,248,0.1); border: 1px solid rgba(129,140,248,0.2); }
+    .pill-ok  { color: var(--ok);  background: rgba(52,211,153,0.1);  border: 1px solid rgba(52,211,153,0.2); }
+    .pill-wn  { color: var(--wn);  background: rgba(251,191,36,0.1);  border: 1px solid rgba(251,191,36,0.2); }
+    .pill-er  { color: var(--er);  background: rgba(248,113,113,0.1); border: 1px solid rgba(248,113,113,0.2); }
+    .pill-ac2 { color: var(--ac2); background: rgba(192,132,252,0.1); border: 1px solid rgba(192,132,252,0.2); }
+
+    /* ─── Divider ────────────────────────────────────────────────────── */
+    .divider {
+      height: 1px;
+      background: var(--bd);
+      margin: 32px 0;
+    }
+
+    /* ─── Responsive ─────────────────────────────────────────────────── */
+    @media (max-width: 768px) {
+      .nav-links { display: none; }
+      .dark-badge { display: none; }
+
+      #hero { padding: 72px 0 64px; }
+
+      .card-grid { grid-template-columns: 1fr; }
+      .form-grid  { grid-template-columns: 1fr; }
+      .radius-grid { gap: 16px; }
+      .elevation-grid { gap: 16px; }
+      .elevation-card { width: 130px; height: 80px; }
+
+      section { padding: 48px 0; }
+
+      .type-table { font-size: 13px; }
+      .type-table th,
+      .type-table td { padding: 10px 8px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Deep Dark Badge -->
+<div class="dark-badge">Deep Dark</div>
+
+<!-- ─── Nav ──────────────────────────────────────────────────────────── -->
+<nav>
+  <div class="container">
+    <div class="nav-inner">
+      <a class="nav-brand" href="#">
+        <div class="nav-logo">IN</div>
+        <span class="nav-name">IndrasNetwork</span>
+      </a>
+      <div class="nav-links">
+        <a class="nav-link" href="#colors">Colors</a>
+        <a class="nav-link" href="#typography">Type</a>
+        <a class="nav-link" href="#buttons">Buttons</a>
+        <a class="nav-link" href="#cards">Cards</a>
+        <a class="nav-link" href="#forms">Forms</a>
+        <a class="nav-link" href="#spacing">Spacing</a>
+        <a class="nav-link" href="#elevation">Elevation</a>
+      </div>
+      <a class="nav-cta" href="#">Get Started</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ─── Hero ─────────────────────────────────────────────────────────── -->
+<section id="hero">
+  <div class="hero-glow"></div>
+  <div class="container">
+    <p class="hero-eyebrow">Design System · Deep Dark Mode</p>
+    <h1 class="hero-title">
+      Design System Preview:<br>
+      <span class="gradient">IndrasNetwork</span>
+    </h1>
+    <p class="hero-sub">
+      A deep-dark variant of the IndrasNetwork design system — pure black surfaces,
+      heightened contrast, and intensified glow effects for environments where darkness
+      is a feature, not a fallback.
+    </p>
+    <div class="hero-actions">
+      <a class="btn btn-glow btn-lg" href="#colors">Explore Tokens</a>
+      <a class="btn btn-outline btn-lg" href="#elevation">Elevation Scale</a>
+      <a class="btn btn-ghost btn-lg" href="#typography">Typography</a>
+    </div>
+  </div>
+</section>
+
+<!-- ─── Colors ────────────────────────────────────────────────────────── -->
+<section id="colors">
+  <div class="container">
+    <p class="section-label">Design Tokens</p>
+    <h2 class="section-title">Color System</h2>
+    <p class="section-desc">All swatches use pure black as the foundation, pushing surfaces deeper for maximum depth and contrast.</p>
+
+    <!-- Primary Accent -->
+    <div class="swatch-group">
+      <p class="swatch-group-label">Primary Accent</p>
+      <div class="swatch-row">
+        <div class="swatch">
+          <div class="swatch-color" style="background:#818cf8;"></div>
+          <span class="swatch-name">Indigo</span>
+          <span class="swatch-hex">#818cf8</span>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color" style="background:#c084fc;"></div>
+          <span class="swatch-name">Purple</span>
+          <span class="swatch-hex">#c084fc</span>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color" style="background:#f472b6;"></div>
+          <span class="swatch-name">Pink</span>
+          <span class="swatch-hex">#f472b6</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stage Colors -->
+    <div class="swatch-group">
+      <p class="swatch-group-label">Stage Colors</p>
+      <div class="swatch-row">
+        <div class="swatch">
+          <div class="swatch-color" style="background:#818cf8;"></div>
+          <span class="swatch-name">Intention</span>
+          <span class="swatch-hex">#818cf8</span>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color" style="background:#fbbf24;"></div>
+          <span class="swatch-name">Attention</span>
+          <span class="swatch-hex">#fbbf24</span>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color" style="background:#34d399;"></div>
+          <span class="swatch-name">Service</span>
+          <span class="swatch-hex">#34d399</span>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color" style="background:#c084fc;"></div>
+          <span class="swatch-name">Blessing</span>
+          <span class="swatch-hex">#c084fc</span>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color" style="background:#f472b6;"></div>
+          <span class="swatch-name">Token</span>
+          <span class="swatch-hex">#f472b6</span>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color" style="background:#818cf8;"></div>
+          <span class="swatch-name">Renewal</span>
+          <span class="swatch-hex">#818cf8</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Member Identity -->
+    <div class="swatch-group">
+      <p class="swatch-group-label">Member Identity</p>
+      <div class="swatch-row">
+        <div class="swatch">
+          <div class="swatch-color" style="background:#ff6b9d;"></div>
+          <span class="swatch-name">Love</span>
+          <span class="swatch-hex">#ff6b9d</span>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color" style="background:#ffd93d;"></div>
+          <span class="swatch-name">Joy</span>
+          <span class="swatch-hex">#ffd93d</span>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color" style="background:#6bcfff;"></div>
+          <span class="swatch-name">Peace</span>
+          <span class="swatch-hex">#6bcfff</span>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color" style="background:#b19cd9;"></div>
+          <span class="swatch-name">Grace</span>
+          <span class="swatch-hex">#b19cd9</span>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color" style="background:#98d8aa;"></div>
+          <span class="swatch-name">Hope</span>
+          <span class="swatch-hex">#98d8aa</span>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color" style="background:#ffb347;"></div>
+          <span class="swatch-name">Faith</span>
+          <span class="swatch-hex">#ffb347</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Surface & Background -->
+    <div class="swatch-group">
+      <p class="swatch-group-label">Surface &amp; Background</p>
+      <div class="swatch-row">
+        <div class="swatch">
+          <div class="swatch-color" style="background:#000000; border-color: rgba(255,255,255,0.12);"></div>
+          <span class="swatch-name">Pure Black</span>
+          <span class="swatch-hex">#000000</span>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color" style="background:#09090b;"></div>
+          <span class="swatch-name">Deep Void</span>
+          <span class="swatch-hex">#09090b</span>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color" style="background:#0a0a0e;"></div>
+          <span class="swatch-name">Card Surface</span>
+          <span class="swatch-hex">#0a0a0e</span>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color" style="background:#111118;"></div>
+          <span class="swatch-name">Hover Surface</span>
+          <span class="swatch-hex">#111118</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Neutrals & Text -->
+    <div class="swatch-group">
+      <p class="swatch-group-label">Neutrals &amp; Text</p>
+      <div class="swatch-row">
+        <div class="swatch">
+          <div class="swatch-color" style="background:#fafafa;"></div>
+          <span class="swatch-name">Pure Light</span>
+          <span class="swatch-hex">#fafafa</span>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color" style="background:#a0a0ab;"></div>
+          <span class="swatch-name">Soft Gray</span>
+          <span class="swatch-hex">#a0a0ab</span>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color" style="background:#52525b;"></div>
+          <span class="swatch-name">Muted Zinc</span>
+          <span class="swatch-hex">#52525b</span>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color" style="background:#3f3f46;"></div>
+          <span class="swatch-name">Ghost Zinc</span>
+          <span class="swatch-hex">#3f3f46</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Semantic -->
+    <div class="swatch-group">
+      <p class="swatch-group-label">Semantic</p>
+      <div class="swatch-row">
+        <div class="swatch">
+          <div class="swatch-color" style="background:#34d399;"></div>
+          <span class="swatch-name">Success</span>
+          <span class="swatch-hex">#34d399</span>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color" style="background:#fbbf24;"></div>
+          <span class="swatch-name">Warning</span>
+          <span class="swatch-hex">#fbbf24</span>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color" style="background:#f87171;"></div>
+          <span class="swatch-name">Error</span>
+          <span class="swatch-hex">#f87171</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Border System -->
+    <div class="swatch-group">
+      <p class="swatch-group-label">Border System</p>
+      <div class="swatch-row">
+        <div class="swatch">
+          <div class="swatch-color" style="background:#1c1c20;"></div>
+          <span class="swatch-name">Border Primary</span>
+          <span class="swatch-hex">#1c1c20</span>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color" style="background:#111118;"></div>
+          <span class="swatch-name">Border Subtle</span>
+          <span class="swatch-hex">#111118</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ─── Typography ────────────────────────────────────────────────────── -->
+<section id="typography">
+  <div class="container">
+    <p class="section-label">Typography</p>
+    <h2 class="section-title">Type Scale</h2>
+    <p class="section-desc">Inter for UI text, JetBrains Mono for code, labels, and data identifiers.</p>
+
+    <table class="type-table">
+      <thead>
+        <tr>
+          <th>Role</th>
+          <th>Sample</th>
+          <th>Spec</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="type-tag">Display Hero</span></td>
+          <td>
+            <span style="font-size:clamp(36px,5vw,60px);font-weight:800;line-height:1.05;letter-spacing:-0.04em;font-family:var(--font);">
+              The Gift Cycle
+            </span>
+          </td>
+          <td><span class="type-spec">clamp(36,5vw,60px) / 800 / 1.05 / −0.04em / Inter</span></td>
+        </tr>
+        <tr>
+          <td><span class="type-tag">Section Heading</span></td>
+          <td>
+            <span style="font-size:28px;font-weight:700;line-height:1.2;letter-spacing:-0.03em;font-family:var(--font);">
+              Intention → Attention → Gratitude
+            </span>
+          </td>
+          <td><span class="type-spec">28px / 700 / 1.2 / −0.03em / Inter</span></td>
+        </tr>
+        <tr>
+          <td><span class="type-tag">Sub-heading</span></td>
+          <td>
+            <span style="font-size:16px;font-weight:600;line-height:1.5;font-family:var(--font);">
+              Stage Detail Panel
+            </span>
+          </td>
+          <td><span class="type-spec">16px / 600 / 1.5 / Inter</span></td>
+        </tr>
+        <tr>
+          <td><span class="type-tag">Body</span></td>
+          <td>
+            <span style="font-size:15px;font-weight:300;line-height:1.7;color:var(--t2);font-family:var(--font);">
+              Someone voices an intention, peers invest attention, a service emerges from genuine exchange.
+            </span>
+          </td>
+          <td><span class="type-spec">15px / 300 / 1.7 / Inter</span></td>
+        </tr>
+        <tr>
+          <td><span class="type-tag">Body Small</span></td>
+          <td>
+            <span style="font-size:14px;font-weight:400;line-height:1.8;color:var(--t2);font-family:var(--font);">
+              The Intention is written to the realm's CRDT document and broadcast to all connected peers via the sync engine.
+            </span>
+          </td>
+          <td><span class="type-spec">14px / 400 / 1.8 / Inter</span></td>
+        </tr>
+        <tr>
+          <td><span class="type-tag">Body Tiny</span></td>
+          <td>
+            <span style="font-size:13px;font-weight:500;line-height:1.5;color:var(--t2);font-family:var(--font);">
+              Submitted 1h ago
+            </span>
+          </td>
+          <td><span class="type-spec">13px / 500 / 1.5 / Inter</span></td>
+        </tr>
+        <tr>
+          <td><span class="type-tag">Caption</span></td>
+          <td>
+            <span style="font-size:12px;font-weight:500;line-height:1.4;color:var(--mt);font-family:var(--font);">
+              3 artifacts · BLAKE3:7f3a..c91e
+            </span>
+          </td>
+          <td><span class="type-spec">12px / 500 / 1.4 / Inter</span></td>
+        </tr>
+        <tr>
+          <td><span class="type-tag">Eyebrow</span></td>
+          <td>
+            <span style="font-size:11px;font-weight:500;line-height:1.3;letter-spacing:0.12em;text-transform:uppercase;color:var(--ac);font-family:var(--mono);">
+              Synchronicity Engine · Gift Economy
+            </span>
+          </td>
+          <td><span class="type-spec">11px / 500 / 1.3 / 0.12em / Mono</span></td>
+        </tr>
+        <tr>
+          <td><span class="type-tag">Mono Label</span></td>
+          <td>
+            <span style="font-size:10px;font-weight:500;line-height:1.3;letter-spacing:0.1em;text-transform:uppercase;color:var(--t2);font-family:var(--mono);">
+              Intention Struct
+            </span>
+          </td>
+          <td><span class="type-spec">10px / 500 / 1.3 / 0.1em / Mono</span></td>
+        </tr>
+        <tr>
+          <td><span class="type-tag">Mono Tiny</span></td>
+          <td>
+            <span style="font-size:9px;font-weight:400;line-height:1.3;letter-spacing:0.15em;text-transform:uppercase;color:var(--mt);font-family:var(--mono);">
+              Indra's Network · Every Link a Gift
+            </span>
+          </td>
+          <td><span class="type-spec">9px / 400 / 1.3 / 0.15em / Mono</span></td>
+        </tr>
+        <tr>
+          <td><span class="type-tag">Code Body</span></td>
+          <td>
+            <div class="code-block" style="display:inline-block;padding:8px 14px;">
+              <span class="code-kw">pub</span> <span class="code-kw">struct</span> <span class="code-ty">Intention</span> { <span class="code-cm">// id: IntentionId</span> }
+            </div>
+          </td>
+          <td><span class="type-spec">11px / 400 / 1.9 / Mono</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ─── Buttons ───────────────────────────────────────────────────────── -->
+<section id="buttons">
+  <div class="container">
+    <p class="section-label">Interactive</p>
+    <h2 class="section-title">Buttons</h2>
+    <p class="section-desc">All buttons adapt to the pure-black surface. Glow effects are more prominent on deep dark backgrounds.</p>
+
+    <div class="divider" style="margin-top:0;"></div>
+
+    <p class="swatch-group-label" style="margin-bottom:12px;">Variants</p>
+    <div class="btn-grid" style="margin-bottom:32px;">
+      <button class="btn btn-primary">Primary</button>
+      <button class="btn btn-outline">Outline</button>
+      <button class="btn btn-success">Success</button>
+      <button class="btn btn-warning">Warning</button>
+      <button class="btn btn-glow">Glow</button>
+      <button class="btn btn-ghost">Ghost</button>
+    </div>
+
+    <p class="swatch-group-label" style="margin-bottom:12px;">Sizes</p>
+    <div class="btn-grid" style="margin-bottom:32px;">
+      <button class="btn btn-primary btn-sm">Small</button>
+      <button class="btn btn-primary">Default</button>
+      <button class="btn btn-primary btn-lg">Large</button>
+    </div>
+
+    <p class="swatch-group-label" style="margin-bottom:12px;">With Icons</p>
+    <div class="btn-grid" style="margin-bottom:32px;">
+      <button class="btn btn-primary">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 1v14M1 8h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        New Intention
+      </button>
+      <button class="btn btn-outline">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M13 11l-5-5-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Sync Realm
+      </button>
+      <button class="btn btn-glow">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 1l1.9 3.8L14 5.8l-3 2.9.7 4.1L8 10.8l-3.7 1.9.7-4.1-3-2.9 4.1-.9L8 1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+        Broadcast Gift
+      </button>
+    </div>
+
+    <p class="swatch-group-label" style="margin-bottom:12px;">States</p>
+    <div class="btn-grid">
+      <button class="btn btn-primary" disabled style="opacity:0.4;cursor:not-allowed;">Disabled</button>
+      <button class="btn btn-primary" style="opacity:0.7;">Loading…</button>
+      <span class="pill pill-ok">Active</span>
+      <span class="pill pill-wn">Pending</span>
+      <span class="pill pill-er">Error</span>
+      <span class="pill pill-ac">Syncing</span>
+      <span class="pill pill-ac2">Blessing</span>
+    </div>
+  </div>
+</section>
+
+<!-- ─── Cards ─────────────────────────────────────────────────────────── -->
+<section id="cards">
+  <div class="container">
+    <p class="section-label">Surfaces</p>
+    <h2 class="section-title">Cards</h2>
+    <p class="section-desc">Card surfaces are pushed deeper on pure-black backgrounds — bg2 and card tokens both step down for layering clarity.</p>
+
+    <div class="card-grid">
+
+      <!-- Description Panel -->
+      <div class="card card-desc-panel">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+          <span class="pill pill-ac">Intention</span>
+          <span style="font-family:var(--mono);font-size:10px;color:var(--mt);">1h ago</span>
+        </div>
+        <h3 class="card-title">Build a distributed gift ledger</h3>
+        <p class="card-desc">
+          Peers across the realm pool attention toward this intention. Each contribution
+          is hashed and written to the shared CRDT document, creating an immutable audit trail.
+        </p>
+        <div style="display:flex;gap:8px;margin-bottom:16px;">
+          <span class="pill pill-ok">3 active peers</span>
+          <span class="pill pill-ac2">7 artifacts</span>
+        </div>
+        <p class="card-meta">BLAKE3:7f3a9c2d..c91e · realm/main</p>
+      </div>
+
+      <!-- UI Mock -->
+      <div class="card card-ui-mock">
+        <div class="card-titlebar">
+          <div class="titlebar-dot" style="background:#f87171;"></div>
+          <div class="titlebar-dot" style="background:#fbbf24;"></div>
+          <div class="titlebar-dot" style="background:#34d399;"></div>
+          <span style="margin-left:8px;font-family:var(--mono);font-size:10px;color:var(--mt);">synchronicity-engine — deep dark</span>
+        </div>
+        <div class="titlebar-body">
+          <div style="display:flex;gap:10px;margin-bottom:14px;">
+            <div style="flex:1;background:var(--bg2);border:1px solid var(--bd);border-radius:8px;padding:10px 12px;">
+              <p style="font-family:var(--mono);font-size:9px;color:var(--ac);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:6px;">Realm</p>
+              <p style="font-size:13px;font-weight:600;">main</p>
+            </div>
+            <div style="flex:1;background:var(--bg2);border:1px solid var(--bd);border-radius:8px;padding:10px 12px;">
+              <p style="font-family:var(--mono);font-size:9px;color:var(--ok);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:6px;">Peers</p>
+              <p style="font-size:13px;font-weight:600;">4 online</p>
+            </div>
+          </div>
+          <p class="card-desc" style="margin-bottom:0;">
+            Deeper card surface (#0a0a0e) creates sharper visual hierarchy against the pure-black background (#000000).
+          </p>
+        </div>
+      </div>
+
+      <!-- Data Panel -->
+      <div class="card card-data">
+        <div class="card-header">
+          <span class="card-header-label">Sync Status</span>
+          <span class="pill pill-ok">Live</span>
+        </div>
+        <div class="card-body">
+          <div class="data-row">
+            <span class="data-key">Last sync</span>
+            <span class="data-val">2ms ago</span>
+          </div>
+          <div class="data-row">
+            <span class="data-key">Operations</span>
+            <span class="data-val">1,482</span>
+          </div>
+          <div class="data-row">
+            <span class="data-key">Conflicts</span>
+            <span class="data-val" style="color:var(--ok);">0</span>
+          </div>
+          <div class="data-row">
+            <span class="data-key">Peers</span>
+            <span class="data-val">A, B, C, D</span>
+          </div>
+          <div class="data-row">
+            <span class="data-key">Doc hash</span>
+            <span class="data-val">7f3a..c91e</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ─── Forms ─────────────────────────────────────────────────────────── -->
+<section id="forms">
+  <div class="container">
+    <p class="section-label">Input</p>
+    <h2 class="section-title">Forms</h2>
+    <p class="section-desc">Inputs use the pure-black (#000000) fill and the subtler #1c1c20 border — crisper definition on deep surfaces.</p>
+
+    <div class="form-grid">
+
+      <!-- Default state -->
+      <div class="form-field">
+        <label class="form-label">Intention Title</label>
+        <input class="form-input" type="text" placeholder="Describe the gift you're offering…" />
+        <span class="form-hint">Keep it clear and actionable.</span>
+      </div>
+
+      <!-- Focus state (shown via class) -->
+      <div class="form-field">
+        <label class="form-label">Realm Name <span style="color:var(--ac);font-size:11px;">(focus state)</span></label>
+        <input class="form-input" type="text" value="main" style="border-color:var(--ac);box-shadow:0 0 0 3px rgba(129,140,248,0.12);" />
+        <span class="form-hint">Active ring: rgba(129,140,248, 0.12)</span>
+      </div>
+
+      <!-- Error state -->
+      <div class="form-field">
+        <label class="form-label">Peer Address <span style="color:var(--er);font-size:11px;">(error state)</span></label>
+        <input class="form-input input-error" type="text" value="invalid-address" />
+        <span class="form-hint hint-error">Address format is invalid. Use peer-id@host:port.</span>
+      </div>
+
+      <!-- Textarea -->
+      <div class="form-field">
+        <label class="form-label">Description</label>
+        <textarea class="form-input" placeholder="Provide context for your intention…"></textarea>
+        <span class="form-hint">Markdown supported.</span>
+      </div>
+
+      <!-- Select -->
+      <div class="form-field">
+        <label class="form-label">Stage</label>
+        <select class="form-input">
+          <option>Intention</option>
+          <option>Attention</option>
+          <option>Service</option>
+          <option>Blessing</option>
+          <option>Token</option>
+          <option>Renewal</option>
+        </select>
+        <span class="form-hint">Current stage in the gift cycle.</span>
+      </div>
+
+      <!-- Disabled -->
+      <div class="form-field">
+        <label class="form-label" style="opacity:0.5;">Locked Field <span style="font-size:11px;">(disabled)</span></label>
+        <input class="form-input" type="text" value="read-only value" disabled style="opacity:0.4;cursor:not-allowed;" />
+        <span class="form-hint" style="opacity:0.5;">This field cannot be edited.</span>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ─── Spacing ────────────────────────────────────────────────────────── -->
+<section id="spacing">
+  <div class="container">
+    <p class="section-label">Layout</p>
+    <h2 class="section-title">Spacing Scale</h2>
+    <p class="section-desc">4px base unit. All values are multiples of 4 for consistent vertical rhythm.</p>
+
+    <div class="spacing-list">
+      <div class="spacing-item">
+        <span class="spacing-label">sp-1 · 4px</span>
+        <div class="spacing-bar" style="width:4px;"></div>
+        <span class="spacing-val">4px</span>
+      </div>
+      <div class="spacing-item">
+        <span class="spacing-label">sp-2 · 8px</span>
+        <div class="spacing-bar" style="width:8px;"></div>
+        <span class="spacing-val">8px</span>
+      </div>
+      <div class="spacing-item">
+        <span class="spacing-label">sp-3 · 12px</span>
+        <div class="spacing-bar" style="width:12px;"></div>
+        <span class="spacing-val">12px</span>
+      </div>
+      <div class="spacing-item">
+        <span class="spacing-label">sp-4 · 16px</span>
+        <div class="spacing-bar" style="width:16px;"></div>
+        <span class="spacing-val">16px</span>
+      </div>
+      <div class="spacing-item">
+        <span class="spacing-label">sp-5 · 20px</span>
+        <div class="spacing-bar" style="width:20px;"></div>
+        <span class="spacing-val">20px</span>
+      </div>
+      <div class="spacing-item">
+        <span class="spacing-label">sp-6 · 24px</span>
+        <div class="spacing-bar" style="width:24px;"></div>
+        <span class="spacing-val">24px</span>
+      </div>
+      <div class="spacing-item">
+        <span class="spacing-label">sp-8 · 32px</span>
+        <div class="spacing-bar" style="width:32px;"></div>
+        <span class="spacing-val">32px</span>
+      </div>
+      <div class="spacing-item">
+        <span class="spacing-label">sp-10 · 40px</span>
+        <div class="spacing-bar" style="width:40px;"></div>
+        <span class="spacing-val">40px</span>
+      </div>
+      <div class="spacing-item">
+        <span class="spacing-label">sp-12 · 48px</span>
+        <div class="spacing-bar" style="width:48px;"></div>
+        <span class="spacing-val">48px</span>
+      </div>
+      <div class="spacing-item">
+        <span class="spacing-label">sp-16 · 64px</span>
+        <div class="spacing-bar" style="width:64px;"></div>
+        <span class="spacing-val">64px</span>
+      </div>
+      <div class="spacing-item">
+        <span class="spacing-label">sp-24 · 96px</span>
+        <div class="spacing-bar" style="width:96px;"></div>
+        <span class="spacing-val">96px</span>
+      </div>
+      <div class="spacing-item">
+        <span class="spacing-label">sp-32 · 128px</span>
+        <div class="spacing-bar" style="width:128px;"></div>
+        <span class="spacing-val">128px</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── Radius ─────────────────────────────────────────────────────────── -->
+<section id="radius">
+  <div class="container">
+    <p class="section-label">Shape</p>
+    <h2 class="section-title">Border Radius</h2>
+    <p class="section-desc">Consistent rounding tokens from sharp to fully circular. Card surfaces use --card bg.</p>
+
+    <div class="radius-grid">
+      <div class="radius-item">
+        <div class="radius-box" style="border-radius:0;"></div>
+        <span class="radius-label">none<br>0px</span>
+      </div>
+      <div class="radius-item">
+        <div class="radius-box" style="border-radius:4px;"></div>
+        <span class="radius-label">sm<br>4px</span>
+      </div>
+      <div class="radius-item">
+        <div class="radius-box" style="border-radius:6px;"></div>
+        <span class="radius-label">md<br>6px</span>
+      </div>
+      <div class="radius-item">
+        <div class="radius-box" style="border-radius:8px;"></div>
+        <span class="radius-label">base<br>8px</span>
+      </div>
+      <div class="radius-item">
+        <div class="radius-box" style="border-radius:10px;"></div>
+        <span class="radius-label">input<br>10px (9)</span>
+      </div>
+      <div class="radius-item">
+        <div class="radius-box" style="border-radius:12px;"></div>
+        <span class="radius-label">card<br>12px</span>
+      </div>
+      <div class="radius-item">
+        <div class="radius-box" style="border-radius:16px;"></div>
+        <span class="radius-label">lg<br>16px</span>
+      </div>
+      <div class="radius-item">
+        <div class="radius-box" style="border-radius:24px;"></div>
+        <span class="radius-label">xl<br>24px</span>
+      </div>
+      <div class="radius-item">
+        <div class="radius-box" style="border-radius:9999px;"></div>
+        <span class="radius-label">full<br>9999px</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── Elevation ──────────────────────────────────────────────────────── -->
+<section id="elevation">
+  <div class="container">
+    <p class="section-label">Depth</p>
+    <h2 class="section-title">Elevation</h2>
+    <p class="section-desc">Glow and gradient elevations are intentionally more prominent against pure black — the contrast amplifies depth perception.</p>
+
+    <div class="elevation-grid">
+
+      <div class="elevation-item">
+        <div class="elevation-card elevation-flat">
+          <span style="font-family:var(--mono);font-size:10px;color:var(--mt);">Flat</span>
+        </div>
+        <p class="elevation-label">Flat<br>no shadow</p>
+      </div>
+
+      <div class="elevation-item">
+        <div class="elevation-card elevation-contained">
+          <span style="font-family:var(--mono);font-size:10px;color:var(--mt);">Contained</span>
+        </div>
+        <p class="elevation-label">Contained<br>1px solid --bd</p>
+      </div>
+
+      <div class="elevation-item">
+        <div class="elevation-card elevation-card-shadow">
+          <span style="font-family:var(--mono);font-size:10px;color:var(--mt);">Card</span>
+        </div>
+        <p class="elevation-label">Card<br>--bd border</p>
+      </div>
+
+      <div class="elevation-item">
+        <div class="elevation-card elevation-glow">
+          <span style="font-family:var(--mono);font-size:10px;color:var(--ac);">Glow</span>
+        </div>
+        <p class="elevation-label">Glow<br>0 0 30px rgba(129,140,248,0.2)</p>
+      </div>
+
+      <div class="elevation-item">
+        <div class="elevation-card elevation-gradient" style="background:linear-gradient(135deg,var(--card),var(--hover));">
+          <span style="font-family:var(--mono);font-size:10px;color:var(--ac2);">Gradient</span>
+        </div>
+        <p class="elevation-label">Gradient<br>0 0 24px rgba(129,140,248,0.3)</p>
+      </div>
+
+    </div>
+
+    <!-- Token reference table -->
+    <div style="margin-top:48px;">
+      <p class="swatch-group-label" style="margin-bottom:16px;">Token Reference</p>
+      <div class="code-block">
+        <span class="code-cm">/* CSS custom properties — Deep Dark variant */</span><br>
+        <span class="code-kw">--bg</span>:     <span class="code-str">#000000</span>;  <span class="code-cm">/* page background — pure black */</span><br>
+        <span class="code-kw">--bg2</span>:    <span class="code-str">#09090b</span>;  <span class="code-cm">/* elevated surface */</span><br>
+        <span class="code-kw">--card</span>:   <span class="code-str">#0a0a0e</span>;  <span class="code-cm">/* card surface */</span><br>
+        <span class="code-kw">--hover</span>:  <span class="code-str">#111118</span>;  <span class="code-cm">/* hover/active state */</span><br>
+        <span class="code-kw">--bd</span>:     <span class="code-str">#1c1c20</span>;  <span class="code-cm">/* primary border — subtler than base */</span><br>
+        <span class="code-kw">--b2</span>:     <span class="code-str">#111118</span>;  <span class="code-cm">/* subtle border */</span><br>
+        <span class="code-kw">--ac</span>:     <span class="code-str">#818cf8</span>;  <span class="code-cm">/* accent indigo */</span><br>
+        <span class="code-kw">--ac2</span>:    <span class="code-str">#c084fc</span>;  <span class="code-cm">/* accent purple */</span><br>
+        <span class="code-kw">--ac3</span>:    <span class="code-str">#f472b6</span>;  <span class="code-cm">/* accent pink */</span><br>
+        <span class="code-kw">--ok</span>:     <span class="code-str">#34d399</span>;  <span class="code-cm">/* success */</span><br>
+        <span class="code-kw">--wn</span>:     <span class="code-str">#fbbf24</span>;  <span class="code-cm">/* warning */</span><br>
+        <span class="code-kw">--er</span>:     <span class="code-str">#f87171</span>;  <span class="code-cm">/* error */</span>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ─── Footer ────────────────────────────────────────────────────────── -->
+<footer style="padding:48px 0;border-top:1px solid var(--bd);position:relative;z-index:1;">
+  <div class="container">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div class="nav-logo">IN</div>
+        <span style="font-size:13px;color:var(--mt);">IndrasNetwork Design System — Deep Dark</span>
+      </div>
+      <span style="font-family:var(--mono);font-size:10px;color:var(--mt);letter-spacing:0.1em;text-transform:uppercase;">
+        Indra's Network · Every Link a Gift
+      </span>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

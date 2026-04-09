@@ -2,12 +2,13 @@
 # Launch Indras Workspace instances.
 #
 # Usage:
-#   ./se                    Launch single instance (normal onboarding)
+#   ./se                    Launch single instance (synchronicity-engine)
 #   ./se Love Joy           Launch two instances (keep existing data)
 #   ./se Love Joy --clean   Launch two instances with fresh data
 #   ./se --clean            Launch single instance with fresh data
-#   ./se --chat             Launch indras-chat instead of indras-workspace
-#   ./se --gift             Launch indras-gift-cycle instead of indras-workspace
+#   ./se --workspace        Launch indras-workspace instead of synchronicity-engine
+#   ./se --chat             Launch indras-chat instead of synchronicity-engine
+#   ./se --gift             Launch indras-gift-cycle instead of synchronicity-engine
 #   ./se Love Joy --chat    Launch two chat instances
 #   ./se Love Joy --gift    Launch two gift cycle instances
 #
@@ -22,7 +23,7 @@ LOGFILE="$(cd "$(dirname "$0")" && pwd)/LOGS.jsonl"
 # Parse args: separate names from flags
 CLEAN=""
 SEED_SCRIPT=""
-APP="indras-workspace"
+APP="synchronicity-engine"
 NAMES=()
 for arg in "$@"; do
   if [ "$arg" = "--clean" ]; then
@@ -31,6 +32,8 @@ for arg in "$@"; do
     APP="indras-chat"
   elif [ "$arg" = "--gift" ]; then
     APP="indras-gift-cycle"
+  elif [ "$arg" = "--workspace" ]; then
+    APP="indras-workspace"
   elif [ "$arg" = "--mock" ]; then
     SEED_SCRIPT="--seed-script=crates/indras-workspace/scripts/scenarios/mock_artifacts.lua"
   elif [ "$arg" = "--remock" ]; then
@@ -106,7 +109,7 @@ echo "Press Ctrl+C to stop all instances."
 bring_windows_to_front() {
     osascript -e '
         tell application "System Events"
-            set appProcs to every process whose name is "indras-workspace" or name is "indras-chat" or name is "indras-gift-cycle"
+            set appProcs to every process whose name is "synchronicity-engine" or name is "indras-workspace" or name is "indras-chat" or name is "indras-gift-cycle"
             if (count of appProcs) > 0 then
                 repeat with proc in appProcs
                     set frontmost of proc to true
@@ -115,7 +118,7 @@ bring_windows_to_front() {
                 set allProcs to every process whose visible is true
                 repeat with proc in allProcs
                     try
-                        set wins to every window of proc whose name contains "Indras" or name contains "Gift Cycle"
+                        set wins to every window of proc whose name contains "Synchronicity" or name contains "Indras" or name contains "Gift Cycle"
                         if (count of wins) > 0 then
                             set frontmost of proc to true
                         end if
