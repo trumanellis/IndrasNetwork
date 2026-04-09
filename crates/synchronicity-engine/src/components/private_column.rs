@@ -14,7 +14,28 @@ pub fn PrivateColumn(mut state: Signal<AppState>) -> Element {
 
     rsx! {
         div { class: "vault-column",
-            div { class: "column-header", "PRIVATE" }
+            div { class: "column-header",
+                span { "PRIVATE" }
+                button {
+                    class: "column-header-add",
+                    title: "New File",
+                    onclick: move |_| {
+                        let vault_path = state.read().vault_path.clone();
+                        let existing: Vec<String> = state.read().private_files.iter().map(|f| f.name.clone()).collect();
+                        let name = unique_untitled_name(&existing);
+                        let full_path = vault_path.join(&name);
+                        if std::fs::write(&full_path, "").is_ok() {
+                            state.write().selection.selected_realm = None;
+                            state.write().selection.selected_file = Some(name.clone());
+                            state.write().modal_file = Some(ModalFile {
+                                realm_id: None,
+                                file_path: name,
+                            });
+                        }
+                    },
+                    "+"
+                }
+            }
             div { class: "vault-column-body",
                 if files.is_empty() {
                     div { class: "column-empty",
@@ -42,26 +63,6 @@ pub fn PrivateColumn(mut state: Signal<AppState>) -> Element {
                             }
                         }
                     }
-                }
-            }
-            div { class: "column-footer",
-                button {
-                    class: "se-btn-ghost file-new-btn",
-                    onclick: move |_| {
-                        let vault_path = state.read().vault_path.clone();
-                        let existing: Vec<String> = state.read().private_files.iter().map(|f| f.name.clone()).collect();
-                        let name = unique_untitled_name(&existing);
-                        let full_path = vault_path.join(&name);
-                        if std::fs::write(&full_path, "").is_ok() {
-                            state.write().selection.selected_realm = None;
-                            state.write().selection.selected_file = Some(name.clone());
-                            state.write().modal_file = Some(ModalFile {
-                                realm_id: None,
-                                file_path: name,
-                            });
-                        }
-                    },
-                    "+ New"
                 }
             }
         }

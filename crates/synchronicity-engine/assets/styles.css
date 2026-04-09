@@ -1572,6 +1572,29 @@ body > * {
   color: var(--t3);
 }
 
+.column-header-add {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: var(--mt);
+  font-size: 16px;
+  font-weight: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s;
+  padding: 0;
+  line-height: 1;
+}
+
+.column-header-add:hover {
+  color: var(--ac);
+  background: rgba(129, 140, 248, 0.08);
+}
+
 /* ============================================================
    KEYBOARD FOCUS
    ============================================================ */
@@ -1960,4 +1983,45 @@ body > * {
   letter-spacing: 0.15em;
   text-align: center;
   margin-bottom: 0;
+}
+
+/* =============================================================================
+   PEER SELECTION LIST (create group overlay)
+   ============================================================================= */
+
+.peer-select-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.peer-select-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.peer-select-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.peer-select-item.selected {
+  background: rgba(129, 140, 248, 0.08);
+}
+
+.peer-select-name {
+  flex: 1;
+  font-size: 13px;
+  color: var(--tx);
+}
+
+.peer-select-check {
+  color: var(--ac);
+  font-size: 14px;
+  font-weight: 700;
 }

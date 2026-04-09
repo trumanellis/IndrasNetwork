@@ -64,6 +64,8 @@ pub fn HomeVault(
 ) -> Element {
     let mut peers = use_signal(Vec::<PeerDisplayInfo>::new);
     let mut contact_invite_open = use_signal(|| false);
+    let mut create_group_open = use_signal(|| false);
+    let mut create_public_open = use_signal(|| false);
 
     // Initial scan + filesystem watcher for private vault
     use_effect(move || {
@@ -188,10 +190,18 @@ pub fn HomeVault(
     };
     let member_id = net_ref.as_ref().map(|n| n.id()).unwrap_or([0u8; 32]);
 
-    // Sync show_contact_invite from state (for DM empty state button)
+    // Sync overlay triggers from state (for column header "+" buttons)
     if state.read().show_contact_invite {
         contact_invite_open.set(true);
         state.write().show_contact_invite = false;
+    }
+    if state.read().show_create_group {
+        create_group_open.set(true);
+        state.write().show_create_group = false;
+    }
+    if state.read().show_create_public {
+        create_public_open.set(true);
+        state.write().show_create_public = false;
     }
 
     rsx! {
@@ -274,6 +284,20 @@ pub fn HomeVault(
                 player_name: player_name.clone(),
                 member_id: member_id,
                 is_open: contact_invite_open,
+            }
+            // Create group overlay
+            super::create_realm::CreateRealmOverlay {
+                network: network,
+                kind: super::create_realm::CreateRealmKind::Group,
+                peers: peers.read().clone(),
+                is_open: create_group_open,
+            }
+            // Create public vault overlay
+            super::create_realm::CreateRealmOverlay {
+                network: network,
+                kind: super::create_realm::CreateRealmKind::Public,
+                peers: Vec::new(),
+                is_open: create_public_open,
             }
         }
     }

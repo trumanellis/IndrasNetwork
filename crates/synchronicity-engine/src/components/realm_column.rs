@@ -20,9 +20,31 @@ pub fn RealmColumn(
     let selected_realm = state.read().selection.selected_realm;
     let selected_file = state.read().selection.selected_file.clone();
 
+    let add_title = match category {
+        RealmCategory::Dm => "Add Contact",
+        RealmCategory::Group => "New Group",
+        RealmCategory::Public => "New Public Vault",
+        RealmCategory::Private => "New File",
+    };
+
     rsx! {
         div { class: "vault-column",
-            div { class: "column-header", "{label}" }
+            div { class: "column-header",
+                span { "{label}" }
+                button {
+                    class: "column-header-add",
+                    title: "{add_title}",
+                    onclick: move |_| {
+                        match category {
+                            RealmCategory::Dm => state.write().show_contact_invite = true,
+                            RealmCategory::Group => state.write().show_create_group = true,
+                            RealmCategory::Public => state.write().show_create_public = true,
+                            RealmCategory::Private => {}
+                        }
+                    },
+                    "+"
+                }
+            }
             div { class: "vault-column-body",
                 if realms.is_empty() {
                     {
@@ -32,20 +54,10 @@ pub fn RealmColumn(
                             RealmCategory::Public => ("🌍", "Public realms will appear here"),
                             RealmCategory::Private => ("🏠", "Your private vault is empty"),
                         };
-                        let is_dm = category == RealmCategory::Dm;
                         rsx! {
                             div { class: "column-empty",
                                 div { class: "column-empty-icon", "{empty_icon}" }
                                 div { class: "column-empty-text", "{empty_text}" }
-                                if is_dm {
-                                    button {
-                                        class: "se-btn-outline se-btn-sm",
-                                        onclick: move |_| {
-                                            state.write().show_contact_invite = true;
-                                        },
-                                        "Add Contact"
-                                    }
-                                }
                             }
                         }
                     }

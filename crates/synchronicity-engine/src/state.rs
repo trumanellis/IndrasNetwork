@@ -219,6 +219,10 @@ pub struct AppState {
     pub renaming_file: Option<String>,
     /// Whether the contact invite overlay is open.
     pub show_contact_invite: bool,
+    /// Whether the create group overlay is open.
+    pub show_create_group: bool,
+    /// Whether the create public vault overlay is open.
+    pub show_create_public: bool,
 }
 
 impl AppState {
@@ -244,6 +248,8 @@ impl AppState {
             context_menu: None,
             renaming_file: None,
             show_contact_invite: false,
+            show_create_group: false,
+            show_create_public: false,
         }
     }
 }

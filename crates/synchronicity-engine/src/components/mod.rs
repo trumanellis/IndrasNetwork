@@ -15,5 +15,6 @@ mod context_menu;
 mod status_bar;
 mod peer_bar;
 mod contact_invite;
+mod create_realm;
 
 pub use app::App;
