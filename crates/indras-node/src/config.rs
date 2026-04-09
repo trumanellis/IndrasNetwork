@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 
+use indras_dtn::DtnConfig;
 use indras_storage::CompositeStorageConfig;
 use indras_transport::AdapterConfig;
 
@@ -33,6 +34,11 @@ pub struct NodeConfig {
     /// When set, the node will serve a profile page at `http://localhost:{port}/`.
     /// Set to `None` to disable the homepage server.
     pub homepage_port: Option<u16>,
+    /// DTN (Delay-Tolerant Networking) configuration
+    ///
+    /// Controls store-and-forward behavior for offline peers:
+    /// custody transfer, epidemic routing, bundle expiration, and strategy selection.
+    pub dtn: DtnConfig,
 }
 
 impl Default for NodeConfig {
@@ -48,6 +54,7 @@ impl Default for NodeConfig {
             display_name: None,
             passphrase: None,
             homepage_port: None,
+            dtn: DtnConfig::default(),
         }
     }
 }
@@ -66,6 +73,7 @@ impl NodeConfig {
             display_name: None,
             passphrase: None,
             homepage_port: None,
+            dtn: DtnConfig::default(),
         }
     }
 
@@ -123,6 +131,12 @@ impl NodeConfig {
     /// When set, the node will serve a profile page on this port.
     pub fn with_homepage_port(mut self, port: u16) -> Self {
         self.homepage_port = Some(port);
+        self
+    }
+
+    /// Set the DTN configuration for offline peer delivery
+    pub fn with_dtn(mut self, dtn: DtnConfig) -> Self {
+        self.dtn = dtn;
         self
     }
 }

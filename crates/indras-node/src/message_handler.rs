@@ -38,6 +38,10 @@ pub enum NetworkMessage {
     SyncResponse(InterfaceSyncResponse),
     /// Acknowledge receipt of events
     EventAck(EventAckMessage),
+    /// DTN bundle for relay forwarding (store-and-forward for offline peers)
+    DtnBundle(crate::dtn_manager::DtnBundleMessage),
+    /// DTN custody protocol message
+    DtnCustody(crate::dtn_manager::DtnCustodyMessage),
 }
 
 impl NetworkMessage {
@@ -211,6 +215,8 @@ struct MessageHandlerInner {
     allow_legacy_unsigned: bool,
     /// Channel to request immediate sync when membership changes
     sync_now_tx: Option<mpsc::Sender<InterfaceId>>,
+    /// DTN manager for offline peer delivery
+    dtn: Arc<crate::dtn_manager::DtnManager>,
 }
 
 impl MessageHandler {
@@ -230,6 +236,7 @@ impl MessageHandler {
         node_log: Arc<NodeLog>,
         allow_legacy_unsigned: bool,
         sync_now_tx: Option<mpsc::Sender<InterfaceId>>,
+        dtn: Arc<crate::dtn_manager::DtnManager>,
         shutdown_rx: broadcast::Receiver<()>,
     ) -> Self {
         Self {
@@ -243,6 +250,7 @@ impl MessageHandler {
                 node_log,
                 allow_legacy_unsigned,
                 sync_now_tx,
+                dtn,
             }),
             shutdown_rx,
         }
@@ -264,6 +272,7 @@ impl MessageHandler {
         node_log: Arc<NodeLog>,
         allow_legacy_unsigned: bool,
         sync_now_tx: Option<mpsc::Sender<InterfaceId>>,
+        dtn: Arc<crate::dtn_manager::DtnManager>,
         shutdown_rx: broadcast::Receiver<()>,
         message_rx: tokio::sync::mpsc::Receiver<(IrohIdentity, Vec<u8>)>,
     ) -> JoinHandle<()> {
@@ -277,6 +286,7 @@ impl MessageHandler {
             node_log,
             allow_legacy_unsigned,
             sync_now_tx,
+            dtn,
             shutdown_rx,
         );
 
@@ -434,6 +444,14 @@ impl MessageHandlerInner {
                     peer: sender.as_bytes().to_vec(),
                     up_to,
                 }).await;
+                Ok(())
+            }
+            NetworkMessage::DtnBundle(msg) => {
+                self.handle_dtn_bundle(sender.clone(), msg).await
+            }
+            NetworkMessage::DtnCustody(_msg) => {
+                // Custody protocol messages handled inline for now
+                debug!("Received DTN custody message (not yet implemented)");
                 Ok(())
             }
         }
@@ -687,6 +705,68 @@ impl MessageHandlerInner {
         );
 
         Ok(())
+    }
+
+    /// Handle an incoming DTN bundle (relay forwarding)
+    ///
+    /// If the bundle is destined for us, unwrap and process normally.
+    /// If it's for someone else, accept custody and store for later forwarding.
+    async fn handle_dtn_bundle(
+        &self,
+        sender: IrohIdentity,
+        msg: crate::dtn_manager::DtnBundleMessage,
+    ) -> Result<(), MessageError> {
+        use indras_dtn::Bundle;
+
+        let bundle: Bundle<IrohIdentity> =
+            postcard::from_bytes(&msg.bundle_bytes).map_err(|e| {
+                MessageError::Deserialization(format!("DTN bundle: {e}"))
+            })?;
+
+        // Record encounter with sender for ProphetState
+        self.dtn.record_encounter(&sender);
+
+        // Process prophet summary for transitive updates
+        if let Some(ref probs) = msg.prophet_summary {
+            let parsed: Vec<(IrohIdentity, f64)> = probs
+                .iter()
+                .filter_map(|(bytes, prob)| {
+                    IrohIdentity::from_bytes(bytes).ok().map(|id| (id, *prob))
+                })
+                .collect();
+            self.dtn.process_prophet_exchange(&sender, &parsed);
+        }
+
+        let destination = &bundle.packet.destination;
+
+        if destination == &self.local_identity {
+            // Bundle is for us — unwrap and process the inner SignedNetworkMessage
+            info!(
+                bundle_id = %bundle.bundle_id,
+                sender = %sender.short_id(),
+                "Received DTN bundle addressed to us"
+            );
+
+            let signed_msg = crate::dtn_manager::DtnManager::unwrap_bundle(&bundle)
+                .map_err(|e| MessageError::Deserialization(format!("DTN unwrap: {e}")))?;
+
+            // Process the inner message through the normal path
+            // Box::pin to break async recursion (handle_dtn_bundle → handle_signed_message → dispatch_message → handle_dtn_bundle)
+            Box::pin(self.handle_signed_message(sender, signed_msg)).await
+        } else {
+            // Bundle is for someone else — accept custody for relay
+            info!(
+                bundle_id = %bundle.bundle_id,
+                destination = %destination.short_id(),
+                sender = %sender.short_id(),
+                "Accepting custody of relayed DTN bundle"
+            );
+
+            self.dtn.accept_relay_bundle(bundle)
+                .map_err(|e| MessageError::StorageFailed(format!("DTN custody: {e}")))?;
+
+            Ok(())
+        }
     }
 }
 

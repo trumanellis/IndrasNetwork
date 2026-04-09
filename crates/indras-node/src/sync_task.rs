@@ -132,6 +132,8 @@ pub struct SyncTask {
     delivery_states: HashMap<IrohIdentity, PeerDeliveryState>,
     /// Sync cycle counter (for periodic maintenance)
     cycle_count: u64,
+    /// DTN manager for offline peer delivery
+    dtn: Arc<crate::dtn_manager::DtnManager>,
 }
 
 impl SyncTask {
@@ -148,6 +150,7 @@ impl SyncTask {
         sync_interval: Duration,
         shutdown_rx: broadcast::Receiver<()>,
         sync_now_rx: mpsc::Receiver<InterfaceId>,
+        dtn: Arc<crate::dtn_manager::DtnManager>,
     ) -> Self {
         Self {
             local_identity,
@@ -162,6 +165,7 @@ impl SyncTask {
             sync_now_rx,
             delivery_states: HashMap::new(),
             cycle_count: 0,
+            dtn,
         }
     }
 
@@ -178,6 +182,7 @@ impl SyncTask {
         sync_interval: Duration,
         shutdown_rx: broadcast::Receiver<()>,
         sync_now_rx: mpsc::Receiver<InterfaceId>,
+        dtn: Arc<crate::dtn_manager::DtnManager>,
     ) -> JoinHandle<()> {
         let task = Self::new(
             local_identity,
@@ -190,6 +195,7 @@ impl SyncTask {
             sync_interval,
             shutdown_rx,
             sync_now_rx,
+            dtn,
         );
 
         tokio::spawn(async move {
@@ -216,6 +222,14 @@ impl SyncTask {
                     self.cycle_count += 1;
                     if let Err(e) = self.sync_all_interfaces().await {
                         error!(error = %e, "Sync cycle failed");
+                    }
+                    // Every 10th cycle, run DTN maintenance
+                    if self.cycle_count % 10 == 0 {
+                        if let Err(e) = self.dtn.cleanup() {
+                            warn!(error = %e, "DTN cleanup failed");
+                        }
+                        // Try to relay stored bundles to connected peers
+                        self.attempt_dtn_relay().await;
                     }
                 }
                 Some(interface_id) = self.sync_now_rx.recv() => {
@@ -342,29 +356,40 @@ impl SyncTask {
                 continue;
             }
 
-            let delivery_state = self.delivery_states
-                .entry(member.clone())
-                .or_insert_with(PeerDeliveryState::new);
+            // Check delivery state (scope the mutable borrow)
+            let (is_offline, is_potentially_offline, should_retry) = {
+                let delivery_state = self.delivery_states
+                    .entry(member.clone())
+                    .or_insert_with(PeerDeliveryState::new);
+                (
+                    delivery_state.is_offline(),
+                    delivery_state.is_potentially_offline(),
+                    delivery_state.should_retry(),
+                )
+            };
 
-            if delivery_state.is_offline() {
+            if is_offline {
+                // Hand pending events to DTN for persistent store-and-forward
+                if let Some(ref key) = key {
+                    self.handoff_to_dtn(interface, &member, key.value()).await;
+                }
                 debug!(
                     peer = %member.short_id(),
-                    "Peer appears offline (no success in 15m), reducing sync frequency"
+                    "Peer offline — events handed to DTN, reducing sync frequency"
                 );
                 if self.cycle_count % 4 != 0 {
                     continue;
                 }
-            } else if delivery_state.is_potentially_offline() {
+            } else if is_potentially_offline {
                 debug!(
                     peer = %member.short_id(),
                     "Peer may be offline (no success in 5m)"
                 );
             }
 
-            if !delivery_state.should_retry() {
+            if !should_retry {
                 debug!(
                     peer = %member.short_id(),
-                    failures = delivery_state.consecutive_failures,
                     "Skipping peer due to backoff"
                 );
                 continue;
@@ -386,6 +411,8 @@ impl SyncTask {
                             peer = %member.short_id(),
                             "Reconnected to peer"
                         );
+                        // Drain any DTN bundles we've been holding for this peer
+                        self.drain_dtn_for_peer(&member).await;
                     }
                     Err(e) => {
                         debug!(
@@ -393,7 +420,9 @@ impl SyncTask {
                             error = %e,
                             "Failed to reconnect to peer"
                         );
-                        delivery_state.record_failure();
+                        if let Some(ds) = self.delivery_states.get_mut(&member) {
+                            ds.record_failure();
+                        }
                         continue;
                     }
                 }
@@ -426,6 +455,8 @@ impl SyncTask {
             let delivery_state = self.delivery_states.get_mut(&member).unwrap();
             if sync_ok {
                 delivery_state.record_success();
+                // Record encounter for ProphetState delivery probability
+                self.dtn.record_encounter(&member);
             } else {
                 delivery_state.record_failure();
             }
@@ -495,6 +526,218 @@ impl SyncTask {
         );
 
         Ok(())
+    }
+
+    /// Hand pending events for an offline peer to the DTN manager.
+    ///
+    /// Events are wrapped in DTN bundles with persistent storage so they
+    /// survive node restarts. NInterface marks them as delivered since
+    /// DTN now owns the delivery responsibility.
+    async fn handoff_to_dtn(
+        &self,
+        interface: &mut indras_sync::NInterface<IrohIdentity>,
+        peer: &IrohIdentity,
+        key: &InterfaceKey,
+    ) {
+        let pending = interface.pending_for(peer);
+        if pending.is_empty() {
+            return;
+        }
+
+        let mut last_event_id = None;
+        let mut enqueued = 0;
+
+        for event in &pending {
+            let event_id = match event.event_id() {
+                Some(id) => id,
+                None => continue,
+            };
+
+            // Build the same SignedNetworkMessage that direct delivery would send
+            let plaintext = match postcard::to_allocvec(&event) {
+                Ok(p) => p,
+                Err(e) => {
+                    warn!(error = %e, "Failed to serialize event for DTN handoff");
+                    continue;
+                }
+            };
+            let encrypted = match key.encrypt(&plaintext) {
+                Ok(e) => e,
+                Err(e) => {
+                    warn!(error = %e, "Failed to encrypt event for DTN handoff");
+                    continue;
+                }
+            };
+
+            let msg = InterfaceEventMessage::new(
+                interface.id(),
+                encrypted.ciphertext,
+                event_id,
+                encrypted.nonce,
+            );
+            let network_msg = NetworkMessage::InterfaceEvent(msg);
+            let message_bytes = match network_msg.to_bytes() {
+                Ok(b) => b,
+                Err(e) => {
+                    warn!(error = %e, "Failed to serialize message for DTN");
+                    continue;
+                }
+            };
+            let signature = self.pq_identity.sign(&message_bytes);
+            let signed_msg = SignedNetworkMessage {
+                version: SIGNED_MESSAGE_VERSION,
+                message: network_msg,
+                signature: signature.to_bytes().to_vec(),
+                sender_verifying_key: self.pq_identity.verifying_key_bytes(),
+            };
+
+            match self.dtn.enqueue(&signed_msg, peer.clone(), indras_core::Priority::Normal) {
+                Ok(_) => {
+                    enqueued += 1;
+                    last_event_id = Some(event_id);
+                }
+                Err(e) => {
+                    warn!(error = %e, "Failed to enqueue event in DTN");
+                }
+            }
+        }
+
+        // Mark events as delivered in NInterface — DTN now owns delivery
+        if let Some(up_to) = last_event_id {
+            interface.mark_delivered(peer, up_to);
+            info!(
+                peer = %peer.short_id(),
+                enqueued,
+                "Handed {enqueued} events to DTN for offline delivery"
+            );
+        }
+    }
+
+    /// Drain DTN bundles for a peer that just reconnected
+    async fn drain_dtn_for_peer(&self, peer: &IrohIdentity) {
+        let bundles = match self.dtn.drain_for(peer) {
+            Ok(b) => b,
+            Err(e) => {
+                warn!(error = %e, "Failed to drain DTN bundles");
+                return;
+            }
+        };
+
+        if bundles.is_empty() {
+            return;
+        }
+
+        for bundle in &bundles {
+            // Extract the inner SignedNetworkMessage and send directly
+            let signed_msg = match crate::dtn_manager::DtnManager::unwrap_bundle(bundle) {
+                Ok(msg) => msg,
+                Err(e) => {
+                    warn!(error = %e, "Failed to unwrap DTN bundle");
+                    continue;
+                }
+            };
+
+            let bytes = match signed_msg.to_bytes() {
+                Ok(b) => b,
+                Err(e) => {
+                    warn!(error = %e, "Failed to serialize DTN message");
+                    continue;
+                }
+            };
+
+            match self.transport.send(peer, bytes).await {
+                Ok(()) => {
+                    // Successfully delivered — remove from DTN store
+                    let _ = self.dtn.mark_delivered(&bundle.bundle_id, peer);
+                }
+                Err(e) => {
+                    debug!(
+                        error = %e,
+                        peer = %peer.short_id(),
+                        "Failed to deliver DTN bundle to reconnected peer"
+                    );
+                    // Leave in DTN store for next attempt
+                    break;
+                }
+            }
+        }
+    }
+
+    /// Attempt to relay stored DTN bundles to connected peers with better delivery probability
+    async fn attempt_dtn_relay(&self) {
+        let all_bundles = match self.dtn.store().all_bundles() {
+            Ok(b) => b,
+            Err(e) => {
+                warn!(error = %e, "Failed to read DTN bundles for relay");
+                return;
+            }
+        };
+
+        if all_bundles.is_empty() {
+            return;
+        }
+
+        let connected = self.transport.connected_peers();
+        if connected.is_empty() {
+            return;
+        }
+
+        for bundle in &all_bundles {
+            let destination = &bundle.packet.destination;
+
+            // Skip if destination is directly connected (drain_dtn_for_peer handles that)
+            if self.transport.is_connected(destination) {
+                continue;
+            }
+
+            // Find a relay candidate with better delivery probability
+            let candidate = match self.dtn.select_relay_candidate(destination, &connected) {
+                Some(c) => c,
+                None => continue,
+            };
+
+            // Build DTN bundle message with prophet summary
+            let bundle_bytes = match postcard::to_allocvec(bundle) {
+                Ok(b) => b,
+                Err(_) => continue,
+            };
+
+            let prophet_summary: Vec<(Vec<u8>, f64)> = self.dtn.prophet_summary()
+                .into_iter()
+                .map(|(id, prob)| (id.as_bytes(), prob))
+                .collect();
+
+            let dtn_msg = crate::dtn_manager::DtnBundleMessage {
+                bundle_bytes,
+                prophet_summary: Some(prophet_summary),
+            };
+
+            let network_msg = NetworkMessage::DtnBundle(dtn_msg);
+            let bytes = match self.sign_message(network_msg) {
+                Ok(b) => b,
+                Err(_) => continue,
+            };
+
+            match self.transport.send(&candidate, bytes).await {
+                Ok(()) => {
+                    info!(
+                        bundle_id = %bundle.bundle_id,
+                        relay = %candidate.short_id(),
+                        destination = %destination.short_id(),
+                        "Relayed DTN bundle to better candidate"
+                    );
+                    // Remove from our store after successful relay
+                    let _ = self.dtn.mark_delivered(&bundle.bundle_id, destination);
+                }
+                Err(e) => {
+                    debug!(
+                        error = %e,
+                        relay = %candidate.short_id(),
+                        "Failed to relay DTN bundle"
+                    );
+                }
+            }
+        }
     }
 
     /// Deliver pending events to a peer in batches of EVENT_BATCH_SIZE (50).

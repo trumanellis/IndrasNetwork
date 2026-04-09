@@ -30,7 +30,9 @@
 //! }
 //! ```
 
+pub mod bundle_store;
 mod config;
+pub mod dtn_manager;
 mod error;
 mod keystore;
 pub mod message_handler;
@@ -226,6 +228,8 @@ pub struct IndrasNode {
     homepage_artifacts: std::sync::OnceLock<std::sync::Arc<tokio::sync::RwLock<Vec<indras_homepage::ContentArtifact>>>>,
     /// Embedded relay service — every node is a relay.
     relay_service: std::sync::OnceLock<Arc<indras_relay::RelayService>>,
+    /// DTN manager for offline peer delivery
+    dtn: Arc<dtn_manager::DtnManager>,
 }
 
 impl IndrasNode {
@@ -273,6 +277,17 @@ impl IndrasNode {
             "Node created with post-quantum keys"
         );
 
+        // Initialize DTN subsystem for offline peer delivery
+        let bundle_store = Arc::new(
+            bundle_store::BundleStore::open(&config.data_dir.join("dtn.redb"))
+                .map_err(|e| NodeError::Io(format!("Failed to open DTN store: {e}")))?
+        );
+        let dtn = Arc::new(dtn_manager::DtnManager::new(
+            config.dtn.clone(),
+            bundle_store,
+            identity.clone(),
+        ));
+
         Ok(Self {
             config,
             identity,
@@ -291,6 +306,7 @@ impl IndrasNode {
             homepage_fields: std::sync::OnceLock::new(),
             homepage_artifacts: std::sync::OnceLock::new(),
             relay_service: std::sync::OnceLock::new(),
+            dtn,
         })
     }
 
@@ -337,6 +353,17 @@ impl IndrasNode {
             "Node created with existing iroh identity"
         );
 
+        // Initialize DTN subsystem for offline peer delivery
+        let bundle_store = Arc::new(
+            bundle_store::BundleStore::open(&config.data_dir.join("dtn.redb"))
+                .map_err(|e| NodeError::Io(format!("Failed to open DTN store: {e}")))?
+        );
+        let dtn = Arc::new(dtn_manager::DtnManager::new(
+            config.dtn.clone(),
+            bundle_store,
+            identity.clone(),
+        ));
+
         Ok(Self {
             config,
             identity,
@@ -355,6 +382,7 @@ impl IndrasNode {
             homepage_fields: std::sync::OnceLock::new(),
             homepage_artifacts: std::sync::OnceLock::new(),
             relay_service: std::sync::OnceLock::new(),
+            dtn,
         })
     }
 
@@ -433,6 +461,7 @@ impl IndrasNode {
             self.node_log.clone(),
             self.config.allow_legacy_unsigned,
             Some(sync_now_tx),
+            self.dtn.clone(),
             self.shutdown_tx.subscribe(),
             message_rx,
         );
@@ -449,6 +478,7 @@ impl IndrasNode {
             Duration::from_secs(DEFAULT_SYNC_INTERVAL_SECS),
             self.shutdown_tx.subscribe(),
             sync_now_rx,
+            self.dtn.clone(),
         );
 
         // Spawn realm discovery event handler

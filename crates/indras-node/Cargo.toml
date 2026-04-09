@@ -14,11 +14,15 @@ indras-sync.workspace = true
 indras-crypto.workspace = true
 indras-homepage.workspace = true
 indras-artifacts.workspace = true
+indras-dtn = { path = "../indras-dtn" }
 indras-relay = { path = "../indras-relay" }
 
 # Async runtime
 tokio = { workspace = true, features = ["sync", "time"] }
 async-trait.workspace = true
+
+# Time
+chrono.workspace = true
 
 # Serialization
 serde = { workspace = true, features = ["derive"] }
@@ -28,6 +32,9 @@ bytes.workspace = true
 # Key derivation and encryption
 argon2 = "0.5"
 chacha20poly1305 = "0.10"
+
+# Storage
+redb = "2.4"
 
 # Utilities
 thiserror.workspace = true
