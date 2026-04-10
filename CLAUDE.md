@@ -145,6 +145,14 @@ jj new main -m "continue: <next task>"
 
 This automatically pulls in everything the other agents have landed.
 
+**To pick up another agent's landing** (sibling workspace, same repo):
+```bash
+jj rebase -d main
+```
+No `jj git fetch` needed — all workspaces share the same jj store, so bookmark
+moves are immediately visible. Only use `jj git fetch` when pulling from the
+remote (e.g. after a push conflict).
+
 **Rules:**
 - Land often, land small — every compilable+tested increment, not every feature
 - Never hold work — if full tests pass, land it. Holding creates drift.
