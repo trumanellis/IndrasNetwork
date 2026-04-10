@@ -148,26 +148,43 @@ pub fn FileModal(mut state: Signal<AppState>) -> Element {
                 // Content area
                 div { class: "file-modal-content",
                     if is_editing {
-                        textarea {
-                            class: "editor-full",
-                            value: "{draft}",
-                            autofocus: true,
-                            oninput: move |e| draft.set(e.value()),
-                            onkeydown: {
-                                let vp = vault_path.clone();
-                                let fp = file_path.clone();
-                                move |e: KeyboardEvent| {
-                                    if (e.modifiers().meta() || e.modifiers().ctrl()) && e.key() == Key::Enter {
-                                        e.prevent_default();
-                                        let content = draft.read().clone();
-                                        let _ = std::fs::write(vp.join(&fp), &content);
-                                        editing.set(false);
+                        {
+                            let draft_html = indras_ui::render_markdown_to_html(&draft.read());
+                            rsx! {
+                                div { class: "editor-split",
+                                    textarea {
+                                        class: "editor-split-textarea",
+                                        value: "{draft}",
+                                        autofocus: true,
+                                        oninput: move |e| draft.set(e.value()),
+                                        onkeydown: {
+                                            let vp = vault_path.clone();
+                                            let fp = file_path.clone();
+                                            move |e: KeyboardEvent| {
+                                                if (e.modifiers().meta() || e.modifiers().ctrl()) && e.key() == Key::Enter {
+                                                    e.prevent_default();
+                                                    let content = draft.read().clone();
+                                                    let _ = std::fs::write(vp.join(&fp), &content);
+                                                    editing.set(false);
+                                                }
+                                                if e.key() == Key::Escape {
+                                                    editing.set(false);
+                                                }
+                                            }
+                                        },
                                     }
-                                    if e.key() == Key::Escape {
-                                        editing.set(false);
+                                    div { class: "editor-split-preview",
+                                        div { class: "editor-split-label", "Preview" }
+                                        div { class: "editor-split-rendered preview-body",
+                                            if draft_html.trim().is_empty() {
+                                                p { class: "preview-placeholder", "Preview will appear here..." }
+                                            } else {
+                                                div { dangerous_inner_html: "{draft_html}" }
+                                            }
+                                        }
                                     }
                                 }
-                            },
+                            }
                         }
                     } else {
                         {

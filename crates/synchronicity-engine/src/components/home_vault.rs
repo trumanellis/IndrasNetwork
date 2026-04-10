@@ -293,6 +293,11 @@ pub fn HomeVault(
             class: "home-vault",
             tabindex: "0",
             onkeydown: move |e: KeyboardEvent| {
+                // Don't intercept keys when modal/editor is open
+                if state.read().modal_file.is_some() {
+                    return;
+                }
+
                 let key = e.key();
                 // Pre-read state to avoid borrow conflicts
                 let sel_file = state.read().selection.selected_file.clone();

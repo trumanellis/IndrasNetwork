@@ -859,8 +859,8 @@ body > * {
   border: 1px solid var(--bd);
   border-radius: var(--radius);
   padding: 0;
-  width: 90vw;
-  max-width: 800px;
+  width: 92vw;
+  max-width: 1000px;
   height: 80vh;
   display: flex;
   flex-direction: column;
@@ -1221,6 +1221,62 @@ body > * {
   justify-content: flex-end;
   gap: 12px;
   margin-bottom: 12px;
+}
+
+.editor-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+}
+
+.editor-split-textarea {
+  background: var(--bg2);
+  color: var(--tx);
+  font-family: var(--mono);
+  font-size: 14px;
+  line-height: 1.7;
+  padding: 16px;
+  border: 1px solid var(--bd);
+  border-radius: var(--radius);
+  outline: none;
+  resize: none;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.editor-split-textarea:focus {
+  border-color: var(--indigo);
+  box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.08);
+}
+
+.editor-split-preview {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg2);
+  border: 1px solid var(--bd);
+  border-radius: var(--radius);
+  overflow: hidden;
+  min-height: 0;
+}
+
+.editor-split-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--t3);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--bd);
+  flex-shrink: 0;
+}
+
+.editor-split-rendered {
+  padding: 16px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
 }
 
 .document {
