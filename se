@@ -96,7 +96,6 @@ for NAME in "${NAMES[@]}"; do
   echo "Launching $NAME at x=$WIN_X (data: $DATA_DIR, homepage: http://localhost:$((3331 + IDX)))"
   HOMEPAGE_PORT=$((3331 + IDX))
   VAULT_DIR="/tmp/indras-${LOWER_NAME}/vault"
-  [ -n "$CLEAN" ] && rm -rf "$VAULT_DIR"
   mkdir -p "$VAULT_DIR"
   INDRAS_NAME="$NAME" INDRAS_DATA_DIR="$DATA_DIR" \
     SYNC_ENGINE_VAULT="$VAULT_DIR" \
