@@ -180,8 +180,8 @@ pub fn HomeVault(
                             // Check realm name for category hints
                             let realm = net.get_realm_by_id(rid);
                             match realm.as_ref().and_then(|r| r.name()) {
-                                Some(n) if n.contains("public") || n.contains("Public") => {
-                                    crate::state::RealmCategory::Public
+                                Some(n) if n.contains("world") || n.contains("World") => {
+                                    crate::state::RealmCategory::World
                                 }
                                 _ => crate::state::RealmCategory::Group,
                             }
