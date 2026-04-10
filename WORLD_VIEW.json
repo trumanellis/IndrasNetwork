@@ -1,152 +1,121 @@
 {
-    "consolidated_at": "2026-04-03T05:54:46Z",
+    "consolidated_at": "2026-04-10T04:33:27Z",
     "instance_count": 2,
     "instances": {
         "Love": {
-            "timestamp": "2026-04-03T05:54:27.650777+00:00",
+            "timestamp": "2026-04-10T04:33:07.542190+00:00",
             "node": {
                 "display_name": "Love",
-                "iroh_public_key": "006fee964b27d3aa20456cdcfed083e9db8b0f8680f7d7ca788b73940e419d0a",
-                "member_id": "006fee964b27d3aa20456cdcfed083e9",
-                "endpoint_addr": "EndpointAddr { id: PublicKey(006fee964b27d3aa20456cdcfed083e9db8b0f8680f7d7ca788b73940e419d0a), addrs: {Relay(RelayUrl(\"https://euc1-1.relay.n0.iroh-canary.iroh.link./\")), Ip(100.64.100.6:63650), Ip(185.228.3.31:33476), Ip(185.228.3.31:63651), Ip(192.168.1.81:63650)} }",
+                "iroh_public_key": "809c3e089deaa39dbca5fe88d0b17c0255f0e9475aa2d4a4c0e9bfe747160986",
+                "member_id": "809c3e089deaa39dbca5fe88d0b17c02",
+                "endpoint_addr": "EndpointAddr { id: PublicKey(809c3e089deaa39dbca5fe88d0b17c0255f0e9475aa2d4a4c0e9bfe747160986), addrs: {Relay(RelayUrl(\"https://euc1-1.relay.n0.iroh-canary.iroh.link./\")), Ip(169.155.237.109:1303), Ip(192.168.1.81:65190)} }",
                 "data_dir": "/tmp/indras-love"
             },
             "interfaces": [
                 {
-                    "id": "238b6f1929d7989c1d5eeed5325e49c71ccde9b9ba10fc33cbfdcf51d0927bc6",
-                    "name": "PeerInbox",
-                    "event_count": 1,
-                    "member_count": 3,
-                    "encrypted": true,
-                    "created_at_millis": 1775193527585,
-                    "last_activity_millis": 1775193528470,
-                    "members": [
-                        {
-                            "peer_id": "006fee964b27d3aa20456cdcfed083e9db8b0f8680f7d7ca788b73940e419d0a",
-                            "role": "member",
-                            "active": true,
-                            "joined_at_millis": 1775193527723
-                        },
-                        {
-                            "peer_id": "212b2c2dabe58e86cb1df0caab9ab9456f20772444dacf9696e3bc2ca9e262bb",
-                            "role": "member",
-                            "active": true,
-                            "joined_at_millis": 1775193539487
-                        }
-                    ],
-                    "documents": []
-                },
-                {
-                    "id": "617b84332fd0a8480a9d8700b44685a0f8a8c9a1cc20058fb550e2ae8e908cf6",
-                    "name": "Inbox",
-                    "event_count": 0,
-                    "member_count": 10,
-                    "encrypted": true,
-                    "created_at_millis": 1775026069719,
-                    "last_activity_millis": 1775026069719,
-                    "members": [
-                        {
-                            "peer_id": "006fee964b27d3aa20456cdcfed083e9db8b0f8680f7d7ca788b73940e419d0a",
-                            "role": "member",
-                            "active": true,
-                            "joined_at_millis": 1775026069740
-                        },
-                        {
-                            "peer_id": "212b2c2dabe58e86cb1df0caab9ab9456f20772444dacf9696e3bc2ca9e262bb",
-                            "role": "member",
-                            "active": true,
-                            "joined_at_millis": 1775026313851
-                        }
-                    ],
-                    "documents": []
-                },
-                {
-                    "id": "a31c47d5dde1f028cc9f39a45bd6493b2d8478ce6f206f3e7e455ce5a19267aa",
+                    "id": "1c204a224338dfdf78332ba1874888b762e084430bad142775207d0f8f24b059",
                     "name": "Home",
-                    "event_count": 101,
+                    "event_count": 39,
                     "member_count": 1,
                     "encrypted": true,
-                    "created_at_millis": 1775026069783,
-                    "last_activity_millis": 1775193552954,
+                    "created_at_millis": 1775795527508,
+                    "last_activity_millis": 1775795584861,
                     "members": [
                         {
-                            "peer_id": "006fee964b27d3aa20456cdcfed083e9db8b0f8680f7d7ca788b73940e419d0a",
+                            "peer_id": "809c3e089deaa39dbca5fe88d0b17c0255f0e9475aa2d4a4c0e9bfe747160986",
                             "role": "member",
                             "active": true,
-                            "joined_at_millis": 1775026069796
+                            "joined_at_millis": 1775795527517
                         }
                     ],
                     "documents": [
-                        {
-                            "name": "_homepage_profile",
-                            "data_size_bytes": 2959,
-                            "chat_message_count": null,
-                            "recent_message_ids": null
-                        },
-                        {
-                            "name": "_profile_identity",
-                            "data_size_bytes": 81,
-                            "chat_message_count": null,
-                            "recent_message_ids": null
-                        },
-                        {
-                            "name": "artifacts",
-                            "data_size_bytes": 2365,
-                            "chat_message_count": null,
-                            "recent_message_ids": null
-                        },
                         {
                             "name": "contacts",
                             "data_size_bytes": 41,
                             "chat_message_count": null,
                             "recent_message_ids": null
-                        },
-                        {
-                            "name": "intentions",
-                            "data_size_bytes": 417,
-                            "chat_message_count": null,
-                            "recent_message_ids": null
                         }
                     ]
                 },
                 {
-                    "id": "f58e2d72e5abe6d59ca6747d278c8ea015283d0d31ebfde1fbef2424f01e6139",
-                    "name": "DM",
-                    "event_count": 70,
-                    "member_count": 35,
+                    "id": "4c83da943de2b4ab1eacedecb8dd7ae6525d57750cb7a206971a22227b0f2bb8",
+                    "name": "Inbox",
+                    "event_count": 0,
+                    "member_count": 58,
                     "encrypted": true,
-                    "created_at_millis": 1775026092026,
-                    "last_activity_millis": 1775193525919,
+                    "created_at_millis": 1775795527477,
+                    "last_activity_millis": 1775795527477,
                     "members": [
                         {
-                            "peer_id": "006fee964b27d3aa20456cdcfed083e9db8b0f8680f7d7ca788b73940e419d0a",
+                            "peer_id": "809c3e089deaa39dbca5fe88d0b17c0255f0e9475aa2d4a4c0e9bfe747160986",
                             "role": "member",
                             "active": true,
-                            "joined_at_millis": 1775026092049
+                            "joined_at_millis": 1775795527486
                         },
                         {
-                            "peer_id": "212b2c2dabe58e86cb1df0caab9ab9456f20772444dacf9696e3bc2ca9e262bb",
+                            "peer_id": "f2546c76db3931d19113a232c75fb97f48ed991f809708082ac73905e8d19e22",
                             "role": "member",
                             "active": true,
-                            "joined_at_millis": 1775193545361
+                            "joined_at_millis": 1775795584780
                         }
                     ],
-                    "documents": [
+                    "documents": []
+                },
+                {
+                    "id": "6d3cf34f1b355afa7116c54b85748fc0627d6497d00c4e65bb746343a51b44db",
+                    "name": "DM",
+                    "event_count": 0,
+                    "member_count": 288,
+                    "encrypted": true,
+                    "created_at_millis": 1775795543323,
+                    "last_activity_millis": 1775795543323,
+                    "members": [
                         {
-                            "name": "_registry",
-                            "data_size_bytes": 22,
-                            "chat_message_count": null,
-                            "recent_message_ids": null
+                            "peer_id": "809c3e089deaa39dbca5fe88d0b17c0255f0e9475aa2d4a4c0e9bfe747160986",
+                            "role": "member",
+                            "active": true,
+                            "joined_at_millis": 1775795543340
+                        },
+                        {
+                            "peer_id": "f2546c76db3931d19113a232c75fb97f48ed991f809708082ac73905e8d19e22",
+                            "role": "member",
+                            "active": true,
+                            "joined_at_millis": 1775795587472
                         }
-                    ]
+                    ],
+                    "documents": []
+                },
+                {
+                    "id": "a6df4e9f9f58ab5c96f90d7ac04ec4cae8e238efbb13def3c891ecf2483de4a3",
+                    "name": "PeerInbox",
+                    "event_count": 1,
+                    "member_count": 27,
+                    "encrypted": true,
+                    "created_at_millis": 1775795575584,
+                    "last_activity_millis": 1775795575934,
+                    "members": [
+                        {
+                            "peer_id": "809c3e089deaa39dbca5fe88d0b17c0255f0e9475aa2d4a4c0e9bfe747160986",
+                            "role": "member",
+                            "active": true,
+                            "joined_at_millis": 1775795575644
+                        },
+                        {
+                            "peer_id": "f2546c76db3931d19113a232c75fb97f48ed991f809708082ac73905e8d19e22",
+                            "role": "member",
+                            "active": true,
+                            "joined_at_millis": 1775795587460
+                        }
+                    ],
+                    "documents": []
                 }
             ],
             "peers": [
                 {
-                    "peer_id": "006fee964b27d3aa20456cdcfed083e9db8b0f8680f7d7ca788b73940e419d0a",
+                    "peer_id": "809c3e089deaa39dbca5fe88d0b17c0255f0e9475aa2d4a4c0e9bfe747160986",
                     "display_name": null,
-                    "first_seen_millis": 1775193527656,
-                    "last_seen_millis": 1775193527656,
+                    "first_seen_millis": 1775795575608,
+                    "last_seen_millis": 1775795575608,
                     "message_count": 0,
                     "trusted": false,
                     "connected": false,
@@ -154,10 +123,10 @@
                     "has_pq_verifying_key": false
                 },
                 {
-                    "peer_id": "212b2c2dabe58e86cb1df0caab9ab9456f20772444dacf9696e3bc2ca9e262bb",
+                    "peer_id": "f2546c76db3931d19113a232c75fb97f48ed991f809708082ac73905e8d19e22",
                     "display_name": null,
-                    "first_seen_millis": 1775193545354,
-                    "last_seen_millis": 1775193545354,
+                    "first_seen_millis": 1775795587449,
+                    "last_seen_millis": 1775795587449,
                     "message_count": 0,
                     "trusted": false,
                     "connected": true,
@@ -167,82 +136,94 @@
             ],
             "transport": {
                 "connected_peers": [
-                    "212b2c2dabe58e86cb1df0caab9ab9456f20772444dacf9696e3bc2ca9e262bb"
+                    "f2546c76db3931d19113a232c75fb97f48ed991f809708082ac73905e8d19e22"
                 ],
                 "discovered_peers": [],
                 "active_realm_topics": [
-                    "617b84332fd0a8480a9d8700b44685a0f8a8c9a1cc20058fb550e2ae8e908cf6",
-                    "a31c47d5dde1f028cc9f39a45bd6493b2d8478ce6f206f3e7e455ce5a19267aa",
-                    "f58e2d72e5abe6d59ca6747d278c8ea015283d0d31ebfde1fbef2424f01e6139"
+                    "4c83da943de2b4ab1eacedecb8dd7ae6525d57750cb7a206971a22227b0f2bb8",
+                    "6d3cf34f1b355afa7116c54b85748fc0627d6497d00c4e65bb746343a51b44db",
+                    "1c204a224338dfdf78332ba1874888b762e084430bad142775207d0f8f24b059"
                 ]
             }
         },
         "Joy": {
-            "timestamp": "2026-04-03T05:54:27.474423+00:00",
+            "timestamp": "2026-04-10T04:33:12.381664+00:00",
             "node": {
                 "display_name": "Joy",
-                "iroh_public_key": "212b2c2dabe58e86cb1df0caab9ab9456f20772444dacf9696e3bc2ca9e262bb",
-                "member_id": "212b2c2dabe58e86cb1df0caab9ab945",
-                "endpoint_addr": "EndpointAddr { id: PublicKey(212b2c2dabe58e86cb1df0caab9ab9456f20772444dacf9696e3bc2ca9e262bb), addrs: {Relay(RelayUrl(\"https://euc1-1.relay.n0.iroh-canary.iroh.link./\")), Ip(100.64.100.6:60236), Ip(192.168.1.81:60236)} }",
+                "iroh_public_key": "f2546c76db3931d19113a232c75fb97f48ed991f809708082ac73905e8d19e22",
+                "member_id": "f2546c76db3931d19113a232c75fb97f",
+                "endpoint_addr": "EndpointAddr { id: PublicKey(f2546c76db3931d19113a232c75fb97f48ed991f809708082ac73905e8d19e22), addrs: {Relay(RelayUrl(\"https://euc1-1.relay.n0.iroh-canary.iroh.link./\")), Ip(169.155.237.109:18472), Ip(192.168.1.81:50769)} }",
                 "data_dir": "/tmp/indras-joy"
             },
             "interfaces": [
                 {
-                    "id": "238b6f1929d7989c1d5eeed5325e49c71ccde9b9ba10fc33cbfdcf51d0927bc6",
-                    "name": "Inbox",
-                    "event_count": 0,
-                    "member_count": 15,
+                    "id": "4c83da943de2b4ab1eacedecb8dd7ae6525d57750cb7a206971a22227b0f2bb8",
+                    "name": "PeerInbox",
+                    "event_count": 1,
+                    "member_count": 26,
                     "encrypted": true,
-                    "created_at_millis": 1775026069585,
-                    "last_activity_millis": 1775026069585,
+                    "created_at_millis": 1775795574550,
+                    "last_activity_millis": 1775795574862,
                     "members": [
                         {
-                            "peer_id": "006fee964b27d3aa20456cdcfed083e9db8b0f8680f7d7ca788b73940e419d0a",
+                            "peer_id": "809c3e089deaa39dbca5fe88d0b17c0255f0e9475aa2d4a4c0e9bfe747160986",
                             "role": "member",
                             "active": true,
-                            "joined_at_millis": 1775106663079
+                            "joined_at_millis": 1775795584889
                         },
                         {
-                            "peer_id": "212b2c2dabe58e86cb1df0caab9ab9456f20772444dacf9696e3bc2ca9e262bb",
+                            "peer_id": "f2546c76db3931d19113a232c75fb97f48ed991f809708082ac73905e8d19e22",
                             "role": "member",
                             "active": true,
-                            "joined_at_millis": 1775026069594
+                            "joined_at_millis": 1775795574578
                         }
                     ],
                     "documents": []
                 },
                 {
-                    "id": "3641412bbd172b828ac04c1b12d31d1f5ec0a4aa3b16784566195016f4482628",
-                    "name": "Home",
-                    "event_count": 106,
-                    "member_count": 1,
+                    "id": "6d3cf34f1b355afa7116c54b85748fc0627d6497d00c4e65bb746343a51b44db",
+                    "name": "DM",
+                    "event_count": 0,
+                    "member_count": 324,
                     "encrypted": true,
-                    "created_at_millis": 1775026069615,
-                    "last_activity_millis": 1775193639469,
+                    "created_at_millis": 1775795542449,
+                    "last_activity_millis": 1775795542449,
                     "members": [
                         {
-                            "peer_id": "212b2c2dabe58e86cb1df0caab9ab9456f20772444dacf9696e3bc2ca9e262bb",
+                            "peer_id": "809c3e089deaa39dbca5fe88d0b17c0255f0e9475aa2d4a4c0e9bfe747160986",
                             "role": "member",
                             "active": true,
-                            "joined_at_millis": 1775026069624
+                            "joined_at_millis": 1775795592332
+                        },
+                        {
+                            "peer_id": "f2546c76db3931d19113a232c75fb97f48ed991f809708082ac73905e8d19e22",
+                            "role": "member",
+                            "active": true,
+                            "joined_at_millis": 1775795542459
+                        }
+                    ],
+                    "documents": []
+                },
+                {
+                    "id": "7394e389ed9265bbb246dd35937a646ebd87a188cf71619a7aa7703d87be1d43",
+                    "name": "Home",
+                    "event_count": 144,
+                    "member_count": 1,
+                    "encrypted": true,
+                    "created_at_millis": 1775795532348,
+                    "last_activity_millis": 1775795589796,
+                    "members": [
+                        {
+                            "peer_id": "f2546c76db3931d19113a232c75fb97f48ed991f809708082ac73905e8d19e22",
+                            "role": "member",
+                            "active": true,
+                            "joined_at_millis": 1775795532358
                         }
                     ],
                     "documents": [
                         {
-                            "name": "_homepage_profile",
-                            "data_size_bytes": 2946,
-                            "chat_message_count": null,
-                            "recent_message_ids": null
-                        },
-                        {
-                            "name": "_profile_identity",
-                            "data_size_bytes": 79,
-                            "chat_message_count": null,
-                            "recent_message_ids": null
-                        },
-                        {
                             "name": "artifacts",
-                            "data_size_bytes": 2508,
+                            "data_size_bytes": 144,
                             "chat_message_count": null,
                             "recent_message_ids": null
                         },
@@ -251,77 +232,40 @@
                             "data_size_bytes": 42,
                             "chat_message_count": null,
                             "recent_message_ids": null
-                        },
-                        {
-                            "name": "intentions",
-                            "data_size_bytes": 417,
-                            "chat_message_count": null,
-                            "recent_message_ids": null
                         }
                     ]
                 },
                 {
-                    "id": "617b84332fd0a8480a9d8700b44685a0f8a8c9a1cc20058fb550e2ae8e908cf6",
-                    "name": "PeerInbox",
-                    "event_count": 1,
-                    "member_count": 2,
+                    "id": "a6df4e9f9f58ab5c96f90d7ac04ec4cae8e238efbb13def3c891ecf2483de4a3",
+                    "name": "Inbox",
+                    "event_count": 0,
+                    "member_count": 46,
                     "encrypted": true,
-                    "created_at_millis": 1775193618296,
-                    "last_activity_millis": 1775193618512,
+                    "created_at_millis": 1775795532318,
+                    "last_activity_millis": 1775795532318,
                     "members": [
                         {
-                            "peer_id": "006fee964b27d3aa20456cdcfed083e9db8b0f8680f7d7ca788b73940e419d0a",
+                            "peer_id": "809c3e089deaa39dbca5fe88d0b17c0255f0e9475aa2d4a4c0e9bfe747160986",
                             "role": "member",
                             "active": true,
-                            "joined_at_millis": 1775193618464
+                            "joined_at_millis": 1775795589112
                         },
                         {
-                            "peer_id": "212b2c2dabe58e86cb1df0caab9ab9456f20772444dacf9696e3bc2ca9e262bb",
+                            "peer_id": "f2546c76db3931d19113a232c75fb97f48ed991f809708082ac73905e8d19e22",
                             "role": "member",
                             "active": true,
-                            "joined_at_millis": 1775193618312
+                            "joined_at_millis": 1775795532326
                         }
                     ],
                     "documents": []
-                },
-                {
-                    "id": "f58e2d72e5abe6d59ca6747d278c8ea015283d0d31ebfde1fbef2424f01e6139",
-                    "name": "DM",
-                    "event_count": 65,
-                    "member_count": 57,
-                    "encrypted": true,
-                    "created_at_millis": 1775026091228,
-                    "last_activity_millis": 1775193719148,
-                    "members": [
-                        {
-                            "peer_id": "006fee964b27d3aa20456cdcfed083e9db8b0f8680f7d7ca788b73940e419d0a",
-                            "role": "member",
-                            "active": true,
-                            "joined_at_millis": 1775171976958
-                        },
-                        {
-                            "peer_id": "212b2c2dabe58e86cb1df0caab9ab9456f20772444dacf9696e3bc2ca9e262bb",
-                            "role": "member",
-                            "active": true,
-                            "joined_at_millis": 1775026091237
-                        }
-                    ],
-                    "documents": [
-                        {
-                            "name": "_registry",
-                            "data_size_bytes": 22,
-                            "chat_message_count": null,
-                            "recent_message_ids": null
-                        }
-                    ]
                 }
             ],
             "peers": [
                 {
-                    "peer_id": "006fee964b27d3aa20456cdcfed083e9db8b0f8680f7d7ca788b73940e419d0a",
+                    "peer_id": "809c3e089deaa39dbca5fe88d0b17c0255f0e9475aa2d4a4c0e9bfe747160986",
                     "display_name": null,
-                    "first_seen_millis": 1775193618458,
-                    "last_seen_millis": 1775193618458,
+                    "first_seen_millis": 1775795592316,
+                    "last_seen_millis": 1775795592316,
                     "message_count": 0,
                     "trusted": false,
                     "connected": true,
@@ -329,10 +273,10 @@
                     "has_pq_verifying_key": false
                 },
                 {
-                    "peer_id": "212b2c2dabe58e86cb1df0caab9ab9456f20772444dacf9696e3bc2ca9e262bb",
+                    "peer_id": "f2546c76db3931d19113a232c75fb97f48ed991f809708082ac73905e8d19e22",
                     "display_name": null,
-                    "first_seen_millis": 1775193618306,
-                    "last_seen_millis": 1775193618306,
+                    "first_seen_millis": 1775795574566,
+                    "last_seen_millis": 1775795574566,
                     "message_count": 0,
                     "trusted": false,
                     "connected": false,
@@ -342,13 +286,13 @@
             ],
             "transport": {
                 "connected_peers": [
-                    "006fee964b27d3aa20456cdcfed083e9db8b0f8680f7d7ca788b73940e419d0a"
+                    "809c3e089deaa39dbca5fe88d0b17c0255f0e9475aa2d4a4c0e9bfe747160986"
                 ],
                 "discovered_peers": [],
                 "active_realm_topics": [
-                    "3641412bbd172b828ac04c1b12d31d1f5ec0a4aa3b16784566195016f4482628",
-                    "f58e2d72e5abe6d59ca6747d278c8ea015283d0d31ebfde1fbef2424f01e6139",
-                    "238b6f1929d7989c1d5eeed5325e49c71ccde9b9ba10fc33cbfdcf51d0927bc6"
+                    "6d3cf34f1b355afa7116c54b85748fc0627d6497d00c4e65bb746343a51b44db",
+                    "a6df4e9f9f58ab5c96f90d7ac04ec4cae8e238efbb13def3c891ecf2483de4a3",
+                    "7394e389ed9265bbb246dd35937a646ebd87a188cf71619a7aa7703d87be1d43"
                 ]
             }
         }

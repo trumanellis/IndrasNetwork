@@ -167,6 +167,51 @@ pub fn HomeVault(
                     }
                 }
 
+                // Refresh realm list for column display
+                let conversation_ids = net.conversation_realms();
+                let current_realm_count = state.read().realms.len();
+                if conversation_ids.len() != current_realm_count {
+                    let mut realm_views = Vec::new();
+                    for rid in &conversation_ids {
+                        let rid_bytes = *rid.as_bytes();
+                        let category = if net.dm_peer_for_realm(rid).is_some() {
+                            crate::state::RealmCategory::Dm
+                        } else {
+                            // Check realm name for category hints
+                            let realm = net.get_realm_by_id(rid);
+                            match realm.as_ref().and_then(|r| r.name()) {
+                                Some(n) if n.contains("public") || n.contains("Public") => {
+                                    crate::state::RealmCategory::Public
+                                }
+                                _ => crate::state::RealmCategory::Group,
+                            }
+                        };
+
+                        let display_name = if let Some(peer_mid) = net.dm_peer_for_realm(rid) {
+                            // Use contact name or hex prefix
+                            peers.read().iter()
+                                .find(|p| p.member_id == peer_mid)
+                                .map(|p| p.name.clone())
+                                .unwrap_or_else(|| {
+                                    peer_mid.iter().take(4).map(|b| format!("{b:02x}")).collect()
+                                })
+                        } else {
+                            net.get_realm_by_id(rid)
+                                .and_then(|r| r.name().map(|s| s.to_string()))
+                                .unwrap_or_else(|| "Unnamed".to_string())
+                        };
+
+                        realm_views.push(crate::state::RealmView {
+                            id: rid_bytes,
+                            display_name,
+                            category,
+                            member_count: 0,
+                            files: Vec::new(),
+                        });
+                    }
+                    state.write().realms = realm_views;
+                }
+
                 // Proactive reconnect to ensure mutual discovery
                 for peer_info in peers.read().iter() {
                     let _ = net.connect(peer_info.member_id).await;
