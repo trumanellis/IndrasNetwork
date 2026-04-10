@@ -2,7 +2,7 @@
 
 use dioxus::prelude::*;
 
-use crate::state::{AppState, ModalFile};
+use crate::state::{AppState, ContextMenu, ModalFile};
 use super::file_item::FileItem;
 
 /// Column 1: private vault files with "+ New" button.
@@ -57,6 +57,14 @@ pub fn PrivateColumn(mut state: Signal<AppState>) -> Element {
                                         state.write().modal_file = Some(ModalFile {
                                             realm_id: None,
                                             file_path: p,
+                                        });
+                                    },
+                                    on_context_menu: move |(p, x, y): (String, f64, f64)| {
+                                        state.write().context_menu = Some(ContextMenu {
+                                            realm_id: None,
+                                            file_path: p,
+                                            x,
+                                            y,
                                         });
                                     },
                                 }

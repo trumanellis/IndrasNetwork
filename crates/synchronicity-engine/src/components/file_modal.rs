@@ -1,7 +1,7 @@
 //! File modal — popup overlay for viewing/editing a file.
 //!
-//! Shows editable title + rendered markdown body (click to edit).
-//! Esc or clicking backdrop closes. Ctrl+Enter saves edits.
+//! Two modes: Preview (rendered markdown) and Edit (textarea).
+//! Header with title, mode toggle, and close button.
 
 use dioxus::prelude::*;
 
@@ -35,6 +35,7 @@ pub fn FileModal(mut state: Signal<AppState>) -> Element {
     // Read raw content from disk
     let raw_content = std::fs::read_to_string(&full_path).unwrap_or_default();
     let rendered = indras_ui::render_markdown_to_html(&raw_content);
+    let is_editing = *editing.read();
 
     let close = move |_| {
         editing.set(false);
@@ -51,113 +52,132 @@ pub fn FileModal(mut state: Signal<AppState>) -> Element {
                 class: "file-modal",
                 onclick: move |e| e.stop_propagation(),
 
-                // Editable title
-                if *title_editing.read() {
-                    input {
-                        class: "doc-title-input",
-                        r#type: "text",
-                        value: "{title_draft}",
-                        autofocus: true,
-                        oninput: move |e| title_draft.set(e.value()),
-                        onkeydown: {
-                            let old_name = file_path.clone();
-                            let vault_path = vault_path.clone();
-                            move |e: KeyboardEvent| {
-                                if e.key() == Key::Enter {
-                                    let new_title = title_draft.read().trim().to_string();
-                                    if !new_title.is_empty() {
-                                        let new_name = format!("{}.md", new_title);
-                                        if new_name != old_name {
-                                            let old_p = vault_path.join(&old_name);
-                                            let new_p = vault_path.join(&new_name);
-                                            if std::fs::rename(&old_p, &new_p).is_ok() {
-                                                state.write().modal_file = Some(crate::state::ModalFile {
-                                                    realm_id: None,
-                                                    file_path: new_name.clone(),
-                                                });
-                                                state.write().selection.selected_file = Some(new_name);
+                // Header bar
+                div { class: "file-modal-header",
+                    // Editable title
+                    if *title_editing.read() {
+                        input {
+                            class: "doc-title-input",
+                            r#type: "text",
+                            value: "{title_draft}",
+                            autofocus: true,
+                            oninput: move |e| title_draft.set(e.value()),
+                            onkeydown: {
+                                let old_name = file_path.clone();
+                                let vault_path = vault_path.clone();
+                                move |e: KeyboardEvent| {
+                                    if e.key() == Key::Enter {
+                                        let new_title = title_draft.read().trim().to_string();
+                                        if !new_title.is_empty() {
+                                            let new_name = format!("{}.md", new_title);
+                                            if new_name != old_name {
+                                                let old_p = vault_path.join(&old_name);
+                                                let new_p = vault_path.join(&new_name);
+                                                if std::fs::rename(&old_p, &new_p).is_ok() {
+                                                    state.write().modal_file = Some(crate::state::ModalFile {
+                                                        realm_id: None,
+                                                        file_path: new_name.clone(),
+                                                    });
+                                                    state.write().selection.selected_file = Some(new_name);
+                                                }
                                             }
                                         }
+                                        title_editing.set(false);
                                     }
-                                    title_editing.set(false);
+                                    if e.key() == Key::Escape {
+                                        title_editing.set(false);
+                                    }
                                 }
-                                if e.key() == Key::Escape {
-                                    title_editing.set(false);
-                                }
-                            }
-                        },
-                    }
-                } else {
-                    h1 {
-                        class: "doc-title",
-                        onclick: {
-                            let fp = file_path.clone();
-                            move |e: Event<MouseData>| {
-                                e.stop_propagation();
-                                title_draft.set(title_from_filename(&fp));
-                                title_editing.set(true);
-                            }
-                        },
-                        "{title_from_filename(&file_path)}"
-                    }
-                }
-
-                // Body — edit or view
-                if *editing.read() {
-                    div { class: "editor-actions",
-                        span { class: "editor-hint", "Ctrl+Enter to save \u{00B7} Esc to cancel" }
-                        button {
-                            class: "se-btn-primary se-btn-sm",
+                            },
+                        }
+                    } else {
+                        span {
+                            class: "file-modal-title",
                             onclick: {
                                 let fp = file_path.clone();
+                                move |e: Event<MouseData>| {
+                                    e.stop_propagation();
+                                    title_draft.set(title_from_filename(&fp));
+                                    title_editing.set(true);
+                                }
+                            },
+                            "{title_from_filename(&file_path)}"
+                        }
+                    }
+
+                    // Controls
+                    div { class: "file-modal-controls",
+                        button {
+                            class: if is_editing { "file-modal-toggle" } else { "file-modal-toggle active" },
+                            onclick: {
                                 let vp = vault_path.clone();
+                                let fp = file_path.clone();
                                 move |_| {
-                                    let content = draft.read().clone();
-                                    let _ = std::fs::write(vp.join(&fp), &content);
+                                    if *editing.read() {
+                                        let content = draft.read().clone();
+                                        let _ = std::fs::write(vp.join(&fp), &content);
+                                    }
                                     editing.set(false);
                                 }
                             },
-                            "Done"
+                            "Preview"
+                        }
+                        button {
+                            class: if is_editing { "file-modal-toggle active" } else { "file-modal-toggle" },
+                            onclick: {
+                                let raw = raw_content.clone();
+                                move |_| {
+                                    if !*editing.read() {
+                                        draft.set(raw.clone());
+                                    }
+                                    editing.set(true);
+                                }
+                            },
+                            "Edit"
+                        }
+
+                        // Close button
+                        button {
+                            class: "file-modal-close",
+                            onclick: close,
+                            "\u{00d7}"
                         }
                     }
-                    textarea {
-                        class: "editor-full",
-                        value: "{draft}",
-                        autofocus: true,
-                        oninput: move |e| draft.set(e.value()),
-                        onkeydown: {
-                            let fp = file_path.clone();
-                            let vp = vault_path.clone();
-                            move |e: KeyboardEvent| {
-                                if (e.modifiers().meta() || e.modifiers().ctrl()) && e.key() == Key::Enter {
-                                    e.prevent_default();
-                                    let content = draft.read().clone();
-                                    let _ = std::fs::write(vp.join(&fp), &content);
-                                    editing.set(false);
+                }
+
+                // Content area
+                div { class: "file-modal-content",
+                    if is_editing {
+                        textarea {
+                            class: "editor-full",
+                            value: "{draft}",
+                            autofocus: true,
+                            oninput: move |e| draft.set(e.value()),
+                            onkeydown: {
+                                let vp = vault_path.clone();
+                                let fp = file_path.clone();
+                                move |e: KeyboardEvent| {
+                                    if (e.modifiers().meta() || e.modifiers().ctrl()) && e.key() == Key::Enter {
+                                        e.prevent_default();
+                                        let content = draft.read().clone();
+                                        let _ = std::fs::write(vp.join(&fp), &content);
+                                        editing.set(false);
+                                    }
+                                    if e.key() == Key::Escape {
+                                        editing.set(false);
+                                    }
                                 }
-                                if e.key() == Key::Escape {
-                                    editing.set(false);
-                                }
-                            }
-                        },
-                    }
-                } else {
-                    div { class: "modal-body",
+                            },
+                        }
+                    } else {
                         {
-                            let raw = raw_content.clone();
-                            let fp = file_path.clone();
                             let has_content = !rendered.trim().is_empty();
                             rsx! {
-                                div {
-                                    class: "preview-body preview-clickable",
-                                    onclick: move |_| {
-                                        draft.set(raw.clone());
-                                        editing.set(true);
-                                    },
+                                div { class: "preview-body",
                                     if has_content {
                                         div { dangerous_inner_html: "{rendered}" }
                                     } else {
-                                        p { class: "preview-placeholder", "Click to start writing..." }
+                                        p { class: "preview-placeholder", "Empty document" }
                                     }
                                 }
                             }
@@ -165,16 +185,6 @@ pub fn FileModal(mut state: Signal<AppState>) -> Element {
                     }
                 }
             }
-        }
-
-        // Global Esc handler
-        div {
-            tabindex: "0",
-            onkeydown: move |e: KeyboardEvent| {
-                if e.key() == Key::Escape && !*editing.read() && !*title_editing.read() {
-                    state.write().modal_file = None;
-                }
-            },
         }
     }
 }

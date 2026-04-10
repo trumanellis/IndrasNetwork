@@ -29,15 +29,24 @@ pub fn FileItem(
     file: FileView,
     is_selected: bool,
     on_click: EventHandler<String>,
+    on_context_menu: Option<EventHandler<(String, f64, f64)>>,
 ) -> Element {
     let class = if is_selected { "file-item selected" } else { "file-item" };
     let path = file.path.clone();
+    let ctx_path = file.path.clone();
     let icon = file_icon(&file.name);
 
     rsx! {
         div {
             class: "{class}",
             onclick: move |_| on_click.call(path.clone()),
+            oncontextmenu: move |e: MouseEvent| {
+                e.prevent_default();
+                if let Some(ref handler) = on_context_menu {
+                    let coords = e.page_coordinates();
+                    handler.call((ctx_path.clone(), coords.x, coords.y));
+                }
+            },
             span { class: "file-item-icon", "{icon}" }
             div { class: "file-item-content",
                 div { class: "file-item-name", "{file.name}" }

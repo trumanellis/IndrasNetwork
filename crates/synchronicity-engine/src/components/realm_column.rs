@@ -2,7 +2,7 @@
 
 use dioxus::prelude::*;
 
-use crate::state::{AppState, ModalFile, RealmCategory, RealmId as _};
+use crate::state::{AppState, ContextMenu, ModalFile, RealmCategory, RealmId as _};
 use super::file_item::FileItem;
 
 /// A column showing realms of a specific category with accordion file lists.
@@ -107,6 +107,14 @@ pub fn RealmColumn(
                                                         state.write().modal_file = Some(ModalFile {
                                                             realm_id: Some(id),
                                                             file_path: p,
+                                                        });
+                                                    },
+                                                    on_context_menu: move |(p, x, y): (String, f64, f64)| {
+                                                        state.write().context_menu = Some(ContextMenu {
+                                                            realm_id: Some(id),
+                                                            file_path: p,
+                                                            x,
+                                                            y,
                                                         });
                                                     },
                                                 }
