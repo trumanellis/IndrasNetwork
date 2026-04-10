@@ -11,6 +11,7 @@ use indras_network::IndrasNetwork;
 
 use crate::state::{AppState, ModalFile, PeerDisplayInfo, PEER_COLORS};
 use crate::vault_bridge::scan_vault;
+use crate::vault_manager::VaultManager;
 
 /// Rescan the private vault and update state only if files changed.
 fn rescan_private(state: &mut Signal<AppState>, vault_path: &std::path::Path) {
@@ -61,6 +62,7 @@ fn navigate_file(mut state: Signal<AppState>, direction: i32) {
 pub fn HomeVault(
     mut state: Signal<AppState>,
     network: Signal<Option<Arc<IndrasNetwork>>>,
+    vault_manager: Signal<Option<Arc<VaultManager>>>,
 ) -> Element {
     let mut peers = use_signal(Vec::<PeerDisplayInfo>::new);
     let mut contact_invite_open = use_signal(|| false);
@@ -167,9 +169,9 @@ pub fn HomeVault(
                     }
                 }
 
-                // Refresh realm list and shared files for column display
+                // Refresh realm list and sync files via vault CRDT
                 let conversation_ids = net.conversation_realms();
-                let home = net.home_realm().await.ok();
+                let vm = vault_manager.read().clone();
                 let mut realm_views = Vec::new();
                 for rid in &conversation_ids {
                     let rid_bytes = *rid.as_bytes();
@@ -199,42 +201,26 @@ pub fn HomeVault(
                             .unwrap_or_else(|| "Unnamed".to_string())
                     };
 
-                    // Load files associated with this DM peer (shared + received)
-                    let files = if let (Some(peer_id), Some(home)) = (peer_mid, &home) {
-                        // Outbound: artifacts we granted to this peer
-                        let mut entries = home.shared_with(&peer_id).await
-                            .unwrap_or_default();
-                        // Inbound: artifacts we received from this peer
-                        if let Ok(doc) = home.artifact_index().await {
-                            let data = doc.read().await;
-                            let received: Vec<_> = data.active_artifacts()
-                                .filter(|e| {
-                                    e.provenance.as_ref()
-                                        .map(|p| p.received_from == peer_id)
-                                        .unwrap_or(false)
-                                })
-                                .cloned()
-                                .collect();
-                            // Merge, dedup by artifact id
-                            let existing_ids: std::collections::HashSet<_> =
-                                entries.iter().map(|e| e.id.clone()).collect();
-                            for entry in received {
-                                if !existing_ids.contains(&entry.id) {
-                                    entries.push(entry);
-                                }
+                    // Ensure vault sync is running for this realm
+                    let files = if let Some(ref vm) = vm {
+                        if let Some(realm) = net.get_realm_by_id(rid) {
+                            if let Err(e) = vm.ensure_vault(&net, &realm).await {
+                                tracing::warn!("vault init for {rid_bytes:?}: {e}");
                             }
                         }
-                        // Filter to file-like artifacts (have extension in name)
-                        entries.retain(|e| e.name.contains('.'));
-                        // Sort newest first
-                        entries.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-                        entries.into_iter()
-                            .map(|entry| crate::state::FileView {
-                                path: entry.name.clone(),
-                                name: entry.name,
-                                size: entry.size,
-                                modified: crate::state::format_relative_time(entry.created_at),
-                                modified_ms: entry.created_at,
+                        // Load files from vault CRDT
+                        vm.list_files(&rid_bytes).await
+                            .into_iter()
+                            .map(|vf| {
+                                let name = vf.path.rsplit('/').next()
+                                    .unwrap_or(&vf.path).to_string();
+                                crate::state::FileView {
+                                    path: vf.path.clone(),
+                                    name,
+                                    size: vf.size,
+                                    modified: crate::state::format_relative_time(vf.modified_ms),
+                                    modified_ms: vf.modified_ms,
+                                }
                             })
                             .collect()
                     } else {
@@ -356,7 +342,7 @@ pub fn HomeVault(
                     _ => {}
                 }
             },
-            super::vault_columns::VaultColumns { state, network }
+            super::vault_columns::VaultColumns { state, network, vault_manager }
             super::status_bar::StatusBar { state }
             super::file_modal::FileModal { state }
             super::context_menu::ContextMenu { state }
@@ -370,6 +356,7 @@ pub fn HomeVault(
             // Create group overlay
             super::create_realm::CreateRealmOverlay {
                 network: network,
+                vault_manager: vault_manager,
                 kind: super::create_realm::CreateRealmKind::Group,
                 peers: peers.read().clone(),
                 is_open: create_group_open,
@@ -377,6 +364,7 @@ pub fn HomeVault(
             // Create public vault overlay
             super::create_realm::CreateRealmOverlay {
                 network: network,
+                vault_manager: vault_manager,
                 kind: super::create_realm::CreateRealmKind::World,
                 peers: Vec::new(),
                 is_open: create_public_open,

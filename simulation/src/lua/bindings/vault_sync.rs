@@ -9,6 +9,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use indras_network::IndrasNetwork;
+use indras_storage::{BlobStore, BlobStoreConfig};
 use indras_sync_engine::vault::Vault;
 
 /// Lua wrapper for a P2P-synced Vault.
@@ -281,7 +282,8 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
                 };
 
                 let path = PathBuf::from(&vault_path);
-                let (vault, invite) = Vault::create(&net_arc, &name, path.clone())
+                let blob_store = create_blob_store(&path).await.map_err(mlua::Error::external)?;
+                let (vault, invite) = Vault::create(&net_arc, &name, path.clone(), blob_store)
                     .await
                     .map_err(mlua::Error::external)?;
 
@@ -305,7 +307,8 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
                 };
 
                 let path = PathBuf::from(&vault_path);
-                let vault = Vault::join(&net_arc, &invite_str, path.clone())
+                let blob_store = create_blob_store(&path).await.map_err(mlua::Error::external)?;
+                let vault = Vault::join(&net_arc, &invite_str, path.clone(), blob_store)
                     .await
                     .map_err(mlua::Error::external)?;
 
@@ -317,4 +320,21 @@ pub fn register(lua: &Lua, indras: &Table) -> Result<()> {
     indras.set("VaultSync", vault_table)?;
 
     Ok(())
+}
+
+/// Create a blob store under `vault_path/.indras/blobs/`.
+///
+/// In the Lua test harness each vault gets its own store (tests run
+/// in isolated temp dirs). The production app uses a shared store via
+/// `VaultManager` instead.
+async fn create_blob_store(vault_path: &PathBuf) -> std::result::Result<Arc<BlobStore>, String> {
+    let blob_dir = vault_path.join(".indras/blobs");
+    let config = BlobStoreConfig {
+        base_dir: blob_dir,
+        ..Default::default()
+    };
+    let store = BlobStore::new(config)
+        .await
+        .map_err(|e| format!("blob store: {e}"))?;
+    Ok(Arc::new(store))
 }

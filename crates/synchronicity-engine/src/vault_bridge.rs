@@ -12,6 +12,7 @@ use indras_crypto::PassStory;
 use indras_network::IndrasNetwork;
 
 use crate::state::{AppState, AppStep, FileView, LoadingStage, SyncStatus, default_data_dir, format_relative_time};
+use crate::vault_manager::VaultManager;
 
 /// HelloWorld.md content seeded into new vaults.
 const HELLO_WORLD: &str = include_str!("../assets/HelloWorld.md");
@@ -86,6 +87,7 @@ pub fn scan_vault(vault_path: &std::path::Path) -> Vec<FileView> {
 pub async fn create_account(
     mut state: Signal<AppState>,
     mut network: Signal<Option<Arc<IndrasNetwork>>>,
+    vault_manager: Signal<Option<Arc<VaultManager>>>,
 ) {
     let data_dir = default_data_dir();
     let display_name = state.read().display_name.clone();
@@ -140,6 +142,10 @@ pub async fn create_account(
     ];
 
     network.set(Some(net));
+    match VaultManager::new(data_dir).await {
+        Ok(vm) => vault_manager.set(Some(Arc::new(vm))),
+        Err(e) => tracing::error!("Failed to start vault manager: {e}"),
+    }
     state.write().sync_status = SyncStatus::Synced;
 
     // Brief pause so user sees the success state
@@ -152,6 +158,7 @@ pub async fn create_account(
 pub async fn restore_account(
     mut state: Signal<AppState>,
     mut network: Signal<Option<Arc<IndrasNetwork>>>,
+    vault_manager: Signal<Option<Arc<VaultManager>>>,
 ) {
     let data_dir = default_data_dir();
     let slots = state.read().pass_story_slots.clone();
@@ -226,6 +233,10 @@ pub async fn restore_account(
     ];
 
     network.set(Some(net));
+    match VaultManager::new(data_dir).await {
+        Ok(vm) => vault_manager.set(Some(Arc::new(vm))),
+        Err(e) => tracing::error!("Failed to start vault manager: {e}"),
+    }
     state.write().sync_status = SyncStatus::Synced;
 
     tokio::time::sleep(std::time::Duration::from_millis(800)).await;

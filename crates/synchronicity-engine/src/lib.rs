@@ -8,3 +8,4 @@
 pub mod components;
 pub mod state;
 pub mod vault_bridge;
+pub mod vault_manager;

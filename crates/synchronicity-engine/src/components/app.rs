@@ -7,6 +7,7 @@ use indras_network::IndrasNetwork;
 use indras_ui::{ThemedRoot, CURRENT_SKIN, Skin};
 
 use crate::state::{AppState, AppStep};
+use crate::vault_manager::VaultManager;
 
 /// Root component — routes to the correct screen based on [`AppState::step`].
 #[component]
@@ -17,6 +18,7 @@ pub fn App() -> Element {
 
     let mut state = use_signal(AppState::new);
     let mut network: Signal<Option<Arc<IndrasNetwork>>> = use_signal(|| None);
+    let vault_manager: Signal<Option<Arc<VaultManager>>> = use_signal(|| None);
 
     // One-shot guard: only attempt network load once for returning users.
     let mut network_loaded = use_signal(|| false);
@@ -63,6 +65,11 @@ pub fn App() -> Element {
                             tracing::warn!("Failed to join contacts realm: {e}");
                         }
                         network.set(Some(net));
+                        let data_dir = crate::state::default_data_dir();
+                        match VaultManager::new(data_dir).await {
+                            Ok(vm) => vault_manager.set(Some(Arc::new(vm))),
+                            Err(e) => tracing::error!("Failed to start vault manager: {e}"),
+                        }
                         state.write().sync_status = crate::state::SyncStatus::Synced;
                         last_err = None;
                         break;
@@ -114,9 +121,9 @@ pub fn App() -> Element {
                     rsx! { super::pass_story::PassStory { state } }
                 },
                 AppStep::Creating | AppStep::Restoring => {
-                    rsx! { super::loading::Loading { state, network } }
+                    rsx! { super::loading::Loading { state, network, vault_manager } }
                 },
-                AppStep::HomeVault => rsx! { super::home_vault::HomeVault { state, network } },
+                AppStep::HomeVault => rsx! { super::home_vault::HomeVault { state, network, vault_manager } },
             }
         }
     }

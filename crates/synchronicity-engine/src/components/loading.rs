@@ -7,12 +7,14 @@ use indras_network::IndrasNetwork;
 
 use crate::state::{AppState, AppStep, LoadingStage};
 use crate::vault_bridge;
+use crate::vault_manager::VaultManager;
 
 /// Loading screen with stage-by-stage progress display.
 #[component]
 pub fn Loading(
     state: Signal<AppState>,
     network: Signal<Option<Arc<IndrasNetwork>>>,
+    vault_manager: Signal<Option<Arc<VaultManager>>>,
 ) -> Element {
     let step = state.read().step.clone();
 
@@ -29,12 +31,12 @@ pub fn Loading(
         if is_creating {
             started.set(true);
             spawn(async move {
-                vault_bridge::create_account(state, network).await;
+                vault_bridge::create_account(state, network, vault_manager).await;
             });
         } else if is_restoring {
             started.set(true);
             spawn(async move {
-                vault_bridge::restore_account(state, network).await;
+                vault_bridge::restore_account(state, network, vault_manager).await;
             });
         }
     });

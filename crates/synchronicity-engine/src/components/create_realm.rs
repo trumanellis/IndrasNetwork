@@ -8,6 +8,7 @@ use dioxus::prelude::*;
 use indras_network::IndrasNetwork;
 
 use crate::state::PeerDisplayInfo;
+use crate::vault_manager::VaultManager;
 
 /// Whether we are creating a group (multi-peer) or world vault.
 #[derive(Clone, Copy, PartialEq)]
@@ -22,6 +23,7 @@ pub enum CreateRealmKind {
 #[component]
 pub fn CreateRealmOverlay(
     network: Signal<Option<Arc<IndrasNetwork>>>,
+    vault_manager: Signal<Option<Arc<VaultManager>>>,
     kind: CreateRealmKind,
     peers: Vec<PeerDisplayInfo>,
     mut is_open: Signal<bool>,
@@ -52,7 +54,13 @@ pub fn CreateRealmOverlay(
         status.set(Some("Creating...".to_string()));
         spawn(async move {
             match net.create_realm(&name).await {
-                Ok(_realm) => {
+                Ok(realm) => {
+                    // Start vault sync for the new realm
+                    if let Some(ref vm) = *vault_manager.read() {
+                        if let Err(e) = vm.ensure_vault(&net, &realm).await {
+                            tracing::warn!("Failed to init vault for new realm: {e}");
+                        }
+                    }
                     // TODO: for groups, invite selected peers once the API exists
                     status.set(Some(format!("success:Created \"{}\"!", name)));
                     name_input.set(String::new());

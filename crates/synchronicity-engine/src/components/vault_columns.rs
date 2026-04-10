@@ -6,6 +6,7 @@ use dioxus::prelude::*;
 use indras_network::IndrasNetwork;
 
 use crate::state::{AppState, RealmCategory};
+use crate::vault_manager::VaultManager;
 use super::private_column::PrivateColumn;
 use super::realm_column::RealmColumn;
 
@@ -14,13 +15,14 @@ use super::realm_column::RealmColumn;
 pub fn VaultColumns(
     state: Signal<AppState>,
     network: Signal<Option<Arc<IndrasNetwork>>>,
+    vault_manager: Signal<Option<Arc<VaultManager>>>,
 ) -> Element {
     rsx! {
         div { class: "vault-columns",
             PrivateColumn { state }
-            RealmColumn { state, network, category: RealmCategory::Dm, label: "CONNECTIONS" }
-            RealmColumn { state, network, category: RealmCategory::Group, label: "GROUPS" }
-            RealmColumn { state, network, category: RealmCategory::World, label: "WORLD" }
+            RealmColumn { state, network, vault_manager, category: RealmCategory::Dm, label: "CONNECTIONS" }
+            RealmColumn { state, network, vault_manager, category: RealmCategory::Group, label: "GROUPS" }
+            RealmColumn { state, network, vault_manager, category: RealmCategory::World, label: "WORLD" }
         }
     }
 }

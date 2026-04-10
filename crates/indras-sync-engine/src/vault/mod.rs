@@ -20,7 +20,7 @@ use indras_network::document::Document;
 use indras_network::error::Result;
 use indras_network::member::MemberId;
 use indras_network::{IndrasNetwork, InviteCode, Realm};
-use indras_storage::{BlobStore, BlobStoreConfig};
+use indras_storage::BlobStore;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -59,11 +59,11 @@ impl Vault {
     /// Create a new vault and its backing realm.
     ///
     /// Returns the vault and the realm's invite code for sharing.
-    /// If `relay_addr` is provided, connects to the relay for blob replication.
     pub async fn create(
         network: &IndrasNetwork,
         name: &str,
         vault_path: PathBuf,
+        blob_store: Arc<BlobStore>,
     ) -> Result<(Self, InviteCode)> {
         let realm = network.create_realm(name).await?;
         let invite = realm
@@ -82,7 +82,7 @@ impl Vault {
         )
         .await;
 
-        let vault = Self::setup(realm, vault_path, member_id, user_id, relay).await?;
+        let vault = Self::setup(realm, vault_path, member_id, user_id, relay, blob_store).await?;
         Ok((vault, invite))
     }
 
@@ -95,6 +95,7 @@ impl Vault {
         network: &IndrasNetwork,
         invite: &str,
         vault_path: PathBuf,
+        blob_store: Arc<BlobStore>,
     ) -> Result<Self> {
         // Parse invite to extract creator's relay address BEFORE consuming it
         let invite_code = InviteCode::parse(invite)?;
@@ -117,31 +118,46 @@ impl Vault {
         )
         .await;
 
-        Self::setup(realm, vault_path, member_id, user_id, relay).await
+        Self::setup(realm, vault_path, member_id, user_id, relay, blob_store).await
     }
 
-    /// Common setup: initialize blob store, watcher, and sync-to-disk.
+    /// Attach vault sync to an existing realm.
+    ///
+    /// Use this when the realm was created or joined through normal network
+    /// APIs and you want to add bidirectional file sync to it. The vault
+    /// directory is created if it doesn't exist.
+    pub async fn attach(
+        network: &IndrasNetwork,
+        realm: Realm,
+        vault_path: PathBuf,
+        blob_store: Arc<BlobStore>,
+    ) -> Result<Self> {
+        let member_id = network.id();
+        let user_id = network.node().pq_identity().user_id();
+        let relay = relay_sync::connect_relays(
+            network,
+            realm.node_arc(),
+            None,
+            realm.id(),
+        )
+        .await;
+        Self::setup(realm, vault_path, member_id, user_id, relay, blob_store).await
+    }
+
+    /// Common setup: wire up watcher, sync-to-disk, and relay.
+    ///
+    /// All vaults share a single content-addressed blob store so that
+    /// identical files are stored only once on disk.
     async fn setup(
         realm: Realm,
         vault_path: PathBuf,
         member_id: MemberId,
         user_id: UserId,
         relay: Option<Arc<RelayBlobSync>>,
+        blob_store: Arc<BlobStore>,
     ) -> Result<Self> {
         // Ensure vault directory exists
         tokio::fs::create_dir_all(&vault_path).await?;
-
-        // Initialize blob store under vault_path/.indras/blobs/
-        let blob_dir = vault_path.join(".indras/blobs");
-        let blob_config = BlobStoreConfig {
-            base_dir: blob_dir,
-            ..Default::default()
-        };
-        let blob_store = Arc::new(
-            BlobStore::new(blob_config)
-                .await
-                .map_err(|e| std::io::Error::other(e.to_string()))?,
-        );
 
         // Start blob listener (receives blobs from peers via direct transport)
         if let Some(ref rs) = relay {

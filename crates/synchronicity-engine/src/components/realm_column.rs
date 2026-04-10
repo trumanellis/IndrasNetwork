@@ -6,9 +6,10 @@
 use std::sync::Arc;
 
 use dioxus::prelude::*;
-use indras_network::{AccessMode, IndrasNetwork, RealmId as NetworkRealmId};
+use indras_network::IndrasNetwork;
 
 use crate::state::{AppState, ContextMenu, DragPayload, ModalFile, RealmCategory};
+use crate::vault_manager::VaultManager;
 use super::file_item::FileItem;
 
 /// A column showing realms of a specific category with accordion file lists.
@@ -18,6 +19,7 @@ use super::file_item::FileItem;
 pub fn RealmColumn(
     mut state: Signal<AppState>,
     network: Signal<Option<Arc<IndrasNetwork>>>,
+    vault_manager: Signal<Option<Arc<VaultManager>>>,
     category: RealmCategory,
     label: &'static str,
 ) -> Element {
@@ -130,39 +132,22 @@ pub fn RealmColumn(
                                         // Prevent same-realm drop (no-op)
                                         if payload.source_realm == Some(id) { return; }
 
-                                        let net = network.read().clone();
-                                        let Some(net) = net else { return; };
+                                        let vm = vault_manager.read().clone();
 
                                         spawn(async move {
-                                            let home = match net.home_realm().await {
-                                                Ok(h) => h,
-                                                Err(e) => {
-                                                    tracing::error!("home_realm: {e}");
-                                                    return;
+                                            let Some(vm) = vm else { return; };
+                                            if let Some(vault_dir) = vm.vault_path(&id).await {
+                                                let dest = vault_dir.join(&payload.file_name);
+                                                // Ensure parent dir exists
+                                                if let Some(parent) = dest.parent() {
+                                                    let _ = tokio::fs::create_dir_all(parent).await;
                                                 }
-                                            };
-                                            // Upload is idempotent — returns existing ArtifactId if hash matches
-                                            let artifact_id = match home.upload(&payload.file_disk_path).await {
-                                                Ok(aid) => aid,
-                                                Err(e) => {
-                                                    tracing::error!("upload: {e}");
-                                                    return;
+                                                match tokio::fs::copy(&payload.file_disk_path, &dest).await {
+                                                    Ok(_) => tracing::info!("Copied '{}' to vault", payload.file_name),
+                                                    Err(e) => tracing::error!("Failed to copy file to vault: {e}"),
                                                 }
-                                            };
-                                            // Grant to the DM peer for this realm
-                                            if let Some(peer_id) = net.dm_peer_for_realm(&NetworkRealmId::new(id)) {
-                                                match home.grant_access(&artifact_id, peer_id, AccessMode::Revocable).await {
-                                                    Ok(()) => tracing::info!("Shared '{}' with peer", payload.file_name),
-                                                    Err(e) => {
-                                                        let msg = format!("{e}");
-                                                        if !msg.contains("AlreadyGranted") {
-                                                            tracing::error!("grant: {e}");
-                                                        }
-                                                    }
-                                                }
+                                                // VaultWatcher detects the new file and syncs automatically
                                             }
-                                            // TODO: For group/public realms, iterate realm members
-                                            // once member_ids() is exposed on the Realm type.
                                         });
                                     },
                                     span { class: "{chevron_class}", "\u{25B8}" }
