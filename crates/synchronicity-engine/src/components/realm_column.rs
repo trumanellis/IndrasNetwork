@@ -1,14 +1,23 @@
 //! Realm column — accordion list of realms for a given category.
+//!
+//! Each realm entry is a drop target for drag-to-share: dropping a file
+//! on a realm uploads the artifact and grants access to the realm's peer.
+
+use std::sync::Arc;
 
 use dioxus::prelude::*;
+use indras_network::{AccessMode, IndrasNetwork, RealmId as NetworkRealmId};
 
-use crate::state::{AppState, ContextMenu, ModalFile, RealmCategory, RealmId as _};
+use crate::state::{AppState, ContextMenu, DragPayload, ModalFile, RealmCategory};
 use super::file_item::FileItem;
 
 /// A column showing realms of a specific category with accordion file lists.
+///
+/// Accepts a `network` signal for executing drag-to-share grants on drop.
 #[component]
 pub fn RealmColumn(
     mut state: Signal<AppState>,
+    network: Signal<Option<Arc<IndrasNetwork>>>,
     category: RealmCategory,
     label: &'static str,
 ) -> Element {
@@ -19,6 +28,7 @@ pub fn RealmColumn(
     let expanded = state.read().selection.expanded_realms.clone();
     let selected_realm = state.read().selection.selected_realm;
     let selected_file = state.read().selection.selected_file.clone();
+    let drop_target = state.read().drop_target_realm;
 
     let add_title = match category {
         RealmCategory::Dm => "Add Contact",
@@ -67,12 +77,17 @@ pub fn RealmColumn(
                             let id = realm.id;
                             let is_expanded = expanded.contains(&id);
                             let is_selected = selected_realm == Some(id);
+                            let is_drop_target = drop_target == Some(id);
                             let chevron_class = if is_expanded { "realm-chevron expanded" } else { "realm-chevron" };
-                            let entry_class = if is_selected { "realm-entry selected" } else { "realm-entry" };
+                            let entry_class = match (is_selected, is_drop_target) {
+                                (_, true) => "realm-entry drop-target",
+                                (true, false) => "realm-entry selected",
+                                (false, false) => "realm-entry",
+                            };
                             let files_class = if is_expanded { "realm-files expanded" } else { "realm-files" };
 
                             rsx! {
-                                // Realm header — click to expand/collapse
+                                // Realm header — click to expand/collapse, drop target for sharing
                                 div {
                                     class: "{entry_class}",
                                     onclick: move |_| {
@@ -83,6 +98,72 @@ pub fn RealmColumn(
                                             sel.expanded_realms.insert(id);
                                         }
                                         state.write().selection = sel;
+                                    },
+                                    // Drop target events for drag-to-share
+                                    ondragover: move |evt: DragEvent| {
+                                        // Must prevent default to allow drop
+                                        evt.prevent_default();
+                                        if state.read().drag_payload.is_some() {
+                                            state.write().drop_target_realm = Some(id);
+                                        }
+                                    },
+                                    ondragenter: move |evt: DragEvent| {
+                                        evt.prevent_default();
+                                        if state.read().drag_payload.is_some() {
+                                            state.write().drop_target_realm = Some(id);
+                                        }
+                                    },
+                                    ondragleave: move |_evt: DragEvent| {
+                                        if state.read().drop_target_realm == Some(id) {
+                                            state.write().drop_target_realm = None;
+                                        }
+                                    },
+                                    ondrop: move |evt: DragEvent| {
+                                        evt.prevent_default();
+                                        let payload = state.read().drag_payload.clone();
+                                        state.write().drag_payload = None;
+                                        state.write().drop_target_realm = None;
+                                        // Auto-expand the realm accordion so the file appears
+                                        state.write().selection.expanded_realms.insert(id);
+
+                                        let Some(payload) = payload else { return; };
+                                        // Prevent same-realm drop (no-op)
+                                        if payload.source_realm == Some(id) { return; }
+
+                                        let net = network.read().clone();
+                                        let Some(net) = net else { return; };
+
+                                        spawn(async move {
+                                            let home = match net.home_realm().await {
+                                                Ok(h) => h,
+                                                Err(e) => {
+                                                    tracing::error!("home_realm: {e}");
+                                                    return;
+                                                }
+                                            };
+                                            // Upload is idempotent — returns existing ArtifactId if hash matches
+                                            let artifact_id = match home.upload(&payload.file_disk_path).await {
+                                                Ok(aid) => aid,
+                                                Err(e) => {
+                                                    tracing::error!("upload: {e}");
+                                                    return;
+                                                }
+                                            };
+                                            // Grant to the DM peer for this realm
+                                            if let Some(peer_id) = net.dm_peer_for_realm(&NetworkRealmId::new(id)) {
+                                                match home.grant_access(&artifact_id, peer_id, AccessMode::Revocable).await {
+                                                    Ok(()) => tracing::info!("Shared '{}' with peer", payload.file_name),
+                                                    Err(e) => {
+                                                        let msg = format!("{e}");
+                                                        if !msg.contains("AlreadyGranted") {
+                                                            tracing::error!("grant: {e}");
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            // TODO: For group/public realms, iterate realm members
+                                            // once member_ids() is exposed on the Realm type.
+                                        });
                                     },
                                     span { class: "{chevron_class}", "\u{25B8}" }
                                     span { class: "realm-entry-name", "{realm.display_name}" }
@@ -101,6 +182,14 @@ pub fn RealmColumn(
                                                 FileItem {
                                                     file: file,
                                                     is_selected: is_sel,
+                                                    source_realm: Some(id),
+                                                    on_drag_start: move |payload: DragPayload| {
+                                                        state.write().drag_payload = Some(payload);
+                                                    },
+                                                    on_drag_end: move |_| {
+                                                        state.write().drag_payload = None;
+                                                        state.write().drop_target_realm = None;
+                                                    },
                                                     on_click: move |p: String| {
                                                         state.write().selection.selected_realm = Some(id);
                                                         state.write().selection.selected_file = Some(p.clone());

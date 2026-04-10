@@ -3,6 +3,17 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 
+/// Payload carried during a drag-to-share operation.
+#[derive(Debug, Clone)]
+pub struct DragPayload {
+    /// Display name of the file being dragged.
+    pub file_name: String,
+    /// Full path to the file on disk (needed for upload).
+    pub file_disk_path: PathBuf,
+    /// Source realm (None = private vault). Prevents same-realm drops.
+    pub source_realm: Option<RealmId>,
+}
+
 /// The current step in the application flow.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AppStep {
@@ -223,6 +234,10 @@ pub struct AppState {
     pub show_create_group: bool,
     /// Whether the create public vault overlay is open.
     pub show_create_public: bool,
+    /// Active drag-to-share payload (None when not dragging).
+    pub drag_payload: Option<DragPayload>,
+    /// Realm ID currently being hovered as a drop target (for CSS highlighting).
+    pub drop_target_realm: Option<RealmId>,
 }
 
 impl AppState {
@@ -250,6 +265,8 @@ impl AppState {
             show_contact_invite: false,
             show_create_group: false,
             show_create_public: false,
+            drag_payload: None,
+            drop_target_realm: None,
         }
     }
 }

@@ -2,7 +2,7 @@
 
 use dioxus::prelude::*;
 
-use crate::state::{AppState, ContextMenu, ModalFile};
+use crate::state::{AppState, ContextMenu, DragPayload, ModalFile};
 use super::file_item::FileItem;
 
 /// Column 1: private vault files with "+ New" button.
@@ -11,11 +11,19 @@ pub fn PrivateColumn(mut state: Signal<AppState>) -> Element {
     let files = state.read().private_files.clone();
     let selected = state.read().selection.selected_file.clone();
     let is_private_selected = state.read().selection.selected_realm.is_none();
+    let vault_path = state.read().vault_path.clone();
 
     rsx! {
         div { class: "vault-column",
             div { class: "column-header",
-                span { "PRIVATE" }
+                span {
+                    class: "column-header-label",
+                    onclick: move |_| {
+                        let vault = state.read().vault_path.clone();
+                        let _ = open::that(&vault);
+                    },
+                    "PRIVATE"
+                }
                 button {
                     class: "column-header-add",
                     title: "New File",
@@ -47,10 +55,20 @@ pub fn PrivateColumn(mut state: Signal<AppState>) -> Element {
                         {
                             let path = file.path.clone();
                             let is_sel = is_private_selected && selected.as_deref() == Some(path.as_str());
+                            let disk_path = vault_path.join(&file.path);
                             rsx! {
                                 FileItem {
                                     file: file,
                                     is_selected: is_sel,
+                                    file_disk_path: Some(disk_path),
+                                    source_realm: None::<[u8; 32]>,
+                                    on_drag_start: move |payload: DragPayload| {
+                                        state.write().drag_payload = Some(payload);
+                                    },
+                                    on_drag_end: move |_| {
+                                        state.write().drag_payload = None;
+                                        state.write().drop_target_realm = None;
+                                    },
                                     on_click: move |p: String| {
                                         state.write().selection.selected_realm = None;
                                         state.write().selection.selected_file = Some(p.clone());

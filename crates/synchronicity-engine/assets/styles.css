@@ -777,6 +777,21 @@ body > * {
   border-left-color: var(--indigo);
 }
 
+.realm-entry.drop-target {
+  background: var(--surface);
+  outline: 2px solid var(--moss);
+  outline-offset: -2px;
+}
+
+.file-item[draggable="true"] {
+  cursor: grab;
+}
+
+.file-item[draggable="true"]:active {
+  cursor: grabbing;
+  opacity: 0.6;
+}
+
 .realm-entry-name {
   font-family: var(--body);
   font-size: 13px;
@@ -1632,6 +1647,14 @@ body > * {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.column-header-label {
+  cursor: pointer;
+}
+
+.column-header-label:hover {
+  color: var(--tx);
 }
 
 .column-header:hover {
