@@ -38,7 +38,7 @@ pub fn VaultInfoBar(state: Signal<AppState>) -> Element {
                             0 => "Private",
                             1 => "Direct",
                             2 => "Groups",
-                            3 => "Public",
+                            3 => "World",
                             _ => "Private",
                         }
                     }

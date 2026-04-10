@@ -333,7 +333,7 @@ pub fn HomeVault(
             // Create public vault overlay
             super::create_realm::CreateRealmOverlay {
                 network: network,
-                kind: super::create_realm::CreateRealmKind::Public,
+                kind: super::create_realm::CreateRealmKind::World,
                 peers: Vec::new(),
                 is_open: create_public_open,
             }

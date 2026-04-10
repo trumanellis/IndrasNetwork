@@ -23,7 +23,7 @@ pub fn RealmColumn(
     let add_title = match category {
         RealmCategory::Dm => "Add Contact",
         RealmCategory::Group => "New Group",
-        RealmCategory::Public => "New Public Vault",
+        RealmCategory::World => "New World Vault",
         RealmCategory::Private => "New File",
     };
 
@@ -38,7 +38,7 @@ pub fn RealmColumn(
                         match category {
                             RealmCategory::Dm => state.write().show_contact_invite = true,
                             RealmCategory::Group => state.write().show_create_group = true,
-                            RealmCategory::Public => state.write().show_create_public = true,
+                            RealmCategory::World => state.write().show_create_public = true,
                             RealmCategory::Private => {}
                         }
                     },
@@ -51,7 +51,7 @@ pub fn RealmColumn(
                         let (empty_icon, empty_text) = match category {
                             RealmCategory::Dm => ("💬", "Connect with someone to start a conversation"),
                             RealmCategory::Group => ("👥", "Join or create a group to collaborate"),
-                            RealmCategory::Public => ("🌍", "Public realms will appear here"),
+                            RealmCategory::World => ("🌍", "World realms will appear here"),
                             RealmCategory::Private => ("🏠", "Your private vault is empty"),
                         };
                         rsx! {

@@ -1,4 +1,4 @@
-//! Create realm overlay — name input for creating group or public vaults.
+//! Create realm overlay — name input for creating group or world vaults.
 //!
 //! Groups additionally show connected peers to invite.
 
@@ -9,16 +9,16 @@ use indras_network::IndrasNetwork;
 
 use crate::state::PeerDisplayInfo;
 
-/// Whether we are creating a group (multi-peer) or public vault.
+/// Whether we are creating a group (multi-peer) or world vault.
 #[derive(Clone, Copy, PartialEq)]
 pub enum CreateRealmKind {
     /// Shared vault with selected peers.
     Group,
-    /// Public vault visible to anyone.
-    Public,
+    /// World vault visible to anyone.
+    World,
 }
 
-/// Overlay for creating a new group or public vault.
+/// Overlay for creating a new group or world vault.
 #[component]
 pub fn CreateRealmOverlay(
     network: Signal<Option<Arc<IndrasNetwork>>>,
@@ -39,7 +39,7 @@ pub fn CreateRealmOverlay(
     }
 
     let is_group = kind == CreateRealmKind::Group;
-    let title = if is_group { "New Group" } else { "New Public Vault" };
+    let title = if is_group { "New Group" } else { "New World Vault" };
     let name_val = name_input();
     let can_create = !name_val.trim().is_empty();
 
@@ -118,7 +118,7 @@ pub fn CreateRealmOverlay(
                         input {
                             class: "contact-invite-input",
                             r#type: "text",
-                            placeholder: if is_group { "e.g. Project Alpha" } else { "e.g. My Public Notes" },
+                            placeholder: if is_group { "e.g. Project Alpha" } else { "e.g. My World Notes" },
                             "aria-label": "Vault name",
                             value: "{name_val}",
                             oninput: move |evt| name_input.set(evt.value()),

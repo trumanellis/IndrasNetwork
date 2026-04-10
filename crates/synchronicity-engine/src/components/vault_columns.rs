@@ -6,7 +6,7 @@ use crate::state::{AppState, RealmCategory};
 use super::private_column::PrivateColumn;
 use super::realm_column::RealmColumn;
 
-/// The 4-column grid: Private | DMs | Groups | Public.
+/// The 4-column grid: Private | DMs | Groups | World.
 #[component]
 pub fn VaultColumns(state: Signal<AppState>) -> Element {
     rsx! {
@@ -14,7 +14,7 @@ pub fn VaultColumns(state: Signal<AppState>) -> Element {
             PrivateColumn { state }
             RealmColumn { state, category: RealmCategory::Dm, label: "CONNECTIONS" }
             RealmColumn { state, category: RealmCategory::Group, label: "GROUPS" }
-            RealmColumn { state, category: RealmCategory::Public, label: "PUBLIC" }
+            RealmColumn { state, category: RealmCategory::World, label: "WORLD" }
         }
     }
 }

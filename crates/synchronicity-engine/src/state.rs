@@ -74,8 +74,8 @@ pub enum RealmCategory {
     Dm,
     /// Shared group realm.
     Group,
-    /// Public/discoverable realm.
-    Public,
+    /// World/discoverable realm.
+    World,
 }
 
 /// A 32-byte realm identifier.
@@ -143,7 +143,7 @@ pub struct VaultSelection {
     pub selected_realm: Option<RealmId>,
     /// The currently selected file path within the selected realm.
     pub selected_file: Option<String>,
-    /// Which column currently has keyboard focus (0=Private, 1=DM, 2=Group, 3=Public).
+    /// Which column currently has keyboard focus (0=Private, 1=DM, 2=Group, 3=World).
     pub focused_column: usize,
     /// Field used to sort files in the focused column.
     pub sort_field: SortField,
