@@ -66,6 +66,9 @@ pub mod home_realm_notes;
 // Vault sync submodule
 pub mod vault;
 
+// Braided VCS submodule (rides on top of the vault)
+pub mod braid;
+
 // SyncEngine struct
 pub mod sync_engine;
 
@@ -158,3 +161,10 @@ pub use realm_vault::RealmVault;
 pub use vault::Vault as VaultSync;
 pub use vault::vault_document::VaultFileDocument;
 pub use vault::vault_file::{ConflictRecord, UserId, VaultFile, CONFLICT_WINDOW_MS};
+
+// Re-export braid types
+pub use braid::{
+    detect_heal_needed, BraidDag, ChangeId, Changeset, Evidence, LocalRepo, PatchFile,
+    PatchManifest, RealmBraid, RepairTask, TryLandError, VerificationFailure, VerificationRequest,
+};
+pub use braid::verification::run as verify;
