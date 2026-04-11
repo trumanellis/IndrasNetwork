@@ -102,4 +102,41 @@ pub enum NodeEvent {
         /// Bytes sent
         bytes_sent: u32,
     },
+
+    // — DTN delivery lifecycle —
+
+    /// Events were handed from sync to DTN for an offline peer
+    DtnHandoff {
+        /// The interface ID
+        interface_id: InterfaceId,
+        /// Destination peer's public key bytes
+        destination: Vec<u8>,
+        /// Number of events enqueued as DTN bundles
+        event_count: u32,
+    },
+    /// A DTN bundle was relayed to a better candidate peer
+    DtnRelayed {
+        /// DTN bundle ID (display string: "source_hash:timestamp:sequence")
+        bundle_id: String,
+        /// Relay candidate's public key bytes
+        relay_peer: Vec<u8>,
+        /// Final destination's public key bytes
+        destination: Vec<u8>,
+    },
+    /// A DTN bundle was delivered to its destination (peer reconnected)
+    DtnDelivered {
+        /// DTN bundle ID (display string)
+        bundle_id: String,
+        /// Destination peer's public key bytes
+        destination: Vec<u8>,
+    },
+    /// An inbound DTN bundle was received and processed
+    DtnReceived {
+        /// DTN bundle ID (display string)
+        bundle_id: String,
+        /// Sender peer's public key bytes
+        sender: Vec<u8>,
+        /// Whether the bundle was for us (true) or relayed custody (false)
+        for_us: bool,
+    },
 }

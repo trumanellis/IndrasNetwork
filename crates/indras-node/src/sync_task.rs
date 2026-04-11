@@ -134,6 +134,8 @@ pub struct SyncTask {
     cycle_count: u64,
     /// DTN manager for offline peer delivery
     dtn: Arc<crate::dtn_manager::DtnManager>,
+    /// Unified delivery status tracker
+    delivery_tracker: Arc<crate::delivery_tracker::DeliveryTracker>,
 }
 
 impl SyncTask {
@@ -151,6 +153,7 @@ impl SyncTask {
         shutdown_rx: broadcast::Receiver<()>,
         sync_now_rx: mpsc::Receiver<InterfaceId>,
         dtn: Arc<crate::dtn_manager::DtnManager>,
+        delivery_tracker: Arc<crate::delivery_tracker::DeliveryTracker>,
     ) -> Self {
         Self {
             local_identity,
@@ -166,6 +169,7 @@ impl SyncTask {
             delivery_states: HashMap::new(),
             cycle_count: 0,
             dtn,
+            delivery_tracker,
         }
     }
 
@@ -183,6 +187,7 @@ impl SyncTask {
         shutdown_rx: broadcast::Receiver<()>,
         sync_now_rx: mpsc::Receiver<InterfaceId>,
         dtn: Arc<crate::dtn_manager::DtnManager>,
+        delivery_tracker: Arc<crate::delivery_tracker::DeliveryTracker>,
     ) -> JoinHandle<()> {
         let task = Self::new(
             local_identity,
@@ -196,6 +201,7 @@ impl SyncTask {
             shutdown_rx,
             sync_now_rx,
             dtn,
+            delivery_tracker,
         );
 
         tokio::spawn(async move {
@@ -592,9 +598,15 @@ impl SyncTask {
             };
 
             match self.dtn.enqueue(&signed_msg, peer.clone(), indras_core::Priority::Normal) {
-                Ok(_) => {
+                Ok(bundle_id) => {
                     enqueued += 1;
                     last_event_id = Some(event_id);
+                    self.delivery_tracker.record_dtn_handoff(
+                        interface.id(),
+                        event_id,
+                        peer,
+                        bundle_id,
+                    );
                 }
                 Err(e) => {
                     warn!(error = %e, "Failed to enqueue event in DTN");
@@ -605,6 +617,13 @@ impl SyncTask {
         // Mark events as delivered in NInterface — DTN now owns delivery
         if let Some(up_to) = last_event_id {
             interface.mark_delivered(peer, up_to);
+
+            let _ = self.node_log.append(NodeEvent::DtnHandoff {
+                interface_id: interface.id(),
+                destination: peer.as_bytes(),
+                event_count: enqueued,
+            }).await;
+
             info!(
                 peer = %peer.short_id(),
                 enqueued,
@@ -649,6 +668,12 @@ impl SyncTask {
                 Ok(()) => {
                     // Successfully delivered — remove from DTN store
                     let _ = self.dtn.mark_delivered(&bundle.bundle_id, peer);
+                    self.delivery_tracker.record_dtn_delivered(&bundle.bundle_id);
+
+                    let _ = self.node_log.append(NodeEvent::DtnDelivered {
+                        bundle_id: bundle.bundle_id.to_string(),
+                        destination: peer.as_bytes(),
+                    }).await;
                 }
                 Err(e) => {
                     debug!(
@@ -726,6 +751,17 @@ impl SyncTask {
                         destination = %destination.short_id(),
                         "Relayed DTN bundle to better candidate"
                     );
+                    self.delivery_tracker.record_dtn_relayed(
+                        &bundle.bundle_id,
+                        candidate.clone(),
+                    );
+
+                    let _ = self.node_log.append(NodeEvent::DtnRelayed {
+                        bundle_id: bundle.bundle_id.to_string(),
+                        relay_peer: candidate.as_bytes(),
+                        destination: destination.as_bytes(),
+                    }).await;
+
                     // Remove from our store after successful relay
                     let _ = self.dtn.mark_delivered(&bundle.bundle_id, destination);
                 }
@@ -794,6 +830,8 @@ impl SyncTask {
                     .send(peer, bytes)
                     .await
                     .map_err(|e| SyncError::Transport(e.to_string()))?;
+
+                self.delivery_tracker.record_sent(interface.id(), event_id, peer);
 
                 let _ = self.node_log.append(NodeEvent::EventSent {
                     interface_id: interface.id(),

@@ -19,6 +19,9 @@ unified API for creating interfaces, sending messages, and subscribing to events
 | `keystore.rs` | `Keystore`, `EncryptedKeystore`, `StoryKeystore` — key persistence |
 | `message_handler.rs` | `MessageHandler` — background task: verify, decrypt, append, ack |
 | `sync_task.rs` | Background CRDT sync loop — periodically pushes Automerge state to peers |
+| `delivery_tracker.rs` | `DeliveryTracker` — unified delivery status across sync and DTN paths |
+| `dtn_manager.rs` | `DtnManager` — DTN store-and-forward for offline peer delivery |
+| `bundle_store.rs` | `BundleStore` — persistent redb storage for DTN bundles |
 
 ## Key Types
 
@@ -30,6 +33,10 @@ unified API for creating interfaces, sending messages, and subscribing to events
 - **`NetworkMessage`** — enum: `InterfaceEvent`, `SyncRequest`, `SyncResponse`, `EventAck`
 - **`SignedNetworkMessage`** — wraps `NetworkMessage` with ML-DSA-65 signature (~5.3 KB overhead)
 - **`MessageHandler`** — spawned tokio task; receives `(IrohIdentity, Vec<u8>)` from transport
+- **`DeliveryTracker`** — in-memory tracker for message delivery across sync and DTN paths
+- **`DeliveryStatus`** — enum: `Queued` → `Sent` → `Acked` (sync) or `DtnEnqueued` → `DtnRelayed` → `Delivered` (DTN)
+- **`DtnManager`** — coordinates PRoPHET, epidemic, custody, and bundle storage for offline peers
+- **`BundleStore`** — persistent redb storage for DTN bundles (`dtn_bundles` + `dtn_pending` tables)
 
 ## Key Patterns
 
@@ -49,6 +56,12 @@ ML-DSA-65) → fall back to legacy unsigned if `allow_legacy_unsigned` → dispa
 Automerge sync messages, sends as `NetworkMessage::SyncRequest`. On receiving a sync request
 the `MessageHandler` applies it and immediately sends a `SyncResponse` without waiting for the
 next cycle.
+
+**Delivery tracking:** `DeliveryTracker` provides a unified view across both delivery paths.
+Sync path: `Queued → Sent → Acked`. DTN path: `Queued → DtnEnqueued → DtnRelayed → Delivered`.
+The tracker is in-memory; `NodeEvent` variants (`DtnHandoff`, `DtnDelivered`, `DtnRelayed`,
+`DtnReceived`) provide the durable audit trail via `NodeLog`. Access via
+`node.delivery_tracker()`.
 
 **Key files on disk:** `identity.key` (Ed25519), `identity_sk.pq` / `identity_pk.pq`
 (ML-DSA-65), `kem_dk.pq` / `kem_ek.pq` (ML-KEM-768), `keystore.salt` (Argon2id salt).
@@ -70,7 +83,7 @@ Encrypted variants use `.enc` suffix.
 
 ## Dependencies
 
-Internal: `indras-core`, `indras-transport`, `indras-storage`, `indras-sync`, `indras-crypto`
+Internal: `indras-core`, `indras-transport`, `indras-storage`, `indras-sync`, `indras-crypto`, `indras-dtn`
 
 External: `iroh` (transport), `tokio`, `dashmap`, `postcard` (serialization), `argon2`,
 `chacha20poly1305`, `bytes`, `serde`, `hex`, `base64`, `rand`, `tracing`

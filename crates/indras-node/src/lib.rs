@@ -32,6 +32,7 @@
 
 pub mod bundle_store;
 mod config;
+pub mod delivery_tracker;
 pub mod dtn_manager;
 mod error;
 mod keystore;
@@ -39,6 +40,7 @@ pub mod message_handler;
 pub mod sync_task;
 
 pub use config::NodeConfig;
+pub use delivery_tracker::{DeliveryStatus, DeliverySummary, DeliveryTracker};
 pub use error::{NodeError, NodeResult};
 pub use keystore::{EncryptedKeystore, Keystore, StoryKeystore};
 pub use message_handler::{
@@ -230,6 +232,8 @@ pub struct IndrasNode {
     relay_service: std::sync::OnceLock<Arc<indras_relay::RelayService>>,
     /// DTN manager for offline peer delivery
     dtn: Arc<dtn_manager::DtnManager>,
+    /// Unified delivery status tracker across sync and DTN paths
+    delivery_tracker: Arc<DeliveryTracker>,
 }
 
 impl IndrasNode {
@@ -307,6 +311,7 @@ impl IndrasNode {
             homepage_artifacts: std::sync::OnceLock::new(),
             relay_service: std::sync::OnceLock::new(),
             dtn,
+            delivery_tracker: Arc::new(DeliveryTracker::new()),
         })
     }
 
@@ -383,6 +388,7 @@ impl IndrasNode {
             homepage_artifacts: std::sync::OnceLock::new(),
             relay_service: std::sync::OnceLock::new(),
             dtn,
+            delivery_tracker: Arc::new(DeliveryTracker::new()),
         })
     }
 
@@ -479,6 +485,7 @@ impl IndrasNode {
             self.shutdown_tx.subscribe(),
             sync_now_rx,
             self.dtn.clone(),
+            self.delivery_tracker.clone(),
         );
 
         // Spawn realm discovery event handler
@@ -1564,6 +1571,13 @@ impl IndrasNode {
     /// Get the storage backend (for advanced operations)
     pub fn storage(&self) -> &CompositeStorage<IrohIdentity> {
         &self.storage
+    }
+
+    /// Get the delivery tracker for querying message delivery status
+    ///
+    /// Provides a unified view of delivery state across sync and DTN paths.
+    pub fn delivery_tracker(&self) -> &DeliveryTracker {
+        &self.delivery_tracker
     }
 
     /// List all loaded interfaces
