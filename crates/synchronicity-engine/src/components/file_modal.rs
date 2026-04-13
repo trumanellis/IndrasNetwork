@@ -6,6 +6,7 @@
 use dioxus::prelude::*;
 
 use super::markdown_editor::{obsidian_open_url, InlineMarkdownEditor};
+use super::obsidian::{is_vault_registered, quit_obsidian, register_vault};
 use crate::state::AppState;
 
 /// Strip the .md extension for display as a title.
@@ -30,6 +31,7 @@ pub fn FileModal(mut state: Signal<AppState>) -> Element {
 
     let mut title_editing = use_signal(|| false);
     let mut title_draft = use_signal(String::new);
+    let mut vault_registered = use_signal(|| is_vault_registered(&vault_path));
 
     let close = move |_| {
         title_editing.set(false);
@@ -94,14 +96,43 @@ pub fn FileModal(mut state: Signal<AppState>) -> Element {
 
                     // Controls
                     div { class: "file-modal-controls",
-                        button {
-                            class: "md-editor-obsidian",
-                            title: "Open this file in Obsidian",
-                            onclick: {
-                                let url = obsidian_open_url(&full_path);
-                                move |_| { let _ = open::that_detached(&url); }
-                            },
-                            "Open in Obsidian"
+                        if *vault_registered.read() {
+                            button {
+                                class: "md-editor-obsidian",
+                                title: "Open this file in Obsidian",
+                                onclick: {
+                                    let url = obsidian_open_url(&full_path);
+                                    move |_| { let _ = open::that_detached(&url); }
+                                },
+                                "Open in Obsidian"
+                            }
+                        } else {
+                            button {
+                                class: "md-editor-obsidian",
+                                title: "Register this folder with Obsidian, then open",
+                                onclick: {
+                                    let vp = vault_path.clone();
+                                    let url = obsidian_open_url(&full_path);
+                                    move |_| {
+                                        // Quit any running Obsidian first — it caches its
+                                        // vault list in memory at launch, so editing
+                                        // obsidian.json while it is running has no effect
+                                        // on the live instance.
+                                        quit_obsidian();
+                                        std::thread::sleep(std::time::Duration::from_millis(600));
+                                        match register_vault(&vp) {
+                                            Ok(()) => {
+                                                vault_registered.set(true);
+                                                let _ = open::that_detached(&url);
+                                            }
+                                            Err(e) => {
+                                                tracing::warn!(error = %e, "failed to register Obsidian vault");
+                                            }
+                                        }
+                                    }
+                                },
+                                "Create Obsidian Vault"
+                            }
                         }
                         button {
                             class: "file-modal-close",

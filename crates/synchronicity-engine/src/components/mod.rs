@@ -12,6 +12,7 @@ mod realm_column;
 mod file_item;
 mod file_modal;
 mod markdown_editor;
+mod obsidian;
 mod context_menu;
 mod status_bar;
 mod peer_bar;
