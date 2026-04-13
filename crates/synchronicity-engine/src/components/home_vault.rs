@@ -207,6 +207,8 @@ pub fn HomeVault(
                             if let Err(e) = vm.ensure_vault(&net, &realm).await {
                                 tracing::warn!("vault init for {rid_bytes:?}: {e}");
                             }
+                        } else {
+                            tracing::warn!("realm {rid} listed in conversation_realms but not loadable by id");
                         }
                         // Load files from vault CRDT
                         vm.list_files(&rid_bytes).await

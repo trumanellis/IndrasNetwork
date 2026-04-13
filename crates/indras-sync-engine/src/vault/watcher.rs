@@ -38,6 +38,11 @@ pub struct VaultWatcher {
 
 impl VaultWatcher {
     /// Start watching `vault_path` for changes, updating the vault-index document directly.
+    ///
+    /// `vault_path` is canonicalized on start so that events emitted by the OS
+    /// (which on macOS come back as canonical paths like `/private/tmp/...` even
+    /// when the watch was registered on the `/tmp/...` symlink) strip-prefix
+    /// cleanly in the event loop.
     pub fn start(
         vault_path: PathBuf,
         doc: Document<VaultFileDocument>,
@@ -45,6 +50,10 @@ impl VaultWatcher {
         user_id: UserId,
         relay: Option<Arc<RelayBlobSync>>,
     ) -> Result<Self, notify::Error> {
+        // Resolve symlinks so strip_prefix in the event loop matches the
+        // canonicalized paths that FSEvents/inotify deliver.
+        let vault_path = std::fs::canonicalize(&vault_path).unwrap_or(vault_path);
+
         let (tx, rx) = mpsc::channel::<Event>(512);
         let suppressed: Arc<DashMap<PathBuf, Instant>> = Arc::new(DashMap::new());
         let known_hashes: Arc<DashMap<String, [u8; 32]>> = Arc::new(DashMap::new());
@@ -217,7 +226,7 @@ impl VaultWatcher {
                             warn!(path = %rel_path, error = %e, "Failed to upsert file in vault index");
                         } else {
                             known_hashes.insert(rel_path.clone(), hash);
-                            debug!(path = %rel_path, size, "File indexed");
+                            info!(path = %rel_path, size, hash = %hex::encode(&hash[..6]), "Vault file indexed (local write)");
                         }
                     }
                     _ => {}

@@ -86,6 +86,12 @@ impl SyncToDisk {
                 Err(broadcast::error::RecvError::Closed) => break,
             };
 
+            info!(
+                remote = change.is_remote,
+                file_count = change.new_state.files.len(),
+                "SyncToDisk received doc change"
+            );
+
             // Only process remote changes
             if !change.is_remote {
                 // Still update our snapshot so diffs are correct
@@ -163,7 +169,7 @@ impl SyncToDisk {
                                 // this content with a new timestamp.
                                 known_hashes.insert(path.clone(), new_file.hash);
                                 let written_len = data.len();
-                                debug!(path = %path, size = written_len, "Wrote remote file to disk");
+                                info!(path = %path, size = written_len, "Wrote remote file to disk");
                             }
                         }
                         Err(e) => {

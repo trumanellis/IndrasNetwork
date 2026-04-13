@@ -98,9 +98,10 @@ impl RelayBlobSync {
         // no extra connections, no auth handshakes, no stale sessions.
         match self.node.send_message(&self.realm_id, payload).await {
             Ok(_) => {
-                debug!(
+                info!(
                     hash = %hex::encode(&hash[..6]),
                     size = data.len(),
+                    realm = %hex::encode(&self.realm_id.as_bytes()[..6]),
                     "Broadcast blob via transport"
                 );
             }
@@ -194,7 +195,7 @@ fn start_blob_listener(
 
                     let blob_data = &content[4 + BLOB_HEADER_SIZE..];
                     if let Ok(cr) = vault_blob_store.store(blob_data).await {
-                        debug!(hash = %cr.short_hash(), "Received blob via transport");
+                        info!(hash = %cr.short_hash(), realm = %hex::encode(&realm_id.as_bytes()[..6]), "Received blob via transport");
                     }
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
