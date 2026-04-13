@@ -185,6 +185,10 @@ jj workspace forget <name>   # remove workspace
 jj workspace list            # list workspaces
 ```
 
+## Terminology
+
+- **syncengine** (or "sync engine") refers to the **Synchronicity Engine** app as a whole — the product we're building — not any specific module or crate.
+
 ## Frontend Design Philosophy
 
 **Make everything as frictionless as possible.**
