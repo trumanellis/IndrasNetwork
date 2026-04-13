@@ -201,10 +201,27 @@ pub fn HomeVault(
                             .unwrap_or_else(|| "Unnamed".to_string())
                     };
 
-                    // Ensure vault sync is running for this realm
+                    // Ensure vault sync is running for this realm.
+                    // For DMs, resolve the peer display name from the already-populated
+                    // peers list; if not yet resolved, skip this tick and retry.
+                    let peer_name_opt: Option<String> = if let Some(peer_mid) = peer_mid {
+                        peers.read().iter()
+                            .find(|p| p.member_id == peer_mid)
+                            .map(|p| p.name.clone())
+                    } else {
+                        net.get_realm_by_id(rid).and_then(|r| r.name().map(|s| s.to_string()))
+                    };
+
                     let files = if let Some(ref vm) = vm {
                         if let Some(realm) = net.get_realm_by_id(rid) {
-                            if let Err(e) = vm.ensure_vault(&net, &realm).await {
+                            if peer_mid.is_some() && peer_name_opt.is_none() {
+                                tracing::warn!(
+                                    "skipping realm {rid}, peer name not yet resolved"
+                                );
+                            } else if let Err(e) = vm
+                                .ensure_vault(&net, &realm, peer_name_opt.as_deref())
+                                .await
+                            {
                                 tracing::warn!("vault init for {rid_bytes:?}: {e}");
                             }
                         } else {

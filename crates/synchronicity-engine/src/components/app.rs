@@ -38,10 +38,6 @@ pub fn App() -> Element {
             return;
         }
 
-        // Ensure vault dir exists and seed HelloWorld.md for returning users.
-        let vault_path = state.read().vault_path.clone();
-        crate::vault_bridge::ensure_vault_ready(&vault_path);
-
         let data_dir = crate::state::default_data_dir();
         spawn(async move {
             // Retry up to 3 times with backoff if the database is locked
@@ -64,10 +60,16 @@ pub fn App() -> Element {
                         if let Err(e) = net.join_contacts_realm().await {
                             tracing::warn!("Failed to join contacts realm: {e}");
                         }
+                        let display_name = net.display_name().unwrap_or_default();
                         network.set(Some(net));
                         let data_dir = crate::state::default_data_dir();
                         match VaultManager::new(data_dir).await {
-                            Ok(vm) => vault_manager.set(Some(Arc::new(vm))),
+                            Ok(vm) => {
+                                let vault_path = vm.start_private_vault(&display_name).await;
+                                crate::vault_bridge::ensure_vault_ready(&vault_path);
+                                state.write().vault_path = vault_path;
+                                vault_manager.set(Some(Arc::new(vm)));
+                            }
                             Err(e) => tracing::error!("Failed to start vault manager: {e}"),
                         }
                         state.write().sync_status = crate::state::SyncStatus::Synced;

@@ -95,10 +95,7 @@ for NAME in "${NAMES[@]}"; do
   WIN_X=$((IDX * TILE_W))
   echo "Launching $NAME at x=$WIN_X (data: $DATA_DIR, homepage: http://localhost:$((3331 + IDX)))"
   HOMEPAGE_PORT=$((3331 + IDX))
-  VAULT_DIR="/tmp/indras-${LOWER_NAME}/vault"
-  mkdir -p "$VAULT_DIR"
   INDRAS_NAME="$NAME" INDRAS_DATA_DIR="$DATA_DIR" \
-    SYNC_ENGINE_VAULT="$VAULT_DIR" \
     INDRAS_PEERS="$PEERS_LIST" \
     INDRAS_HOMEPAGE_PORT="$HOMEPAGE_PORT" \
     INDRAS_WIN_X="$WIN_X" INDRAS_WIN_Y=25 \

@@ -57,7 +57,7 @@ pub fn VaultInfoBar(state: Signal<AppState>) -> Element {
                 button {
                     class: "se-btn-outline se-btn-sm",
                     onclick: move |_| {
-                        let _ = open::that(&*vault_path);
+                        let _ = open::that(vault_path.parent().unwrap_or(&*vault_path));
                     },
                     "Open Vault Folder"
                 }

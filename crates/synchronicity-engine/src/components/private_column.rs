@@ -20,7 +20,7 @@ pub fn PrivateColumn(mut state: Signal<AppState>) -> Element {
                     class: "column-header-label",
                     onclick: move |_| {
                         let vault = state.read().vault_path.clone();
-                        let _ = open::that(&vault);
+                        let _ = open::that(vault.parent().unwrap_or(&vault));
                     },
                     "PRIVATE"
                 }

@@ -312,17 +312,18 @@ pub fn default_data_dir() -> PathBuf {
     PathBuf::from(".").join("indras-network")
 }
 
-/// Get the default vault folder path.
+/// Get the default vault folder path placeholder.
 ///
-/// Respects `SYNC_ENGINE_VAULT` env var. Defaults to ~/SyncEngine/.
+/// The real home vault path is `{data_dir}/vaults/<sanitize(self_name)>/`
+/// and gets set by `vault_bridge` once the display name is known
+/// (account create/restore) or by `app.rs` for returning users once
+/// the network loads. Until then, `SYNC_ENGINE_VAULT` (tests/overrides)
+/// or `{data_dir}/vaults/default` is used as a placeholder.
 pub fn default_vault_path() -> PathBuf {
     if let Ok(dir) = std::env::var("SYNC_ENGINE_VAULT") {
         return PathBuf::from(dir);
     }
-    if let Ok(home) = std::env::var("HOME") {
-        return PathBuf::from(home).join("SyncEngine");
-    }
-    PathBuf::from(".").join("SyncEngine")
+    default_data_dir().join("vaults").join("default")
 }
 
 /// Format a unix millis timestamp as a relative time string.

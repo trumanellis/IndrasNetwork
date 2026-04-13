@@ -57,7 +57,7 @@ pub fn CreateRealmOverlay(
                 Ok(realm) => {
                     // Start vault sync for the new realm
                     if let Some(ref vm) = *vault_manager.read() {
-                        if let Err(e) = vm.ensure_vault(&net, &realm).await {
+                        if let Err(e) = vm.ensure_vault(&net, &realm, Some(name.as_str())).await {
                             tracing::warn!("Failed to init vault for new realm: {e}");
                         }
                     }

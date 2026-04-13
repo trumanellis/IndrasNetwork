@@ -243,8 +243,8 @@ async fn test_dm_file_syncs_between_connected_peers() {
     let vm_a = Arc::new(VaultManager::new(tmp_a_data.path().join("vm")).await.unwrap());
     let vm_b = Arc::new(VaultManager::new(tmp_b_data.path().join("vm")).await.unwrap());
 
-    vm_a.ensure_vault(&net_a, &realm_a).await.expect("A: ensure_vault");
-    vm_b.ensure_vault(&net_b, &realm_b).await.expect("B: ensure_vault");
+    vm_a.ensure_vault(&net_a, &realm_a, Some("Joy")).await.expect("A: ensure_vault");
+    vm_b.ensure_vault(&net_b, &realm_b, Some("Love")).await.expect("B: ensure_vault");
 
     let rid_bytes = *dm_id.as_bytes();
     let a_vault_path = vm_a.vault_path(&rid_bytes).await.expect("A: vault_path");

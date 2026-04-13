@@ -17,7 +17,11 @@ use crate::vault_manager::VaultManager;
 /// HelloWorld.md content seeded into new vaults.
 const HELLO_WORLD: &str = include_str!("../assets/HelloWorld.md");
 
-/// Ensure the vault directory exists, initialize as Obsidian vault, and seed HelloWorld.md.
+/// Ensure the home vault subdir and the Obsidian workspace root exist, and seed HelloWorld.md.
+///
+/// `vault_path` is the user's own home vault subdir (e.g. `…/vaults/Love/`). The Obsidian
+/// workspace root is its parent (`…/vaults/`), which is where `.obsidian/` lives so
+/// Obsidian sees every subvault as a top-level folder in one workspace.
 ///
 /// Called for returning users who skip the creation flow, and after account creation.
 pub fn ensure_vault_ready(vault_path: &std::path::Path) {
@@ -25,8 +29,10 @@ pub fn ensure_vault_ready(vault_path: &std::path::Path) {
         tracing::warn!("Failed to create vault directory: {e}");
         return;
     }
-    // Initialize .obsidian directory so Obsidian recognizes this as a vault
-    let obsidian_dir = vault_path.join(".obsidian");
+    // Place `.obsidian/` at the workspace root (the parent of the home subdir) so
+    // Obsidian recognizes the whole `vaults/` tree as a single vault.
+    let obsidian_root = vault_path.parent().unwrap_or(vault_path);
+    let obsidian_dir = obsidian_root.join(".obsidian");
     if !obsidian_dir.exists() {
         if let Err(e) = std::fs::create_dir_all(&obsidian_dir) {
             tracing::warn!("Failed to create .obsidian directory: {e}");
@@ -91,7 +97,6 @@ pub async fn create_account(
 ) {
     let data_dir = default_data_dir();
     let display_name = state.read().display_name.clone();
-    let vault_path = state.read().vault_path.clone();
 
     // Stage 1: Create identity (plaintext keystore — pass story encryption deferred)
     state.write().loading_stages = vec![
@@ -132,8 +137,18 @@ pub async fn create_account(
         LoadingStage::InProgress("Creating vault...".into()),
     ];
 
-    // Stage 3: Create vault directory, init Obsidian, seed HelloWorld.md
+    // Stage 3: Create vault manager, resolve home vault path from display name,
+    // seed Obsidian/HelloWorld.md into it.
+    let vm = match VaultManager::new(data_dir.clone()).await {
+        Ok(vm) => vm,
+        Err(e) => {
+            state.write().error = Some(format!("Failed to start vault manager: {e}"));
+            return;
+        }
+    };
+    let vault_path = vm.start_private_vault(&display_name).await;
     ensure_vault_ready(&vault_path);
+    state.write().vault_path = vault_path;
 
     state.write().loading_stages = vec![
         LoadingStage::Done("Identity created".into()),
@@ -142,10 +157,7 @@ pub async fn create_account(
     ];
 
     network.set(Some(net));
-    match VaultManager::new(data_dir).await {
-        Ok(vm) => vault_manager.set(Some(Arc::new(vm))),
-        Err(e) => tracing::error!("Failed to start vault manager: {e}"),
-    }
+    vault_manager.set(Some(Arc::new(vm)));
     state.write().sync_status = SyncStatus::Synced;
 
     // Brief pause so user sees the success state
@@ -162,7 +174,6 @@ pub async fn restore_account(
 ) {
     let data_dir = default_data_dir();
     let slots = state.read().pass_story_slots.clone();
-    let vault_path = state.read().vault_path.clone();
 
     // Stage 1: Derive identity
     state.write().loading_stages = vec![
@@ -220,11 +231,19 @@ pub async fn restore_account(
         LoadingStage::InProgress("Syncing vault...".into()),
     ];
 
-    // Stage 3: Ensure vault directory exists
-    if let Err(e) = std::fs::create_dir_all(&vault_path) {
-        state.write().error = Some(format!("Failed to create vault directory: {e}"));
-        return;
-    }
+    // Stage 3: Create vault manager, resolve home vault path from restored
+    // display name, seed Obsidian/HelloWorld.md into it.
+    let vm = match VaultManager::new(data_dir.clone()).await {
+        Ok(vm) => vm,
+        Err(e) => {
+            state.write().error = Some(format!("Failed to start vault manager: {e}"));
+            return;
+        }
+    };
+    let display_name = net.display_name().unwrap_or_default();
+    let vault_path = vm.start_private_vault(&display_name).await;
+    ensure_vault_ready(&vault_path);
+    state.write().vault_path = vault_path;
 
     state.write().loading_stages = vec![
         LoadingStage::Done("Identity derived".into()),
@@ -233,10 +252,7 @@ pub async fn restore_account(
     ];
 
     network.set(Some(net));
-    match VaultManager::new(data_dir).await {
-        Ok(vm) => vault_manager.set(Some(Arc::new(vm))),
-        Err(e) => tracing::error!("Failed to start vault manager: {e}"),
-    }
+    vault_manager.set(Some(Arc::new(vm)));
     state.write().sync_status = SyncStatus::Synced;
 
     tokio::time::sleep(std::time::Duration::from_millis(800)).await;
