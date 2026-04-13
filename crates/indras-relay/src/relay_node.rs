@@ -50,6 +50,16 @@ use crate::registration::RegistrationState;
 /// Does not own an endpoint — composable into any iroh-based node.
 pub struct RelayService {
     config: RelayConfig,
+    /// Live, runtime-mutable configuration shared with the admin API.
+    ///
+    /// Out-of-scope fields (`data_dir`, `admin_bind`, `admin_token`,
+    /// `owner_player_id`) are never mutated after startup and `config` is the
+    /// authoritative source for them. In-scope fields (display_name, quota,
+    /// storage, tiers) should be read through `live_config` so PUT /config
+    /// takes effect without a restart.
+    live_config: Arc<tokio::sync::RwLock<RelayConfig>>,
+    /// Optional on-disk path for persisting admin config edits.
+    config_path: Option<std::path::PathBuf>,
     blob_store: Arc<BlobStore>,
     registrations: Arc<RegistrationState>,
     auth: Arc<AuthService>,
@@ -93,8 +103,12 @@ impl RelayService {
         // Initialize tiered quota manager
         let tiered_quota = Arc::new(TieredQuotaManager::new(config.tiers.clone()));
 
+        let live_config = Arc::new(tokio::sync::RwLock::new(config.clone()));
+
         Ok(Self {
             config,
+            live_config,
+            config_path: None,
             blob_store,
             registrations,
             auth,
@@ -102,6 +116,12 @@ impl RelayService {
             tiered_quota,
             gossip: None,
         })
+    }
+
+    /// Set the on-disk config path used by the admin PUT /config handler.
+    pub fn with_config_path(mut self, path: std::path::PathBuf) -> Self {
+        self.config_path = Some(path);
+        self
     }
 
     /// Attach a gossip instance (for interface subscription on register).
@@ -138,6 +158,35 @@ impl RelayService {
     /// Get the relay configuration.
     pub fn config(&self) -> &RelayConfig {
         &self.config
+    }
+
+    /// Snapshot the live config as a redacted view.
+    pub async fn config_view(&self) -> crate::admin::RelayConfigView {
+        let guard = self.live_config.read().await;
+        crate::admin::RelayConfigView::from_config(&guard)
+    }
+
+    /// Apply a partial config update directly against the embedded service.
+    ///
+    /// Validates the merged config, persists to `config_path` if set, then
+    /// propagates changes to the quota managers so they take effect
+    /// immediately. Returns the updated view or a human-readable error
+    /// string on validation / persistence failure.
+    pub async fn apply_config_patch(
+        &self,
+        patch: crate::admin::RelayConfigPatch,
+    ) -> Result<crate::admin::RelayConfigView, String> {
+        let mut guard = self.live_config.write().await;
+        let mut candidate = guard.clone();
+        patch.apply_to(&mut candidate);
+        candidate.validate().map_err(|e| format!("{e}"))?;
+        if let Some(path) = &self.config_path {
+            candidate.save_to_file(path).map_err(|e| format!("{e}"))?;
+        }
+        *guard = candidate;
+        self.quota.update_config(guard.quota.clone());
+        self.tiered_quota.update_config(guard.tiers.clone());
+        Ok(crate::admin::RelayConfigView::from_config(&guard))
     }
 
     /// Handle the relay protocol on a pre-accepted bidirectional stream.
@@ -207,9 +256,9 @@ impl RelayService {
                             let tier_quotas: Vec<TierQuotaInfo> = session.granted_tiers.iter().map(|t| {
                                 TierQuotaInfo {
                                     tier: *t,
-                                    max_bytes: crate::tier::tier_max_bytes(*t, self.tiered_quota.tier_config()),
+                                    max_bytes: crate::tier::tier_max_bytes(*t, &self.tiered_quota.tier_config()),
                                     used_bytes: self.tiered_quota.peer_tier_bytes(&peer_id, *t),
-                                    max_interfaces: crate::tier::tier_max_interfaces(*t, self.tiered_quota.tier_config()),
+                                    max_interfaces: crate::tier::tier_max_interfaces(*t, &self.tiered_quota.tier_config()),
                                 }
                             }).collect();
 
@@ -395,7 +444,8 @@ impl RelayService {
                             }
 
                             if let Some(ttl_days) = store_msg.metadata.ttl_override_days {
-                                let clamped = ttl_days.min(self.config.storage.max_event_ttl_days);
+                                let max_ttl = self.live_config.read().await.storage.max_event_ttl_days;
+                                let clamped = ttl_days.min(max_ttl);
                                 if let Err(e) = self.blob_store.set_ttl_override(
                                     &store_msg.interface_id,
                                     &event_id,
@@ -507,6 +557,13 @@ impl RelayNode {
         Ok(Self { service, shutdown })
     }
 
+    /// Configure the on-disk path used by the admin PUT /config handler to
+    /// persist runtime edits. If unset, edits apply in-memory only.
+    pub fn with_config_path(mut self, path: std::path::PathBuf) -> Self {
+        self.service = self.service.with_config_path(path);
+        self
+    }
+
     /// Run the relay server until shutdown
     pub async fn run(&self) -> RelayResult<()> {
         // Load or generate a persistent secret key
@@ -566,10 +623,13 @@ impl RelayNode {
 
         // Start admin API
         let admin_state = Arc::new(AdminState {
-            config: self.service.config.clone(),
+            config: self.service.live_config.clone(),
+            config_path: self.service.config_path.clone(),
             blob_store: self.service.blob_store.clone(),
             registrations: self.service.registrations.clone(),
             auth: self.service.auth.clone(),
+            quota: self.service.quota.clone(),
+            tiered_quota: self.service.tiered_quota.clone(),
             started_at: std::time::Instant::now(),
         });
         let admin_router = admin::admin_router(admin_state);
@@ -588,12 +648,12 @@ impl RelayNode {
 
         // Spawn cleanup task
         let cleanup_store = self.service.blob_store.clone();
-        let cleanup_tier_config = self.service.config.tiers.clone();
+        let cleanup_live_config = self.service.live_config.clone();
         let cleanup_interval = self.service.config.storage.cleanup_interval_secs;
         let cleanup_auth = self.service.auth.clone();
         let cleanup_shutdown = self.shutdown.clone();
         tokio::spawn(async move {
-            run_cleanup(cleanup_store, cleanup_tier_config, cleanup_interval, cleanup_auth, cleanup_shutdown).await;
+            run_cleanup(cleanup_store, cleanup_live_config, cleanup_interval, cleanup_auth, cleanup_shutdown).await;
         });
 
         // Main connection handling loop
@@ -608,7 +668,7 @@ impl RelayNode {
                     let auth = self.service.auth.clone();
                     let tiered_quota = self.service.tiered_quota.clone();
                     let data_dir = self.service.config.data_dir.clone();
-                    let config = self.service.config.clone();
+                    let live_config = self.service.live_config.clone();
                     tokio::spawn(async move {
                         if let Err(e) = handle_connection(
                             conn,
@@ -619,7 +679,7 @@ impl RelayNode {
                             auth,
                             tiered_quota,
                             data_dir,
-                            config,
+                            live_config,
                         ).await {
                             warn!(error = %e, "Connection handling error");
                         }
@@ -725,10 +785,13 @@ impl RelayNode {
 
         // Start admin API
         let admin_state = Arc::new(AdminState {
-            config: self.service.config.clone(),
+            config: self.service.live_config.clone(),
+            config_path: self.service.config_path.clone(),
             blob_store: self.service.blob_store.clone(),
             registrations: self.service.registrations.clone(),
             auth: self.service.auth.clone(),
+            quota: self.service.quota.clone(),
+            tiered_quota: self.service.tiered_quota.clone(),
             started_at: std::time::Instant::now(),
         });
         let admin_router = admin::admin_router(admin_state);
@@ -747,14 +810,14 @@ impl RelayNode {
 
         // Spawn cleanup task
         let cleanup_store = self.service.blob_store.clone();
-        let cleanup_tier_config = self.service.config.tiers.clone();
+        let cleanup_live_config = self.service.live_config.clone();
         let cleanup_interval = self.service.config.storage.cleanup_interval_secs;
         let cleanup_auth = self.service.auth.clone();
         let cleanup_shutdown = self.shutdown.clone();
         tokio::spawn(async move {
             run_cleanup(
                 cleanup_store,
-                cleanup_tier_config,
+                cleanup_live_config,
                 cleanup_interval,
                 cleanup_auth,
                 cleanup_shutdown,
@@ -778,7 +841,7 @@ impl RelayNode {
                     let auth = self.service.auth.clone();
                     let tiered_quota = self.service.tiered_quota.clone();
                     let data_dir = self.service.config.data_dir.clone();
-                    let config = self.service.config.clone();
+                    let live_config = self.service.live_config.clone();
                     tokio::spawn(async move {
                         if let Err(e) = handle_connection(
                             conn,
@@ -789,7 +852,7 @@ impl RelayNode {
                             auth,
                             tiered_quota,
                             data_dir,
-                            config,
+                            live_config,
                         )
                         .await
                         {
@@ -847,7 +910,7 @@ async fn handle_connection(
     auth: Arc<AuthService>,
     tiered_quota: Arc<TieredQuotaManager>,
     data_dir: std::path::PathBuf,
-    config: RelayConfig,
+    live_config: Arc<tokio::sync::RwLock<RelayConfig>>,
 ) -> RelayResult<()> {
     let peer_key = conn.remote_id();
     let peer_id = IrohIdentity::new(peer_key);
@@ -911,9 +974,9 @@ async fn handle_connection(
                         let tier_quotas: Vec<TierQuotaInfo> = session.granted_tiers.iter().map(|t| {
                             TierQuotaInfo {
                                 tier: *t,
-                                max_bytes: crate::tier::tier_max_bytes(*t, tiered_quota.tier_config()),
+                                max_bytes: crate::tier::tier_max_bytes(*t, &tiered_quota.tier_config()),
                                 used_bytes: tiered_quota.peer_tier_bytes(&peer_id, *t),
-                                max_interfaces: crate::tier::tier_max_interfaces(*t, tiered_quota.tier_config()),
+                                max_interfaces: crate::tier::tier_max_interfaces(*t, &tiered_quota.tier_config()),
                             }
                         }).collect();
 
@@ -1100,7 +1163,8 @@ async fn handle_connection(
 
                         // Honor TTL override, clamped to the configured maximum
                         if let Some(ttl_days) = store_msg.metadata.ttl_override_days {
-                            let clamped = ttl_days.min(config.storage.max_event_ttl_days);
+                            let max_ttl = live_config.read().await.storage.max_event_ttl_days;
+                            let clamped = ttl_days.min(max_ttl);
                             if let Err(e) = blob_store.set_ttl_override(
                                 &store_msg.interface_id,
                                 &event_id,
@@ -1363,7 +1427,7 @@ fn store_gossip_event(interface_id: &InterfaceId, data: &Bytes, blob_store: &Blo
 /// Run periodic cleanup of expired events
 async fn run_cleanup(
     store: Arc<BlobStore>,
-    tier_config: crate::config::TierConfig,
+    live_config: Arc<tokio::sync::RwLock<RelayConfig>>,
     interval_secs: u64,
     auth: Arc<AuthService>,
     shutdown: CancellationToken,
@@ -1375,6 +1439,8 @@ async fn run_cleanup(
     loop {
         tokio::select! {
             _ = interval.tick() => {
+                // Snapshot live tier TTLs on each tick so runtime edits take effect.
+                let tier_config = live_config.read().await.tiers.clone();
                 // Clean each tier with its own TTL
                 for (tier, ttl_days) in [
                     (StorageTier::Self_, tier_config.self_ttl_days),

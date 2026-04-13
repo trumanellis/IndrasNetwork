@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 /// Top-level relay configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RelayConfig {
     /// Directory for persistent data (database, registration state)
     #[serde(default = "default_data_dir")]
@@ -69,10 +69,117 @@ impl RelayConfig {
             crate::error::RelayError::Config(format!("Failed to parse config: {e}"))
         })
     }
+
+    /// Serialize the configuration to TOML and write it atomically to `path`.
+    ///
+    /// Uses a sibling tempfile + rename so concurrent readers never observe a
+    /// partially-written file.
+    pub fn save_to_file(&self, path: &std::path::Path) -> Result<(), crate::error::RelayError> {
+        use std::io::Write;
+
+        let contents = toml::to_string_pretty(self).map_err(|e| {
+            crate::error::RelayError::Config(format!("Failed to serialize config: {e}"))
+        })?;
+
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    crate::error::RelayError::Config(format!(
+                        "Failed to create config parent dir: {e}"
+                    ))
+                })?;
+            }
+        }
+
+        let tmp_path = match path.file_name() {
+            Some(name) => {
+                let mut tmp = name.to_os_string();
+                tmp.push(".tmp");
+                path.with_file_name(tmp)
+            }
+            None => {
+                return Err(crate::error::RelayError::Config(
+                    "Config path has no file name".to_string(),
+                ))
+            }
+        };
+
+        {
+            let mut f = std::fs::File::create(&tmp_path).map_err(|e| {
+                crate::error::RelayError::Config(format!("Failed to create temp config: {e}"))
+            })?;
+            f.write_all(contents.as_bytes()).map_err(|e| {
+                crate::error::RelayError::Config(format!("Failed to write temp config: {e}"))
+            })?;
+            f.sync_all().ok();
+        }
+
+        std::fs::rename(&tmp_path, path).map_err(|e| {
+            let _ = std::fs::remove_file(&tmp_path);
+            crate::error::RelayError::Config(format!("Failed to rename config into place: {e}"))
+        })?;
+
+        Ok(())
+    }
+
+    /// Validate configuration invariants.
+    ///
+    /// - `storage.max_event_ttl_days >= storage.default_event_ttl_days`
+    /// - `quota.global_max_bytes >= quota.default_max_bytes_per_peer`
+    /// - All `max_interfaces` fields are non-zero
+    /// - All `max_bytes` fields are non-zero
+    pub fn validate(&self) -> Result<(), crate::error::RelayError> {
+        if self.storage.max_event_ttl_days < self.storage.default_event_ttl_days {
+            return Err(crate::error::RelayError::Config(format!(
+                "storage.max_event_ttl_days ({}) must be >= storage.default_event_ttl_days ({})",
+                self.storage.max_event_ttl_days, self.storage.default_event_ttl_days
+            )));
+        }
+
+        if self.quota.global_max_bytes < self.quota.default_max_bytes_per_peer {
+            return Err(crate::error::RelayError::Config(format!(
+                "quota.global_max_bytes ({}) must be >= quota.default_max_bytes_per_peer ({})",
+                self.quota.global_max_bytes, self.quota.default_max_bytes_per_peer
+            )));
+        }
+
+        // Non-zero max_interfaces checks
+        let iface_checks = [
+            ("quota.default_max_interfaces_per_peer", self.quota.default_max_interfaces_per_peer),
+            ("tiers.self_max_interfaces", self.tiers.self_max_interfaces),
+            ("tiers.connections_max_interfaces", self.tiers.connections_max_interfaces),
+            ("tiers.public_max_interfaces", self.tiers.public_max_interfaces),
+        ];
+        for (name, value) in iface_checks {
+            if value == 0 {
+                return Err(crate::error::RelayError::Config(format!(
+                    "{name} must be non-zero"
+                )));
+            }
+        }
+
+        // Non-zero max_bytes checks
+        let byte_checks: [(&str, u64); 5] = [
+            ("quota.default_max_bytes_per_peer", self.quota.default_max_bytes_per_peer),
+            ("quota.global_max_bytes", self.quota.global_max_bytes),
+            ("tiers.self_max_bytes", self.tiers.self_max_bytes),
+            ("tiers.connections_max_bytes", self.tiers.connections_max_bytes),
+            ("tiers.public_max_bytes", self.tiers.public_max_bytes),
+        ];
+        for (name, value) in byte_checks {
+            if value == 0 {
+                return Err(crate::error::RelayError::Config(format!(
+                    "{name} must be non-zero"
+                )));
+            }
+        }
+
+        Ok(())
+    }
 }
 
 /// Quota configuration for per-peer limits
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct QuotaConfig {
     /// Maximum bytes of stored events per peer (default: 100 MB)
     #[serde(default = "default_max_bytes_per_peer")]
@@ -98,7 +205,7 @@ impl Default for QuotaConfig {
 }
 
 /// Storage configuration for event retention
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StorageConfig {
     /// Default TTL for stored events in days (default: 90)
     #[serde(default = "default_event_ttl_days")]
@@ -124,7 +231,7 @@ impl Default for StorageConfig {
 }
 
 /// Per-tier quota and TTL configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TierConfig {
     /// Self tier: max bytes (default: 1 GB)
     #[serde(default = "default_self_max_bytes")]
@@ -300,6 +407,79 @@ mod tests {
         assert_eq!(config.connections_ttl_days, 90);
         assert_eq!(config.public_max_bytes, 50 * 1024 * 1024);
         assert_eq!(config.public_ttl_days, 7);
+    }
+
+    #[test]
+    fn test_save_to_file_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("relay.toml");
+
+        let mut config = RelayConfig::default();
+        config.display_name = "saved-relay".to_string();
+        config.quota.default_max_bytes_per_peer = 1234567;
+        config.tiers.self_max_bytes = 9876543;
+
+        config.save_to_file(&path).expect("save_to_file succeeds");
+        assert!(path.exists(), "config file was written");
+
+        let loaded = RelayConfig::from_file(&path).expect("from_file succeeds");
+        assert_eq!(loaded.display_name, "saved-relay");
+        assert_eq!(loaded.quota.default_max_bytes_per_peer, 1234567);
+        assert_eq!(loaded.tiers.self_max_bytes, 9876543);
+    }
+
+    #[test]
+    fn test_save_to_file_is_atomic() {
+        // After save, no .tmp sibling remains.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("relay.toml");
+        RelayConfig::default().save_to_file(&path).unwrap();
+
+        let tmp = path.with_file_name("relay.toml.tmp");
+        assert!(!tmp.exists(), "tempfile was renamed away");
+    }
+
+    #[test]
+    fn test_validate_ok_on_default() {
+        assert!(RelayConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_rejects_max_ttl_below_default() {
+        let mut c = RelayConfig::default();
+        c.storage.max_event_ttl_days = 1;
+        c.storage.default_event_ttl_days = 30;
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn test_validate_rejects_global_below_per_peer() {
+        let mut c = RelayConfig::default();
+        c.quota.global_max_bytes = 100;
+        c.quota.default_max_bytes_per_peer = 1000;
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn test_validate_rejects_zero_interfaces() {
+        let mut c = RelayConfig::default();
+        c.quota.default_max_interfaces_per_peer = 0;
+        assert!(c.validate().is_err());
+
+        let mut c = RelayConfig::default();
+        c.tiers.public_max_interfaces = 0;
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn test_validate_rejects_zero_bytes() {
+        let mut c = RelayConfig::default();
+        c.tiers.self_max_bytes = 0;
+        assert!(c.validate().is_err());
+
+        let mut c = RelayConfig::default();
+        c.quota.global_max_bytes = 0;
+        assert!(c.validate().is_err());
     }
 
     #[test]

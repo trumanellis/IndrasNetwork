@@ -389,7 +389,7 @@ pub fn HomeVault(
                 is_open: create_public_open,
             }
             // Relay settings overlay
-            super::relay_settings::RelaySettingsOverlay { state }
+            super::relay_settings::RelaySettingsOverlay { state, network }
         }
     }
 }

@@ -530,6 +530,7 @@ impl IndrasNode {
         // Create embedded relay service
         let relay_data_dir = self.config.data_dir.join("relay-data");
         let _ = std::fs::create_dir_all(&relay_data_dir);
+        let config_toml_path = relay_data_dir.join("relay.toml");
         let owner_hex = hex::encode(self.identity.public_key().as_bytes());
 
         let mut relay_config = indras_relay::RelayConfig::default();
@@ -538,7 +539,9 @@ impl IndrasNode {
 
         match indras_relay::RelayService::new(relay_config).await {
             Ok(service) => {
-                let service = service.with_gossip(adapter.gossip().clone());
+                let service = service
+                    .with_gossip(adapter.gossip().clone())
+                    .with_config_path(config_toml_path);
                 let service = Arc::new(service);
                 let _ = self.relay_service.set(Arc::clone(&service));
 

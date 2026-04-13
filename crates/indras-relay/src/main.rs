@@ -63,8 +63,11 @@ async fn main() -> anyhow::Result<()> {
         "Starting Indras Relay"
     );
 
-    // Create and run relay node
-    let relay = indras_relay::RelayNode::new(config).await?;
+    // Create and run relay node (remember the config path so admin edits can persist)
+    let config_path = cli.config.clone();
+    let relay = indras_relay::RelayNode::new(config)
+        .await?
+        .with_config_path(config_path);
     relay.run().await?;
 
     Ok(())

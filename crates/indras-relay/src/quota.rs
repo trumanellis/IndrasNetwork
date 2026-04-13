@@ -3,6 +3,8 @@
 //! Enforces storage limits per peer and globally to prevent
 //! any single peer from consuming excessive relay resources.
 
+use std::sync::RwLock;
+
 use dashmap::DashMap;
 
 use indras_transport::identity::IrohIdentity;
@@ -23,7 +25,7 @@ pub struct PeerQuota {
 
 /// Manages per-peer storage quotas
 pub struct QuotaManager {
-    config: QuotaConfig,
+    config: RwLock<QuotaConfig>,
     /// Per-peer quota tracking
     peer_quotas: DashMap<IrohIdentity, PeerQuota>,
 }
@@ -32,9 +34,24 @@ impl QuotaManager {
     /// Create a new quota manager with the given configuration
     pub fn new(config: QuotaConfig) -> Self {
         Self {
-            config,
+            config: RwLock::new(config),
             peer_quotas: DashMap::new(),
         }
+    }
+
+    /// Atomically swap in a new quota configuration.
+    ///
+    /// Subsequent quota checks see the new values. Existing usage is retained.
+    pub fn update_config(&self, config: QuotaConfig) {
+        *self.config.write().expect("QuotaManager config lock poisoned") = config;
+    }
+
+    /// Snapshot the current quota configuration.
+    pub fn config_snapshot(&self) -> QuotaConfig {
+        self.config
+            .read()
+            .expect("QuotaManager config lock poisoned")
+            .clone()
     }
 
     /// Check if a peer can register additional interfaces
@@ -49,13 +66,17 @@ impl QuotaManager {
             .map(|q| q.interface_count)
             .unwrap_or(0);
 
-        if current + additional_interfaces > self.config.default_max_interfaces_per_peer {
+        let max = self
+            .config
+            .read()
+            .expect("QuotaManager config lock poisoned")
+            .default_max_interfaces_per_peer;
+
+        if current + additional_interfaces > max {
             return Err(RelayError::QuotaExceeded {
                 reason: format!(
                     "Would exceed interface limit: {} + {} > {}",
-                    current,
-                    additional_interfaces,
-                    self.config.default_max_interfaces_per_peer
+                    current, additional_interfaces, max
                 ),
             });
         }
@@ -77,21 +98,29 @@ impl QuotaManager {
             .map(|q| q.bytes_used)
             .unwrap_or(0);
 
-        if current + additional_bytes > self.config.default_max_bytes_per_peer {
+        let (per_peer, global) = {
+            let c = self
+                .config
+                .read()
+                .expect("QuotaManager config lock poisoned");
+            (c.default_max_bytes_per_peer, c.global_max_bytes)
+        };
+
+        if current + additional_bytes > per_peer {
             return Err(RelayError::QuotaExceeded {
                 reason: format!(
                     "Would exceed per-peer byte limit: {} + {} > {}",
-                    current, additional_bytes, self.config.default_max_bytes_per_peer
+                    current, additional_bytes, per_peer
                 ),
             });
         }
 
         // Check global limit
-        if total_usage + additional_bytes > self.config.global_max_bytes {
+        if total_usage + additional_bytes > global {
             return Err(RelayError::QuotaExceeded {
                 reason: format!(
                     "Would exceed global byte limit: {} + {} > {}",
-                    total_usage, additional_bytes, self.config.global_max_bytes
+                    total_usage, additional_bytes, global
                 ),
             });
         }
@@ -133,9 +162,9 @@ impl QuotaManager {
         self.peer_quotas.get(peer_id).map(|q| q.clone())
     }
 
-    /// Get the quota configuration
-    pub fn config(&self) -> &QuotaConfig {
-        &self.config
+    /// Get a clone of the quota configuration
+    pub fn config(&self) -> QuotaConfig {
+        self.config_snapshot()
     }
 
     /// Get the number of tracked peers
@@ -155,7 +184,7 @@ pub struct TieredPeerQuota {
 
 /// Manages per-tier storage quotas
 pub struct TieredQuotaManager {
-    tier_config: TierConfig,
+    tier_config: RwLock<TierConfig>,
     /// Per-peer, per-tier quota tracking
     peer_quotas: DashMap<IrohIdentity, TieredPeerQuota>,
 }
@@ -164,9 +193,25 @@ impl TieredQuotaManager {
     /// Create a new tiered quota manager
     pub fn new(tier_config: TierConfig) -> Self {
         Self {
-            tier_config,
+            tier_config: RwLock::new(tier_config),
             peer_quotas: DashMap::new(),
         }
+    }
+
+    /// Atomically swap in a new tier configuration.
+    pub fn update_config(&self, tier_config: TierConfig) {
+        *self
+            .tier_config
+            .write()
+            .expect("TieredQuotaManager config lock poisoned") = tier_config;
+    }
+
+    /// Snapshot the current tier configuration.
+    pub fn tier_config_snapshot(&self) -> TierConfig {
+        self.tier_config
+            .read()
+            .expect("TieredQuotaManager config lock poisoned")
+            .clone()
     }
 
     /// Check if storing additional bytes in a tier would exceed quota
@@ -176,7 +221,13 @@ impl TieredQuotaManager {
         tier: StorageTier,
         additional_bytes: u64,
     ) -> RelayResult<()> {
-        let max_bytes = tier::tier_max_bytes(tier, &self.tier_config);
+        let max_bytes = {
+            let c = self
+                .tier_config
+                .read()
+                .expect("TieredQuotaManager config lock poisoned");
+            tier::tier_max_bytes(tier, &c)
+        };
         let current = self
             .peer_quotas
             .get(peer_id)
@@ -202,7 +253,13 @@ impl TieredQuotaManager {
         tier: StorageTier,
         additional_interfaces: usize,
     ) -> RelayResult<()> {
-        let max_interfaces = tier::tier_max_interfaces(tier, &self.tier_config);
+        let max_interfaces = {
+            let c = self
+                .tier_config
+                .read()
+                .expect("TieredQuotaManager config lock poisoned");
+            tier::tier_max_interfaces(tier, &c)
+        };
         let current = self
             .peer_quotas
             .get(peer_id)
@@ -262,9 +319,9 @@ impl TieredQuotaManager {
         }
     }
 
-    /// Get the tier config
-    pub fn tier_config(&self) -> &TierConfig {
-        &self.tier_config
+    /// Get a clone of the tier config
+    pub fn tier_config(&self) -> TierConfig {
+        self.tier_config_snapshot()
     }
 
     /// Get tier-specific usage for a peer

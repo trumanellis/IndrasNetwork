@@ -5,6 +5,7 @@
 //! After that, it presents the home vault — a folder of markdown files that
 //! automatically sync across devices via the peer-to-peer network.
 
+pub mod admin_client;
 pub mod components;
 pub mod config;
 pub mod state;

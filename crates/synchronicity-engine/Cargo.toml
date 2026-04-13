@@ -14,6 +14,7 @@ path = "src/lib.rs"
 [dependencies]
 dioxus = { version = "0.7", features = ["desktop"] }
 indras-network = { path = "../indras-network" }
+indras-relay = { path = "../indras-relay" }
 indras-crypto = { path = "../indras-crypto" }
 indras-genesis = { path = "../indras-genesis" }
 indras-storage = { path = "../indras-storage" }
