@@ -185,6 +185,20 @@ jj workspace forget <name>   # remove workspace
 jj workspace list            # list workspaces
 ```
 
+## Frontend Design Philosophy
+
+**Make everything as frictionless as possible.**
+
+Every interaction should remove a step, not add one. Concretely:
+
+- **Prefer inline editing** over edit-mode toggles. Profiles, content, names, descriptions, and other user-owned data should be editable in place — click the text, type, done. No separate edit buttons or modal dialogs when inline editing is feasible.
+- **No confirmation dialogs** for reversible actions. Use undo instead.
+- **Autosave** over explicit save buttons. Persist on blur or debounce.
+- **Sensible defaults** over required fields. Let the user start working immediately and refine later.
+- **Direct manipulation** (drag, click-to-edit, keyboard shortcuts) over nested menus.
+
+When designing new UI, the default question is: "Can the user accomplish this without leaving the view they're already in?" If yes, do that.
+
 ## Greenfield Project
 
 This entire project is greenfield. Do not maintain backward compatibility unless explicitly told
