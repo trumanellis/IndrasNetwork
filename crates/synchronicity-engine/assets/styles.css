@@ -1939,3 +1939,353 @@ body > * {
     font-size: clamp(32px, 5vw, 48px);
   }
 }
+
+/* ============================================================
+   RELAY SETTINGS OVERLAY
+   ============================================================ */
+.relay-settings {
+  max-width: 560px;
+  height: auto;
+  max-height: 80vh;
+}
+
+.relay-header-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.relay-eyebrow {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--indigo);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  line-height: 1.3;
+}
+
+.relay-title {
+  font-family: var(--display);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--tx);
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.relay-body {
+  gap: 16px;
+  padding: 20px;
+}
+
+.relay-panel {
+  background: var(--bg2);
+  border: 1px solid var(--bd);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.relay-panel-header {
+  background: var(--bg3);
+  border-bottom: 1px solid var(--bd);
+  padding: 8px 14px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--t3);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.relay-panel-body {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.relay-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.relay-row-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--t3);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  min-width: 56px;
+}
+
+.relay-id-value {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--t2);
+  cursor: pointer;
+  transition: color 0.15s ease;
+  user-select: all;
+}
+
+.relay-id-value:hover {
+  color: var(--tx);
+}
+
+.relay-copied-flash {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--glow-green);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.relay-preset-row {
+  align-items: flex-start;
+}
+
+.relay-preset-group {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.relay-preset-pill {
+  background: transparent;
+  border: 1px solid var(--bd);
+  border-radius: 100px;
+  padding: 4px 10px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--t2);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.relay-preset-pill:hover {
+  color: var(--tx);
+  border-color: var(--t3);
+}
+
+.relay-preset-pill.active {
+  background: rgba(129, 140, 248, 0.12);
+  border-color: var(--indigo);
+  color: var(--indigo);
+}
+
+.relay-toggle-row {
+  align-items: center;
+  justify-content: space-between;
+}
+
+.relay-toggle-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.relay-toggle-label {
+  font-family: var(--display);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--tx);
+}
+
+.relay-toggle-hint {
+  font-family: var(--display);
+  font-size: 11px;
+  color: var(--t3);
+}
+
+.relay-toggle {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  background: var(--bd);
+  border: none;
+  border-radius: 100px;
+  padding: 0;
+  cursor: pointer;
+  transition: background 0.2s var(--ease);
+  flex-shrink: 0;
+}
+
+.relay-toggle.on {
+  background: linear-gradient(135deg, #818cf8, #c084fc, #f472b6);
+}
+
+.relay-toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: var(--tx);
+  border-radius: 50%;
+  transition: transform 0.2s var(--ease);
+}
+
+.relay-toggle.on .relay-toggle-knob {
+  transform: translateX(16px);
+}
+
+.relay-restart-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--display);
+  font-size: 11px;
+  color: var(--t3);
+}
+
+.relay-restart-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--glow-amber);
+  display: inline-block;
+}
+
+.relay-server-list {
+  padding: 4px 14px;
+}
+
+.relay-server-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--bd2);
+}
+
+.relay-server-row:last-child {
+  border-bottom: none;
+}
+
+.relay-server-input {
+  flex: 1;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--tx);
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  outline: none;
+}
+
+.relay-server-input::placeholder {
+  color: var(--t3);
+}
+
+.relay-server-input:hover {
+  background: var(--surface);
+}
+
+.relay-server-input:focus {
+  background: var(--bg);
+  border-color: var(--indigo);
+  box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.15);
+}
+
+.relay-server-ghost::placeholder {
+  color: var(--dim);
+  font-style: normal;
+}
+
+.relay-server-remove {
+  background: none;
+  border: none;
+  color: var(--t3);
+  font-size: 14px;
+  line-height: 1;
+  padding: 4px 8px;
+  cursor: pointer;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.relay-server-row:hover .relay-server-remove {
+  opacity: 1;
+}
+
+.relay-server-remove:hover {
+  color: var(--danger);
+  background: rgba(248, 113, 113, 0.08);
+}
+
+.relay-server-ghost-row .relay-server-remove {
+  display: none;
+}
+
+.relay-status-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 2px;
+}
+
+.relay-status-empty {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--t3);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.relay-status-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--t3);
+}
+
+.relay-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--t3);
+  display: inline-block;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.relay-status-url {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Status-bar relay chip */
+.status-relay-link {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: color 0.15s ease;
+}
+
+.status-relay-link:hover {
+  color: var(--tx);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.relay-chip-dot {
+  color: var(--t3);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.relay-chip-dot.connected {
+  color: var(--glow-green);
+}

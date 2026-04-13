@@ -7,8 +7,11 @@ use crate::state::AppState;
 /// Bottom bar with watch status (left), last sync time (center),
 /// and file count + total size (right).
 #[component]
-pub fn StatusBar(state: Signal<AppState>) -> Element {
+pub fn StatusBar(mut state: Signal<AppState>) -> Element {
     let files = state.read().private_files.clone();
+    let relay_count = state.read().relay_config.servers.len();
+    let connected = 0_usize; // live count not yet wired
+    let dot_class = if connected > 0 { "relay-chip-dot connected" } else { "relay-chip-dot" };
     // Count private + all realm files
     let realm_file_count: usize = state.read().realms.iter().map(|r| r.files.len()).sum();
     let file_count = files.len() + realm_file_count;
@@ -23,7 +26,15 @@ pub fn StatusBar(state: Signal<AppState>) -> Element {
 
     rsx! {
         div { class: "status-bar",
-            span { class: "status-left muted", "Watching for changes" }
+            span {
+                class: "status-left muted status-relay-link",
+                onclick: move |_| {
+                    let cur = state.read().show_relay_settings;
+                    state.write().show_relay_settings = !cur;
+                },
+                span { class: "{dot_class}", "\u{25cf}" }
+                " Relay: {connected}/{relay_count} connected"
+            }
             span { class: "status-center muted", "Last sync: {last_sync}" }
             span { class: "status-right muted", "{file_count} file(s) · {size_label}" }
         }

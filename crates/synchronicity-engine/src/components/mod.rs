@@ -17,5 +17,6 @@ mod status_bar;
 mod peer_bar;
 mod contact_invite;
 mod create_realm;
+mod relay_settings;
 
 pub use app::App;

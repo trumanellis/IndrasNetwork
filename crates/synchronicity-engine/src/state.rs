@@ -3,6 +3,8 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 
+use crate::config::RelayConfig;
+
 /// Payload carried during a drag-to-share operation.
 #[derive(Debug, Clone)]
 pub struct DragPayload {
@@ -238,6 +240,10 @@ pub struct AppState {
     pub drag_payload: Option<DragPayload>,
     /// Realm ID currently being hovered as a drop target (for CSS highlighting).
     pub drop_target_realm: Option<RealmId>,
+    /// Whether the relay-settings overlay is open.
+    pub show_relay_settings: bool,
+    /// Cached relay configuration loaded from `$INDRAS_DATA_DIR/relay.json`.
+    pub relay_config: RelayConfig,
 }
 
 impl AppState {
@@ -267,6 +273,8 @@ impl AppState {
             show_create_public: false,
             drag_payload: None,
             drop_target_realm: None,
+            show_relay_settings: false,
+            relay_config: RelayConfig::load(),
         }
     }
 }
