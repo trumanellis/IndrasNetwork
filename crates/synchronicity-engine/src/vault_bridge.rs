@@ -87,7 +87,7 @@ pub fn scan_vault(vault_path: &std::path::Path) -> Vec<FileView> {
 pub async fn create_account(
     mut state: Signal<AppState>,
     mut network: Signal<Option<Arc<IndrasNetwork>>>,
-    vault_manager: Signal<Option<Arc<VaultManager>>>,
+    mut vault_manager: Signal<Option<Arc<VaultManager>>>,
 ) {
     let data_dir = default_data_dir();
     let display_name = state.read().display_name.clone();
@@ -158,7 +158,7 @@ pub async fn create_account(
 pub async fn restore_account(
     mut state: Signal<AppState>,
     mut network: Signal<Option<Arc<IndrasNetwork>>>,
-    vault_manager: Signal<Option<Arc<VaultManager>>>,
+    mut vault_manager: Signal<Option<Arc<VaultManager>>>,
 ) {
     let data_dir = default_data_dir();
     let slots = state.read().pass_story_slots.clone();

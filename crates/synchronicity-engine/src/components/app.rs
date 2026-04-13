@@ -18,7 +18,7 @@ pub fn App() -> Element {
 
     let mut state = use_signal(AppState::new);
     let mut network: Signal<Option<Arc<IndrasNetwork>>> = use_signal(|| None);
-    let vault_manager: Signal<Option<Arc<VaultManager>>> = use_signal(|| None);
+    let mut vault_manager: Signal<Option<Arc<VaultManager>>> = use_signal(|| None);
 
     // One-shot guard: only attempt network load once for returning users.
     let mut network_loaded = use_signal(|| false);
