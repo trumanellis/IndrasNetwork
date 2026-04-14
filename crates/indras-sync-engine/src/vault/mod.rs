@@ -324,6 +324,73 @@ impl Vault {
         self.upsert_file(rel_path, hash, size, self.user_id, Some(data.to_vec())).await
     }
 
+    /// Materialize the file versions named by a [`PatchManifest`].
+    ///
+    /// For each `(path, hash, size)` entry:
+    /// 1. Fetch the blob from the local content-addressed store; if absent,
+    ///    pull from the relay (when configured) and retry.
+    /// 2. Write the bytes to disk via
+    ///    [`write_file_content`](Self::write_file_content), which handles
+    ///    directory creation, watcher suppression, and CRDT upsert.
+    ///
+    /// This is the "checkout" primitive: the braid layer calls this with a
+    /// manifest from a verified changeset to replay a peer's verified vault
+    /// state locally. Fails if any blob cannot be loaded.
+    pub async fn apply_manifest(
+        &self,
+        manifest: &super::braid::PatchManifest,
+    ) -> Result<()> {
+        use indras_storage::ContentRef;
+
+        for pf in &manifest.files {
+            let content_ref = ContentRef::new(pf.hash, pf.size);
+            let mut data = self.blob_store.load(&content_ref).await;
+            if data.is_err() {
+                if let Some(ref relay) = self.relay {
+                    for _ in 0..10 {
+                        let _ = relay.pull_blobs(&self.blob_store).await;
+                        data = self.blob_store.load(&content_ref).await;
+                        if data.is_ok() {
+                            break;
+                        }
+                        tokio::time::sleep(Duration::from_millis(500)).await;
+                    }
+                }
+            }
+            let bytes = data.map_err(|e| {
+                std::io::Error::other(format!(
+                    "apply_manifest: blob for {} not available: {e}",
+                    pf.path
+                ))
+            })?;
+            self.write_file_content(&pf.path, &bytes).await?;
+        }
+        Ok(())
+    }
+
+    /// Check out a braid changeset: apply its `PatchManifest` to the vault.
+    ///
+    /// Looks up the changeset by id in the realm's braid DAG and calls
+    /// [`apply_manifest`](Self::apply_manifest). Returns an error if the
+    /// changeset is unknown locally (the DAG must have propagated first).
+    pub async fn checkout(&self, change_id: super::braid::ChangeId) -> Result<()> {
+        use crate::braid::RealmBraid;
+        let dag = self.realm.braid_dag().await?;
+        let manifest = {
+            let guard = dag.read().await;
+            match guard.get(&change_id) {
+                Some(cs) => cs.patch.clone(),
+                None => {
+                    return Err(std::io::Error::other(format!(
+                        "unknown changeset: {change_id}"
+                    ))
+                    .into());
+                }
+            }
+        };
+        self.apply_manifest(&manifest).await
+    }
+
     /// Delete a file from disk and mark it as deleted in the CRDT index.
     ///
     /// Suppresses the watcher for this path to prevent echo.

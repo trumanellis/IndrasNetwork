@@ -128,6 +128,7 @@ mod tests {
         PatchManifest::new(vec![PatchFile {
             path: "src/lib.rs".into(),
             hash: [byte; 32],
+            size: 0,
         }])
     }
 

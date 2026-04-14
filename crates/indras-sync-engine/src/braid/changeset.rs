@@ -33,13 +33,19 @@ impl fmt::Display for ChangeId {
     }
 }
 
-/// One file referenced by a [`PatchManifest`]: path + vault content hash.
+/// One file referenced by a [`PatchManifest`]: path + vault content hash + size.
+///
+/// `size` is carried so a peer can reconstruct a `ContentRef` and drive
+/// `SyncToDisk` to materialize the blob without first consulting the
+/// vault index.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord, Hash)]
 pub struct PatchFile {
     /// Vault-relative path (forward slashes), e.g. `"src/lib.rs"`.
     pub path: String,
     /// BLAKE3 content hash of the file version at the time of the changeset.
     pub hash: [u8; 32],
+    /// Content length in bytes.
+    pub size: u64,
 }
 
 /// A changeset's patch is a manifest of vault file versions by content hash.
@@ -166,6 +172,7 @@ mod tests {
         PatchManifest::new(vec![PatchFile {
             path: "src/lib.rs".into(),
             hash: [7u8; 32],
+            size: 0,
         }])
     }
 
@@ -242,6 +249,7 @@ mod tests {
             PatchManifest::new(vec![PatchFile {
                 path: "src/lib.rs".into(),
                 hash: [8u8; 32],
+                size: 0,
             }]),
             ev.clone(),
             100,
@@ -259,8 +267,8 @@ mod tests {
     #[test]
     fn patch_manifest_new_sorts() {
         let m = PatchManifest::new(vec![
-            PatchFile { path: "z.rs".into(), hash: [0u8; 32] },
-            PatchFile { path: "a.rs".into(), hash: [1u8; 32] },
+            PatchFile { path: "z.rs".into(), hash: [0u8; 32], size: 0 },
+            PatchFile { path: "a.rs".into(), hash: [1u8; 32], size: 0 },
         ]);
         assert_eq!(m.files[0].path, "a.rs");
         assert_eq!(m.files[1].path, "z.rs");

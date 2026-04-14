@@ -8,9 +8,10 @@
 use std::path::PathBuf;
 
 use chrono::Utc;
-use indras_network::document::Document;
+use indras_network::document::{Document, DocumentChange};
 use indras_network::error::Result;
 use indras_network::Realm;
+use tokio::sync::broadcast;
 
 use super::{
     changeset::{ChangeId, Changeset, Evidence, PatchFile, PatchManifest},
@@ -55,6 +56,14 @@ pub trait RealmBraid {
 
     /// Read the current heads of the braid DAG.
     async fn braid_heads(&self) -> Result<Vec<ChangeId>>;
+
+    /// Subscribe to braid-DAG change events.
+    ///
+    /// Yields a [`DocumentChange`] each time the DAG is updated locally or
+    /// merged from a peer. Use this to surface "peer X published a verified
+    /// changeset" notifications; the caller decides whether to `checkout`
+    /// that changeset into their vault.
+    async fn braid_dag_subscribe(&self) -> Result<broadcast::Receiver<DocumentChange<BraidDag>>>;
 }
 
 impl RealmBraid for Realm {
@@ -74,6 +83,7 @@ impl RealmBraid for Realm {
                 files.push(PatchFile {
                     path: vf.path.clone(),
                     hash: vf.hash,
+                    size: vf.size,
                 });
             }
         }
@@ -131,5 +141,9 @@ impl RealmBraid for Realm {
         let mut heads: Vec<ChangeId> = dag.read().await.heads().into_iter().collect();
         heads.sort();
         Ok(heads)
+    }
+
+    async fn braid_dag_subscribe(&self) -> Result<broadcast::Receiver<DocumentChange<BraidDag>>> {
+        Ok(self.braid_dag().await?.subscribe())
     }
 }
