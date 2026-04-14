@@ -12,17 +12,32 @@ pub fn PrivateColumn(mut state: Signal<AppState>) -> Element {
     let selected = state.read().selection.selected_file.clone();
     let is_private_selected = state.read().selection.selected_realm.is_none();
     let vault_path = state.read().vault_path.clone();
+    let display_name = state.read().display_name.clone();
+    let header_label = if display_name.trim().is_empty() {
+        "PRIVATE".to_string()
+    } else {
+        display_name.to_uppercase()
+    };
 
     rsx! {
         div { class: "vault-column",
             div { class: "column-header",
                 span {
                     class: "column-header-label glow-private",
+                    title: "Edit profile",
+                    onclick: move |_| {
+                        state.write().show_profile = true;
+                    },
+                    "{header_label}"
+                }
+                button {
+                    class: "column-header-folder glow-private",
+                    title: "Open vault folder",
                     onclick: move |_| {
                         let vault = state.read().vault_path.clone();
                         let _ = open::that(vault.parent().unwrap_or(&vault));
                     },
-                    "PRIVATE"
+                    "\u{1F4C1}"
                 }
                 button {
                     class: "column-header-add glow-private",

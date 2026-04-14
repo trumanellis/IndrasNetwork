@@ -269,10 +269,14 @@ pub fn HomeVault(
     let player_name = {
         let state_name = state.read().display_name.clone();
         if state_name.is_empty() {
-            net_ref
+            let from_net = net_ref
                 .as_ref()
                 .and_then(|n| n.display_name())
-                .unwrap_or_default()
+                .unwrap_or_default();
+            if !from_net.is_empty() && state.read().display_name.is_empty() {
+                state.write().display_name = from_net.clone();
+            }
+            from_net
         } else {
             state_name
         }
@@ -390,6 +394,8 @@ pub fn HomeVault(
             }
             // Relay settings overlay
             super::relay_settings::RelaySettingsOverlay { state, network }
+            // Profile overlay
+            super::profile_modal::ProfileOverlay { state, network }
         }
     }
 }

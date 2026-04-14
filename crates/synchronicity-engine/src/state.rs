@@ -242,6 +242,8 @@ pub struct AppState {
     pub drop_target_realm: Option<RealmId>,
     /// Whether the relay-settings overlay is open.
     pub show_relay_settings: bool,
+    /// Whether the profile overlay is open.
+    pub show_profile: bool,
     /// Cached relay configuration loaded from `$INDRAS_DATA_DIR/relay.json`.
     pub relay_config: RelayConfig,
 }
@@ -274,6 +276,7 @@ impl AppState {
             drag_payload: None,
             drop_target_realm: None,
             show_relay_settings: false,
+            show_profile: false,
             relay_config: RelayConfig::load(),
         }
     }
