@@ -17,7 +17,7 @@ pub fn PrivateColumn(mut state: Signal<AppState>) -> Element {
         div { class: "vault-column",
             div { class: "column-header",
                 span {
-                    class: "column-header-label",
+                    class: "column-header-label glow-private",
                     onclick: move |_| {
                         let vault = state.read().vault_path.clone();
                         let _ = open::that(vault.parent().unwrap_or(&vault));
@@ -25,7 +25,7 @@ pub fn PrivateColumn(mut state: Signal<AppState>) -> Element {
                     "PRIVATE"
                 }
                 button {
-                    class: "column-header-add",
+                    class: "column-header-add glow-private",
                     title: "New File",
                     onclick: move |_| {
                         let vault_path = state.read().vault_path.clone();

@@ -39,12 +39,19 @@ pub fn RealmColumn(
         RealmCategory::Private => "New File",
     };
 
+    let glow_class = match category {
+        RealmCategory::Dm => "glow-connections",
+        RealmCategory::Group => "glow-groups",
+        RealmCategory::World => "glow-world",
+        RealmCategory::Private => "glow-private",
+    };
+
     rsx! {
         div { class: "vault-column",
             div { class: "column-header",
-                span { "{label}" }
+                span { class: "{glow_class}", "{label}" }
                 button {
-                    class: "column-header-add",
+                    class: "column-header-add {glow_class}",
                     title: "{add_title}",
                     onclick: move |_| {
                         match category {

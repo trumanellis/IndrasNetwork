@@ -1852,6 +1852,23 @@ body > * {
   color: var(--tx);
 }
 
+.glow-private {
+  color: #ffd166;
+  text-shadow: 0 0 6px rgba(255, 209, 102, 0.6), 0 0 12px rgba(255, 209, 102, 0.35);
+}
+.glow-connections {
+  color: #5ee2ff;
+  text-shadow: 0 0 6px rgba(94, 226, 255, 0.6), 0 0 12px rgba(94, 226, 255, 0.35);
+}
+.glow-groups {
+  color: #6ef28a;
+  text-shadow: 0 0 6px rgba(110, 242, 138, 0.6), 0 0 12px rgba(110, 242, 138, 0.35);
+}
+.glow-world {
+  color: #ff6ef0;
+  text-shadow: 0 0 6px rgba(255, 110, 240, 0.6), 0 0 12px rgba(255, 110, 240, 0.35);
+}
+
 .column-header:hover {
   color: var(--t2);
 }
@@ -1859,7 +1876,6 @@ body > * {
 .column-header-add {
   background: none;
   border: none;
-  color: var(--t3);
   font-size: 14px;
   font-weight: 300;
   line-height: 1;
@@ -1871,12 +1887,8 @@ body > * {
   justify-content: center;
   border-radius: 4px;
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
-}
-
-.column-header:hover .column-header-add {
   opacity: 1;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .column-header-add:hover {
