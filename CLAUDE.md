@@ -70,6 +70,10 @@ This repo uses **syncgit** — a peer-to-peer VCS where each git worktree is an 
 - Check peer state with `syncgit status` before starting non-trivial work so you don't duplicate a sibling's effort.
 - Your peer identity is the worktree directory name; treat sibling worktrees as independent collaborators, not as backups.
 
+## Graphify
+
+The shared knowledge graph lives at `../graphify-out/` (the parent repo root), not inside this worktree. When the user runs `/graphify explore`, `/graphify query`, `/graphify path`, or `/graphify explain`, read `../graphify-out/graph.json` and `../graphify-out/GRAPH_REPORT.md` from there. Do not rebuild a local copy.
+
 ## Terminology
 
 - **syncengine** (or "sync engine") refers to the **Synchronicity Engine** app as a whole — the product we're building — not any specific module or crate.
