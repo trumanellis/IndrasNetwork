@@ -1,15 +1,5 @@
 # Claude Code Instructions for IndrasNetwork
 
-## Session Start
-
-On every new session, run `jj workspace list` and `jj log --limit 5` silently, then greet the user with:
-1. Current workspace and change (from `jj st`)
-2. Any other active workspaces (from `jj workspace list`)
-3. Recent changes with open (non-main) work (from `jj log`)
-4. Offer: "Continue an existing change, start new work, or create a parallel workspace?"
-
-Keep the welcome concise — a short table or list, not a wall of text.
-
 ## Working Directory
 
 **Always run commands from the repository root directory** (`/Users/truman/Code/IndrasNetwork`).
@@ -60,130 +50,25 @@ Then the user can simply run:
 
 When using names for peer/node instances in examples, simulations, or documentation, use single-letter identifiers: A, B, C, D, E, F, G, etc.
 
-## Version Control (jj)
+## Peer sync workflow (syncgit)
 
-This repo uses **jj (Jujutsu)** colocated with git. Never use raw git commands.
+This repo uses **syncgit** — a peer-to-peer VCS where each git worktree is an equal peer with its own agent. There is no `main` and no central hub. Peers broadcast work to each other as PRs over `refs/pr/*`.
 
-### Core Rules
-- Every change gets a descriptive message via `jj describe -m "..."`
-- Use `jj new main` to start work, never bookmark creation
-- Use `jj undo` as first response to any mistake
-- Working copy is always a commit — no staging needed
+**When you finish a slice of work, run `/sync`.** Do not `git commit` / `git push` manually. The `/sync` slash command orchestrates the full flow:
 
-### Single-Session Workflow
-- `jj new main -m "task"` → work → `jj describe` → land
-- Switch between tasks: `jj edit <change-id>`
-- Stack dependent work: `jj new <parent-change> -m "next task"`
-
-### Parallel Sessions (Multiple Claude Code instances)
-**Always ask the user before creating workspaces.**
-
-**Never use git worktrees (`EnterWorktree` tool) — they conflict with jj's colocated repo.**
-
-#### Creating Workspaces
-1. Create workspace inside the repo: `jj workspace add .jj-workspaces/{name} --revision main`
-2. Launch Claude Code in the workspace directory
-3. Save workspace mapping to **memory** (not just notepad) so it survives restarts:
-   - Workspace name, directory path, change ID, and task description
-4. Integrate when done (see Landing Changes)
-
-#### Cleaning Up Workspaces
-Always do both steps together — never one without the other:
-1. `jj workspace forget {name}`
-2. `rm -rf .jj-workspaces/{name}`
-3. Remove the workspace entry from memory
-
-#### Recovering Lost Workspaces
-If `jj workspace list` shows a workspace whose directory is missing:
-- `jj workspace forget {name}` to clean up the dangling reference
-- Check `jj op log` to find the change ID that was in progress
-- `jj log -r 'all()'` to verify the change still exists — work is never lost in jj, only the workspace pointer
-
-If a `.jj-workspaces/{name}` directory exists but isn't in `jj workspace list`:
-- The workspace was already forgotten — safe to `rm -rf` the directory
-
-### Curating Output Before Landing
-Self-curate all work into clean commits before landing:
-1. `jj new @- -m "feat: clean description"` (clean target)
-2. `jj squash -i --from <scratch>` (cherry-pick good parts)
-3. `jj abandon <scratch>` (discard the scratch revision)
-Or split a large change: `jj split` to separate concerns interactively.
-
-### Landing Changes
-1. `jj rebase -d main` (catch up with main)
-2. `jj bookmark set main -r @`
-3. `jj git push`
-4. Other active changes auto-rebase onto new main
-
-### Trunk-Pulse Protocol (Parallel Agents)
-
-When running multiple agents in parallel, each agent auto-lands to main whenever
-full tests pass. A PostToolUse hook on Bash detects successful `cargo test` (full
-workspace, not `-p <crate>`) and nudges you to land.
-
-**When you see the `[TRUNK-PULSE: TESTS PASSED]` nudge, execute immediately:**
-
-```bash
-jj describe -m "feat: <concise description of this increment>"
-jj rebase -d main
-jj bookmark set main -r @
-jj git push
-```
-
-**If push fails** (another agent landed first):
-```bash
-jj git fetch
-jj rebase -d main
-jj bookmark set main -r @
-jj git push
-```
-
-**After landing, start fresh on top of the new main:**
-```bash
-jj new main -m "continue: <next task>"
-```
-
-This automatically pulls in everything the other agents have landed.
-
-**To pick up another agent's landing** (sibling workspace, same repo):
-```bash
-jj rebase -d main
-```
-No `jj git fetch` needed — all workspaces share the same jj store, so bookmark
-moves are immediately visible. Only use `jj git fetch` when pulling from the
-remote (e.g. after a push conflict).
+1. `syncgit stage` — review the diff and `git add` only real work. Never stage logs, `node_modules`, `dist`, `.env*`, or anything listed in `.syncgit/ignore`.
+2. Commit with a short imperative message scoped to this slice.
+3. `syncgit merge` — rebase through every pending peer PR, oldest first.
+4. On conflict: resolve in-file, `git rebase --continue`, re-run `syncgit merge`. After 3 failed attempts, abort and halt with a summary in `.syncgit/last-halt.md` rather than guessing.
+5. `syncgit verify` — must pass before broadcast if `.syncgit/verify.sh` exists.
+6. `syncgit push` — broadcasts `HEAD` to every peer.
 
 **Rules:**
-- Land often, land small — every compilable+tested increment, not every feature
-- Never hold work — if full tests pass, land it. Holding creates drift.
-- Keep changes focused — one concern per landing makes conflicts rare
-- The hook only fires on full test runs (`cargo test` or `cargo test --workspace`), not `cargo test -p <crate>`
-
-**Setup:** Run `./scripts/setup-parallel-agents.sh` to create 3 workspaces, then
-launch a Claude Code instance in each `.jj-workspaces/<name>/` directory.
-
-### Key Commands
-```bash
-jj st                        # status
-jj log                       # commit graph
-jj diff                      # working copy diff
-jj new main -m "task"        # start new work
-jj edit <change-id>          # switch to existing change
-jj describe -m "msg"         # set change description
-jj rebase -d main            # rebase onto main
-jj squash                    # fold into parent
-jj squash -i --from <id>     # cherry-pick from another change
-jj split                     # split change interactively
-jj abandon                   # discard a change
-jj undo                      # undo last operation
-jj bookmark list             # list bookmarks
-jj bookmark set main -r @    # point main at current change
-jj git fetch                 # pull from remote
-jj git push                  # push to remote
-jj workspace add <path>      # create parallel workspace
-jj workspace forget <name>   # remove workspace
-jj workspace list            # list workspaces
-```
+- Always merge inbound peer PRs *before* broadcasting your own.
+- Rebase, never merge-commit — history stays linear across peers.
+- If you can't make the tree clean, **halt** and write `.syncgit/last-halt.md`. Do not force-push, do not `--no-verify`, do not skip `syncgit verify`.
+- Check peer state with `syncgit status` before starting non-trivial work so you don't duplicate a sibling's effort.
+- Your peer identity is the worktree directory name; treat sibling worktrees as independent collaborators, not as backups.
 
 ## Terminology
 
