@@ -32,6 +32,12 @@ pub fn Welcome(mut state: Signal<AppState>) -> Element {
                     placeholder: "What should we call you?",
                     value: "{name}",
                     oninput: move |e| *name.write() = e.value(),
+                    onkeydown: move |e| {
+                        if e.key() == Key::Enter && !name.read().trim().is_empty() {
+                            state.write().display_name = name.read().trim().to_string();
+                            state.write().step = AppStep::Creating;
+                        }
+                    },
                 }
 
                 button {
