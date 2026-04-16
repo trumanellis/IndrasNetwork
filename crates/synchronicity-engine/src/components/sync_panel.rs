@@ -19,14 +19,14 @@ use super::SyncStageView;
 /// snapshot of its working-tree index (as `PatchFile`s).
 pub type SyncPanelRow = (LogicalAgentId, Vec<PatchFile>);
 
-/// Sync panel container. Renders one [`SyncStageView`] per row. Empty
-/// state renders "No agents bound" so the panel is still rendered when
-/// a device hosts no team agents (common on read-only devices).
+/// Sync panel content. Renders one [`SyncStageView`] per row; shows an
+/// empty state when no agents are bound on this device (common on
+/// read-only devices). Meant to be composed inside an overlay or column
+/// layout — it renders only the inner content, not a header or chrome.
 #[component]
 pub fn SyncPanel(rows: Vec<SyncPanelRow>) -> Element {
     rsx! {
         div { class: "sync-panel",
-            div { class: "sync-panel-header", "Sync" }
             if rows.is_empty() {
                 div { class: "sync-panel-empty", "No agents bound on this device" }
             } else {
@@ -41,37 +41,46 @@ pub fn SyncPanel(rows: Vec<SyncPanelRow>) -> Element {
 }
 
 /// Modal overlay wrapping [`SyncPanel`]. Gated by `AppState::show_sync`.
-/// Click the backdrop or the close button to dismiss. Until the commit
-/// flow lands (subtask 1.3), rows is always empty and the panel shows
-/// its "No agents bound" state.
+/// Mirrors the profile overlay class pattern (`file-modal-overlay` +
+/// `file-modal` + `relay-eyebrow` / `relay-title` + `file-modal-close`)
+/// so the sync modal inherits the global nocturnal dashboard styling
+/// without a bespoke card definition.
 #[component]
 pub fn SyncOverlay(mut state: Signal<AppState>) -> Element {
     if !state.read().show_sync {
         return rsx! {};
     }
     let rows: Vec<SyncPanelRow> = Vec::new();
+    let close = move |_| {
+        state.write().show_sync = false;
+    };
 
     rsx! {
         div {
-            class: "sync-overlay-backdrop",
-            onclick: move |_| {
-                state.write().show_sync = false;
+            class: "file-modal-overlay",
+            onclick: close,
+            onkeydown: move |e: KeyboardEvent| {
+                if e.key() == Key::Escape {
+                    state.write().show_sync = false;
+                }
             },
             div {
-                class: "sync-overlay-card",
+                class: "file-modal sync-modal",
                 onclick: move |e| e.stop_propagation(),
-                div { class: "sync-overlay-header",
-                    span { class: "sync-overlay-title", "Sync" }
+                div { class: "file-modal-header",
+                    div { class: "relay-header-titles",
+                        div { class: "relay-eyebrow", "TEAM" }
+                        div { class: "relay-title", "Sync" }
+                    }
                     button {
-                        class: "sync-overlay-close",
-                        title: "Close",
-                        onclick: move |_| {
-                            state.write().show_sync = false;
-                        },
+                        class: "file-modal-close",
+                        onclick: close,
                         "\u{00D7}"
                     }
                 }
-                SyncPanel { rows }
+                div { class: "file-modal-content relay-body",
+                    SyncPanel { rows }
+                }
             }
         }
     }

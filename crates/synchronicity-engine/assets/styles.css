@@ -2853,3 +2853,138 @@ body > * {
   border-color: #d65a5a;
   color: #e88a8a;
 }
+
+/* ============================================================
+   SYNC PANEL — team working-tree overview modal
+   ============================================================ */
+
+/* Column-header sync button (mirrors .column-header-folder shape). */
+.column-header-sync {
+  background: none;
+  border: none;
+  font-size: 11px;
+  line-height: 1;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+.column-header-sync:hover {
+  background: var(--bg3, rgba(255, 255, 255, 0.08));
+  opacity: 1;
+}
+
+/* Modal-specific width override so the team overview gets comfortable
+   room for the agent rows (other overlays keep the default width). */
+.sync-modal {
+  width: min(680px, 92vw);
+}
+
+/* Panel content inside the modal body. */
+.sync-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.sync-panel-empty {
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  font-weight: 300;
+  color: var(--t2);
+  padding: 32px 16px;
+  text-align: center;
+  border: 1px dashed var(--bd);
+  border-radius: 12px;
+  background: var(--bg2);
+}
+.sync-panel-agents {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* One agent's stage view — the card for a single bound folder. */
+.sync-stage-view {
+  background: var(--bg2);
+  border: 1px solid var(--bd);
+  border-radius: 12px;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.sync-stage-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--bd2);
+  padding-bottom: 8px;
+}
+.sync-stage-agent {
+  font-family: 'Inter', sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--t1);
+}
+.sync-stage-count {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--t3);
+}
+.sync-stage-empty {
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--t3);
+  padding: 8px 0;
+}
+.sync-stage-items {
+  display: flex;
+  flex-direction: column;
+}
+.sync-stage-item {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 16px;
+  align-items: baseline;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--bd2);
+}
+.sync-stage-item:last-child {
+  border-bottom: none;
+}
+.sync-stage-path {
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--t1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sync-stage-hash {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--t3);
+}
+.sync-stage-size {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--t2);
+  min-width: 56px;
+  text-align: right;
+}
