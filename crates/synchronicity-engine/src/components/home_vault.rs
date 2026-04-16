@@ -147,10 +147,12 @@ pub fn HomeVault(
                     }
                 }
 
-                // Enrich peer names from each peer's mirrored profile in the
-                // shared DM realm. The contacts CRDT only carries names that
-                // were captured at invite time; the mirror carries the peer's
-                // current grant-visible display_name and stays fresh.
+                // Enrich each peer with their mirrored display_name and a
+                // locally-derived online flag. Display name comes from the
+                // peer's `ProfileIdentityDocument` slot in the shared DM
+                // realm; online comes from `Realm::is_member_online`, which
+                // reflects current gossip visibility. Neither requires the
+                // peer to publish anything beyond the existing mirror.
                 {
                     let conversation_ids = net.conversation_realms();
                     let current = peers.read().clone();
@@ -162,16 +164,23 @@ pub fn HomeVault(
                             .find(|rid| net.dm_peer_for_realm(rid) == Some(peer.member_id))
                         else { continue };
                         let realm_bytes = *realm_iface.as_bytes();
-                        let fields = crate::profile_bridge::load_peer_profile_from_dm(
+
+                        if let Some(profile) = crate::profile_bridge::load_peer_profile_from_dm(
                             &net, peer.member_id, realm_bytes,
-                        ).await;
-                        if let Some(name_field) = fields.iter().find(|f| f.name == "display_name") {
-                            let v = name_field.value.trim();
+                        ).await {
+                            let v = profile.display_name.trim();
                             if !v.is_empty() && peer.name != v {
                                 peer.name = v.to_string();
                                 peer.letter = v.chars().next().unwrap_or('?').to_string();
                                 changed = true;
                             }
+                        }
+
+                        let peer_mid = peer.member_id;
+                        let online = net.is_peer_connected(&peer_mid).await;
+                        if peer.online != online {
+                            peer.online = online;
+                            changed = true;
                         }
                     }
                     if changed {

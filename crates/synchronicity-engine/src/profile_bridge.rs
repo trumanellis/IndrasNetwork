@@ -13,7 +13,7 @@ use indras_artifacts::{AccessGrant, AccessMode, ArtifactId, ArtifactStatus};
 use indras_homepage::{fields, profile_field_artifact_id};
 use indras_network::IndrasNetwork;
 use indras_network::artifact_index::HomeArtifactEntry;
-use indras_sync_engine::{HomepageField, HomepageProfileDocument, ProfileIdentityDocument};
+use indras_sync_engine::ProfileIdentityDocument;
 
 use crate::profile_mirror::peer_profile_doc_key;
 
@@ -328,23 +328,26 @@ pub async fn set_field_private(network: &Arc<IndrasNetwork>, field_name: &str) {
     write_grants(&index, aid, Vec::new()).await;
 }
 
-/// Load a peer's mirrored profile fields from a shared DM realm.
+/// Load a peer's mirrored identity from a shared DM realm.
 ///
-/// Returns the fields the peer has chosen to publish into this realm. An
-/// empty vec means either no mirror has been published yet, or the peer
-/// hasn't granted us any visible fields. Caller is responsible for the
-/// "no info shared yet" empty-state.
+/// Returns `None` if the peer hasn't published a mirror into this realm
+/// yet. The returned doc may have empty fields where the peer hasn't
+/// granted us visibility — the caller treats empty strings / `bio == None`
+/// as "not shared."
 pub async fn load_peer_profile_from_dm(
     network: &Arc<IndrasNetwork>,
     peer_id: [u8; 32],
     dm_realm_id: [u8; 32],
-) -> Vec<HomepageField> {
+) -> Option<ProfileIdentityDocument> {
     let realm_id = indras_network::RealmId::new(dm_realm_id);
-    let Some(realm) = network.get_realm_by_id(&realm_id) else { return Vec::new() };
+    let realm = network.get_realm_by_id(&realm_id)?;
     let key = peer_profile_doc_key(&peer_id);
-    match realm.document::<HomepageProfileDocument>(&key).await {
-        Ok(doc) => doc.read().await.fields.clone(),
-        Err(_) => Vec::new(),
+    let doc = realm.document::<ProfileIdentityDocument>(&key).await.ok()?;
+    let snap = doc.read().await.clone();
+    if snap.updated_at == 0 {
+        None
+    } else {
+        Some(snap)
     }
 }
 

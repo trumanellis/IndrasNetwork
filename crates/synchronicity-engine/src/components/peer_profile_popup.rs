@@ -1,23 +1,29 @@
 //! Peer profile popup — read-only view of a connection's shared profile.
 //!
-//! Reads fields the peer has mirrored into the shared DM realm. Only fields
-//! the peer has granted us access to ever reach this view (grant filtering
-//! happens at write time in `profile_mirror.rs`).
+//! Reads the typed `ProfileIdentityDocument` the peer mirrored into the
+//! shared DM realm. Empty fields mean "not granted to me" or "not set."
+//! Online + verified-contact indicators are derived locally on this side
+//! (`Realm::is_member_online`, `ContactsRealm::get_status`) — they don't
+//! cross the wire.
 
 use std::sync::Arc;
 
 use dioxus::prelude::*;
 use indras_network::IndrasNetwork;
-use indras_sync_engine::HomepageField;
+use indras_sync_engine::ProfileIdentityDocument;
 
-use crate::profile_bridge::{field_label, load_peer_profile_from_dm};
+use crate::profile_bridge::load_peer_profile_from_dm;
 use crate::state::{AppState, PeerDisplayInfo};
 
+/// Loaded popup state — rolled into one signal so the render is one read.
+#[derive(Clone, Default)]
+struct PopupSnapshot {
+    loading: bool,
+    profile: Option<ProfileIdentityDocument>,
+    online: bool,
+}
+
 /// Overlay showing the peer's shared profile fields.
-///
-/// Resolves the peer's display info from the `peers` list for the avatar /
-/// header, then loads the mirrored profile doc from the DM realm. Empty
-/// mirror → renders a muted "No profile info shared yet" line.
 #[component]
 pub fn PeerProfilePopup(
     mut state: Signal<AppState>,
@@ -27,44 +33,52 @@ pub fn PeerProfilePopup(
     let target = state.read().profile_popup_target;
     let Some((peer_id, realm_id)) = target else { return rsx! {} };
 
-    let peer_info = peers
-        .read()
-        .iter()
-        .find(|p| p.member_id == peer_id)
-        .cloned();
-    let display_name = peer_info
-        .as_ref()
-        .map(|p| p.name.clone())
-        .unwrap_or_else(|| hex_prefix(&peer_id));
+    let peer_info = peers.read().iter().find(|p| p.member_id == peer_id).cloned();
     let avatar_letter = peer_info
         .as_ref()
         .map(|p| p.letter.clone())
-        .unwrap_or_else(|| display_name.chars().next().unwrap_or('?').to_string());
+        .unwrap_or_else(|| "?".to_string());
     let avatar_color = peer_info
         .as_ref()
         .map(|p| p.color_class.clone())
         .unwrap_or_else(|| "peer-dot-sage".to_string());
+    let header_name = peer_info
+        .as_ref()
+        .map(|p| p.name.clone())
+        .unwrap_or_else(|| hex_prefix(&peer_id));
 
-    // Local state for the loaded mirror fields.
-    let mut loaded = use_signal(Vec::<HomepageField>::new);
-    let mut loading = use_signal(|| true);
+    let mut snapshot = use_signal(|| PopupSnapshot {
+        loading: true,
+        ..Default::default()
+    });
 
-    // Re-load whenever the popup target changes.
     use_effect(use_reactive!(|(peer_id, realm_id)| {
         let net = network.read().clone();
         spawn(async move {
-            loading.set(true);
-            let fields = match net {
-                Some(n) => load_peer_profile_from_dm(&n, peer_id, realm_id).await,
-                None => Vec::new(),
+            snapshot.set(PopupSnapshot { loading: true, ..Default::default() });
+            let Some(net) = net else {
+                snapshot.set(PopupSnapshot::default());
+                return;
             };
-            loaded.set(fields);
-            loading.set(false);
+
+            let profile = load_peer_profile_from_dm(&net, peer_id, realm_id).await;
+
+            // Online: real transport connection state, not sticky gossip
+            // membership.
+            let _ = realm_id; // realm scoping no longer needed for online check
+            let online = net.is_peer_connected(&peer_id).await;
+
+            snapshot.set(PopupSnapshot {
+                loading: false,
+                profile,
+                online,
+            });
         });
     }));
 
-    let fields_snapshot = loaded.read().clone();
-    let is_loading = *loading.read();
+    let snap = snapshot.read().clone();
+    let online_class = if snap.online { "peer-status-online" } else { "peer-status-offline" };
+    let online_label = if snap.online { "Online" } else { "Offline" };
 
     rsx! {
         div {
@@ -79,8 +93,11 @@ pub fn PeerProfilePopup(
 
                 div { class: "contact-invite-header",
                     div { class: "peer-profile-header-identity",
-                        div { class: "profile-avatar {avatar_color}", "{avatar_letter}" }
-                        h2 { "{display_name}" }
+                        div { class: "profile-avatar {avatar_color}",
+                            "{avatar_letter}"
+                            span { class: "peer-status-dot {online_class}", title: "{online_label}" }
+                        }
+                        h2 { "{header_name}" }
                     }
                     button {
                         class: "contact-invite-close",
@@ -91,22 +108,60 @@ pub fn PeerProfilePopup(
                 }
 
                 div { class: "contact-invite-content peer-profile-content",
-                    if is_loading {
+                    if snap.loading {
                         div { class: "peer-profile-empty", "Loading\u{2026}" }
-                    } else if fields_snapshot.is_empty() {
-                        div { class: "peer-profile-empty", "No profile info shared yet." }
                     } else {
-                        for field in fields_snapshot.iter() {
-                            {
-                                let label = field_label(&field.name);
-                                let value = field.value.clone();
-                                if value.is_empty() {
-                                    rsx! {}
-                                } else {
+                        {
+                            let badges = rsx! {
+                                div { class: "peer-profile-badges",
+                                    span { class: "peer-profile-badge {online_class}", "{online_label}" }
+                                }
+                            };
+                            match snap.profile {
+                                None => rsx! {
+                                    {badges}
+                                    div { class: "peer-profile-empty", "No profile info shared yet." }
+                                },
+                                Some(p) => {
+                                    let display = p.display_name.clone();
+                                    let username = p.username.clone();
+                                    let bio_text = p.bio.clone().unwrap_or_default();
+                                    let public_key = p.public_key.clone();
+                                    let nothing_visible = display.is_empty()
+                                        && username.is_empty()
+                                        && bio_text.is_empty()
+                                        && public_key.is_empty();
                                     rsx! {
-                                        div { class: "peer-profile-field",
-                                            div { class: "peer-profile-field-label", "{label}" }
-                                            div { class: "peer-profile-field-value", "{value}" }
+                                        {badges}
+                                        if nothing_visible {
+                                            div { class: "peer-profile-empty",
+                                                "Connection has shared no profile fields with you."
+                                            }
+                                        } else {
+                                            if !display.is_empty() {
+                                                div { class: "peer-profile-field",
+                                                    div { class: "peer-profile-field-label", "Display Name" }
+                                                    div { class: "peer-profile-field-value", "{display}" }
+                                                }
+                                            }
+                                            if !username.is_empty() {
+                                                div { class: "peer-profile-field",
+                                                    div { class: "peer-profile-field-label", "Username" }
+                                                    div { class: "peer-profile-field-value", "{username}" }
+                                                }
+                                            }
+                                            if !bio_text.is_empty() {
+                                                div { class: "peer-profile-field",
+                                                    div { class: "peer-profile-field-label", "Bio" }
+                                                    div { class: "peer-profile-field-value", "{bio_text}" }
+                                                }
+                                            }
+                                            if !public_key.is_empty() {
+                                                div { class: "peer-profile-field",
+                                                    div { class: "peer-profile-field-label", "Public Key" }
+                                                    div { class: "peer-profile-field-value", "{public_key}" }
+                                                }
+                                            }
                                         }
                                     }
                                 }

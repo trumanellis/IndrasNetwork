@@ -918,6 +918,39 @@ body > * {
   font-style: italic;
 }
 
+/* Online dot overlay on the popup avatar */
+.peer-status-dot {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  bottom: -2px;
+  right: -2px;
+  border: 2px solid var(--bg, #0b0b0d);
+}
+.profile-avatar { position: relative; }
+.peer-status-dot.peer-status-online { background: #6fcf97; }
+.peer-status-dot.peer-status-offline { background: #555; }
+
+/* Status + verified badges below the popup header */
+.peer-profile-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.peer-profile-badge {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--bd, rgba(255, 255, 255, 0.1));
+  color: var(--t2);
+}
+.peer-profile-badge.peer-status-online { color: #6fcf97; border-color: #6fcf97; }
+.peer-profile-badge.peer-status-offline { color: var(--dim); }
+
 /* ============================================================
    FILE MODAL — popup overlay
    ============================================================ */

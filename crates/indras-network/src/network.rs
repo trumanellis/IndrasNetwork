@@ -2369,6 +2369,26 @@ impl IndrasNetwork {
         self.peers_rx.borrow().clone()
     }
 
+    /// Whether we currently have an active transport connection to `peer_id`.
+    ///
+    /// Distinct from `Realm::is_member_online`, which reports gossip-layer
+    /// membership (sticky — stays true after the peer goes offline).
+    /// This reflects actual QUIC connection state, so it flips false when
+    /// the peer disconnects.
+    pub async fn is_peer_connected(&self, peer_id: &MemberId) -> bool {
+        let Some(transport) = self.inner.transport().await else { return false };
+        transport
+            .connection_manager()
+            .connected_peers()
+            .iter()
+            .any(|id| {
+                let id_bytes = id.as_bytes();
+                let mut bytes = [0u8; 32];
+                bytes.copy_from_slice(&id_bytes[..32.min(id_bytes.len())]);
+                &bytes == peer_id
+            })
+    }
+
     /// Reactive watcher for peer list changes.
     pub fn watch_peers(&self) -> watch::Receiver<Vec<PeerInfo>> {
         self.peers_rx.clone()
