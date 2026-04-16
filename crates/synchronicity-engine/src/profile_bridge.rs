@@ -13,7 +13,7 @@ use indras_artifacts::{AccessGrant, AccessMode, ArtifactId, ArtifactStatus};
 use indras_homepage::{fields, profile_field_artifact_id};
 use indras_network::IndrasNetwork;
 use indras_network::artifact_index::HomeArtifactEntry;
-use indras_sync_engine::ProfileIdentityDocument;
+use indras_sync_engine::{HomepageProfileDocument, ProfileIdentityDocument};
 
 use crate::profile_mirror::peer_profile_doc_key;
 
