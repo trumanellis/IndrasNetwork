@@ -21,7 +21,9 @@ mod create_realm;
 mod relay_settings;
 mod profile_modal;
 mod peer_profile_popup;
+mod sync_panel;
 mod sync_stage_view;
 
 pub use app::App;
+pub use sync_panel::{SyncPanel, SyncPanelRow};
 pub use sync_stage_view::SyncStageView;
