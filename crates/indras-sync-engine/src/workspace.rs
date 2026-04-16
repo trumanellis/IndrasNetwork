@@ -17,9 +17,12 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use indras_storage::{BlobStore, ContentRef, StorageError};
-use tokio::sync::RwLock;
+use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use tokio::sync::{mpsc, RwLock};
+use tokio::task::JoinHandle;
 
 use crate::braid::PatchFile;
 
@@ -140,6 +143,148 @@ impl LocalWorkspaceIndex {
         out.sort_by(|a, b| a.path.cmp(&b.path));
         out
     }
+
+    /// Walk `root` recursively, ingesting every regular file's current
+    /// bytes into the index. Returns the count of files ingested.
+    ///
+    /// Call once on startup (or when a folder is newly bound) before
+    /// spawning the fs-watcher, so the index reflects the on-disk state
+    /// an agent may have pre-existing.
+    pub async fn initial_scan(&self) -> std::io::Result<usize> {
+        let mut count = 0;
+        let mut stack = vec![self.root.clone()];
+        while let Some(dir) = stack.pop() {
+            let mut entries = match tokio::fs::read_dir(&dir).await {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+            while let Some(entry) = entries.next_entry().await? {
+                let path = entry.path();
+                let ft = entry.file_type().await?;
+                if ft.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                if !ft.is_file() {
+                    continue;
+                }
+                let rel = match path.strip_prefix(&self.root) {
+                    Ok(r) => r.to_string_lossy().replace('\\', "/"),
+                    Err(_) => continue,
+                };
+                match tokio::fs::read(&path).await {
+                    Ok(bytes) => {
+                        if self.ingest_bytes(rel, &bytes).await.is_ok() {
+                            count += 1;
+                        }
+                    }
+                    Err(e) => {
+                        tracing::debug!(path = %path.display(), error = %e, "skip during initial_scan");
+                    }
+                }
+            }
+        }
+        Ok(count)
+    }
+}
+
+/// Debounce window between receiving the first fs event and draining
+/// the queue before re-ingesting files.
+const WATCH_DEBOUNCE_MS: u64 = 100;
+
+/// fs-watcher that keeps a [`LocalWorkspaceIndex`] in sync with an
+/// on-disk agent folder. The watcher drives the index only — no CRDT
+/// sync, no blob broadcast beyond the local blob store.
+///
+/// Drop the returned `WorkspaceWatcher` to stop watching; the
+/// background task aborts via `JoinHandle`.
+pub struct WorkspaceWatcher {
+    /// Held so the watcher keeps running; dropping it tears down the OS
+    /// listener.
+    _watcher: RecommendedWatcher,
+    handle: JoinHandle<()>,
+}
+
+impl WorkspaceWatcher {
+    /// Start watching `index.root()` recursively. Events modify `index`.
+    ///
+    /// Caller is responsible for a prior `index.initial_scan().await` if
+    /// the folder may already contain files.
+    pub fn start(index: Arc<LocalWorkspaceIndex>) -> Result<Self, notify::Error> {
+        // Canonicalize so events (e.g. FSEvents' `/private/tmp/...`)
+        // strip-prefix cleanly in the event loop.
+        let root = std::fs::canonicalize(index.root())
+            .unwrap_or_else(|_| index.root().to_path_buf());
+
+        let (tx, rx) = mpsc::channel::<Event>(512);
+        let tx_clone = tx.clone();
+        let mut watcher = notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
+            if let Ok(event) = res {
+                let _ = tx_clone.blocking_send(event);
+            }
+        })?;
+        watcher.watch(&root, RecursiveMode::Recursive)?;
+
+        let handle = tokio::spawn(event_loop(rx, root, Arc::clone(&index)));
+        Ok(Self {
+            _watcher: watcher,
+            handle,
+        })
+    }
+
+    /// Abort the background task immediately. Equivalent to dropping.
+    pub fn abort(self) {
+        self.handle.abort();
+    }
+}
+
+async fn event_loop(
+    mut rx: mpsc::Receiver<Event>,
+    root: PathBuf,
+    index: Arc<LocalWorkspaceIndex>,
+) {
+    while let Some(event) = rx.recv().await {
+        // Debounce: brief pause, then drain additional events that
+        // piled up during the pause so they all process in one batch.
+        tokio::time::sleep(Duration::from_millis(WATCH_DEBOUNCE_MS)).await;
+        let mut events = vec![event];
+        while let Ok(e) = rx.try_recv() {
+            events.push(e);
+        }
+        for ev in events {
+            handle_event(&ev, &root, &index).await;
+        }
+    }
+}
+
+async fn handle_event(event: &Event, root: &Path, index: &LocalWorkspaceIndex) {
+    for path in &event.paths {
+        let rel = match path.strip_prefix(root) {
+            Ok(r) => r.to_string_lossy().replace('\\', "/"),
+            Err(_) => continue,
+        };
+        if rel.is_empty() {
+            continue;
+        }
+        match event.kind {
+            EventKind::Remove(_) => {
+                index.forget(&rel).await;
+            }
+            _ => match tokio::fs::read(path).await {
+                Ok(bytes) => {
+                    if let Err(e) = index.ingest_bytes(rel.clone(), &bytes).await {
+                        tracing::debug!(path = %rel, error = %e, "ingest failed in watcher");
+                    }
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    index.forget(&rel).await;
+                }
+                Err(e) => {
+                    tracing::debug!(path = %rel, error = %e, "read failed in watcher");
+                }
+            },
+        }
+    }
 }
 
 #[cfg(test)]
@@ -222,5 +367,85 @@ mod tests {
         let all = idx.snapshot_all().await;
         let paths: Vec<&str> = all.iter().map(|p| p.path.as_str()).collect();
         assert_eq!(paths, vec!["a.md", "m.md", "z.md"]);
+    }
+
+    #[tokio::test]
+    async fn initial_scan_ingests_existing_files() {
+        let (_tmp_blob, blob) = tmp_blob_store().await;
+        let root_tmp = TempDir::new().unwrap();
+        let root = root_tmp.path().to_path_buf();
+        tokio::fs::create_dir_all(root.join("sub")).await.unwrap();
+        tokio::fs::write(root.join("top.md"), b"top contents")
+            .await
+            .unwrap();
+        tokio::fs::write(root.join("sub/nested.md"), b"nested")
+            .await
+            .unwrap();
+
+        let idx = LocalWorkspaceIndex::new(root, blob);
+        let count = idx.initial_scan().await.unwrap();
+        assert_eq!(count, 2);
+        assert_eq!(idx.get("top.md").await.unwrap().size, 12);
+        assert_eq!(idx.get("sub/nested.md").await.unwrap().size, 6);
+    }
+
+    #[tokio::test]
+    async fn watcher_picks_up_new_file() {
+        let (_tmp_blob, blob) = tmp_blob_store().await;
+        let root_tmp = TempDir::new().unwrap();
+        let root = root_tmp.path().to_path_buf();
+
+        let idx = Arc::new(LocalWorkspaceIndex::new(root.clone(), blob));
+        let _watcher = WorkspaceWatcher::start(Arc::clone(&idx)).expect("watcher start");
+
+        // Allow the watcher's OS listener to settle before the write.
+        tokio::time::sleep(Duration::from_millis(150)).await;
+
+        tokio::fs::write(root.join("new.md"), b"fresh bytes")
+            .await
+            .unwrap();
+
+        // Poll for up to 5s; fs events on macOS can take a moment.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        let mut seen = false;
+        while tokio::time::Instant::now() < deadline {
+            if let Some(entry) = idx.get("new.md").await {
+                assert_eq!(entry.size, 11);
+                seen = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        assert!(seen, "watcher must index new.md within 5s");
+    }
+
+    #[tokio::test]
+    async fn watcher_picks_up_deletion() {
+        let (_tmp_blob, blob) = tmp_blob_store().await;
+        let root_tmp = TempDir::new().unwrap();
+        let root = root_tmp.path().to_path_buf();
+        tokio::fs::write(root.join("doomed.md"), b"goodbye")
+            .await
+            .unwrap();
+
+        let idx = Arc::new(LocalWorkspaceIndex::new(root.clone(), blob));
+        idx.initial_scan().await.unwrap();
+        assert!(idx.get("doomed.md").await.is_some());
+
+        let _watcher = WorkspaceWatcher::start(Arc::clone(&idx)).expect("watcher start");
+        tokio::time::sleep(Duration::from_millis(150)).await;
+
+        tokio::fs::remove_file(root.join("doomed.md")).await.unwrap();
+
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        let mut gone = false;
+        while tokio::time::Instant::now() < deadline {
+            if idx.get("doomed.md").await.is_none() {
+                gone = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        assert!(gone, "watcher must forget doomed.md within 5s");
     }
 }
