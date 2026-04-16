@@ -70,6 +70,9 @@ pub mod vault;
 // Team types embedded in synced-vault documents
 pub mod team;
 
+// Device-local working-tree index (never synced via CRDT).
+pub mod workspace;
+
 // Braided VCS submodule (rides on top of the vault)
 pub mod braid;
 
