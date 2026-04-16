@@ -7,7 +7,7 @@
 use serde::{Deserialize, Serialize};
 
 /// A single homepage profile field with grant visibility info.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HomepageField {
     /// Field name (one of the `indras_homepage::fields` constants).
     pub name: String,

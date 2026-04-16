@@ -5,6 +5,7 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 use indras_network::IndrasNetwork;
 
+use crate::profile_bridge::{self, FieldVisibility, ALL_FIELDS};
 use crate::state::{AppState, AppStep, default_data_dir, PEER_COLORS};
 
 /// Truncate a hex string to `head…tail` form for display.
@@ -52,6 +53,39 @@ pub fn ProfileOverlay(
     let device_count = state.read().device_count;
     let has_story = !state.read().pass_story_slots.is_empty();
 
+    // Bio + per-field visibility come from the home-realm CRDT documents.
+    // Loaded once per modal mount (component unmounts when show_profile=false).
+    let mut bio_draft = use_signal(String::new);
+    let mut visibilities: Signal<Vec<(&'static str, FieldVisibility)>> =
+        use_signal(|| ALL_FIELDS.iter().map(|f| (*f, FieldVisibility::Private)).collect());
+
+    let mut loaded = use_signal(|| false);
+    use_effect(move || {
+        if *loaded.read() {
+            return;
+        }
+        let Some(net) = network.read().clone() else {
+            return;
+        };
+        loaded.set(true);
+        spawn(async move {
+            if let Some(p) = profile_bridge::load_profile_identity(&net).await {
+                bio_draft.set(p.bio.unwrap_or_default());
+            }
+            let v = profile_bridge::list_field_visibilities(&net).await;
+            visibilities.set(v);
+        });
+    });
+
+    let refresh_visibilities = move || {
+        if let Some(net) = network.read().clone() {
+            spawn(async move {
+                let v = profile_bridge::list_field_visibilities(&net).await;
+                visibilities.set(v);
+            });
+        }
+    };
+
     let close = move |_| {
         state.write().show_profile = false;
     };
@@ -94,22 +128,50 @@ pub fn ProfileOverlay(
                             r#type: "text",
                             value: "{draft}",
                             placeholder: "Your name",
+                            autofocus: true,
                             oninput: move |e| draft.set(e.value()),
                             onblur: move |_| {
                                 let trimmed = draft.read().trim().to_string();
                                 if !trimmed.is_empty() {
-                                    state.write().display_name = trimmed;
+                                    state.write().display_name = trimmed.clone();
+                                    if let Some(net) = network.read().clone() {
+                                        spawn(async move {
+                                            crate::profile_bridge::save_display_name(&net, trimmed).await;
+                                        });
+                                    }
                                 }
                             },
                             onkeydown: move |e: KeyboardEvent| {
                                 if e.key() == Key::Enter {
                                     let trimmed = draft.read().trim().to_string();
                                     if !trimmed.is_empty() {
-                                        state.write().display_name = trimmed;
+                                        state.write().display_name = trimmed.clone();
+                                        if let Some(net) = network.read().clone() {
+                                            spawn(async move {
+                                                crate::profile_bridge::save_display_name(&net, trimmed).await;
+                                            });
+                                        }
                                     }
                                 }
                             },
                         }
+                    }
+
+                    // Bio — inline-edit textarea (no panel wrapper so the edit surface is always obvious).
+                    textarea {
+                        class: "profile-bio-input",
+                        placeholder: "A few words about you\u{2026}",
+                        value: "{bio_draft}",
+                        rows: "3",
+                        oninput: move |e| bio_draft.set(e.value()),
+                        onblur: move |_| {
+                            let text = bio_draft.read().clone();
+                            if let Some(net) = network.read().clone() {
+                                spawn(async move {
+                                    profile_bridge::save_bio(&net, text).await;
+                                });
+                            }
+                        },
                     }
 
                     // Member ID
@@ -158,6 +220,62 @@ pub fn ProfileOverlay(
                             div { class: "relay-row",
                                 span { class: "relay-row-label", "CONNECTED" }
                                 span { class: "relay-row-value", "{device_count}" }
+                            }
+                        }
+                    }
+
+                    // Visibility — per-field grant controls
+                    div { class: "relay-panel",
+                        div { class: "relay-panel-header", "VISIBILITY" }
+                        div { class: "relay-panel-body",
+                            for (field_name, vis) in visibilities.read().iter().copied().collect::<Vec<_>>() {
+                                div { class: "profile-vis-row",
+                                    span { class: "profile-vis-label", "{profile_bridge::field_label(field_name)}" }
+                                    div { class: "profile-vis-toggle",
+                                        button {
+                                            class: if vis == FieldVisibility::Public { "profile-vis-btn active" } else { "profile-vis-btn" },
+                                            onclick: move |_| {
+                                                if let Some(net) = network.read().clone() {
+                                                    let f = field_name;
+                                                    let mut refresh = refresh_visibilities;
+                                                    spawn(async move {
+                                                        profile_bridge::set_field_public(&net, f).await;
+                                                        refresh();
+                                                    });
+                                                }
+                                            },
+                                            "Public"
+                                        }
+                                        button {
+                                            class: if vis == FieldVisibility::ConnectionsOnly { "profile-vis-btn active" } else { "profile-vis-btn" },
+                                            onclick: move |_| {
+                                                if let Some(net) = network.read().clone() {
+                                                    let f = field_name;
+                                                    let mut refresh = refresh_visibilities;
+                                                    spawn(async move {
+                                                        profile_bridge::set_field_connections_only(&net, f).await;
+                                                        refresh();
+                                                    });
+                                                }
+                                            },
+                                            "Contacts"
+                                        }
+                                        button {
+                                            class: if vis == FieldVisibility::Private { "profile-vis-btn active" } else { "profile-vis-btn" },
+                                            onclick: move |_| {
+                                                if let Some(net) = network.read().clone() {
+                                                    let f = field_name;
+                                                    let mut refresh = refresh_visibilities;
+                                                    spawn(async move {
+                                                        profile_bridge::set_field_private(&net, f).await;
+                                                        refresh();
+                                                    });
+                                                }
+                                            },
+                                            "Private"
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

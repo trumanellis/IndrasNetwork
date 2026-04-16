@@ -8016,8 +8016,10 @@ version = "1.0.0"
 dependencies = [
  "chrono",
  "dioxus",
+ "indras-artifacts",
  "indras-crypto",
  "indras-genesis",
+ "indras-homepage",
  "indras-network",
  "indras-relay",
  "indras-storage",

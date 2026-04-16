@@ -8,6 +8,8 @@
 pub mod admin_client;
 pub mod components;
 pub mod config;
+pub mod profile_bridge;
+pub mod profile_server;
 pub mod state;
 pub mod vault_bridge;
 pub mod vault_manager;

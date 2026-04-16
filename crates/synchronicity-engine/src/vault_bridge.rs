@@ -131,6 +131,12 @@ pub async fn create_account(
         tracing::warn!("Failed to join contacts realm: {e}");
     }
 
+    // Seed the ProfileIdentityDocument so this display name persists and syncs
+    // to other devices. Safe to call after `net.start()`.
+    crate::profile_bridge::save_display_name(&net, display_name.clone()).await;
+    crate::profile_bridge::ensure_profile_artifacts(&net).await;
+    let _homepage = crate::profile_server::start_homepage_server(&net, &data_dir).await;
+
     state.write().loading_stages = vec![
         LoadingStage::Done("Identity created".into()),
         LoadingStage::Done("Network connected".into()),
@@ -240,7 +246,15 @@ pub async fn restore_account(
             return;
         }
     };
-    let display_name = net.display_name().unwrap_or_default();
+    // Prefer the persisted ProfileIdentityDocument (which syncs across devices)
+    // over the network builder's local display name.
+    let display_name = match crate::profile_bridge::load_profile_identity(&net).await {
+        Some(p) if !p.display_name.is_empty() => p.display_name,
+        _ => net.display_name().unwrap_or_default(),
+    };
+    state.write().display_name = display_name.clone();
+    crate::profile_bridge::ensure_profile_artifacts(&net).await;
+    let _homepage = crate::profile_server::start_homepage_server(&net, &data_dir).await;
     let vault_path = vm.start_private_vault(&display_name).await;
     ensure_vault_ready(&vault_path);
     state.write().vault_path = vault_path;

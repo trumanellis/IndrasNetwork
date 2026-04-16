@@ -60,7 +60,17 @@ pub fn App() -> Element {
                         if let Err(e) = net.join_contacts_realm().await {
                             tracing::warn!("Failed to join contacts realm: {e}");
                         }
-                        let display_name = net.display_name().unwrap_or_default();
+                        // Prefer the synced ProfileIdentityDocument; fall back to
+                        // the local network builder's display name.
+                        let display_name = match crate::profile_bridge::load_profile_identity(&net).await {
+                            Some(p) if !p.display_name.is_empty() => p.display_name,
+                            _ => net.display_name().unwrap_or_default(),
+                        };
+                        if !display_name.is_empty() {
+                            state.write().display_name = display_name.clone();
+                        }
+                        crate::profile_bridge::ensure_profile_artifacts(&net).await;
+                        let _homepage = crate::profile_server::start_homepage_server(&net, &data_dir).await;
                         network.set(Some(net));
                         let data_dir = crate::state::default_data_dir();
                         match VaultManager::new(data_dir).await {

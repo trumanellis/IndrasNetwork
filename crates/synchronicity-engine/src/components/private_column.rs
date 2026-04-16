@@ -16,7 +16,7 @@ pub fn PrivateColumn(mut state: Signal<AppState>) -> Element {
     let header_label = if display_name.trim().is_empty() {
         "PRIVATE".to_string()
     } else {
-        display_name.to_uppercase()
+        display_name.clone()
     };
 
     rsx! {

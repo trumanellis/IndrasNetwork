@@ -2516,3 +2516,68 @@ body > * {
   color: #e88a8a;
   border-color: #d65a5a;
 }
+
+.profile-bio-input {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 72px;
+  margin: 0 0 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid #27272a;
+  border-radius: 6px;
+  outline: none;
+  color: #fafafa;
+  font-size: 13px;
+  line-height: 1.4;
+  font-family: inherit;
+  padding: 10px 12px;
+  resize: vertical;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.profile-bio-input::placeholder {
+  color: #52525b;
+}
+.profile-bio-input:focus {
+  border-color: #818cf8;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.profile-vis-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+}
+.profile-vis-label {
+  font-size: 12px;
+  color: var(--t2);
+  flex: 1 1 auto;
+}
+.profile-vis-toggle {
+  display: flex;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+.profile-vis-btn {
+  background: transparent;
+  border: 1px solid var(--t3, rgba(255, 255, 255, 0.15));
+  color: var(--t3);
+  font-size: 11px;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.profile-vis-btn:first-child { border-radius: 3px 0 0 3px; }
+.profile-vis-btn:last-child { border-radius: 0 3px 3px 0; }
+.profile-vis-btn + .profile-vis-btn { border-left: none; }
+.profile-vis-btn:hover {
+  color: var(--t1);
+  border-color: var(--t2);
+}
+.profile-vis-btn.active {
+  background: var(--t2, rgba(255, 255, 255, 0.12));
+  color: var(--t1);
+  border-color: var(--t2);
+}
