@@ -63,6 +63,7 @@ pub fn HomeVault(
     mut state: Signal<AppState>,
     network: Signal<Option<Arc<IndrasNetwork>>>,
     vault_manager: Signal<Option<Arc<VaultManager>>>,
+    workspace_handles: Signal<Vec<crate::team::WorkspaceHandle>>,
 ) -> Element {
     let mut peers = use_signal(Vec::<PeerDisplayInfo>::new);
     let mut contact_invite_open = use_signal(|| false);
@@ -439,7 +440,7 @@ pub fn HomeVault(
             // Profile overlay
             super::profile_modal::ProfileOverlay { state, network }
             // Sync overlay
-            super::sync_panel::SyncOverlay { state }
+            super::sync_panel::SyncOverlay { state, network, workspace_handles }
         }
     }
 }

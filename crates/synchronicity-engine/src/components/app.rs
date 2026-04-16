@@ -161,7 +161,7 @@ pub fn App() -> Element {
                 AppStep::Creating | AppStep::Restoring => {
                     rsx! { super::loading::Loading { state, network, vault_manager } }
                 },
-                AppStep::HomeVault => rsx! { super::home_vault::HomeVault { state, network, vault_manager } },
+                AppStep::HomeVault => rsx! { super::home_vault::HomeVault { state, network, vault_manager, workspace_handles } },
             }
         }
     }
