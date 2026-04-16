@@ -12,12 +12,16 @@
 //! Persistence (load/save of the registry) lives in a later subtask; this
 //! module defines only the in-memory types.
 
+use indras_network::IndrasNetwork;
+use indras_sync_engine::realm_team::RealmTeam;
+use indras_sync_engine::realm_vault::RealmVault;
 use indras_sync_engine::team::{LogicalAgentId, Team};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::state::default_data_dir;
+use crate::vault_manager::VaultManager;
 
 /// Filename within the data directory for persisted team bindings.
 const TEAM_BINDINGS_FILE: &str = "team_bindings.json";
@@ -143,6 +147,39 @@ impl DeviceTeamMembership {
     /// Whether the device hosts at least one agent for the team.
     pub fn is_participating(&self) -> bool {
         !self.hosted.is_empty()
+    }
+}
+
+/// Materialize the team realm for every currently-tracked synced vault on
+/// this device that has a declared team this device participates in.
+///
+/// Iterates the vault manager's known realms, reads each vault's
+/// [`Team`] from its vault-index document, and — if this device hosts
+/// at least one of the team's roster members — calls
+/// [`RealmTeam::ensure_team_realm`] to join (or create) the team realm.
+/// Vaults without a team, or where this device hosts no agent, are
+/// skipped silently. Errors are logged and do not abort the loop; a
+/// single bad vault must not prevent the others from materializing.
+pub async fn ensure_team_realms_for_hosted_vaults(
+    network: &IndrasNetwork,
+    vault_manager: &VaultManager,
+    registry: &TeamBindingRegistry,
+) {
+    for realm in vault_manager.realms().await {
+        let idx = match realm.vault_index().await {
+            Ok(idx) => idx,
+            Err(e) => {
+                tracing::debug!(error = %e, "vault_index fetch failed while ensuring team realms");
+                continue;
+            }
+        };
+        let team = idx.read().await.team.clone();
+        if !registry.membership_for(&team).is_participating() {
+            continue;
+        }
+        if let Err(e) = realm.ensure_team_realm(network, "team-realm").await {
+            tracing::warn!(error = %e, "ensure_team_realm failed for a hosted vault");
+        }
     }
 }
 

@@ -159,6 +159,20 @@ impl VaultManager {
         self.paths.read().await.get(realm_id).cloned()
     }
 
+    /// Snapshot of every realm this manager currently owns a vault for.
+    ///
+    /// Used to iterate vaults at startup for cross-cutting work like
+    /// materializing team realms. Clones the `Realm` handles; the
+    /// underlying realm state is still shared with `IndrasNetwork`.
+    pub async fn realms(&self) -> Vec<Realm> {
+        self.vaults
+            .read()
+            .await
+            .values()
+            .map(|v| v.realm().clone())
+            .collect()
+    }
+
     /// Resolve the final sanitized vault directory name for a realm,
     /// handling sanitization, empty fallback, and collision suffixing.
     async fn resolve_vault_name(

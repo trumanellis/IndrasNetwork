@@ -78,7 +78,19 @@ pub fn App() -> Element {
                                 let vault_path = vm.start_private_vault(&display_name).await;
                                 crate::vault_bridge::ensure_vault_ready(&vault_path);
                                 state.write().vault_path = vault_path;
-                                vault_manager.set(Some(Arc::new(vm)));
+                                let vm_arc = Arc::new(vm);
+                                // Materialize team realms for any hosted vaults
+                                // using the device-local team binding registry.
+                                let team_registry = crate::team::TeamBindingRegistry::load();
+                                if let Some(net) = network.read().as_ref() {
+                                    crate::team::ensure_team_realms_for_hosted_vaults(
+                                        net.as_ref(),
+                                        vm_arc.as_ref(),
+                                        &team_registry,
+                                    )
+                                    .await;
+                                }
+                                vault_manager.set(Some(vm_arc));
                             }
                             Err(e) => tracing::error!("Failed to start vault manager: {e}"),
                         }
