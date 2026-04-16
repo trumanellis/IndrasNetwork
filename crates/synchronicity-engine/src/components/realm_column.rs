@@ -2,24 +2,30 @@
 //!
 //! Each realm entry is a drop target for drag-to-share: dropping a file
 //! on a realm uploads the artifact and grants access to the realm's peer.
+//!
+//! For DM rows, each entry also renders an avatar that opens a peer profile
+//! popup, while clicking the name expands the shared file list.
 
 use std::sync::Arc;
 
 use dioxus::prelude::*;
 use indras_network::IndrasNetwork;
 
-use crate::state::{AppState, ContextMenu, DragPayload, ModalFile, RealmCategory};
+use crate::state::{AppState, ContextMenu, DragPayload, ModalFile, PeerDisplayInfo, RealmCategory};
 use crate::vault_manager::VaultManager;
 use super::file_item::FileItem;
 
 /// A column showing realms of a specific category with accordion file lists.
 ///
 /// Accepts a `network` signal for executing drag-to-share grants on drop.
+/// `peers` carries display info for connected peers so DM rows can render
+/// avatars and resolve peer ids on click.
 #[component]
 pub fn RealmColumn(
     mut state: Signal<AppState>,
     network: Signal<Option<Arc<IndrasNetwork>>>,
     vault_manager: Signal<Option<Arc<VaultManager>>>,
+    peers: Signal<Vec<PeerDisplayInfo>>,
     category: RealmCategory,
     label: &'static str,
 ) -> Element {
@@ -45,6 +51,10 @@ pub fn RealmColumn(
         RealmCategory::World => "glow-world",
         RealmCategory::Private => "glow-private",
     };
+
+    // For DM rows, resolve peer info per realm so we can render avatars.
+    let net_snap = network.read().clone();
+    let peers_snap = peers.read().clone();
 
     rsx! {
         div { class: "vault-column",
@@ -95,22 +105,28 @@ pub fn RealmColumn(
                             };
                             let files_class = if is_expanded { "realm-files expanded" } else { "realm-files" };
 
+                            // Resolve DM peer info for avatar rendering.
+                            // state's RealmId is `[u8; 32]`; the network's is `InterfaceId`,
+                            // so wrap before querying.
+                            let peer_for_row = if matches!(category, RealmCategory::Dm) {
+                                net_snap.as_ref().and_then(|net| {
+                                    let realm_id = indras_network::RealmId::new(id);
+                                    net.dm_peer_for_realm(&realm_id)
+                                })
+                            } else {
+                                None
+                            };
+                            let peer_display = peer_for_row.and_then(|pid| {
+                                peers_snap.iter().find(|p| p.member_id == pid).cloned()
+                            });
+
                             rsx! {
-                                // Realm header — click to expand/collapse, drop target for sharing
+                                // Realm row — drop target for drag-to-share.
+                                // Click handlers split: avatar opens peer popup, name+chevron toggles expand.
                                 div {
                                     class: "{entry_class}",
-                                    onclick: move |_| {
-                                        let mut sel = state.read().selection.clone();
-                                        if sel.expanded_realms.contains(&id) {
-                                            sel.expanded_realms.remove(&id);
-                                        } else {
-                                            sel.expanded_realms.insert(id);
-                                        }
-                                        state.write().selection = sel;
-                                    },
                                     // Drop target events for drag-to-share
                                     ondragover: move |evt: DragEvent| {
-                                        // Must prevent default to allow drop
                                         evt.prevent_default();
                                         if state.read().drag_payload.is_some() {
                                             state.write().drop_target_realm = Some(id);
@@ -145,7 +161,6 @@ pub fn RealmColumn(
                                             let Some(vm) = vm else { return; };
                                             if let Some(vault_dir) = vm.vault_path(&id).await {
                                                 let dest = vault_dir.join(&payload.file_name);
-                                                // Ensure parent dir exists
                                                 if let Some(parent) = dest.parent() {
                                                     let _ = tokio::fs::create_dir_all(parent).await;
                                                 }
@@ -153,12 +168,64 @@ pub fn RealmColumn(
                                                     Ok(_) => tracing::info!("Copied '{}' to vault", payload.file_name),
                                                     Err(e) => tracing::error!("Failed to copy file to vault: {e}"),
                                                 }
-                                                // VaultWatcher detects the new file and syncs automatically
                                             }
                                         });
                                     },
-                                    span { class: "{chevron_class}", "\u{25B8}" }
-                                    span { class: "realm-entry-name", "{realm.display_name}" }
+                                    {
+                                        let toggle_expand = move |_| {
+                                            let mut sel = state.read().selection.clone();
+                                            if sel.expanded_realms.contains(&id) {
+                                                sel.expanded_realms.remove(&id);
+                                            } else {
+                                                sel.expanded_realms.insert(id);
+                                            }
+                                            state.write().selection = sel;
+                                        };
+                                        rsx! {
+                                            span {
+                                                class: "{chevron_class}",
+                                                onclick: toggle_expand,
+                                                "\u{25B8}"
+                                            }
+                                        }
+                                    }
+                                    if let Some(peer) = peer_display.clone() {
+                                        {
+                                            let peer_id = peer.member_id;
+                                            let avatar_color = peer.color_class.clone();
+                                            let avatar_letter = peer.letter.clone();
+                                            rsx! {
+                                                button {
+                                                    class: "realm-entry-avatar profile-avatar {avatar_color}",
+                                                    title: "View profile",
+                                                    "aria-label": "View profile for {peer.name}",
+                                                    onclick: move |evt: MouseEvent| {
+                                                        evt.stop_propagation();
+                                                        state.write().profile_popup_target = Some((peer_id, id));
+                                                    },
+                                                    "{avatar_letter}"
+                                                }
+                                            }
+                                        }
+                                    }
+                                    {
+                                        let toggle_name = move |_| {
+                                            let mut sel = state.read().selection.clone();
+                                            if sel.expanded_realms.contains(&id) {
+                                                sel.expanded_realms.remove(&id);
+                                            } else {
+                                                sel.expanded_realms.insert(id);
+                                            }
+                                            state.write().selection = sel;
+                                        };
+                                        rsx! {
+                                            span {
+                                                class: "realm-entry-name",
+                                                onclick: toggle_name,
+                                                "{realm.display_name}"
+                                            }
+                                        }
+                                    }
                                     span { class: "realm-entry-meta", "{realm.member_count}" }
                                 }
 

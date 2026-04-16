@@ -147,6 +147,38 @@ pub fn HomeVault(
                     }
                 }
 
+                // Enrich peer names from each peer's mirrored profile in the
+                // shared DM realm. The contacts CRDT only carries names that
+                // were captured at invite time; the mirror carries the peer's
+                // current grant-visible display_name and stays fresh.
+                {
+                    let conversation_ids = net.conversation_realms();
+                    let current = peers.read().clone();
+                    let mut next = current.clone();
+                    let mut changed = false;
+                    for peer in next.iter_mut() {
+                        let Some(realm_iface) = conversation_ids
+                            .iter()
+                            .find(|rid| net.dm_peer_for_realm(rid) == Some(peer.member_id))
+                        else { continue };
+                        let realm_bytes = *realm_iface.as_bytes();
+                        let fields = crate::profile_bridge::load_peer_profile_from_dm(
+                            &net, peer.member_id, realm_bytes,
+                        ).await;
+                        if let Some(name_field) = fields.iter().find(|f| f.name == "display_name") {
+                            let v = name_field.value.trim();
+                            if !v.is_empty() && peer.name != v {
+                                peer.name = v.to_string();
+                                peer.letter = v.chars().next().unwrap_or('?').to_string();
+                                changed = true;
+                            }
+                        }
+                    }
+                    if changed {
+                        peers.set(next);
+                    }
+                }
+
                 // Fallback: scan DM realms for peers not yet in contacts
                 let known_peers: std::collections::HashSet<_> = peers
                     .read()
@@ -365,10 +397,11 @@ pub fn HomeVault(
                     _ => {}
                 }
             },
-            super::vault_columns::VaultColumns { state, network, vault_manager }
+            super::vault_columns::VaultColumns { state, network, vault_manager, peers: peers }
             super::status_bar::StatusBar { state }
             super::file_modal::FileModal { state }
             super::context_menu::ContextMenu { state }
+            super::peer_profile_popup::PeerProfilePopup { state, network, peers: peers }
             // Contact invite overlay
             super::contact_invite::ContactInviteOverlay {
                 network: network,

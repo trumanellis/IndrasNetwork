@@ -20,5 +20,6 @@ mod contact_invite;
 mod create_realm;
 mod relay_settings;
 mod profile_modal;
+mod peer_profile_popup;
 
 pub use app::App;

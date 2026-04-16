@@ -71,6 +71,7 @@ pub fn App() -> Element {
                         }
                         crate::profile_bridge::ensure_profile_artifacts(&net).await;
                         let _homepage = crate::profile_server::start_homepage_server(&net, &data_dir).await;
+                        crate::profile_mirror::start_profile_mirror_loop(net.clone());
                         network.set(Some(net));
                         let data_dir = crate::state::default_data_dir();
                         match VaultManager::new(data_dir).await {

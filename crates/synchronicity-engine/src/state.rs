@@ -244,6 +244,9 @@ pub struct AppState {
     pub show_relay_settings: bool,
     /// Whether the profile overlay is open.
     pub show_profile: bool,
+    /// Currently-open peer profile popup, keyed by (peer member id, DM realm id).
+    /// `None` = popup closed.
+    pub profile_popup_target: Option<([u8; 32], RealmId)>,
     /// Cached relay configuration loaded from `$INDRAS_DATA_DIR/relay.json`.
     pub relay_config: RelayConfig,
 }
@@ -277,6 +280,7 @@ impl AppState {
             drop_target_realm: None,
             show_relay_settings: false,
             show_profile: false,
+            profile_popup_target: None,
             relay_config: RelayConfig::load(),
         }
     }

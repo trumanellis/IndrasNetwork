@@ -12,7 +12,9 @@ use indras_artifacts::{AccessGrant, AccessMode, ArtifactId, ArtifactStatus};
 use indras_homepage::{fields, profile_field_artifact_id};
 use indras_network::IndrasNetwork;
 use indras_network::artifact_index::HomeArtifactEntry;
-use indras_sync_engine::ProfileIdentityDocument;
+use indras_sync_engine::{HomepageField, HomepageProfileDocument, ProfileIdentityDocument};
+
+use crate::profile_mirror::peer_profile_doc_key;
 
 /// Document key used for the user's profile identity CRDT in the home realm.
 const DOC_KEY: &str = "_profile_identity";
@@ -235,6 +237,26 @@ pub async fn set_field_private(network: &Arc<IndrasNetwork>, field_name: &str) {
     let Some(index) = artifact_index(network).await else { return };
     let aid = field_artifact_id(&network.id(), field_name);
     write_grants(&index, aid, Vec::new()).await;
+}
+
+/// Load a peer's mirrored profile fields from a shared DM realm.
+///
+/// Returns the fields the peer has chosen to publish into this realm. An
+/// empty vec means either no mirror has been published yet, or the peer
+/// hasn't granted us any visible fields. Caller is responsible for the
+/// "no info shared yet" empty-state.
+pub async fn load_peer_profile_from_dm(
+    network: &Arc<IndrasNetwork>,
+    peer_id: [u8; 32],
+    dm_realm_id: [u8; 32],
+) -> Vec<HomepageField> {
+    let realm_id = indras_network::RealmId::new(dm_realm_id);
+    let Some(realm) = network.get_realm_by_id(&realm_id) else { return Vec::new() };
+    let key = peer_profile_doc_key(&peer_id);
+    match realm.document::<HomepageProfileDocument>(&key).await {
+        Ok(doc) => doc.read().await.fields.clone(),
+        Err(_) => Vec::new(),
+    }
 }
 
 // ---------- internals ----------

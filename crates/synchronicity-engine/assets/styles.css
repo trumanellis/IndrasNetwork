@@ -839,6 +839,84 @@ body > * {
   color: var(--dim);
 }
 
+/* Connection avatar — small clickable dot inside the realm row */
+.realm-entry-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: #0b0b0d;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  flex: 0 0 auto;
+  transition: transform 120ms var(--ease), box-shadow 120ms var(--ease);
+}
+.realm-entry-avatar:hover {
+  transform: scale(1.08);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.12);
+}
+
+/* Generic peer-dot color rules so the same classes work outside .profile-avatar */
+.realm-entry-avatar.peer-dot-sage { background: #9ad3a8; }
+.realm-entry-avatar.peer-dot-zeph { background: #7fc9e8; }
+.realm-entry-avatar.peer-dot-rose { background: #e89fb3; }
+
+/* Make the name look clickable (it's now the expand toggle) */
+.realm-entry-name {
+  cursor: pointer;
+}
+.realm-entry-name:hover {
+  color: var(--t1);
+}
+
+/* Peer profile popup — reuses .contact-invite-overlay/.dialog from shared.css */
+.peer-profile-dialog {
+  max-width: 420px;
+}
+.peer-profile-header-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1 1 auto;
+}
+.peer-profile-header-identity h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 500;
+}
+.peer-profile-content {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.peer-profile-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.peer-profile-field-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--t3);
+}
+.peer-profile-field-value {
+  font-size: 14px;
+  color: var(--t1);
+  word-break: break-word;
+}
+.peer-profile-empty {
+  padding: 12px 0;
+  font-size: 13px;
+  color: var(--dim);
+  font-style: italic;
+}
+
 /* ============================================================
    FILE MODAL — popup overlay
    ============================================================ */
