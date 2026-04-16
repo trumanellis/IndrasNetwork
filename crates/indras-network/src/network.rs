@@ -1386,13 +1386,24 @@ impl IndrasNetwork {
             return;
         }
 
-        // Establish transport to the inviter (and other members if reachable)
-        // so gossip can start flowing.
-        let _ = inner.connect_to_peer(&invite.sender_id).await;
+        // Establish QUIC transport to every other member and collect their
+        // public keys as bootstrap peers for the gossip topic. Without a
+        // bootstrap list, `create_interface_with_seed` has no contact point
+        // to subscribe through, so inbound realm messages never arrive.
+        let mut bootstrap: Vec<iroh::PublicKey> = Vec::new();
+        for member in invite.members.iter().copied() {
+            if member == my_id {
+                continue;
+            }
+            if let Ok(pk) = iroh::PublicKey::from_bytes(&member) {
+                let _ = inner.connect_to_peer(&member).await;
+                bootstrap.push(pk);
+            }
+        }
 
         let seed = artifact_key_seed(&invite.artifact_id);
         if let Err(e) = inner
-            .create_interface_with_seed(interface_id, &seed, Some(invite.name.as_str()), vec![])
+            .create_interface_with_seed(interface_id, &seed, Some(invite.name.as_str()), bootstrap)
             .await
         {
             tracing::warn!(
