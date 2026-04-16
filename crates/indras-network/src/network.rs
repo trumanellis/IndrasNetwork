@@ -13,7 +13,7 @@ use crate::identity_code::IdentityCode;
 use crate::invite::InviteCode;
 use crate::member::{Member, MemberId};
 use crate::realm::Realm;
-use crate::artifact::{generate_tree_id, dm_story_id};
+use crate::artifact::{generate_tree_id, dm_story_id, ArtifactId};
 
 use dashmap::DashMap;
 use indras_core::{InterfaceId, PeerIdentity};
@@ -868,13 +868,30 @@ impl IndrasNetwork {
     /// println!("Invite code: {}", realm.invite_code());
     /// ```
     pub async fn create_realm(&self, name: &str) -> Result<Realm> {
+        self.create_realm_with_artifact(generate_tree_id(), name).await
+    }
+
+    /// Create (or idempotently re-open) a realm for a caller-supplied artifact id.
+    ///
+    /// This is the underlying primitive for [`create_realm`], which generates
+    /// a random artifact id before calling in. Pass a deterministically-
+    /// derived artifact id when you need multiple devices to converge on the
+    /// same realm without exchanging invite codes — e.g., the team realm
+    /// pattern, where every device hosting an agent for a synced vault
+    /// derives the same team artifact id from the vault id and independently
+    /// materializes the same interface.
+    ///
+    /// Calling twice with the same `artifact_id` is safe; the underlying
+    /// `create_interface_with_seed` is idempotent at the interface layer.
+    pub async fn create_realm_with_artifact(
+        &self,
+        artifact_id: ArtifactId,
+        name: &str,
+    ) -> Result<Realm> {
         // Ensure network is started
         if !self.is_running() {
             self.inner.start().await?;
         }
-
-        // Generate random Tree artifact ID
-        let artifact_id = generate_tree_id();
 
         // Derive interface ID from artifact ID
         let interface_id = artifact_interface_id(&artifact_id);
