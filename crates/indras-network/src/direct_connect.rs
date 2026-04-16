@@ -6,6 +6,7 @@
 use crate::member::MemberId;
 use crate::network::RealmId;
 
+use indras_artifacts::ArtifactId;
 use indras_core::InterfaceId;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -77,7 +78,60 @@ impl ConnectionNotify {
         self.endpoint_addr = Some(addr);
         self
     }
+}
 
+/// Notification sent to a peer's inbox inviting them to a group realm.
+///
+/// The invitee uses `artifact_id` (deterministic via `group_tree_id`) to derive
+/// the group's interface id and key seed, materializes it in their own home
+/// realm index, and begins syncing. The `members` list lets the invitee grant
+/// each peer on their own side so outgoing mutations reach everyone.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GroupInvite {
+    /// The sender's member ID.
+    pub sender_id: MemberId,
+    /// The group's tree artifact ID.
+    pub artifact_id: ArtifactId,
+    /// Display name for the group.
+    pub name: String,
+    /// Full member set (creator + invitees), so each peer can wire its own grants.
+    pub members: Vec<MemberId>,
+    /// Timestamp (millis since epoch).
+    pub timestamp_millis: u64,
+}
+
+impl GroupInvite {
+    /// Create a new group invite.
+    pub fn new(
+        sender_id: MemberId,
+        artifact_id: ArtifactId,
+        name: impl Into<String>,
+        members: Vec<MemberId>,
+    ) -> Self {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        Self {
+            sender_id,
+            artifact_id,
+            name: name.into(),
+            members,
+            timestamp_millis: now,
+        }
+    }
+}
+
+/// Tagged wire format for all messages delivered on the peer-inbox realm.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum InboxMessage {
+    /// A direct-message / peer-connection notification.
+    Connection(ConnectionNotify),
+    /// An invitation to join a group realm.
+    GroupInvite(GroupInvite),
+}
+
+impl InboxMessage {
     /// Serialize to bytes for sending as an interface message.
     pub fn to_bytes(&self) -> Result<Vec<u8>, postcard::Error> {
         postcard::to_allocvec(self)
@@ -454,12 +508,43 @@ mod tests {
         let notify = ConnectionNotify::new(zephyr_id(), dm_id)
             .with_name("Zephyr");
 
-        let bytes = notify.to_bytes().unwrap();
-        let deserialized = ConnectionNotify::from_bytes(&bytes).unwrap();
+        let msg = InboxMessage::Connection(notify);
+        let bytes = msg.to_bytes().unwrap();
+        let deserialized = InboxMessage::from_bytes(&bytes).unwrap();
 
-        assert_eq!(deserialized.sender_id, zephyr_id());
-        assert_eq!(deserialized.dm_realm_id, dm_id);
-        assert_eq!(deserialized.display_name, Some("Zephyr".to_string()));
-        assert!(deserialized.timestamp_millis > 0);
+        match deserialized {
+            InboxMessage::Connection(n) => {
+                assert_eq!(n.sender_id, zephyr_id());
+                assert_eq!(n.dm_realm_id, dm_id);
+                assert_eq!(n.display_name, Some("Zephyr".to_string()));
+                assert!(n.timestamp_millis > 0);
+            }
+            _ => panic!("expected Connection variant"),
+        }
+    }
+
+    #[test]
+    fn test_group_invite_serialization() {
+        let artifact = indras_artifacts::group_tree_id(zephyr_id(), &[nova_id(), sage_id()]);
+        let invite = GroupInvite::new(
+            zephyr_id(),
+            artifact,
+            "Alpha",
+            vec![zephyr_id(), nova_id(), sage_id()],
+        );
+
+        let msg = InboxMessage::GroupInvite(invite);
+        let bytes = msg.to_bytes().unwrap();
+        let deserialized = InboxMessage::from_bytes(&bytes).unwrap();
+
+        match deserialized {
+            InboxMessage::GroupInvite(g) => {
+                assert_eq!(g.sender_id, zephyr_id());
+                assert_eq!(g.artifact_id, artifact);
+                assert_eq!(g.name, "Alpha");
+                assert_eq!(g.members.len(), 3);
+            }
+            _ => panic!("expected GroupInvite variant"),
+        }
     }
 }

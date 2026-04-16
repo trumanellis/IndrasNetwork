@@ -148,6 +148,28 @@ pub fn dm_story_id(a: PlayerId, b: PlayerId) -> ArtifactId {
     ArtifactId::Doc(*hash.as_bytes())
 }
 
+/// Generate a deterministic group tree ID from the creator and member set.
+///
+/// Group identity is `(creator, sorted deduplicated members)`. The creator is
+/// always included in the member set, so invitees need only the other peers.
+/// Creating the "same" group twice (same creator, same members) yields the
+/// same `ArtifactId`, making creation idempotent under retries and double-clicks.
+pub fn group_tree_id(creator: PlayerId, members: &[PlayerId]) -> ArtifactId {
+    let mut set: Vec<PlayerId> = Vec::with_capacity(members.len() + 1);
+    set.push(creator);
+    set.extend_from_slice(members);
+    set.sort();
+    set.dedup();
+
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"group-tree-v1:");
+    hasher.update(&creator);
+    for m in &set {
+        hasher.update(m);
+    }
+    ArtifactId::Doc(*hasher.finalize().as_bytes())
+}
+
 impl Artifact {
     /// Compute audience from active grants (all grantees with non-expired access).
     pub fn audience(&self, now: i64) -> Vec<PlayerId> {

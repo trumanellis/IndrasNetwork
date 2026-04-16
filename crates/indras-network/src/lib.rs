@@ -131,7 +131,7 @@ pub(crate) mod util;
 pub mod world_view;
 
 // Re-export main types at crate root
-pub use artifact::{ArtifactDownload, ArtifactId, DownloadProgress, generate_tree_id, leaf_id, dm_story_id};
+pub use artifact::{ArtifactDownload, ArtifactId, DownloadProgress, generate_tree_id, group_tree_id, leaf_id, dm_story_id};
 pub use encryption::{ArtifactKey, EncryptedArtifactKey, ARTIFACT_KEY_SIZE};
 pub use access::{
     AccessGrant, AccessMode, ArtifactProvenance, ArtifactStatus, GrantError,

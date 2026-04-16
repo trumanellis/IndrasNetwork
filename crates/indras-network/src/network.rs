@@ -4,7 +4,9 @@
 
 use crate::config::{NetworkBuilder, NetworkConfig, Preset};
 use crate::contacts::ContactsRealm;
-use crate::direct_connect::{inbox_key_seed, inbox_realm_id, is_initiator, ConnectionNotify};
+use crate::direct_connect::{
+    inbox_key_seed, inbox_realm_id, is_initiator, ConnectionNotify, GroupInvite, InboxMessage,
+};
 use crate::encounter;
 use crate::error::{IndraError, Result};
 use crate::home_realm::{home_key_seed, home_realm_id, HomeRealm};
@@ -14,6 +16,7 @@ use crate::invite::InviteCode;
 use crate::member::{Member, MemberId};
 use crate::realm::Realm;
 use crate::artifact::{generate_tree_id, dm_story_id, ArtifactId};
+use indras_artifacts::AccessMode;
 
 use dashmap::DashMap;
 use indras_core::{InterfaceId, PeerIdentity};
@@ -107,7 +110,7 @@ pub struct IndrasNetwork {
     /// The contacts realm (lazily initialized).
     contacts_realm: Arc<RwLock<Option<ContactsRealm>>>,
     /// The home realm (lazily initialized).
-    home_realm: RwLock<Option<HomeRealm>>,
+    home_realm: Arc<RwLock<Option<HomeRealm>>>,
     /// Configuration.
     config: NetworkConfig,
     /// Runtime display name override (set via `set_display_name`).
@@ -231,7 +234,7 @@ impl IndrasNetwork {
             realms: Arc::new(DashMap::new()),
             peer_realms: Arc::new(DashMap::new()),
             contacts_realm: Arc::new(RwLock::new(None)),
-            home_realm: RwLock::new(None),
+            home_realm: Arc::new(RwLock::new(None)),
             config,
             display_name_override: std::sync::RwLock::new(None),
             identity,
@@ -620,9 +623,10 @@ impl IndrasNetwork {
         let realms = Arc::clone(&self.realms);
         let peer_realms = Arc::clone(&self.peer_realms);
         let contacts_realm = Arc::clone(&self.contacts_realm);
+        let home_realm = Arc::clone(&self.home_realm);
 
         tokio::spawn(async move {
-            Self::inbox_listener(my_id, event_rx, inner_weak, realms, peer_realms, contacts_realm).await;
+            Self::inbox_listener(my_id, event_rx, inner_weak, realms, peer_realms, contacts_realm, home_realm).await;
         });
 
         tracing::info!(
@@ -645,6 +649,7 @@ impl IndrasNetwork {
         realms: Arc<DashMap<RealmId, RealmState>>,
         peer_realms: Arc<DashMap<Vec<MemberId>, RealmId>>,
         contacts_realm: Arc<RwLock<Option<ContactsRealm>>>,
+        home_realm: Arc<RwLock<Option<HomeRealm>>>,
     ) {
         use indras_core::InterfaceEvent;
 
@@ -657,10 +662,35 @@ impl IndrasNetwork {
                         _ => continue,
                     };
 
-                    // Try to deserialize as ConnectionNotify
-                    let notify = match ConnectionNotify::from_bytes(&payload) {
-                        Ok(n) => n,
-                        Err(_) => continue, // Not a connection notify, skip
+                    // Decode the tagged inbox message
+                    let inbox_msg = match InboxMessage::from_bytes(&payload) {
+                        Ok(m) => m,
+                        Err(_) => continue, // Unknown payload, skip
+                    };
+
+                    let notify = match inbox_msg {
+                        InboxMessage::Connection(n) => n,
+                        InboxMessage::GroupInvite(invite) => {
+                            if invite.sender_id == my_id {
+                                continue;
+                            }
+                            let inner = match inner_weak.upgrade() {
+                                Some(arc) => arc,
+                                None => {
+                                    tracing::debug!("Inbox: node dropped, listener stopping");
+                                    break;
+                                }
+                            };
+                            Self::handle_group_invite(
+                                my_id,
+                                &inner,
+                                &realms,
+                                &home_realm,
+                                invite,
+                            )
+                            .await;
+                            continue;
+                        }
                     };
 
                     // Don't process notifications from ourselves
@@ -787,7 +817,7 @@ impl IndrasNetwork {
                                         reply = reply.with_endpoint_addr(addr_bytes);
                                     }
                                 }
-                                if let Ok(payload) = reply.to_bytes() {
+                                if let Ok(payload) = InboxMessage::Connection(reply).to_bytes() {
                                     let _ = inner.send_message(&sender_inbox_id, payload).await;
                                 }
                                 // Cleanup: leave peer inbox after short delay
@@ -1231,6 +1261,201 @@ impl IndrasNetwork {
         Ok((realm, peer))
     }
 
+    /// Invite a peer to a group realm by sending a `GroupInvite` to their inbox.
+    ///
+    /// The invitee's inbox listener will call `ensure_realm_artifact` on their
+    /// home realm, which materializes the sync interface on their side. The
+    /// group's `artifact_id` must be deterministic (e.g. `group_tree_id`) so
+    /// both sides derive the same `InterfaceId` and key seed.
+    pub async fn invite_peer_to_group(
+        &self,
+        peer_id: MemberId,
+        artifact_id: ArtifactId,
+        name: &str,
+        members: Vec<MemberId>,
+    ) {
+        let my_id = self.id();
+        if peer_id == my_id {
+            return;
+        }
+        let peer_inbox_id = inbox_realm_id(peer_id);
+
+        let peer_public_key = match iroh::PublicKey::from_bytes(&peer_id) {
+            Ok(pk) => pk,
+            Err(e) => {
+                tracing::debug!(error = %e, "Invalid peer key for group invite");
+                return;
+            }
+        };
+
+        let peer_inbox_seed = inbox_key_seed(&peer_id);
+        if let Err(e) = self
+            .inner
+            .create_interface_with_seed(peer_inbox_id, &peer_inbox_seed, Some("PeerInbox"), vec![peer_public_key])
+            .await
+        {
+            tracing::debug!(
+                peer = %hex::encode(&peer_id[..8]),
+                error = %e,
+                "Failed to join peer inbox for group invite (non-fatal)"
+            );
+            return;
+        }
+
+        let peer_identity = IrohIdentity::from(peer_public_key);
+        let _ = self.inner.add_member(&peer_inbox_id, peer_identity).await;
+
+        let invite = GroupInvite::new(my_id, artifact_id, name.to_string(), members);
+        let payload = match InboxMessage::GroupInvite(invite).to_bytes() {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::debug!(error = %e, "Failed to serialize group invite");
+                return;
+            }
+        };
+
+        // Same retry pattern as notify_peer_inbox.
+        let inner = Arc::clone(&self.inner);
+        tokio::spawn(async move {
+            let mut sent = false;
+            for attempt in 0..12u32 {
+                if let Err(e) = inner.connect_to_peer(&peer_id).await {
+                    tracing::debug!(
+                        peer = %hex::encode(&peer_id[..8]),
+                        attempt,
+                        error = %e,
+                        "Group invite: transport connect failed, will retry"
+                    );
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    continue;
+                }
+                if attempt == 0 {
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                }
+                match inner.send_message(&peer_inbox_id, payload.clone()).await {
+                    Ok(_) => {
+                        tracing::info!(
+                            peer = %hex::encode(&peer_id[..8]),
+                            attempt,
+                            "Sent group invite to peer inbox"
+                        );
+                        sent = true;
+                        break;
+                    }
+                    Err(e) => {
+                        tracing::debug!(
+                            peer = %hex::encode(&peer_id[..8]),
+                            attempt,
+                            error = %e,
+                            "Group invite attempt failed (retrying)"
+                        );
+                    }
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            }
+            if !sent {
+                tracing::debug!(
+                    peer = %hex::encode(&peer_id[..8]),
+                    "All group invite attempts exhausted (non-fatal)"
+                );
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            let _ = inner.leave_interface(&peer_inbox_id).await;
+        });
+    }
+
+    /// Process an incoming `GroupInvite`: materialize the group interface on
+    /// our side, register it in `realms` so it appears in `conversation_realms`,
+    /// mirror the artifact into our home realm index, and grant access to each
+    /// other member so our outgoing changes reach everyone.
+    async fn handle_group_invite(
+        my_id: MemberId,
+        inner: &Arc<IndrasNode>,
+        realms: &Arc<DashMap<RealmId, RealmState>>,
+        home_realm: &Arc<RwLock<Option<HomeRealm>>>,
+        invite: GroupInvite,
+    ) {
+        let interface_id = artifact_interface_id(&invite.artifact_id);
+
+        // Idempotent: if already materialized, nothing to do.
+        if realms.contains_key(&interface_id) {
+            tracing::debug!(
+                group = %invite.name,
+                "Group invite for already-materialized realm, ignoring"
+            );
+            return;
+        }
+
+        // Establish transport to the inviter (and other members if reachable)
+        // so gossip can start flowing.
+        let _ = inner.connect_to_peer(&invite.sender_id).await;
+
+        let seed = artifact_key_seed(&invite.artifact_id);
+        if let Err(e) = inner
+            .create_interface_with_seed(interface_id, &seed, Some(invite.name.as_str()), vec![])
+            .await
+        {
+            tracing::warn!(
+                group = %invite.name,
+                error = %e,
+                "Group invite: failed to materialize interface"
+            );
+            return;
+        }
+
+        // Add each other member as an interface member so iroh gossip can find them.
+        for member in invite.members.iter().copied() {
+            if member == my_id {
+                continue;
+            }
+            if let Ok(pk) = iroh::PublicKey::from_bytes(&member) {
+                let _ = inner.add_member(&interface_id, IrohIdentity::from(pk)).await;
+            }
+        }
+
+        realms.insert(
+            interface_id,
+            RealmState {
+                name: Some(invite.name.clone()),
+                artifact_id: Some(invite.artifact_id),
+                chat_doc: Arc::new(OnceCell::new()),
+            },
+        );
+
+        // Mirror the artifact into our home realm index (grants self Permanent,
+        // which the sync registry uses to reconcile audience on our side).
+        if let Some(home) = home_realm.read().await.as_ref() {
+            if let Err(e) = home
+                .ensure_realm_artifact(&invite.artifact_id, &invite.name)
+                .await
+            {
+                tracing::warn!(error = %e, "Failed to register group artifact in home realm");
+            }
+            for member in invite.members.iter().copied() {
+                if member == my_id {
+                    continue;
+                }
+                if let Err(e) = home
+                    .grant_access(&invite.artifact_id, member, AccessMode::Permanent)
+                    .await
+                {
+                    let msg = format!("{e}");
+                    if !msg.contains("AlreadyGranted") {
+                        tracing::debug!(error = %e, "Group invite: grant to member failed (non-fatal)");
+                    }
+                }
+            }
+        } else {
+            tracing::debug!("Group invite: home realm not ready, skipping artifact mirror");
+        }
+
+        tracing::info!(
+            group = %invite.name,
+            from = %hex::encode(&invite.sender_id[..8]),
+            "Joined group via inbox invite"
+        );
+    }
+
     /// Send a ConnectionNotify to the peer's inbox realm.
     ///
     /// Spawns a background task that aggressively retries delivery for up to
@@ -1281,7 +1506,7 @@ impl IndrasNetwork {
             }
         }
 
-        let payload = match notify.to_bytes() {
+        let payload = match InboxMessage::Connection(notify).to_bytes() {
             Ok(p) => p,
             Err(e) => {
                 tracing::debug!(error = %e, "Failed to serialize inbox notification");
@@ -1414,7 +1639,7 @@ impl IndrasNetwork {
         }
 
         // Single send attempt (polling loop will call us again in 30s if needed)
-        if let Ok(payload) = notify.to_bytes() {
+        if let Ok(payload) = InboxMessage::Connection(notify).to_bytes() {
             match self.inner.send_message(&peer_inbox_id, payload).await {
                 Ok(_) => {
                     tracing::info!(
