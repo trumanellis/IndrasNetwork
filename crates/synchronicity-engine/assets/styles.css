@@ -22,6 +22,7 @@
 
   /* Text — zinc neutral hierarchy */
   --tx:  #fafafa;
+  --t1:  #fafafa;
   --t2:  #a0a0ab;
   --t3:  #52525b;
   --dim: #3f3f46;
@@ -2658,4 +2659,164 @@ body > * {
   background: var(--t2, rgba(255, 255, 255, 0.12));
   color: var(--t1);
   border-color: var(--t2);
+}
+
+/* Identity row: avatar + stacked name/handle inputs with save indicators */
+.profile-identity-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.profile-input-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.profile-input-row .profile-name-input,
+.profile-input-row .profile-handle-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.profile-handle-prefix {
+  color: var(--t3);
+  font-size: 13px;
+  flex: 0 0 auto;
+}
+.profile-handle-input {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid transparent;
+  outline: none;
+  color: var(--t2);
+  font-size: 13px;
+  font-family: 'JetBrains Mono', monospace;
+  padding: 2px 2px;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.profile-handle-input:focus,
+.profile-handle-input:hover {
+  border-bottom-color: var(--t3);
+  color: var(--t1);
+}
+
+.profile-bio-wrap {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.profile-bio-wrap .profile-bio-input {
+  flex: 1 1 auto;
+}
+
+.profile-save-indicator {
+  font-size: 10px;
+  color: var(--t3);
+  letter-spacing: 0.04em;
+  font-family: 'JetBrains Mono', monospace;
+  flex: 0 0 auto;
+  align-self: center;
+  min-width: 48px;
+  text-align: right;
+  animation: profile-save-fade 0.25s ease-out;
+}
+@keyframes profile-save-fade {
+  from { opacity: 0; transform: translateY(-1px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Extended visibility rows (replaces profile-vis-row for expandable grants) */
+.profile-field-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+}
+.profile-field-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.profile-field-label {
+  font-size: 12px;
+  color: var(--t2);
+}
+.profile-field-value {
+  font-size: 11px;
+  color: var(--t3);
+  font-family: 'JetBrains Mono', monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.profile-field-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+.profile-expand-btn {
+  background: transparent;
+  border: 1px solid var(--t3, rgba(255, 255, 255, 0.15));
+  color: var(--t2);
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.profile-expand-btn:hover {
+  color: var(--t1);
+  border-color: var(--t2);
+}
+
+.profile-grants-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 0 6px 12px;
+  padding: 4px 0 4px 8px;
+  border-left: 1px solid var(--bd2);
+}
+.profile-grant-item {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 0;
+}
+.profile-grant-name {
+  font-size: 12px;
+  color: var(--t1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.profile-grant-mode {
+  font-size: 10px;
+  color: var(--t3);
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.02em;
+}
+.profile-revoke-btn {
+  background: transparent;
+  border: 1px solid rgba(214, 90, 90, 0.4);
+  color: #d67a7a;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.profile-revoke-btn:hover {
+  background: rgba(214, 90, 90, 0.1);
+  border-color: #d65a5a;
+  color: #e88a8a;
 }

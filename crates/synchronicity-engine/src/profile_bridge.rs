@@ -6,6 +6,7 @@
 //!   Private. This module exposes small async helpers so the SE profile
 //!   modal can load+edit both without depending on gift-cycle.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use indras_artifacts::{AccessGrant, AccessMode, ArtifactId, ArtifactStatus};
@@ -46,6 +47,36 @@ pub enum FieldVisibility {
     ConnectionsOnly,
     /// No grants — nobody else can read.
     Private,
+}
+
+/// Info about a single non-public grant on a profile field.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FieldGrantInfo {
+    /// Grantee member id.
+    pub grantee: [u8; 32],
+    /// Human-readable grantee name (contact's display name, or hex prefix fallback).
+    pub grantee_name: String,
+    /// Access mode label ("Revocable", "Timed (expires …)", etc.).
+    pub mode_label: String,
+}
+
+/// Full per-field visibility snapshot for the profile UI.
+///
+/// Bundles the field name, its current display value, the derived visibility
+/// level, and the list of specific non-public grantees so the modal can
+/// render an expandable "who has access" list with revoke buttons.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProfileFieldVisibility {
+    /// Field name constant (e.g. `fields::BIO`).
+    pub field_name: &'static str,
+    /// Human-readable label for the field ("Bio", "Display Name", …).
+    pub display_label: &'static str,
+    /// Current display value (empty string if unknown).
+    pub display_value: String,
+    /// Derived visibility level.
+    pub visibility: FieldVisibility,
+    /// Specific non-public grants (e.g. per-contact when ConnectionsOnly).
+    pub specific_grants: Vec<FieldGrantInfo>,
 }
 
 /// Human-readable label for a field name.
@@ -119,6 +150,22 @@ pub async fn save_display_name(network: &Arc<IndrasNetwork>, name: String) {
     }
 }
 
+/// Persist a new username into the profile identity document.
+pub async fn save_username(network: &Arc<IndrasNetwork>, username: String) {
+    let Some(doc) = identity_doc(network).await else { return };
+    let now = now_secs();
+    let cleaned = slugify(&username);
+    let res = doc
+        .update(move |d| {
+            d.username = cleaned.clone();
+            d.updated_at = now;
+        })
+        .await;
+    if let Err(e) = res {
+        tracing::warn!("profile username update failed: {e}");
+    }
+}
+
 /// Persist a new bio into the profile identity document.
 pub async fn save_bio(network: &Arc<IndrasNetwork>, bio: String) {
     let Some(doc) = identity_doc(network).await else { return };
@@ -176,13 +223,19 @@ pub async fn ensure_profile_artifacts(network: &Arc<IndrasNetwork>) {
     }
 }
 
-/// Read current visibility for every profile field. Unknown / missing
-/// entries report as `Private` so the UI renders a sensible default.
+/// Read full visibility snapshot for every profile field, including
+/// per-grantee info for the UI's expandable grant lists. Unknown / missing
+/// entries report as `Private` with empty grants.
 pub async fn list_field_visibilities(
     network: &Arc<IndrasNetwork>,
-) -> Vec<(&'static str, FieldVisibility)> {
+) -> Vec<ProfileFieldVisibility> {
+    let contact_names = current_contact_names(network).await;
+    let homepage_values = homepage_field_values(network).await;
     let Some(index) = artifact_index(network).await else {
-        return ALL_FIELDS.iter().map(|f| (*f, FieldVisibility::Private)).collect();
+        return ALL_FIELDS
+            .iter()
+            .map(|f| empty_visibility(f, &homepage_values))
+            .collect();
     };
     let member_id = network.id();
     let guard = index.read().await;
@@ -190,13 +243,49 @@ pub async fn list_field_visibilities(
         .iter()
         .map(|field_name| {
             let aid = field_artifact_id(&member_id, field_name);
-            let vis = match guard.get(&aid) {
-                Some(entry) => classify_grants(&entry.grants),
-                None => FieldVisibility::Private,
+            let (visibility, specific_grants) = match guard.get(&aid) {
+                Some(entry) => (
+                    classify_grants(&entry.grants),
+                    describe_specific_grants(&entry.grants, &contact_names),
+                ),
+                None => (FieldVisibility::Private, Vec::new()),
             };
-            (*field_name, vis)
+            ProfileFieldVisibility {
+                field_name: *field_name,
+                display_label: field_label(field_name),
+                display_value: homepage_values.get(*field_name).cloned().unwrap_or_default(),
+                visibility,
+                specific_grants,
+            }
         })
         .collect()
+}
+
+/// Revoke a single grantee's access to a profile field.
+pub async fn revoke_field_access(
+    network: &Arc<IndrasNetwork>,
+    field_name: &str,
+    grantee: [u8; 32],
+) {
+    let Some(index) = artifact_index(network).await else { return };
+    let member_id = network.id();
+    let aid = field_artifact_id(&member_id, field_name);
+    let res = index
+        .update(move |idx| {
+            if let Some(entry) = idx.get(&aid) {
+                let grants: Vec<AccessGrant> = entry
+                    .grants
+                    .iter()
+                    .filter(|g| g.grantee != grantee)
+                    .cloned()
+                    .collect();
+                idx.replace_grants(&aid, grants);
+            }
+        })
+        .await;
+    if let Err(e) = res {
+        tracing::warn!("profile grant revoke failed: {e}");
+    }
 }
 
 /// Set a field to Public — single `Public` grant with null grantee.
@@ -296,6 +385,86 @@ async fn current_contacts(network: &Arc<IndrasNetwork>) -> Vec<[u8; 32]> {
     };
     let data = cdoc.read().await;
     data.contacts.keys().copied().collect()
+}
+
+/// Read current contacts with their display names for grantee labeling.
+async fn current_contact_names(network: &Arc<IndrasNetwork>) -> HashMap<[u8; 32], String> {
+    let Some(contacts_realm) = network.contacts_realm().await else {
+        return HashMap::new();
+    };
+    let Ok(cdoc) = contacts_realm.contacts().await else {
+        return HashMap::new();
+    };
+    let data = cdoc.read().await;
+    data.contacts
+        .iter()
+        .map(|(id, entry)| (*id, entry.display_name.clone().unwrap_or_default()))
+        .collect()
+}
+
+/// Snapshot the current homepage display values keyed by field name.
+async fn homepage_field_values(network: &Arc<IndrasNetwork>) -> HashMap<String, String> {
+    let Ok(home) = network.home_realm().await else { return HashMap::new() };
+    let Ok(doc) = home.document::<HomepageProfileDocument>("_homepage_profile").await else {
+        return HashMap::new();
+    };
+    let guard = doc.read().await;
+    guard
+        .fields
+        .iter()
+        .map(|f| (f.name.clone(), f.value.clone()))
+        .collect()
+}
+
+fn empty_visibility(
+    field_name: &&'static str,
+    homepage_values: &HashMap<String, String>,
+) -> ProfileFieldVisibility {
+    ProfileFieldVisibility {
+        field_name: *field_name,
+        display_label: field_label(field_name),
+        display_value: homepage_values
+            .get(*field_name)
+            .cloned()
+            .unwrap_or_default(),
+        visibility: FieldVisibility::Private,
+        specific_grants: Vec::new(),
+    }
+}
+
+fn describe_specific_grants(
+    grants: &[AccessGrant],
+    contact_names: &HashMap<[u8; 32], String>,
+) -> Vec<FieldGrantInfo> {
+    grants
+        .iter()
+        .filter(|g| g.grantee != [0u8; 32] && !matches!(g.mode, AccessMode::Public))
+        .map(|g| {
+            let name = contact_names
+                .get(&g.grantee)
+                .filter(|n| !n.is_empty())
+                .cloned()
+                .unwrap_or_else(|| {
+                    g.grantee
+                        .iter()
+                        .take(4)
+                        .map(|b| format!("{b:02x}"))
+                        .collect()
+                });
+            let mode_label = match &g.mode {
+                AccessMode::Revocable => "Revocable".to_string(),
+                AccessMode::Timed { expires_at } => format!("Timed (expires {expires_at})"),
+                AccessMode::Permanent => "Permanent".to_string(),
+                AccessMode::Transfer => "Transfer".to_string(),
+                AccessMode::Public => "Public".to_string(),
+            };
+            FieldGrantInfo {
+                grantee: g.grantee,
+                grantee_name: name,
+                mode_label,
+            }
+        })
+        .collect()
 }
 
 async fn write_grants(
