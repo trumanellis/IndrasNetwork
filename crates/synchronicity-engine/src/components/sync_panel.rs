@@ -1,35 +1,58 @@
-//! Sync panel — container that lays out one [`SyncStageView`] per hosted
-//! agent.
+//! Sync panel — per-agent commit UI for the current device.
 //!
-//! Stateless on purpose: takes a pre-snapshotted list of rows. The
-//! parent is responsible for fetching each agent's `LocalWorkspaceIndex`
-//! snapshot (async) and passing the result down. This keeps the panel
-//! pure and lets different call sites drive snapshot cadence however
-//! they need (use_resource, polling, on-demand Refresh button, …).
+//! Each row shows one bound agent's working-tree (`SyncStageView`),
+//! an intent input, and a Commit button that snapshots the agent's
+//! [`LocalWorkspaceIndex`], builds a `PatchManifest`, and calls
+//! `RealmBraid::try_land` on the target vault realm. Verification is
+//! skipped for MVP (empty `crates` list); revisit once there's a UI
+//! affordance to select verification crates per commit.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use dioxus::prelude::*;
 use indras_network::IndrasNetwork;
-use indras_sync_engine::braid::PatchFile;
+use indras_sync_engine::braid::{ChangeId, PatchFile, PatchManifest, RealmBraid};
 use indras_sync_engine::team::LogicalAgentId;
 use indras_sync_engine::workspace::LocalWorkspaceIndex;
 
 use crate::state::AppState;
 use crate::team::WorkspaceHandle;
+use crate::vault_manager::VaultManager;
 
 use super::SyncStageView;
+
+/// Status of a per-agent commit attempt, shown next to the Commit button.
+#[derive(Clone, Debug, PartialEq)]
+enum CommitStatus {
+    /// Commit in flight.
+    Running,
+    /// Commit landed; carries the new changeset id (short-hex displayed).
+    Done(ChangeId),
+    /// Commit failed; carries a user-visible reason.
+    Failed(String),
+}
 
 /// Pre-materialized row for one agent: the agent id plus the current
 /// snapshot of its working-tree index (as `PatchFile`s).
 pub type SyncPanelRow = (LogicalAgentId, Vec<PatchFile>);
 
-/// Sync panel content. Renders one [`SyncStageView`] per row; shows an
-/// empty state when no agents are bound on this device (common on
-/// read-only devices). Meant to be composed inside an overlay or column
-/// layout — it renders only the inner content, not a header or chrome.
+/// Full-function sync panel. Renders one composite row per bound agent:
+/// the stage view, an intent input, a Commit button, and commit status.
+///
+/// Commits target the first realm reported by `VaultManager::realms()`.
+/// Multi-vault routing is deferred — MVP assumes one "project vault" per
+/// device (see progress notes in the active plan).
 #[component]
-pub fn SyncPanel(rows: Vec<SyncPanelRow>) -> Element {
+pub fn SyncPanel(
+    rows: Vec<SyncPanelRow>,
+    network: Signal<Option<Arc<IndrasNetwork>>>,
+    vault_manager: Signal<Option<Arc<VaultManager>>>,
+    workspace_handles: Signal<Vec<WorkspaceHandle>>,
+) -> Element {
+    let intents: Signal<HashMap<LogicalAgentId, String>> = use_signal(HashMap::new);
+    let statuses: Signal<HashMap<LogicalAgentId, CommitStatus>> = use_signal(HashMap::new);
+
     rsx! {
         div { class: "sync-panel",
             if rows.is_empty() {
@@ -37,12 +60,194 @@ pub fn SyncPanel(rows: Vec<SyncPanelRow>) -> Element {
             } else {
                 div { class: "sync-panel-agents",
                     for (agent, files) in rows {
-                        SyncStageView { agent, files }
+                        SyncAgentRow {
+                            agent,
+                            files,
+                            intents,
+                            statuses,
+                            network,
+                            vault_manager,
+                            workspace_handles,
+                        }
                     }
                 }
             }
         }
     }
+}
+
+/// One composite row: stage view + intent + Commit + status.
+///
+/// Broken out so each row's `onclick` captures `agent` cleanly without
+/// fighting borrow semantics in a rsx for-loop.
+#[component]
+fn SyncAgentRow(
+    agent: LogicalAgentId,
+    files: Vec<PatchFile>,
+    mut intents: Signal<HashMap<LogicalAgentId, String>>,
+    mut statuses: Signal<HashMap<LogicalAgentId, CommitStatus>>,
+    network: Signal<Option<Arc<IndrasNetwork>>>,
+    vault_manager: Signal<Option<Arc<VaultManager>>>,
+    workspace_handles: Signal<Vec<WorkspaceHandle>>,
+) -> Element {
+    let intent_val = intents
+        .read()
+        .get(&agent)
+        .cloned()
+        .unwrap_or_default();
+    let status = statuses.read().get(&agent).cloned();
+    let has_files = !files.is_empty();
+    let running = matches!(status, Some(CommitStatus::Running));
+    let commit_disabled = !has_files || intent_val.trim().is_empty() || running;
+
+    let agent_for_intent = agent.clone();
+    let agent_for_commit = agent.clone();
+
+    rsx! {
+        div { class: "sync-agent-row",
+            SyncStageView { agent: agent.clone(), files }
+            div { class: "sync-agent-controls",
+                input {
+                    class: "sync-intent-input",
+                    r#type: "text",
+                    value: "{intent_val}",
+                    placeholder: "intent — what this commit does",
+                    oninput: move |e| {
+                        intents.write().insert(agent_for_intent.clone(), e.value());
+                    },
+                }
+                button {
+                    class: "se-btn-primary sync-commit-btn",
+                    disabled: commit_disabled,
+                    onclick: move |_| {
+                        commit_for_agent(
+                            agent_for_commit.clone(),
+                            intents,
+                            statuses,
+                            network,
+                            vault_manager,
+                            workspace_handles,
+                        );
+                    },
+                    if running { "Committing…" } else { "Commit" }
+                }
+            }
+            if let Some(s) = status {
+                CommitStatusLine { status: s }
+            }
+        }
+    }
+}
+
+/// Status line below the Commit button — separate component so the
+/// status pill can re-render independently of the row's heavier bits.
+#[component]
+fn CommitStatusLine(status: CommitStatus) -> Element {
+    match status {
+        CommitStatus::Running => rsx! {
+            div { class: "sync-commit-status running", "working…" }
+        },
+        CommitStatus::Done(id) => {
+            let short: String = id
+                .as_bytes()
+                .iter()
+                .take(4)
+                .map(|b| format!("{b:02x}"))
+                .collect();
+            rsx! {
+                div { class: "sync-commit-status done", "landed {short}" }
+            }
+        }
+        CommitStatus::Failed(reason) => rsx! {
+            div { class: "sync-commit-status failed", "{reason}" }
+        },
+    }
+}
+
+/// Kick off the async commit pipeline for `agent`:
+/// 1. locate the bound folder + local index in `workspace_handles`,
+/// 2. snapshot the index into a `PatchManifest`,
+/// 3. resolve the target vault realm via `VaultManager::realms()`,
+/// 4. call `realm.try_land(&net, intent, manifest, vec![], ws, user_id)`,
+/// 5. record the outcome in `statuses` so the row re-renders.
+fn commit_for_agent(
+    agent: LogicalAgentId,
+    mut intents: Signal<HashMap<LogicalAgentId, String>>,
+    mut statuses: Signal<HashMap<LogicalAgentId, CommitStatus>>,
+    network: Signal<Option<Arc<IndrasNetwork>>>,
+    vault_manager: Signal<Option<Arc<VaultManager>>>,
+    workspace_handles: Signal<Vec<WorkspaceHandle>>,
+) {
+    let intent = intents
+        .read()
+        .get(&agent)
+        .cloned()
+        .unwrap_or_default();
+    if intent.trim().is_empty() {
+        return;
+    }
+
+    let net_opt = network.read().clone();
+    let vm_opt = vault_manager.read().clone();
+    let (index_opt, workspace_root_opt): (Option<Arc<LocalWorkspaceIndex>>, Option<std::path::PathBuf>) = {
+        let handles = workspace_handles.read();
+        let handle = handles.iter().find(|h| h.agent == agent);
+        (
+            handle.map(|h| Arc::clone(&h.index)),
+            handle.map(|h| h.index.root().to_path_buf()),
+        )
+    };
+
+    let (net, vm, index, workspace_root) = match (net_opt, vm_opt, index_opt, workspace_root_opt) {
+        (Some(n), Some(v), Some(i), Some(w)) => (n, v, i, w),
+        _ => {
+            statuses.write().insert(
+                agent.clone(),
+                CommitStatus::Failed("not ready: missing network, vault, or binding".into()),
+            );
+            return;
+        }
+    };
+
+    statuses.write().insert(agent.clone(), CommitStatus::Running);
+    intents.write().remove(&agent);
+
+    spawn(async move {
+        let files = index.snapshot_all().await;
+        let manifest = PatchManifest::new(files);
+        let realms = vm.realms().await;
+        let realm = match realms.into_iter().next() {
+            Some(r) => r,
+            None => {
+                statuses.write().insert(
+                    agent.clone(),
+                    CommitStatus::Failed("no vault realm on this device".into()),
+                );
+                return;
+            }
+        };
+        let user_id = net.node().pq_identity().user_id();
+        let result = realm
+            .try_land(
+                net.as_ref(),
+                intent,
+                manifest,
+                Vec::new(),
+                workspace_root,
+                user_id,
+            )
+            .await;
+        match result {
+            Ok(id) => {
+                statuses.write().insert(agent, CommitStatus::Done(id));
+            }
+            Err(e) => {
+                statuses
+                    .write()
+                    .insert(agent, CommitStatus::Failed(format!("{e}")));
+            }
+        }
+    });
 }
 
 /// Modal overlay wrapping [`SyncPanel`]. Gated by `AppState::show_sync`.
@@ -59,13 +264,9 @@ pub fn SyncPanel(rows: Vec<SyncPanelRow>) -> Element {
 pub fn SyncOverlay(
     mut state: Signal<AppState>,
     network: Signal<Option<Arc<IndrasNetwork>>>,
+    vault_manager: Signal<Option<Arc<VaultManager>>>,
     workspace_handles: Signal<Vec<WorkspaceHandle>>,
 ) -> Element {
-    // Silence unused-prop warnings until 1.3c wires commit — keeping the
-    // prop visible on the signature keeps the App → HomeVault → Overlay
-    // chain stable as we layer in try_land.
-    let _ = network;
-
     if !state.read().show_sync {
         return rsx! {};
     }
@@ -120,7 +321,7 @@ pub fn SyncOverlay(
                     }
                 }
                 div { class: "file-modal-content relay-body",
-                    SyncPanel { rows }
+                    SyncPanel { rows, network, vault_manager, workspace_handles }
                 }
             }
         }

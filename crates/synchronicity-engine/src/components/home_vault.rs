@@ -440,7 +440,7 @@ pub fn HomeVault(
             // Profile overlay
             super::profile_modal::ProfileOverlay { state, network }
             // Sync overlay
-            super::sync_panel::SyncOverlay { state, network, workspace_handles }
+            super::sync_panel::SyncOverlay { state, network, vault_manager, workspace_handles }
         }
     }
 }
