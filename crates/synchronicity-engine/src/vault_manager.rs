@@ -125,19 +125,17 @@ impl VaultManager {
         Ok(())
     }
 
-    /// Start the user's private (home) vault under a name-based dir.
+    /// Predict the on-disk path of the user's private (home) vault.
     ///
     /// The home vault lives at `{data_dir}/vaults/<sanitize(self_name)>/`
     /// alongside peer DM vaults, so Obsidian can open the parent
     /// `vaults/` folder as one workspace. Returns the chosen path.
+    /// Does not itself register or attach a vault — callers should call
+    /// [`ensure_vault`](Self::ensure_vault) with the home realm to
+    /// actually wire up sync. Kept as a pure path helper so UI code can
+    /// reason about the directory before the realm is ready.
     pub async fn start_private_vault(&self, self_name: &str) -> PathBuf {
         let sanitized = sanitize(self_name).unwrap_or_else(|| "home".to_string());
-        // Reserve the name so a peer with the same name can't collide.
-        {
-            let mut n2r = self.name_to_realm.write().await;
-            // Use a sentinel realm id (all zeros) for the home vault.
-            n2r.entry(sanitized.clone()).or_insert([0u8; 32]);
-        }
         self.data_dir.join("vaults").join(sanitized)
     }
 

@@ -86,6 +86,35 @@ pub fn App() -> Element {
                                 let vault_path = vm.start_private_vault(&display_name).await;
                                 crate::vault_bridge::ensure_vault_ready(&vault_path);
                                 state.write().vault_path = vault_path;
+                                // Register the home vault with VaultManager so
+                                // it appears in vm.realms() and can be the
+                                // commit target for team operations.
+                                if let Some(net_ref) = network.read().as_ref() {
+                                    match net_ref.home_realm().await {
+                                        Ok(home) => {
+                                            let home_id = home.id();
+                                            if let Some(home_realm) = net_ref.get_realm_by_id(&home_id) {
+                                                if let Err(e) = vm
+                                                    .ensure_vault(
+                                                        net_ref.as_ref(),
+                                                        &home_realm,
+                                                        Some(&display_name),
+                                                    )
+                                                    .await
+                                                {
+                                                    tracing::error!(
+                                                        error = %e,
+                                                        "failed to register home vault with VaultManager"
+                                                    );
+                                                }
+                                            }
+                                        }
+                                        Err(e) => tracing::error!(
+                                            error = %e,
+                                            "failed to resolve home realm for registration"
+                                        ),
+                                    }
+                                }
                                 let vm_arc = Arc::new(vm);
                                 // Discover agent worktrees by scanning every
                                 // managed vault for `agent*` subfolders. No
