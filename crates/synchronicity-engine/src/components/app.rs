@@ -93,8 +93,8 @@ pub fn App() -> Element {
                                 // drop a folder named `agent*` inside a vault
                                 // and it becomes a logical agent binding.
                                 let team_registry =
-                                    crate::team::TeamBindingRegistry::discover_from(
-                                        vm_arc.as_ref(),
+                                    crate::team::TeamBindingRegistry::discover_from_data_dir(
+                                        &crate::state::default_data_dir(),
                                     )
                                     .await;
                                 if let Some(net) = network.read().as_ref() {

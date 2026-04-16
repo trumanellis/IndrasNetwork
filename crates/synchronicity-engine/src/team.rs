@@ -20,7 +20,7 @@ use indras_sync_engine::team::{LogicalAgentId, Team};
 use indras_sync_engine::workspace::{FolderLock, LocalWorkspaceIndex, WorkspaceWatcher};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::vault_manager::VaultManager;
@@ -97,51 +97,67 @@ impl TeamBindingRegistry {
         DeviceTeamMembership { hosted }
     }
 
-    /// Discover bindings by scanning every vault managed by
-    /// `vault_manager` for subdirectories whose name begins with
-    /// [`AGENT_FOLDER_PREFIX`] (`agent`). Each such subdirectory is
-    /// bound as a logical agent whose id is the folder name.
+    /// Discover bindings by scanning `{data_dir}/vaults/*/` for
+    /// subdirectories whose name begins with [`AGENT_FOLDER_PREFIX`]
+    /// (`agent`). Each such subdirectory is bound as a logical agent
+    /// whose id is the folder name.
     ///
     /// Convention over configuration: a folder named `agent1` inside a
-    /// managed vault becomes the binding for logical agent `agent1`.
+    /// vault directory becomes the binding for logical agent `agent1`.
     /// No JSON file, no env var, no UI. Drop a new `agent*` folder into
-    /// a vault and it's picked up on the next startup scan.
-    pub async fn discover_from(vault_manager: &VaultManager) -> Self {
+    /// any vault and it's picked up on the next startup scan.
+    ///
+    /// Scans the filesystem directly (not `VaultManager::realms()`)
+    /// because the home private vault today isn't fully registered in
+    /// the manager — it's only a name reservation. Filesystem scanning
+    /// catches every vault directory that physically exists.
+    pub async fn discover_from_data_dir(data_dir: &Path) -> Self {
         let mut bindings: HashMap<LogicalAgentId, PathBuf> = HashMap::new();
-        for realm in vault_manager.realms().await {
-            let rid = *realm.id().as_bytes();
-            let Some(vault_path) = vault_manager.vault_path(&rid).await else {
-                continue;
-            };
-            let mut entries = match tokio::fs::read_dir(&vault_path).await {
-                Ok(e) => e,
+        let vaults_dir = data_dir.join("vaults");
+        let mut vaults_iter = match tokio::fs::read_dir(&vaults_dir).await {
+            Ok(e) => e,
+            Err(e) => {
+                tracing::debug!(
+                    path = %vaults_dir.display(),
+                    error = %e,
+                    "discover_from_data_dir: vaults dir unavailable"
+                );
+                return Self { bindings };
+            }
+        };
+        loop {
+            let vault_entry = match vaults_iter.next_entry().await {
+                Ok(Some(e)) => e,
+                Ok(None) => break,
                 Err(e) => {
-                    tracing::debug!(
-                        path = %vault_path.display(),
-                        error = %e,
-                        "discover_from: read_dir failed"
-                    );
-                    continue;
+                    tracing::debug!(error = %e, "discover: next_entry (vaults) failed");
+                    break;
                 }
             };
+            let Ok(ft) = vault_entry.file_type().await else { continue };
+            if !ft.is_dir() {
+                continue;
+            }
+            let vault_path = vault_entry.path();
+            let mut inner = match tokio::fs::read_dir(&vault_path).await {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
             loop {
-                let entry = match entries.next_entry().await {
-                    Ok(Some(entry)) => entry,
+                let child = match inner.next_entry().await {
+                    Ok(Some(e)) => e,
                     Ok(None) => break,
-                    Err(e) => {
-                        tracing::debug!(error = %e, "discover_from: next_entry failed");
-                        break;
-                    }
+                    Err(_) => break,
                 };
-                let Ok(ft) = entry.file_type().await else { continue };
+                let Ok(ft) = child.file_type().await else { continue };
                 if !ft.is_dir() {
                     continue;
                 }
-                let name = entry.file_name().to_string_lossy().into_owned();
+                let name = child.file_name().to_string_lossy().into_owned();
                 if !name.starts_with(AGENT_FOLDER_PREFIX) {
                     continue;
                 }
-                bindings.insert(LogicalAgentId::new(name), entry.path());
+                bindings.insert(LogicalAgentId::new(name), child.path());
             }
         }
         Self { bindings }
