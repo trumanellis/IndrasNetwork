@@ -66,6 +66,9 @@ pub mod home_realm_notes;
 // Vault sync submodule
 pub mod vault;
 
+// Team types embedded in synced-vault documents
+pub mod team;
+
 // Braided VCS submodule (rides on top of the vault)
 pub mod braid;
 
@@ -161,6 +164,7 @@ pub use realm_vault::RealmVault;
 pub use vault::Vault as VaultSync;
 pub use vault::vault_document::VaultFileDocument;
 pub use vault::vault_file::{ConflictRecord, UserId, VaultFile, CONFLICT_WINDOW_MS};
+pub use team::{LogicalAgentId, Team};
 
 // Re-export braid types
 pub use braid::{

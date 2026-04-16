@@ -4,6 +4,7 @@
 //! Concurrent edits within `CONFLICT_WINDOW_MS` create conflict records.
 
 use super::vault_file::{ConflictRecord, UserId, VaultFile, CONFLICT_WINDOW_MS};
+use crate::team::Team;
 use indras_network::document::DocumentSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -18,6 +19,11 @@ pub struct VaultFileDocument {
     pub files: BTreeMap<String, VaultFile>,
     /// Detected conflicts awaiting resolution.
     pub conflicts: Vec<ConflictRecord>,
+    /// Team associated with this vault — roster of logical AI agents plus
+    /// the id of the team realm where the braid DAG gossips. Default is
+    /// empty (no team, no DAG channel) for vaults without agents.
+    #[serde(default)]
+    pub team: Team,
 }
 
 impl DocumentSchema for VaultFileDocument {
@@ -102,6 +108,8 @@ impl DocumentSchema for VaultFileDocument {
                 self.conflicts.push(conflict);
             }
         }
+
+        self.team.merge(remote.team);
     }
 
     fn extract_delta(_old: &Self, _new: &Self) -> Option<Vec<u8>> {
@@ -376,6 +384,26 @@ mod tests {
         doc.remove("a.md", member_b());
         assert_eq!(doc.len(), 0);
         assert!(doc.files["a.md"].deleted);
+    }
+
+    #[test]
+    fn merge_team_unions_roster() {
+        use crate::team::{LogicalAgentId, Team};
+        let mut a = VaultFileDocument::default();
+        a.team = Team {
+            roster: vec![LogicalAgentId::new("agent1")],
+            team_realm_id: None,
+        };
+        let mut b = VaultFileDocument::default();
+        b.team = Team {
+            roster: vec![LogicalAgentId::new("agent2")],
+            team_realm_id: None,
+        };
+        a.merge(b);
+        assert_eq!(
+            a.team.roster,
+            vec![LogicalAgentId::new("agent1"), LogicalAgentId::new("agent2")]
+        );
     }
 
     #[test]
