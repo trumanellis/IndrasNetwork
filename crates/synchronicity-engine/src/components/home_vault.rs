@@ -438,6 +438,8 @@ pub fn HomeVault(
             super::relay_settings::RelaySettingsOverlay { state, network }
             // Profile overlay
             super::profile_modal::ProfileOverlay { state, network }
+            // Sync overlay
+            super::sync_panel::SyncOverlay { state }
         }
     }
 }

@@ -244,6 +244,8 @@ pub struct AppState {
     pub show_relay_settings: bool,
     /// Whether the profile overlay is open.
     pub show_profile: bool,
+    /// Whether the sync panel overlay is open.
+    pub show_sync: bool,
     /// Currently-open peer profile popup, keyed by (peer member id, DM realm id).
     /// `None` = popup closed.
     pub profile_popup_target: Option<([u8; 32], RealmId)>,
@@ -280,6 +282,7 @@ impl AppState {
             drop_target_realm: None,
             show_relay_settings: false,
             show_profile: false,
+            show_sync: false,
             profile_popup_target: None,
             relay_config: RelayConfig::load(),
         }

@@ -25,5 +25,5 @@ mod sync_panel;
 mod sync_stage_view;
 
 pub use app::App;
-pub use sync_panel::{SyncPanel, SyncPanelRow};
+pub use sync_panel::{SyncOverlay, SyncPanel, SyncPanelRow};
 pub use sync_stage_view::SyncStageView;

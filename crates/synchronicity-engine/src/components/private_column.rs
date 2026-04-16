@@ -40,6 +40,14 @@ pub fn PrivateColumn(mut state: Signal<AppState>) -> Element {
                     "\u{1F4C1}"
                 }
                 button {
+                    class: "column-header-sync glow-private",
+                    title: "Open sync panel",
+                    onclick: move |_| {
+                        state.write().show_sync = true;
+                    },
+                    "\u{1F504}"
+                }
+                button {
                     class: "column-header-add glow-private",
                     title: "New File",
                     onclick: move |_| {
