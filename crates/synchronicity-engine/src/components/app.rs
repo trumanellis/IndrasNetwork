@@ -87,9 +87,16 @@ pub fn App() -> Element {
                                 crate::vault_bridge::ensure_vault_ready(&vault_path);
                                 state.write().vault_path = vault_path;
                                 let vm_arc = Arc::new(vm);
-                                // Materialize team realms for any hosted vaults
-                                // using the device-local team binding registry.
-                                let team_registry = crate::team::TeamBindingRegistry::load();
+                                // Discover agent worktrees by scanning every
+                                // managed vault for `agent*` subfolders. No
+                                // JSON config, no env var — just convention:
+                                // drop a folder named `agent*` inside a vault
+                                // and it becomes a logical agent binding.
+                                let team_registry =
+                                    crate::team::TeamBindingRegistry::discover_from(
+                                        vm_arc.as_ref(),
+                                    )
+                                    .await;
                                 if let Some(net) = network.read().as_ref() {
                                     crate::team::ensure_team_realms_for_hosted_vaults(
                                         net.as_ref(),
