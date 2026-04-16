@@ -173,6 +173,13 @@ impl VaultManager {
             .collect()
     }
 
+    /// Shared content-addressed blob store used by every vault on this
+    /// device. Also the store into which agent-folder working-tree
+    /// content is written by [`LocalWorkspaceIndex`].
+    pub fn blob_store(&self) -> Arc<BlobStore> {
+        Arc::clone(&self.blob_store)
+    }
+
     /// Resolve the final sanitized vault directory name for a realm,
     /// handling sanitization, empty fallback, and collision suffixing.
     async fn resolve_vault_name(

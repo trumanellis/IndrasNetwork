@@ -15,16 +15,21 @@
 //! CRDT-synced in-flight state was explicitly ruled out.
 
 use std::collections::HashMap;
+use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use fs4::fs_std::FileExt;
 use indras_storage::{BlobStore, ContentRef, StorageError};
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::{mpsc, RwLock};
 use tokio::task::JoinHandle;
 
 use crate::braid::PatchFile;
+
+/// Filename used for the advisory single-writer lock inside a bound folder.
+const LOCK_FILENAME: &str = ".syncengine-lock";
 
 /// One file's entry in the working-tree index.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -257,6 +262,62 @@ async fn event_loop(
     }
 }
 
+/// Advisory single-writer lock on a bound folder.
+///
+/// Prevents two syncengine processes from both mirroring the same folder
+/// into a [`LocalWorkspaceIndex`] (which would race on the blob store and
+/// produce duplicate ingests). The lock is an OS-level advisory exclusive
+/// lock on `{folder}/.syncengine-lock` via [`fs4`], so it auto-releases
+/// if the holding process crashes — no stale-lock cleanup needed.
+///
+/// Caller must keep the [`FolderLock`] alive for as long as the watcher
+/// is running. Dropping it releases the OS lock (automatic on file drop)
+/// and best-effort removes the lockfile.
+#[derive(Debug)]
+pub struct FolderLock {
+    _file: File,
+    path: PathBuf,
+}
+
+impl FolderLock {
+    /// Try to acquire the lock on `folder`. Creates the folder and the
+    /// lockfile if missing. Returns `Err(WouldBlock)` if another process
+    /// holds the lock.
+    pub fn acquire(folder: &Path) -> std::io::Result<Self> {
+        std::fs::create_dir_all(folder)?;
+        let path = folder.join(LOCK_FILENAME);
+        let file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(false)
+            .open(&path)?;
+        file.try_lock_exclusive().map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                format!(
+                    "another syncengine already owns {}: {e}",
+                    folder.display()
+                ),
+            )
+        })?;
+        Ok(Self { _file: file, path })
+    }
+
+    /// Path to the lockfile on disk. Exposed for diagnostics / tests.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for FolderLock {
+    fn drop(&mut self) {
+        // File drop releases the OS advisory lock. Best-effort remove the
+        // lockfile so the directory stays tidy; harmless if another
+        // process grabbed it in between.
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
 async fn handle_event(event: &Event, root: &Path, index: &LocalWorkspaceIndex) {
     for path in &event.paths {
         let rel = match path.strip_prefix(root) {
@@ -417,6 +478,45 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
         assert!(seen, "watcher must index new.md within 5s");
+    }
+
+    #[tokio::test]
+    async fn folder_lock_prevents_second_acquire() {
+        let tmp = TempDir::new().unwrap();
+        let first = FolderLock::acquire(tmp.path()).expect("first acquire");
+        let second = FolderLock::acquire(tmp.path());
+        assert!(
+            second.is_err(),
+            "second lock on same folder must fail while first is held"
+        );
+        assert_eq!(
+            second.unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock,
+            "error kind should surface as WouldBlock for easy caller matching"
+        );
+        drop(first);
+    }
+
+    #[tokio::test]
+    async fn folder_lock_releases_on_drop() {
+        let tmp = TempDir::new().unwrap();
+        {
+            let _lock = FolderLock::acquire(tmp.path()).expect("first acquire");
+        }
+        let reacquired = FolderLock::acquire(tmp.path());
+        assert!(
+            reacquired.is_ok(),
+            "lock must release when FolderLock is dropped"
+        );
+    }
+
+    #[tokio::test]
+    async fn folder_lock_creates_folder_if_missing() {
+        let tmp = TempDir::new().unwrap();
+        let nested = tmp.path().join("not-yet-created");
+        let lock = FolderLock::acquire(&nested).expect("acquire with missing folder");
+        assert!(nested.exists(), "acquire should create the folder");
+        assert!(lock.path().exists(), "lockfile should exist");
     }
 
     #[tokio::test]

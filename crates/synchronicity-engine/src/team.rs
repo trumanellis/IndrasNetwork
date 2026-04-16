@@ -13,12 +13,15 @@
 //! module defines only the in-memory types.
 
 use indras_network::IndrasNetwork;
+use indras_storage::BlobStore;
 use indras_sync_engine::realm_team::RealmTeam;
 use indras_sync_engine::realm_vault::RealmVault;
 use indras_sync_engine::team::{LogicalAgentId, Team};
+use indras_sync_engine::workspace::{FolderLock, LocalWorkspaceIndex, WorkspaceWatcher};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::state::default_data_dir;
 use crate::vault_manager::VaultManager;
@@ -148,6 +151,79 @@ impl DeviceTeamMembership {
     pub fn is_participating(&self) -> bool {
         !self.hosted.is_empty()
     }
+}
+
+/// Live working-tree plumbing for one bound agent folder.
+///
+/// Bundles the things that must stay alive together: the OS-level
+/// single-writer lock on the folder, the background fs-watcher, and the
+/// index it populates. Drop the handle to stop watching and release the
+/// lock.
+pub struct WorkspaceHandle {
+    /// Logical agent this folder is bound to.
+    pub agent: LogicalAgentId,
+    /// Held to prevent a second syncengine from mirroring the same folder.
+    pub lock: FolderLock,
+    /// Background watcher keeping `index` in sync with disk.
+    pub watcher: WorkspaceWatcher,
+    /// The living working-tree index for this agent.
+    pub index: Arc<LocalWorkspaceIndex>,
+}
+
+/// For each binding in `registry`, acquire a folder lock, populate an
+/// initial index of the folder's current content, and start an
+/// [`WorkspaceWatcher`]. Returns one [`WorkspaceHandle`] per successfully
+/// bound folder. Failures (lock held by another process, inaccessible
+/// folder) are logged and skipped — one bad binding must not block
+/// healthy ones.
+pub async fn spawn_workspace_watchers(
+    registry: &TeamBindingRegistry,
+    blob_store: Arc<BlobStore>,
+) -> Vec<WorkspaceHandle> {
+    let mut handles = Vec::new();
+    for (agent, folder) in &registry.bindings {
+        let lock = match FolderLock::acquire(folder) {
+            Ok(l) => l,
+            Err(e) => {
+                tracing::warn!(
+                    folder = %folder.display(),
+                    error = %e,
+                    "skipping binding: folder lock unavailable"
+                );
+                continue;
+            }
+        };
+        let index = Arc::new(LocalWorkspaceIndex::new(
+            folder.clone(),
+            Arc::clone(&blob_store),
+        ));
+        if let Err(e) = index.initial_scan().await {
+            tracing::warn!(
+                folder = %folder.display(),
+                error = %e,
+                "initial scan failed; proceeding with empty index"
+            );
+        }
+        match WorkspaceWatcher::start(Arc::clone(&index)) {
+            Ok(watcher) => {
+                handles.push(WorkspaceHandle {
+                    agent: agent.clone(),
+                    lock,
+                    watcher,
+                    index,
+                });
+            }
+            Err(e) => {
+                tracing::warn!(
+                    folder = %folder.display(),
+                    error = %e,
+                    "watcher start failed; dropping lock"
+                );
+                drop(lock);
+            }
+        }
+    }
+    handles
 }
 
 /// Materialize the team realm for every currently-tracked synced vault on

@@ -19,6 +19,10 @@ pub fn App() -> Element {
     let mut state = use_signal(AppState::new);
     let mut network: Signal<Option<Arc<IndrasNetwork>>> = use_signal(|| None);
     let mut vault_manager: Signal<Option<Arc<VaultManager>>> = use_signal(|| None);
+    // Held for the App's lifetime so per-binding folder locks + fs-watchers
+    // stay alive. Dropping the Signal drops every handle, releasing locks.
+    let mut workspace_handles: Signal<Vec<crate::team::WorkspaceHandle>> =
+        use_signal(Vec::new);
 
     // One-shot guard: only attempt network load once for returning users.
     let mut network_loaded = use_signal(|| false);
@@ -91,6 +95,15 @@ pub fn App() -> Element {
                                     )
                                     .await;
                                 }
+                                // Lock + watch each bound agent folder. Handles
+                                // stay alive in workspace_handles for the App's
+                                // lifetime; drop releases the locks + watchers.
+                                let handles = crate::team::spawn_workspace_watchers(
+                                    &team_registry,
+                                    vm_arc.blob_store(),
+                                )
+                                .await;
+                                workspace_handles.set(handles);
                                 vault_manager.set(Some(vm_arc));
                             }
                             Err(e) => tracing::error!("Failed to start vault manager: {e}"),
