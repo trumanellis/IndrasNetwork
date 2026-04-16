@@ -54,6 +54,7 @@ pub fn PeerProfilePopup(
 
     use_effect(use_reactive!(|(peer_id, realm_id)| {
         let net = network.read().clone();
+        let liveness_snapshot = state.read().peer_liveness.clone();
         spawn(async move {
             snapshot.set(PopupSnapshot { loading: true, ..Default::default() });
             let Some(net) = net else {
@@ -63,10 +64,14 @@ pub fn PeerProfilePopup(
 
             let profile = load_peer_profile_from_dm(&net, peer_id, realm_id).await;
 
-            // Online: real transport connection state, not sticky gossip
-            // membership.
-            let _ = realm_id; // realm scoping no longer needed for online check
-            let online = net.is_peer_connected(&peer_id).await;
+            // Online: read the heartbeat liveness map populated by
+            // `crate::heartbeat`. No heartbeat → offline. Catches both
+            // graceful exits and force-quits (heartbeats just stop arriving).
+            let now = now_secs();
+            let online = liveness_snapshot
+                .as_ref()
+                .map(|l| l.is_recently_seen(&peer_id, now))
+                .unwrap_or(false);
 
             snapshot.set(PopupSnapshot {
                 loading: false,
@@ -176,4 +181,11 @@ pub fn PeerProfilePopup(
 
 fn hex_prefix(member_id: &[u8; 32]) -> String {
     member_id.iter().take(4).map(|b| format!("{b:02x}")).collect()
+}
+
+fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
 }

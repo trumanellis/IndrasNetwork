@@ -2,8 +2,10 @@
 
 use std::collections::HashSet;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use crate::config::RelayConfig;
+use crate::heartbeat::PeerLiveness;
 
 /// Payload carried during a drag-to-share operation.
 #[derive(Debug, Clone)]
@@ -249,6 +251,9 @@ pub struct AppState {
     /// Currently-open peer profile popup, keyed by (peer member id, DM realm id).
     /// `None` = popup closed.
     pub profile_popup_target: Option<([u8; 32], RealmId)>,
+    /// Heartbeat liveness map populated by the heartbeat receiver task.
+    /// `None` until the network has started.
+    pub peer_liveness: Option<Arc<PeerLiveness>>,
     /// Cached relay configuration loaded from `$INDRAS_DATA_DIR/relay.json`.
     pub relay_config: RelayConfig,
 }
@@ -284,6 +289,7 @@ impl AppState {
             show_profile: false,
             show_sync: false,
             profile_popup_target: None,
+            peer_liveness: None,
             relay_config: RelayConfig::load(),
         }
     }

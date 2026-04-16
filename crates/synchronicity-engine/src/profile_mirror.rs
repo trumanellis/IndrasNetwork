@@ -6,6 +6,10 @@
 //! per-peer slots in a DM realm never collide. Grant filtering happens at
 //! write time: ungranted string fields are written as empty, ungranted
 //! `bio` is written as `None`. The reader treats those as "not shared."
+//!
+//! Liveness is handled separately by [`crate::heartbeat`] over realm
+//! message events — the mirror only writes when content actually changes
+//! so the profile doc's history doesn't accumulate liveness churn.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -25,10 +29,11 @@ pub fn peer_profile_doc_key(member_id: &[u8; 32]) -> String {
 }
 
 /// Spawn a background loop that re-publishes the local profile mirror into
-/// every DM realm at a fixed cadence.
+/// every DM realm at a fixed cadence. Cheap when content hasn't changed
+/// (skip-if-unchanged in `publish_mirror`).
 pub fn start_profile_mirror_loop(network: Arc<IndrasNetwork>) {
     tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(Duration::from_secs(3));
+        let mut ticker = tokio::time::interval(Duration::from_secs(5));
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             ticker.tick().await;
@@ -67,6 +72,9 @@ async fn publish_mirror(network: &Arc<IndrasNetwork>) {
         let Some(realm) = network.get_realm_by_id(&realm_id) else { continue };
         let Ok(doc) = realm.document::<ProfileIdentityDocument>(&key).await else { continue };
 
+        // Skip writes when nothing changed so the doc's history doesn't
+        // accumulate. Liveness is signaled via `crate::heartbeat`, not by
+        // bumping `updated_at` here.
         let new = filtered;
         let res = doc
             .update(move |d| {

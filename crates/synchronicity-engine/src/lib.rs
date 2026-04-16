@@ -8,6 +8,7 @@
 pub mod admin_client;
 pub mod components;
 pub mod config;
+pub mod heartbeat;
 pub mod profile_bridge;
 pub mod profile_mirror;
 pub mod profile_server;

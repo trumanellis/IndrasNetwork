@@ -166,10 +166,15 @@ pub fn HomeVault(
                         else { continue };
                         let realm_bytes = *realm_iface.as_bytes();
 
-                        if let Some(profile) = crate::profile_bridge::load_peer_profile_from_dm(
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs() as i64)
+                            .unwrap_or(0);
+                        let profile = crate::profile_bridge::load_peer_profile_from_dm(
                             &net, peer.member_id, realm_bytes,
-                        ).await {
-                            let v = profile.display_name.trim();
+                        ).await;
+                        if let Some(ref p) = profile {
+                            let v = p.display_name.trim();
                             if !v.is_empty() && peer.name != v {
                                 peer.name = v.to_string();
                                 peer.letter = v.chars().next().unwrap_or('?').to_string();
@@ -177,8 +182,12 @@ pub fn HomeVault(
                             }
                         }
 
-                        let peer_mid = peer.member_id;
-                        let online = net.is_peer_connected(&peer_mid).await;
+                        let online = state
+                            .read()
+                            .peer_liveness
+                            .as_ref()
+                            .map(|l| l.is_recently_seen(&peer.member_id, now))
+                            .unwrap_or(false);
                         if peer.online != online {
                             peer.online = online;
                             changed = true;

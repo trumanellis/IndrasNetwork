@@ -76,6 +76,9 @@ pub fn App() -> Element {
                         crate::profile_bridge::ensure_profile_artifacts(&net).await;
                         let _homepage = crate::profile_server::start_homepage_server(&net, &data_dir).await;
                         crate::profile_mirror::start_profile_mirror_loop(net.clone());
+                        let liveness = std::sync::Arc::new(crate::heartbeat::PeerLiveness::default());
+                        crate::heartbeat::start_heartbeat_loop(net.clone(), liveness.clone());
+                        state.write().peer_liveness = Some(liveness);
                         network.set(Some(net));
                         let data_dir = crate::state::default_data_dir();
                         match VaultManager::new(data_dir).await {
@@ -135,19 +138,27 @@ pub fn App() -> Element {
         });
     });
 
-    // On shutdown: stop network.
+    // On shutdown: stop network. We must block until `net.stop()` completes
+    // so QUIC CONNECTION_CLOSE frames are flushed before the process exits —
+    // otherwise peers don't observe the disconnect for ~iroh-keepalive seconds
+    // and the connection appears stale ("online" in the UI). Bounded join so
+    // a stuck shutdown can't permanently freeze quit.
     let network_for_cleanup = network;
     use_drop(move || {
         if let Some(net) = network_for_cleanup.read().as_ref() {
             let net = net.clone();
-            std::thread::spawn(move || {
+            let handle = std::thread::spawn(move || {
                 let rt = tokio::runtime::Runtime::new().unwrap();
                 rt.block_on(async {
-                    if let Err(e) = net.stop().await {
-                        tracing::error!("Failed to stop network: {e}");
+                    let stop_fut = net.stop();
+                    match tokio::time::timeout(std::time::Duration::from_secs(5), stop_fut).await {
+                        Ok(Ok(())) => {}
+                        Ok(Err(e)) => tracing::error!("Failed to stop network: {e}"),
+                        Err(_) => tracing::warn!("Network shutdown timed out after 5s"),
                     }
                 });
             });
+            let _ = handle.join();
         }
     });
 
