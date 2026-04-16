@@ -3043,3 +3043,37 @@ body > * {
 .sync-commit-status.failed {
   color: #f87171;
 }
+
+/* HEAD indicator row at the top of the panel body. */
+.sync-head-indicator {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 14px;
+  border: 1px solid var(--bd);
+  border-radius: 8px;
+  background: var(--bg);
+  margin-bottom: 4px;
+}
+.sync-head-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--t3);
+}
+.sync-head-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--t1);
+}
+.sync-head-indicator.empty .sync-head-value {
+  color: var(--t3);
+  font-style: italic;
+}
+.sync-head-indicator.multiple .sync-head-value {
+  color: var(--glow-amber);
+}

@@ -12,7 +12,8 @@ use std::sync::Arc;
 
 use dioxus::prelude::*;
 use indras_network::IndrasNetwork;
-use indras_sync_engine::braid::{ChangeId, PatchFile, PatchManifest, RealmBraid};
+use indras_sync_engine::braid::{BraidDag, ChangeId, PatchFile, PatchManifest, RealmBraid};
+use indras_sync_engine::realm_vault::RealmVault;
 use indras_sync_engine::team::LogicalAgentId;
 use indras_sync_engine::workspace::LocalWorkspaceIndex;
 
@@ -137,6 +138,46 @@ fn SyncAgentRow(
             }
         }
     }
+}
+
+/// Small HEAD indicator shown above the agent rows. Passive read of
+/// the team realm's current braid DAG heads.
+///
+/// - Empty: "no commits yet" — the team realm has no head because
+///   nothing has been committed (or the team realm hasn't been
+///   materialized on this device yet).
+/// - One head: the short-hex of that changeset.
+/// - Multiple heads: "N concurrent heads" — agents have diverged; a
+///   merge changeset will collapse them on the next commit.
+#[component]
+fn HeadIndicator(heads: Vec<ChangeId>) -> Element {
+    let kind = match heads.len() {
+        0 => "empty",
+        1 => "single",
+        _ => "multiple",
+    };
+    rsx! {
+        div { class: "sync-head-indicator {kind}",
+            span { class: "sync-head-label", "HEAD" }
+            if heads.is_empty() {
+                span { class: "sync-head-value", "no commits yet" }
+            } else if heads.len() == 1 {
+                span { class: "sync-head-value", "{short_head_hex(&heads[0])}" }
+            } else {
+                span { class: "sync-head-value", "{heads.len()} concurrent heads" }
+            }
+        }
+    }
+}
+
+/// Short 8-hex rendering of a ChangeId (first 4 bytes), matching the
+/// abbreviation style used elsewhere in this module.
+fn short_head_hex(id: &ChangeId) -> String {
+    let mut s = String::with_capacity(8);
+    for b in &id.as_bytes()[..4] {
+        s.push_str(&format!("{b:02x}"));
+    }
+    s
 }
 
 /// Status line below the Commit button — separate component so the
@@ -271,6 +312,46 @@ pub fn SyncOverlay(
         return rsx! {};
     }
 
+    // Look up current team-realm DAG heads for this device. Passive read:
+    // never materializes a team realm — just reports what's there. The
+    // list is empty until `team_realm_id` has been set on the vault doc
+    // (via `ensure_team_realm` — currently only fires during commits in
+    // the Phase-1 surface).
+    let heads_resource = use_resource(move || async move {
+        let net_opt = network.read().clone();
+        let vm_opt = vault_manager.read().clone();
+        let (net, vm) = match (net_opt, vm_opt) {
+            (Some(n), Some(v)) => (n, v),
+            _ => return Vec::new(),
+        };
+        let Some(vault_realm) = vm.realms().await.into_iter().next() else {
+            return Vec::new();
+        };
+        let idx = match vault_realm.vault_index().await {
+            Ok(i) => i,
+            Err(_) => return Vec::new(),
+        };
+        let team_realm_id = match idx.read().await.team.team_realm_id {
+            Some(id) => id,
+            None => return Vec::new(),
+        };
+        let Some(team_realm) = net.get_realm_by_id(&team_realm_id) else {
+            return Vec::new();
+        };
+        let dag = match team_realm.document::<BraidDag>("braid-dag").await {
+            Ok(d) => d,
+            Err(_) => return Vec::new(),
+        };
+        let mut heads: Vec<ChangeId> = dag.read().await.heads().into_iter().collect();
+        heads.sort();
+        heads
+    });
+    let heads: Vec<ChangeId> = heads_resource
+        .read()
+        .as_ref()
+        .cloned()
+        .unwrap_or_default();
+
     // Snapshot each handle's index into a `SyncPanelRow`. Clones refs
     // synchronously (the Signal read guard can't cross the `await`),
     // then iterates the async boundary.
@@ -321,6 +402,7 @@ pub fn SyncOverlay(
                     }
                 }
                 div { class: "file-modal-content relay-body",
+                    HeadIndicator { heads }
                     SyncPanel { rows, network, vault_manager, workspace_handles }
                 }
             }
