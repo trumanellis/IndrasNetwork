@@ -1,16 +1,23 @@
-//! `RealmBraid`: extension trait exposing the braid DAG on a `Realm`.
+//! `RealmBraid`: extension trait exposing the braid DAG through a synced vault.
 //!
-//! Mirrors the shape of [`RealmVault`](crate::realm_vault::RealmVault).
-//! The braid DAG is a single named document (`"braid-dag"`) stored on the
-//! realm; source file bytes continue to live in the realm's `vault_index`
-//! document. Changesets reference vault file versions by `(path, hash)`.
+//! In the two-realm architecture, braid DAG state lives on the **team realm**
+//! — a separate realm materialized deterministically from the synced vault's
+//! id (see [`RealmTeam`](crate::realm_team::RealmTeam)). Non-team devices
+//! that only sync the vault realm never pull the DAG; only devices that host
+//! agents for the team join the team realm and subscribe.
+//!
+//! The trait is still rooted on the synced-vault [`Realm`] because that's
+//! the handle callers naturally have. Each DAG-touching method takes an
+//! `&IndrasNetwork` so it can resolve the team realm via `ensure_team_realm`.
+//! `snapshot_patch` stays on the vault realm because it reads the vault's
+//! own file index.
 
 use std::path::PathBuf;
 
 use chrono::Utc;
 use indras_network::document::{Document, DocumentChange};
-use indras_network::error::Result;
-use indras_network::Realm;
+use indras_network::error::{IndraError, Result};
+use indras_network::{IndrasNetwork, Realm};
 use tokio::sync::broadcast;
 
 use super::{
@@ -19,14 +26,36 @@ use super::{
     gate::TryLandError,
     verification::{self, VerificationRequest},
 };
+use crate::realm_team::RealmTeam;
 use crate::realm_vault::RealmVault;
 use crate::vault::vault_file::UserId;
+
+/// Human-readable label for the team realm when it is first materialized.
+/// The id is derived deterministically; the name is purely cosmetic.
+pub(crate) const TEAM_REALM_NAME: &str = "team-realm";
+
+/// Resolve the team realm handle for this vault realm, materializing it via
+/// deterministic derivation if this device hasn't opened it yet.
+async fn team_realm_handle(vault_realm: &Realm, network: &IndrasNetwork) -> Result<Realm> {
+    let team_realm_id = vault_realm
+        .ensure_team_realm(network, TEAM_REALM_NAME)
+        .await?;
+    network
+        .get_realm_by_id(&team_realm_id)
+        .ok_or_else(|| IndraError::RealmNotFound {
+            id: format!("{team_realm_id:?}"),
+        })
+}
 
 /// Realm extension trait adding braid-DAG access and the `try_land` gate.
 #[allow(async_fn_in_trait)]
 pub trait RealmBraid {
-    /// Get (or create) the realm's braid-DAG document.
-    async fn braid_dag(&self) -> Result<Document<BraidDag>>;
+    /// Get (or create) the team realm's braid-DAG document.
+    ///
+    /// `self` is the synced-vault realm; the DAG document itself lives on
+    /// the derived team realm. Safe to call repeatedly — the team realm is
+    /// idempotent and the document lookup just returns a fresh handle.
+    async fn braid_dag(&self, network: &IndrasNetwork) -> Result<Document<BraidDag>>;
 
     /// Snapshot the current vault state for the given paths and produce a
     /// [`PatchManifest`] referencing their content hashes.
@@ -44,9 +73,10 @@ pub trait RealmBraid {
     /// 2. Run the full verification suite.
     /// 3. Snapshot the vault for `touched_paths` into a [`PatchManifest`].
     /// 4. Build a changeset whose `parents` are the current DAG heads.
-    /// 5. Insert into the DAG (no disk I/O — the caller already wrote).
+    /// 5. Insert into the DAG on the team realm.
     async fn try_land(
         &self,
+        network: &IndrasNetwork,
         intent: String,
         touched_paths: Vec<String>,
         crates: Vec<String>,
@@ -54,8 +84,8 @@ pub trait RealmBraid {
         agent: UserId,
     ) -> std::result::Result<ChangeId, TryLandError>;
 
-    /// Read the current heads of the braid DAG.
-    async fn braid_heads(&self) -> Result<Vec<ChangeId>>;
+    /// Read the current heads of the braid DAG (on the team realm).
+    async fn braid_heads(&self, network: &IndrasNetwork) -> Result<Vec<ChangeId>>;
 
     /// Subscribe to braid-DAG change events.
     ///
@@ -63,12 +93,16 @@ pub trait RealmBraid {
     /// merged from a peer. Use this to surface "peer X published a verified
     /// changeset" notifications; the caller decides whether to `checkout`
     /// that changeset into their vault.
-    async fn braid_dag_subscribe(&self) -> Result<broadcast::Receiver<DocumentChange<BraidDag>>>;
+    async fn braid_dag_subscribe(
+        &self,
+        network: &IndrasNetwork,
+    ) -> Result<broadcast::Receiver<DocumentChange<BraidDag>>>;
 }
 
 impl RealmBraid for Realm {
-    async fn braid_dag(&self) -> Result<Document<BraidDag>> {
-        self.document::<BraidDag>("braid-dag").await
+    async fn braid_dag(&self, network: &IndrasNetwork) -> Result<Document<BraidDag>> {
+        let team = team_realm_handle(self, network).await?;
+        team.document::<BraidDag>("braid-dag").await
     }
 
     async fn snapshot_patch(&self, paths: &[String]) -> Result<PatchManifest> {
@@ -92,6 +126,7 @@ impl RealmBraid for Realm {
 
     async fn try_land(
         &self,
+        network: &IndrasNetwork,
         intent: String,
         touched_paths: Vec<String>,
         crates: Vec<String>,
@@ -116,7 +151,7 @@ impl RealmBraid for Realm {
         let manifest = self.snapshot_patch(&touched_paths).await?;
 
         // 3. Build the changeset with parents = current DAG heads.
-        let dag = self.braid_dag().await?;
+        let dag = self.braid_dag(network).await?;
         let mut parents: Vec<ChangeId> = dag.read().await.heads().into_iter().collect();
         parents.sort();
 
@@ -136,14 +171,17 @@ impl RealmBraid for Realm {
         Ok(change_id)
     }
 
-    async fn braid_heads(&self) -> Result<Vec<ChangeId>> {
-        let dag = self.braid_dag().await?;
+    async fn braid_heads(&self, network: &IndrasNetwork) -> Result<Vec<ChangeId>> {
+        let dag = self.braid_dag(network).await?;
         let mut heads: Vec<ChangeId> = dag.read().await.heads().into_iter().collect();
         heads.sort();
         Ok(heads)
     }
 
-    async fn braid_dag_subscribe(&self) -> Result<broadcast::Receiver<DocumentChange<BraidDag>>> {
-        Ok(self.braid_dag().await?.subscribe())
+    async fn braid_dag_subscribe(
+        &self,
+        network: &IndrasNetwork,
+    ) -> Result<broadcast::Receiver<DocumentChange<BraidDag>>> {
+        Ok(self.braid_dag(network).await?.subscribe())
     }
 }

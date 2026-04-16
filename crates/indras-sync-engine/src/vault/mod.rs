@@ -370,12 +370,16 @@ impl Vault {
 
     /// Check out a braid changeset: apply its `PatchManifest` to the vault.
     ///
-    /// Looks up the changeset by id in the realm's braid DAG and calls
+    /// Looks up the changeset by id in the team realm's braid DAG and calls
     /// [`apply_manifest`](Self::apply_manifest). Returns an error if the
     /// changeset is unknown locally (the DAG must have propagated first).
-    pub async fn checkout(&self, change_id: super::braid::ChangeId) -> Result<()> {
+    pub async fn checkout(
+        &self,
+        network: &indras_network::IndrasNetwork,
+        change_id: super::braid::ChangeId,
+    ) -> Result<()> {
         use crate::braid::RealmBraid;
-        let dag = self.realm.braid_dag().await?;
+        let dag = self.realm.braid_dag(network).await?;
         let manifest = {
             let guard = dag.read().await;
             match guard.get(&change_id) {
