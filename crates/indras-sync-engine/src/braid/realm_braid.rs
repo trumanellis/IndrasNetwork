@@ -65,20 +65,25 @@ pub trait RealmBraid {
     /// hashing.
     async fn snapshot_patch(&self, paths: &[String]) -> Result<PatchManifest>;
 
-    /// Run verification for `crates`, and if green, insert a changeset whose
-    /// patch references the vault's current state of `touched_paths`.
+    /// Run verification for `crates`, and if green, insert a changeset
+    /// whose `patch` is the provided [`PatchManifest`].
+    ///
+    /// The caller is responsible for building the manifest — typically
+    /// by snapshotting a [`LocalWorkspaceIndex`](crate::workspace::LocalWorkspaceIndex)
+    /// of agent-owned working-tree state. This lets agent disk edits
+    /// remain device-local until `try_land`; a synced `vault_index` is
+    /// no longer consulted on the commit path.
     ///
     /// Flow:
-    /// 1. Reject empty `touched_paths`.
+    /// 1. Reject empty manifests.
     /// 2. Run the full verification suite.
-    /// 3. Snapshot the vault for `touched_paths` into a [`PatchManifest`].
-    /// 4. Build a changeset whose `parents` are the current DAG heads.
-    /// 5. Insert into the DAG on the team realm.
+    /// 3. Build a changeset whose `parents` are the current DAG heads.
+    /// 4. Insert into the DAG on the team realm.
     async fn try_land(
         &self,
         network: &IndrasNetwork,
         intent: String,
-        touched_paths: Vec<String>,
+        manifest: PatchManifest,
         crates: Vec<String>,
         workspace_root: PathBuf,
         agent: UserId,
@@ -128,12 +133,12 @@ impl RealmBraid for Realm {
         &self,
         network: &IndrasNetwork,
         intent: String,
-        touched_paths: Vec<String>,
+        manifest: PatchManifest,
         crates: Vec<String>,
         workspace_root: PathBuf,
         agent: UserId,
     ) -> std::result::Result<ChangeId, TryLandError> {
-        if touched_paths.is_empty() {
+        if manifest.files.is_empty() {
             return Err(TryLandError::NothingToLand);
         }
 
@@ -147,10 +152,7 @@ impl RealmBraid for Realm {
         };
         let evidence: Evidence = verification::run(&req).await?;
 
-        // 2. Snapshot the vault for the touched paths.
-        let manifest = self.snapshot_patch(&touched_paths).await?;
-
-        // 3. Build the changeset with parents = current DAG heads.
+        // 2. Build the changeset with parents = current DAG heads.
         let dag = self.braid_dag(network).await?;
         let mut parents: Vec<ChangeId> = dag.read().await.heads().into_iter().collect();
         parents.sort();
