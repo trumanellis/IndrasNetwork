@@ -261,6 +261,7 @@ fn commit_for_agent(
     spawn(async move {
         let files = index.snapshot_all().await;
         let manifest = PatchManifest::new(files);
+        let manifest_for_publish = manifest.clone();
         let realms = vm.realms().await;
         let realm = match realms.into_iter().next() {
             Some(r) => r,
@@ -287,6 +288,14 @@ fn commit_for_agent(
             Ok(id) => {
                 statuses.write().insert(agent, CommitStatus::Done(id));
                 refresh += 1;
+                // Publish HEAD + materialize files to vault root.
+                crate::team::publish_and_materialize_head(
+                    vm.as_ref(),
+                    &realm,
+                    id,
+                    &manifest_for_publish,
+                )
+                .await;
             }
             Err(e) => {
                 statuses

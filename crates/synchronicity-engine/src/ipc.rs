@@ -160,6 +160,7 @@ async fn process_request(
         return SyncResponse::fail("nothing to commit (empty index)");
     }
     let manifest = PatchManifest::new(files);
+    let manifest_for_publish = manifest.clone();
 
     let realm = match vault_manager.realms().await.into_iter().next() {
         Some(r) => r,
@@ -180,7 +181,16 @@ async fn process_request(
         )
         .await
     {
-        Ok(id) => SyncResponse::success(id.to_string()),
+        Ok(id) => {
+            crate::team::publish_and_materialize_head(
+                vault_manager,
+                &realm,
+                id,
+                &manifest_for_publish,
+            )
+            .await;
+            SyncResponse::success(id.to_string())
+        }
         Err(e) => SyncResponse::fail(format!("{e}")),
     }
 }

@@ -10,6 +10,8 @@
 use indras_network::RealmId;
 use serde::{Deserialize, Serialize};
 
+use crate::braid::changeset::{ChangeId, PatchManifest};
+
 /// Stable identifier for an AI-agent participant on a team.
 ///
 /// Human-readable (e.g. `"agent1"`, `"researcher"`). Uniqueness scope is the
@@ -48,6 +50,18 @@ pub struct Team {
     pub roster: Vec<LogicalAgentId>,
     /// Id of the team realm hosting this team's braid DAG. Set once.
     pub team_realm_id: Option<RealmId>,
+    /// The current published HEAD — the latest committed changeset that
+    /// this vault considers "the tip." Updated by the committing device
+    /// after a successful `try_land`; synced to all devices via the
+    /// VaultFileDocument CRDT so non-hosting devices can see (and
+    /// eventually checkout) the latest agreed-upon state.
+    #[serde(default)]
+    pub head: Option<ChangeId>,
+    /// The `PatchManifest` of `head` — carried alongside so non-hosting
+    /// devices can materialize the HEAD state from blobs without joining
+    /// the team realm or reading the DAG.
+    #[serde(default)]
+    pub head_manifest: Option<PatchManifest>,
 }
 
 impl Team {
@@ -88,6 +102,21 @@ impl Team {
                 }
             }
         };
+
+        // HEAD: take whichever side has a head; if both do, the higher
+        // byte-value ChangeId wins (deterministic tiebreak). The
+        // manifest travels with its head.
+        match (&self.head, &remote.head) {
+            (None, Some(_)) => {
+                self.head = remote.head;
+                self.head_manifest = remote.head_manifest;
+            }
+            (Some(local), Some(remote_head)) if remote_head > local => {
+                self.head = Some(*remote_head);
+                self.head_manifest = remote.head_manifest;
+            }
+            _ => {} // local wins or both None
+        }
     }
 }
 
@@ -104,10 +133,12 @@ mod tests {
         let mut a = Team {
             roster: vec![agent("b"), agent("a")],
             team_realm_id: None,
+            ..Default::default()
         };
         let b = Team {
             roster: vec![agent("c"), agent("a")],
             team_realm_id: None,
+            ..Default::default()
         };
         a.merge(b);
         assert_eq!(a.roster, vec![agent("a"), agent("b"), agent("c")]);
@@ -119,10 +150,12 @@ mod tests {
         let mut a = Team {
             roster: vec![],
             team_realm_id: None,
+            ..Default::default()
         };
         let b = Team {
             roster: vec![],
             team_realm_id: Some(realm),
+            ..Default::default()
         };
         a.merge(b);
         assert_eq!(a.team_realm_id, Some(realm));
@@ -135,10 +168,12 @@ mod tests {
         let mut a = Team {
             roster: vec![],
             team_realm_id: Some(higher),
+            ..Default::default()
         };
         let b = Team {
             roster: vec![],
             team_realm_id: Some(lower),
+            ..Default::default()
         };
         a.merge(b);
         assert_eq!(
@@ -151,10 +186,12 @@ mod tests {
         let mut c = Team {
             roster: vec![],
             team_realm_id: Some(lower),
+            ..Default::default()
         };
         c.merge(Team {
             roster: vec![],
             team_realm_id: Some(higher),
+            ..Default::default()
         });
         assert_eq!(c.team_realm_id, Some(lower));
     }

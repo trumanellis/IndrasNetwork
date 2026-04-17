@@ -392,12 +392,12 @@ mod tests {
         let mut a = VaultFileDocument::default();
         a.team = Team {
             roster: vec![LogicalAgentId::new("agent1")],
-            team_realm_id: None,
+            ..Default::default()
         };
         let mut b = VaultFileDocument::default();
         b.team = Team {
             roster: vec![LogicalAgentId::new("agent2")],
-            team_realm_id: None,
+            ..Default::default()
         };
         a.merge(b);
         assert_eq!(

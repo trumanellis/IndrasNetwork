@@ -238,6 +238,67 @@ pub async fn spawn_workspace_watchers(
     handles
 }
 
+/// After a successful commit, publish the new HEAD and materialize its
+/// files to the vault root so they appear in the vault column + sync
+/// to other devices via the existing CRDT pipeline.
+///
+/// Two steps:
+/// 1. Write `head` + `head_manifest` into the vault document's `Team`
+///    struct (CRDT-synced, visible to all devices).
+/// 2. Write each file in the manifest from the blob store to the vault
+///    root on disk; the vault's `VaultWatcher` picks up the writes and
+///    syncs the `VaultFileDocument`.
+pub async fn publish_and_materialize_head(
+    vault_manager: &VaultManager,
+    vault_realm: &indras_network::Realm,
+    change_id: indras_sync_engine::braid::ChangeId,
+    manifest: &indras_sync_engine::braid::PatchManifest,
+) {
+    use indras_sync_engine::realm_vault::RealmVault;
+
+    // 1. Publish HEAD to the synced vault doc.
+    match vault_realm.vault_index().await {
+        Ok(idx) => {
+            let manifest_clone = manifest.clone();
+            if let Err(e) = idx
+                .update(|doc| {
+                    doc.team.head = Some(change_id);
+                    doc.team.head_manifest = Some(manifest_clone);
+                })
+                .await
+            {
+                tracing::warn!(error = %e, "failed to publish HEAD to vault doc");
+            }
+        }
+        Err(e) => tracing::warn!(error = %e, "vault_index unavailable for HEAD publish"),
+    }
+
+    // 2. Materialize files to the vault root on disk.
+    let rid = *vault_realm.id().as_bytes();
+    let Some(vault_path) = vault_manager.vault_path(&rid) else {
+        tracing::warn!("vault path not found; skipping materialization");
+        return;
+    };
+    let blob = vault_manager.blob_store();
+    for file in &manifest.files {
+        let content_ref = indras_storage::ContentRef::new(file.hash, file.size);
+        match blob.load(&content_ref).await {
+            Ok(bytes) => {
+                let target = vault_path.join(&file.path);
+                if let Some(parent) = target.parent() {
+                    let _ = tokio::fs::create_dir_all(parent).await;
+                }
+                if let Err(e) = tokio::fs::write(&target, &bytes).await {
+                    tracing::warn!(path = %file.path, error = %e, "materialize to vault failed");
+                }
+            }
+            Err(e) => {
+                tracing::warn!(path = %file.path, error = %e, "blob load for materialize failed");
+            }
+        }
+    }
+}
+
 /// Materialize the team realm for every currently-tracked synced vault on
 /// this device that has a declared team this device participates in.
 ///
@@ -295,7 +356,7 @@ mod tests {
 
         let team = Team {
             roster: vec![agent("a"), agent("b")],
-            team_realm_id: None,
+            ..Default::default()
         };
         let membership = reg.membership_for(&team);
         assert_eq!(membership.hosted.len(), 1);
