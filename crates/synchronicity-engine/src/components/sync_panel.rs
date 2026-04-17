@@ -50,6 +50,7 @@ pub fn SyncPanel(
     network: Signal<Option<Arc<IndrasNetwork>>>,
     vault_manager: Signal<Option<Arc<VaultManager>>>,
     workspace_handles: Signal<Vec<WorkspaceHandle>>,
+    refresh: Signal<u32>,
 ) -> Element {
     let intents: Signal<HashMap<LogicalAgentId, String>> = use_signal(HashMap::new);
     let statuses: Signal<HashMap<LogicalAgentId, CommitStatus>> = use_signal(HashMap::new);
@@ -69,6 +70,7 @@ pub fn SyncPanel(
                             network,
                             vault_manager,
                             workspace_handles,
+                            refresh,
                         }
                     }
                 }
@@ -90,6 +92,7 @@ fn SyncAgentRow(
     network: Signal<Option<Arc<IndrasNetwork>>>,
     vault_manager: Signal<Option<Arc<VaultManager>>>,
     workspace_handles: Signal<Vec<WorkspaceHandle>>,
+    refresh: Signal<u32>,
 ) -> Element {
     let intent_val = intents
         .read()
@@ -128,6 +131,7 @@ fn SyncAgentRow(
                             network,
                             vault_manager,
                             workspace_handles,
+                            refresh,
                         );
                     },
                     if running { "Committing…" } else { "Commit" }
@@ -218,6 +222,7 @@ fn commit_for_agent(
     network: Signal<Option<Arc<IndrasNetwork>>>,
     vault_manager: Signal<Option<Arc<VaultManager>>>,
     workspace_handles: Signal<Vec<WorkspaceHandle>>,
+    mut refresh: Signal<u32>,
 ) {
     let intent = intents
         .read()
@@ -281,6 +286,7 @@ fn commit_for_agent(
         match result {
             Ok(id) => {
                 statuses.write().insert(agent, CommitStatus::Done(id));
+                refresh += 1;
             }
             Err(e) => {
                 statuses
@@ -317,7 +323,12 @@ pub fn SyncOverlay(
     // list is empty until `team_realm_id` has been set on the vault doc
     // (via `ensure_team_realm` — currently only fires during commits in
     // the Phase-1 surface).
+    let refresh: Signal<u32> = use_signal(|| 0);
+
     let heads_resource = use_resource(move || async move {
+        // Reading refresh so Dioxus re-runs this resource when it's bumped
+        // after a successful commit.
+        let _ = *refresh.read();
         let net_opt = network.read().clone();
         let vm_opt = vault_manager.read().clone();
         let (net, vm) = match (net_opt, vm_opt) {
@@ -403,7 +414,7 @@ pub fn SyncOverlay(
                 }
                 div { class: "file-modal-content relay-body",
                     HeadIndicator { heads }
-                    SyncPanel { rows, network, vault_manager, workspace_handles }
+                    SyncPanel { rows, network, vault_manager, workspace_handles, refresh }
                 }
             }
         }
