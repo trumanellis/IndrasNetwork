@@ -42,5 +42,5 @@ pub use changeset::{ChangeId, Changeset, Evidence, PatchFile, PatchManifest};
 pub use dag::BraidDag;
 pub use gate::{LocalRepo, TryLandError};
 pub use heal::{detect_heal_needed, RepairTask};
-pub use realm_braid::RealmBraid;
+pub use realm_braid::{verify_only, RealmBraid};
 pub use verification::{run, VerificationFailure, VerificationRequest};

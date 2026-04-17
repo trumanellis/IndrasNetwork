@@ -24,7 +24,7 @@ use super::{
     changeset::{ChangeId, Changeset, Evidence, PatchFile, PatchManifest},
     dag::BraidDag,
     gate::TryLandError,
-    verification::{self, VerificationRequest},
+    verification::{self, VerificationFailure, VerificationRequest},
 };
 use crate::realm_team::RealmTeam;
 use crate::realm_vault::RealmVault;
@@ -33,6 +33,29 @@ use crate::vault::vault_file::UserId;
 /// Human-readable label for the team realm when it is first materialized.
 /// The id is derived deterministically; the name is purely cosmetic.
 pub(crate) const TEAM_REALM_NAME: &str = "team-realm";
+
+/// Run the verification suite (build + test + clippy) for the given
+/// crates without inserting a changeset. Returns [`Evidence`] on
+/// success, [`VerificationFailure`] on failure.
+///
+/// This is the standalone version of the gate that `try_land` runs
+/// internally. Use it when you want to verify *before* deciding
+/// whether to commit (e.g., the UI's "Verify" button) or when you
+/// need Evidence for a manually-assembled [`Changeset`].
+pub async fn verify_only(
+    crates: Vec<String>,
+    workspace_root: PathBuf,
+    agent: UserId,
+) -> std::result::Result<Evidence, VerificationFailure> {
+    let req = VerificationRequest {
+        crates,
+        workspace_root,
+        agent,
+        run_clippy: true,
+        run_tests: true,
+    };
+    verification::run(&req).await
+}
 
 /// Resolve the team realm handle for this vault realm, materializing it via
 /// deterministic derivation if this device hasn't opened it yet.
@@ -143,14 +166,7 @@ impl RealmBraid for Realm {
         }
 
         // 1. Run verification on the caller-declared crates.
-        let req = VerificationRequest {
-            crates,
-            workspace_root,
-            agent,
-            run_clippy: true,
-            run_tests: true,
-        };
-        let evidence: Evidence = verification::run(&req).await?;
+        let evidence = verify_only(crates, workspace_root.clone(), agent).await?;
 
         // 2. Build the changeset with parents = current DAG heads.
         let dag = self.braid_dag(network).await?;
