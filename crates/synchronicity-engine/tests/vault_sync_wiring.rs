@@ -247,8 +247,8 @@ async fn test_dm_file_syncs_between_connected_peers() {
     vm_b.ensure_vault(&net_b, &realm_b, Some("Love")).await.expect("B: ensure_vault");
 
     let rid_bytes = *dm_id.as_bytes();
-    let a_vault_path = vm_a.vault_path(&rid_bytes).await.expect("A: vault_path");
-    let b_vault_path = vm_b.vault_path(&rid_bytes).await.expect("B: vault_path");
+    let a_vault_path = vm_a.vault_path(&rid_bytes).expect("A: vault_path");
+    let b_vault_path = vm_b.vault_path(&rid_bytes).expect("B: vault_path");
 
     // ── A writes FromLove.md into its DM vault directory ──────────────────
     let content_a = b"hello Joy, from Love";

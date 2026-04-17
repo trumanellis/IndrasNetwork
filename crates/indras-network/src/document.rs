@@ -8,7 +8,7 @@ use crate::member::Member;
 use crate::network::RealmId;
 
 use futures::Stream;
-use indras_core::InterfaceEvent;
+use indras_core::{InterfaceEvent, PeerIdentity};
 use indras_node::IndrasNode;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::marker::PhantomData;
@@ -362,6 +362,18 @@ impl<T: DocumentSchema> Document<T> {
                                     debug!(doc_name = %name, "Document spawn_listener: skipping own message");
                                     continue;
                                 }
+
+                                let realm_short: String = realm_id.as_bytes().iter().take(8)
+                                    .map(|b| format!("{:02x}", b)).collect();
+                                let sender_short: String = sender.as_bytes().iter().take(8)
+                                    .map(|b| format!("{:02x}", b)).collect();
+                                tracing::info!(
+                                    doc_name = %name,
+                                    realm = %realm_short,
+                                    from = %sender_short,
+                                    content_len = content.len(),
+                                    "Document: received remote event, applying"
+                                );
 
                                 // Upgrade weak ref; if node is gone, stop listening
                                 let Some(node) = node_weak.upgrade() else {
@@ -732,11 +744,11 @@ impl<T: DocumentSchema> Document<T> {
         // Persist to local storage
         self.persist(&new_state).await?;
 
-        debug!(
+        tracing::info!(
             doc_name = %self.name,
             realm = %realm_short,
             message_len = message.len(),
-            "Document update: sending to network"
+            "Document::update → send_message"
         );
 
         // Notify local subscribers FIRST (optimistic update)
@@ -747,13 +759,19 @@ impl<T: DocumentSchema> Document<T> {
         });
 
         // Then send to network (best-effort for remote delivery)
-        if let Err(e) = self.node.send_message(&self.realm_id, message).await {
-            tracing::warn!(
+        match self.node.send_message(&self.realm_id, message).await {
+            Ok(event_id) => tracing::info!(
+                doc_name = %self.name,
+                realm = %realm_short,
+                %event_id,
+                "Document::update: send_message ok"
+            ),
+            Err(e) => tracing::warn!(
                 doc_name = %self.name,
                 realm = %realm_short,
                 error = %e,
                 "Failed to send document update to network"
-            );
+            ),
         }
 
         Ok(())

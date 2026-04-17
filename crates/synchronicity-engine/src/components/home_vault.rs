@@ -109,12 +109,24 @@ pub fn HomeVault(
     // Adapted from indras-gift-cycle/src/app.rs:420-520.
     use_effect(move || {
         spawn(async move {
+            // Tick counter for sub-timers: world-view save every ~6 seconds.
+            let mut world_view_tick: u32 = 0;
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
                 let Some(net) = network.read().clone() else {
                     continue;
                 };
+
+                // Periodic world-view snapshot for cross-instance diffing.
+                world_view_tick += 1;
+                if world_view_tick >= 3 {
+                    world_view_tick = 0;
+                    match net.save_world_view().await {
+                        Ok(path) => tracing::debug!(path = %path.display(), "world-view saved"),
+                        Err(e) => tracing::warn!(error = %e, "world-view save failed"),
+                    }
+                }
 
                 // Read contacts realm and build PeerDisplayInfo vec
                 if let Some(contacts_realm) = net.contacts_realm().await {
@@ -418,7 +430,7 @@ pub fn HomeVault(
             },
             super::vault_columns::VaultColumns { state, network, vault_manager, peers: peers }
             super::status_bar::StatusBar { state }
-            super::file_modal::FileModal { state }
+            super::file_modal::FileModal { state, vault_manager }
             super::context_menu::ContextMenu { state }
             super::peer_profile_popup::PeerProfilePopup { state, network, peers: peers }
             // Contact invite overlay

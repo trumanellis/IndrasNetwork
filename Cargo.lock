@@ -8045,11 +8045,13 @@ name = "synchronicity-engine"
 version = "1.0.0"
 dependencies = [
  "chrono",
+ "dashmap",
  "dioxus",
  "indras-artifacts",
  "indras-crypto",
  "indras-genesis",
  "indras-homepage",
+ "indras-logging",
  "indras-network",
  "indras-relay",
  "indras-storage",

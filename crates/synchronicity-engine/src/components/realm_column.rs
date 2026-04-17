@@ -159,7 +159,7 @@ pub fn RealmColumn(
 
                                         spawn(async move {
                                             let Some(vm) = vm else { return; };
-                                            if let Some(vault_dir) = vm.vault_path(&id).await {
+                                            if let Some(vault_dir) = vm.vault_path(&id) {
                                                 let dest = vault_dir.join(&payload.file_name);
                                                 if let Some(parent) = dest.parent() {
                                                     let _ = tokio::fs::create_dir_all(parent).await;

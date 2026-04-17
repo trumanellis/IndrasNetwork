@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use dashmap::DashMap;
 use indras_network::{IndrasNetwork, Realm};
 use indras_storage::{BlobStore, BlobStoreConfig};
 use indras_sync_engine::vault::vault_file::VaultFile;
@@ -36,8 +37,10 @@ pub struct VaultManager {
     /// Active vaults keyed by realm ID bytes.
     vaults: RwLock<HashMap<[u8; 32], Vault>>,
     /// Recorded vault directory per realm so `vault_path()` returns
-    /// the same name-based path that `ensure_vault` chose.
-    paths: RwLock<HashMap<[u8; 32], PathBuf>>,
+    /// the same name-based path that `ensure_vault` chose. DashMap
+    /// (not tokio RwLock) so UI render/click handlers can resolve
+    /// paths synchronously.
+    paths: DashMap<[u8; 32], PathBuf>,
     /// Reverse index: which realm owns a given sanitized vault name.
     /// Used for collision resolution.
     name_to_realm: RwLock<HashMap<String, [u8; 32]>>,
@@ -66,7 +69,7 @@ impl VaultManager {
         info!(path = %data_dir.display(), "VaultManager started with shared blob store");
         Ok(Self {
             vaults: RwLock::new(HashMap::new()),
-            paths: RwLock::new(HashMap::new()),
+            paths: DashMap::new(),
             name_to_realm: RwLock::new(HashMap::new()),
             data_dir,
             blob_store,
@@ -120,7 +123,7 @@ impl VaultManager {
 
         info!(realm_name = %final_name, files = count, "Vault sync started");
         vaults.insert(rid, vault);
-        self.paths.write().await.insert(rid, vault_path);
+        self.paths.insert(rid, vault_path);
         self.name_to_realm.write().await.insert(final_name, rid);
         Ok(())
     }
@@ -152,9 +155,10 @@ impl VaultManager {
 
     /// Get the on-disk vault directory for a realm.
     ///
-    /// Returns `None` if the vault hasn't been initialized yet.
-    pub async fn vault_path(&self, realm_id: &[u8; 32]) -> Option<PathBuf> {
-        self.paths.read().await.get(realm_id).cloned()
+    /// Returns `None` if the vault hasn't been initialized yet. Synchronous so
+    /// UI render/click handlers can resolve paths without awaiting.
+    pub fn vault_path(&self, realm_id: &[u8; 32]) -> Option<PathBuf> {
+        self.paths.get(realm_id).map(|e| e.value().clone())
     }
 
     /// Snapshot of every realm this manager currently owns a vault for.

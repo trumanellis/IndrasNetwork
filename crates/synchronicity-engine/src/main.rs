@@ -2,15 +2,36 @@
 
 use dioxus::desktop::{Config, LogicalPosition, LogicalSize, WindowBuilder};
 
+use indras_logging::{ConsoleConfig, FileConfig, IndrasSubscriberBuilder, LogConfig, RotationStrategy};
 use synchronicity_engine::components::App;
 
 const SHARED_CSS: &str = indras_ui::SHARED_CSS;
 const STYLES_CSS: &str = include_str!("../assets/styles.css");
 
 fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter("synchronicity_engine=info,indras_network=info,indras_sync_engine::vault=info")
+    // JSONL log file under the per-instance data dir so Love/Joy/Peace don't
+    // clobber each other's logs. Console stays on for dev visibility.
+    let log_dir = synchronicity_engine::state::default_data_dir().join("logs");
+    let log_config = LogConfig {
+        default_level: "synchronicity_engine=info,indras_network=info,indras_node=info,indras_sync_engine=info,warn".to_string(),
+        console: ConsoleConfig {
+            enabled: true,
+            pretty: true,
+            ansi: true,
+            level: None,
+        },
+        file: Some(FileConfig {
+            directory: log_dir.clone(),
+            prefix: "synchronicity-engine".to_string(),
+            rotation: RotationStrategy::Never,
+            max_files: None,
+        }),
+        ..LogConfig::default()
+    };
+    let _log_guard = IndrasSubscriberBuilder::new()
+        .with_config(log_config)
         .init();
+    tracing::info!(log_dir = %log_dir.display(), "JSONL log writer initialized");
 
     let name = std::env::var("INDRAS_NAME").ok();
 

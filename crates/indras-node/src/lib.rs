@@ -1384,6 +1384,17 @@ impl IndrasNode {
                 all_targets.insert(peer_info.peer_id);
             }
 
+            let connected_count: usize = all_targets
+                .iter()
+                .filter(|m| **m != self.identity && transport.is_connected(m))
+                .count();
+            tracing::info!(
+                interface = %hex::encode(&interface_id.as_bytes()[..8]),
+                targets = all_targets.len(),
+                connected = connected_count,
+                "send_message dispatch"
+            );
+
             let mut sent_count = 0u32;
             for member in &all_targets {
                 if *member != self.identity && transport.is_connected(member) {

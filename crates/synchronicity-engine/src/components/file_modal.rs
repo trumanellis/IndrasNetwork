@@ -3,11 +3,14 @@
 //! Always-live inline editor: markdown renders as styled blocks and each block
 //! becomes an inline textarea on click. No mode toggle, no save button.
 
+use std::sync::Arc;
+
 use dioxus::prelude::*;
 
 use super::markdown_editor::{obsidian_open_url, InlineMarkdownEditor};
 use super::obsidian::{is_vault_registered, quit_obsidian, register_vault};
 use crate::state::AppState;
+use crate::vault_manager::VaultManager;
 
 /// Strip the .md extension for display as a title.
 fn title_from_filename(name: &str) -> String {
@@ -19,13 +22,28 @@ fn title_from_filename(name: &str) -> String {
 
 /// Popup modal for viewing and editing a file.
 #[component]
-pub fn FileModal(mut state: Signal<AppState>) -> Element {
+pub fn FileModal(
+    mut state: Signal<AppState>,
+    vault_manager: Signal<Option<Arc<VaultManager>>>,
+) -> Element {
     let modal = state.read().modal_file.clone();
     let Some(modal) = modal else {
         return rsx! {};
     };
 
-    let vault_path = state.read().vault_path.clone();
+    // Resolve the correct vault directory for this file. Files from a shared
+    // realm (DM, group, world) live in that realm's vault dir, not the user's
+    // private vault. Falling back to the private vault here caused edits to
+    // shared files to silently land in the wrong directory, so they never
+    // reached VaultWatcher → send_message → other peers.
+    let vault_path = match modal.realm_id {
+        Some(rid) => vault_manager
+            .read()
+            .as_ref()
+            .and_then(|vm| vm.vault_path(&rid))
+            .unwrap_or_else(|| state.read().vault_path.clone()),
+        None => state.read().vault_path.clone(),
+    };
     let file_path = modal.file_path.clone();
     let full_path = vault_path.join(&file_path);
 
@@ -168,8 +186,10 @@ fn commit_rename(
     let old_p = vault_path.join(old_name);
     let new_p = vault_path.join(&new_name);
     if std::fs::rename(&old_p, &new_p).is_ok() {
+        // Preserve the realm_id so the modal stays pointed at the right vault.
+        let realm_id = state.read().modal_file.as_ref().and_then(|m| m.realm_id);
         state.write().modal_file = Some(crate::state::ModalFile {
-            realm_id: None,
+            realm_id,
             file_path: new_name.clone(),
         });
         state.write().selection.selected_file = Some(new_name);
