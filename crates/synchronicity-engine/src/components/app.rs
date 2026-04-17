@@ -142,6 +142,18 @@ pub fn App() -> Element {
                                     vm_arc.blob_store(),
                                 )
                                 .await;
+                                // Start the IPC sync socket so Claude
+                                // Code agents can commit via shell.
+                                let ipc_indexes: Vec<std::sync::Arc<indras_sync_engine::workspace::LocalWorkspaceIndex>> =
+                                    handles.iter().map(|h| std::sync::Arc::clone(&h.index)).collect();
+                                if let Some(net) = network.read().clone() {
+                                    crate::ipc::start_ipc_server(
+                                        crate::state::default_data_dir(),
+                                        net,
+                                        Arc::clone(&vm_arc),
+                                        ipc_indexes,
+                                    );
+                                }
                                 workspace_handles.set(handles);
                                 vault_manager.set(Some(vm_arc));
                             }
