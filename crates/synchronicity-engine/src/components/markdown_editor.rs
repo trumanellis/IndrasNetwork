@@ -60,6 +60,24 @@ pub fn InlineMarkdownEditor(full_path: PathBuf) -> Element {
     // Generation counter: bumped on each file switch so stale save loops
     // silently stop writing to the wrong file.
     let mut generation: Signal<u64> = use_signal(|| 0);
+    // Track the current file path for flush-on-unmount.
+    let mut save_path: Signal<PathBuf> = use_signal(|| full_path.clone());
+
+    // Flush pending Milkdown content to disk when the component unmounts
+    // (e.g. modal close). getMarkdown() falls back to _milkdownContent if
+    // the editor DOM is already gone, so this is safe even in a race.
+    use_drop({
+        move || {
+            let fp = save_path.read().clone();
+            spawn(async move {
+                let mut eval =
+                    document::eval("dioxus.send(window.MilkdownBridge.getMarkdown())");
+                if let Ok(md) = eval.recv::<String>().await {
+                    let _ = std::fs::write(&fp, &md);
+                }
+            });
+        }
+    });
 
     let needs_init = loaded_path.read().as_ref() != Some(&full_path);
 
@@ -67,6 +85,7 @@ pub fn InlineMarkdownEditor(full_path: PathBuf) -> Element {
         let cur_gen = *generation.read() + 1;
         generation.set(cur_gen);
         loaded_path.set(Some(full_path.clone()));
+        save_path.set(full_path.clone());
 
         let content = std::fs::read_to_string(&full_path).unwrap_or_default();
         let escaped = escape_for_js(&content);
