@@ -46,6 +46,8 @@ impl BraidDag {
     /// If a changeset with this id already exists, it is left untouched
     /// (changesets are immutable by content-addressing).
     pub fn insert(&mut self, cs: Changeset) {
+        // TODO(pq-verify): verify cs.signature against author's PQPublicIdentity
+        // before accepting. Requires a peer key directory to resolve UserId → verifying key.
         self.changesets.entry(cs.id).or_insert(cs);
     }
 
@@ -144,6 +146,7 @@ impl DocumentSchema for BraidDag {
     /// LWW per peer for `peer_heads` (highest `updated_ms` wins).
     fn merge(&mut self, remote: Self) {
         for (id, cs) in remote.changesets {
+            // TODO(pq-verify): verify cs.signature before accepting remote changesets.
             self.changesets.entry(id).or_insert(cs);
         }
         for (user_id, remote_ps) in remote.peer_heads {
@@ -188,7 +191,7 @@ mod tests {
     }
 
     fn mk(author: UserId, parents: Vec<ChangeId>, intent: &str, patch_byte: u8, ts: i64) -> Changeset {
-        Changeset::new(
+        Changeset::new_unsigned(
             author,
             parents,
             intent.into(),

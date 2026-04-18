@@ -54,7 +54,8 @@ async fn sequential_commits_auto_parent_on_prior_heads() {
     .await
     .expect("Vault::create");
 
-    let user_id = net.node().pq_identity().user_id();
+    let pq = net.node().pq_identity();
+    let user_id = pq.user_id();
 
     // Agent 1 writes and commits.
     let idx1 = Arc::new(LocalWorkspaceIndex::new(
@@ -75,6 +76,7 @@ async fn sequential_commits_auto_parent_on_prior_heads() {
             Vec::new(),
             tmp_agent1.path().to_path_buf(),
             user_id,
+            pq,
         )
         .await
         .expect("agent1 try_land");
@@ -99,6 +101,7 @@ async fn sequential_commits_auto_parent_on_prior_heads() {
             Vec::new(),
             tmp_agent2.path().to_path_buf(),
             user_id,
+            pq,
         )
         .await
         .expect("agent2 try_land");

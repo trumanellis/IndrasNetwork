@@ -273,7 +273,8 @@ fn commit_for_agent(
                 return;
             }
         };
-        let user_id = net.node().pq_identity().user_id();
+        let pq = net.node().pq_identity();
+        let user_id = pq.user_id();
         let result = realm
             .try_land(
                 intent,
@@ -281,6 +282,7 @@ fn commit_for_agent(
                 Vec::new(),
                 workspace_root,
                 user_id,
+                pq,
             )
             .await;
         match result {

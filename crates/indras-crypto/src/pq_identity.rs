@@ -294,12 +294,22 @@ impl std::hash::Hash for PQPublicIdentity {
 }
 
 /// A post-quantum signature
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PQSignature {
     bytes: Vec<u8>,
 }
 
 impl PQSignature {
+    /// Create a dummy (all-zero) signature that will never pass verification.
+    ///
+    /// Used by test helpers and `Changeset::new_unsigned` when no signing
+    /// identity is available.
+    pub fn dummy() -> Self {
+        Self {
+            bytes: vec![0u8; PQ_SIGNATURE_SIZE],
+        }
+    }
+
     /// Create from raw bytes
     pub fn from_bytes(bytes: Vec<u8>) -> Result<Self, CryptoError> {
         if bytes.len() != PQ_SIGNATURE_SIZE {

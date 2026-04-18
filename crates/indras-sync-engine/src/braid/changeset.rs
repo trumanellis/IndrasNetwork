@@ -7,6 +7,7 @@
 //! states constitute this changeset.
 
 use crate::vault::vault_file::UserId;
+use indras_crypto::{PQIdentity, PQSignature};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -141,6 +142,8 @@ pub struct Changeset {
     pub evidence: Evidence,
     /// Authoring time in milliseconds since the Unix epoch.
     pub timestamp_millis: i64,
+    /// ML-DSA-65 signature over the `ChangeId` bytes.
+    pub signature: PQSignature,
 }
 
 impl Changeset {
@@ -162,11 +165,40 @@ impl Changeset {
         ChangeId(*blake3::hash(&bytes).as_bytes())
     }
 
-    /// Construct a new `Changeset`, filling `id` via `compute_id`.
+    /// Construct a new signed `Changeset`, filling `id` via `compute_id`.
     ///
     /// The stored `parents` vector is sorted so on-wire representations are
-    /// deterministic regardless of caller order.
+    /// deterministic regardless of caller order. The `ChangeId` is signed
+    /// with the author's ML-DSA-65 identity.
     pub fn new(
+        author: UserId,
+        mut parents: Vec<ChangeId>,
+        intent: String,
+        patch: PatchManifest,
+        evidence: Evidence,
+        timestamp_millis: i64,
+        identity: &PQIdentity,
+    ) -> Self {
+        parents.sort();
+        let id = Self::compute_id(&author, &parents, &patch, &intent, timestamp_millis);
+        let signature = identity.sign(id.as_bytes());
+        Self {
+            id,
+            author,
+            parents,
+            intent,
+            patch,
+            evidence,
+            timestamp_millis,
+            signature,
+        }
+    }
+
+    /// Construct an unsigned `Changeset` with a dummy signature.
+    ///
+    /// For unit tests and offline analysis where no signing identity is
+    /// available. The dummy signature will never pass verification.
+    pub fn new_unsigned(
         author: UserId,
         mut parents: Vec<ChangeId>,
         intent: String,
@@ -184,6 +216,7 @@ impl Changeset {
             patch,
             evidence,
             timestamp_millis,
+            signature: PQSignature::dummy(),
         }
     }
 }
@@ -217,7 +250,7 @@ mod tests {
         let p2 = ChangeId([3u8; 32]);
         let patch = sample_patch();
 
-        let a = Changeset::new(
+        let a = Changeset::new_unsigned(
             author,
             vec![p1, p2],
             "intent".into(),
@@ -225,7 +258,7 @@ mod tests {
             sample_evidence(author),
             100,
         );
-        let b = Changeset::new(
+        let b = Changeset::new_unsigned(
             author,
             vec![p2, p1],
             "intent".into(),
@@ -243,7 +276,7 @@ mod tests {
         let patch = sample_patch();
         let ev = sample_evidence(author);
 
-        let base = Changeset::new(
+        let base = Changeset::new_unsigned(
             author,
             parents.clone(),
             "a".into(),
@@ -252,7 +285,7 @@ mod tests {
             100,
         );
 
-        let diff_author = Changeset::new(
+        let diff_author = Changeset::new_unsigned(
             [9u8; 32],
             parents.clone(),
             "a".into(),
@@ -260,7 +293,7 @@ mod tests {
             ev.clone(),
             100,
         );
-        let diff_parents = Changeset::new(
+        let diff_parents = Changeset::new_unsigned(
             author,
             vec![ChangeId([4u8; 32])],
             "a".into(),
@@ -268,7 +301,7 @@ mod tests {
             ev.clone(),
             100,
         );
-        let diff_intent = Changeset::new(
+        let diff_intent = Changeset::new_unsigned(
             author,
             parents.clone(),
             "b".into(),
@@ -276,7 +309,7 @@ mod tests {
             ev.clone(),
             100,
         );
-        let diff_patch = Changeset::new(
+        let diff_patch = Changeset::new_unsigned(
             author,
             parents.clone(),
             "a".into(),
@@ -288,7 +321,7 @@ mod tests {
             ev.clone(),
             100,
         );
-        let diff_time = Changeset::new(author, parents, "a".into(), patch, ev, 101);
+        let diff_time = Changeset::new_unsigned(author, parents, "a".into(), patch, ev, 101);
 
         for other in [diff_author, diff_parents, diff_intent, diff_patch, diff_time] {
             assert_ne!(

@@ -83,7 +83,8 @@ async fn commit_lands_changeset_in_team_realm_dag() {
     let files = index.snapshot_all().await;
     assert!(!files.is_empty(), "snapshot should see at least work.rs");
     let manifest = PatchManifest::new(files);
-    let user_id = net.node().pq_identity().user_id();
+    let pq = net.node().pq_identity();
+    let user_id = pq.user_id();
     let change_id = vault
         .realm()
         .try_land(
@@ -92,6 +93,7 @@ async fn commit_lands_changeset_in_team_realm_dag() {
             Vec::new(),
             tmp_agent_folder.path().to_path_buf(),
             user_id,
+            pq,
         )
         .await
         .expect("try_land");

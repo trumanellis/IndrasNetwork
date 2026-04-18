@@ -24,7 +24,7 @@ fn evidence(a: UserId) -> Evidence {
 }
 
 fn make_changeset(author: UserId, parents: Vec<ChangeId>, intent: &str, ts: i64) -> Changeset {
-    Changeset::new(
+    Changeset::new_unsigned(
         author,
         parents,
         intent.into(),

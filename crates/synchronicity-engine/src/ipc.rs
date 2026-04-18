@@ -167,7 +167,8 @@ async fn process_request(
         None => return SyncResponse::fail("no vault realm on this device"),
     };
 
-    let user_id = network.node().pq_identity().user_id();
+    let pq = network.node().pq_identity();
+    let user_id = pq.user_id();
     let workspace_root = index.root().to_path_buf();
 
     match realm
@@ -177,6 +178,7 @@ async fn process_request(
             Vec::new(),
             workspace_root,
             user_id,
+            pq,
         )
         .await
     {

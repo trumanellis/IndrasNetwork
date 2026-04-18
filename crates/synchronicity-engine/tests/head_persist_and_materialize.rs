@@ -71,7 +71,8 @@ async fn head_persists_and_files_materialize() {
     // Commit.
     let manifest = PatchManifest::new(idx.snapshot_all().await);
     let manifest_for_publish = manifest.clone();
-    let user_id = net.node().pq_identity().user_id();
+    let pq = net.node().pq_identity();
+    let user_id = pq.user_id();
     let change_id = vault
         .realm()
         .try_land(
@@ -80,6 +81,7 @@ async fn head_persists_and_files_materialize() {
             Vec::new(),
             tmp_agent.path().to_path_buf(),
             user_id,
+            pq,
         )
         .await
         .expect("try_land");

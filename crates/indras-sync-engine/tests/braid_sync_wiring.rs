@@ -120,7 +120,7 @@ async fn land_synthetic(
         signed_by: author,
     };
     let ts = chrono::Utc::now().timestamp_millis();
-    let cs = Changeset::new(author, parents, intent.into(), patch, evidence, ts);
+    let cs = Changeset::new_unsigned(author, parents, intent.into(), patch, evidence, ts);
     let id = cs.id;
     realm
         .braid_dag()

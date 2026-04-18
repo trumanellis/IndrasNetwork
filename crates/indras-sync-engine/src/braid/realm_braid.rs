@@ -12,6 +12,8 @@ use indras_network::error::Result;
 use indras_network::Realm;
 use tokio::sync::broadcast;
 
+use indras_crypto::PQIdentity;
+
 use super::{
     changeset::{ChangeId, Changeset, Evidence, PatchManifest},
     dag::BraidDag,
@@ -76,6 +78,7 @@ pub trait RealmBraid {
         crates: Vec<String>,
         workspace_root: PathBuf,
         agent: UserId,
+        identity: &PQIdentity,
     ) -> std::result::Result<ChangeId, TryLandError>;
 
     /// Read the current heads of the braid DAG.
@@ -104,6 +107,7 @@ impl RealmBraid for Realm {
         crates: Vec<String>,
         workspace_root: PathBuf,
         agent: UserId,
+        identity: &PQIdentity,
     ) -> std::result::Result<ChangeId, TryLandError> {
         if manifest.files.is_empty() {
             return Err(TryLandError::NothingToLand);
@@ -125,6 +129,7 @@ impl RealmBraid for Realm {
             manifest,
             evidence,
             timestamp_millis,
+            identity,
         );
         let change_id = changeset.id;
 
