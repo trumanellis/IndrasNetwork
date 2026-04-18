@@ -13,12 +13,11 @@ use indras_network::Realm;
 use tokio::sync::broadcast;
 
 use super::{
-    changeset::{ChangeId, Changeset, Evidence, PatchFile, PatchManifest},
+    changeset::{ChangeId, Changeset, Evidence, PatchManifest},
     dag::BraidDag,
     gate::TryLandError,
     verification::{self, VerificationFailure, VerificationRequest},
 };
-use crate::realm_vault::RealmVault;
 use crate::vault::vault_file::UserId;
 
 /// Run the verification suite (build + test + clippy) for the given
@@ -55,14 +54,6 @@ pub trait RealmBraid {
     /// Safe to call repeatedly — the document lookup returns a fresh handle
     /// backed by the same in-memory state.
     async fn braid_dag(&self) -> Result<Document<BraidDag>>;
-
-    /// Snapshot the current vault state for the given paths and produce a
-    /// [`PatchManifest`] referencing their content hashes.
-    ///
-    /// Paths not present in the vault index are skipped silently. The
-    /// returned manifest's `files` are sorted by path for deterministic
-    /// hashing.
-    async fn snapshot_patch(&self, paths: &[String]) -> Result<PatchManifest>;
 
     /// Run verification for `crates`, and if green, insert a changeset
     /// whose `patch` is the provided [`PatchManifest`].
@@ -104,25 +95,6 @@ pub trait RealmBraid {
 impl RealmBraid for Realm {
     async fn braid_dag(&self) -> Result<Document<BraidDag>> {
         self.document::<BraidDag>("braid-dag").await
-    }
-
-    async fn snapshot_patch(&self, paths: &[String]) -> Result<PatchManifest> {
-        let idx = self.vault_index().await?;
-        let doc = idx.read().await;
-        let mut files: Vec<PatchFile> = Vec::new();
-        for path in paths {
-            if let Some(vf) = doc.files.get(path) {
-                if vf.deleted {
-                    continue;
-                }
-                files.push(PatchFile {
-                    path: vf.path.clone(),
-                    hash: vf.hash,
-                    size: vf.size,
-                });
-            }
-        }
-        Ok(PatchManifest::new(files))
     }
 
     async fn try_land(

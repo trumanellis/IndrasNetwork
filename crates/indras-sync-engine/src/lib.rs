@@ -168,7 +168,7 @@ pub use realm_vault::RealmVault;
 pub use realm_team::RealmTeam;
 pub use vault::Vault as VaultSync;
 pub use vault::vault_document::VaultFileDocument;
-pub use vault::vault_file::{ConflictRecord, UserId, VaultFile, CONFLICT_WINDOW_MS};
+pub use vault::vault_file::{UserId, VaultFile};
 pub use team::{LogicalAgentId, Team};
 
 // Re-export braid types

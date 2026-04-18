@@ -2,50 +2,46 @@
 //!
 //! Monitors a vault directory for local changes (creates, edits, deletes),
 //! hashes changed files with BLAKE3, stores blobs, and updates the
-//! vault-index document directly via a cached `Document<VaultFileDocument>`.
+//! local vault file index. Does NOT broadcast changes — edits are local
+//! until the user explicitly syncs.
 
-use super::relay_sync::RelayBlobSync;
 use super::vault_document::VaultFileDocument;
 use super::vault_file::{UserId, VaultFile};
+use super::relay_sync::RelayBlobSync;
 
-use dashmap::DashMap;
-use indras_network::document::Document;
+use dashmap::{DashMap, DashSet};
 use indras_storage::BlobStore;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, RwLock};
 use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 
 /// Debounce window for FS events.
 const DEBOUNCE_MS: u64 = 100;
 
-/// File system watcher that feeds local changes into the vault-index.
+/// File system watcher that feeds local changes into the vault file index.
 pub struct VaultWatcher {
     /// The watcher handle (kept alive).
     _watcher: RecommendedWatcher,
     /// Background task processing events.
     handle: JoinHandle<()>,
-    /// Paths currently suppressed (to prevent echo from sync-to-disk writes).
+    /// Paths currently suppressed (to prevent echo from sync-from-DAG writes).
     pub(crate) suppressed: Arc<DashMap<PathBuf, Instant>>,
     /// Last-known content hash per relative path. The watcher skips re-indexing
-    /// when the disk hash matches, preventing stale re-upserts that create
-    /// spurious conflicts after CRDT merges update the index ahead of the disk.
+    /// when the disk hash matches, preventing stale re-upserts.
     pub(crate) known_hashes: Arc<DashMap<String, [u8; 32]>>,
+    /// Paths modified since last sync (dirty set). Consumed by `Vault::sync()`.
+    pub dirty_paths: Arc<DashSet<String>>,
 }
 
 impl VaultWatcher {
-    /// Start watching `vault_path` for changes, updating the vault-index document directly.
-    ///
-    /// `vault_path` is canonicalized on start so that events emitted by the OS
-    /// (which on macOS come back as canonical paths like `/private/tmp/...` even
-    /// when the watch was registered on the `/tmp/...` symlink) strip-prefix
-    /// cleanly in the event loop.
+    /// Start watching `vault_path` for changes, updating the local file index.
     pub fn start(
         vault_path: PathBuf,
-        doc: Document<VaultFileDocument>,
+        local_index: Arc<RwLock<VaultFileDocument>>,
         blob_store: Arc<BlobStore>,
         user_id: UserId,
         relay: Option<Arc<RelayBlobSync>>,
@@ -57,6 +53,7 @@ impl VaultWatcher {
         let (tx, rx) = mpsc::channel::<Event>(512);
         let suppressed: Arc<DashMap<PathBuf, Instant>> = Arc::new(DashMap::new());
         let known_hashes: Arc<DashMap<String, [u8; 32]>> = Arc::new(DashMap::new());
+        let dirty_paths: Arc<DashSet<String>> = Arc::new(DashSet::new());
 
         let tx_clone = tx.clone();
         let mut watcher = notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
@@ -69,14 +66,16 @@ impl VaultWatcher {
 
         let suppressed_clone = Arc::clone(&suppressed);
         let known_hashes_clone = Arc::clone(&known_hashes);
+        let dirty_paths_clone = Arc::clone(&dirty_paths);
         let handle = tokio::spawn(Self::event_loop(
             rx,
             vault_path,
-            doc,
+            local_index,
             blob_store,
             user_id,
             suppressed_clone,
             known_hashes_clone,
+            dirty_paths_clone,
             relay,
         ));
 
@@ -86,12 +85,13 @@ impl VaultWatcher {
             handle,
             suppressed,
             known_hashes,
+            dirty_paths,
         })
     }
 
     /// Suppress watcher events for `path` for `duration`.
     ///
-    /// Used by sync-to-disk to prevent echo when writing remote changes.
+    /// Used by sync-from-DAG to prevent echo when writing materialized changes.
     pub fn suppress(&self, path: &Path, duration: Duration) {
         self.suppressed
             .insert(path.to_path_buf(), Instant::now() + duration);
@@ -121,16 +121,24 @@ impl VaultWatcher {
         self.known_hashes.insert(rel_path.to_string(), hash);
     }
 
+    /// Return and clear the dirty paths set. Called by `Vault::sync()`.
+    pub fn take_dirty(&self) -> Vec<String> {
+        let paths: Vec<String> = self.dirty_paths.iter().map(|r| r.clone()).collect();
+        self.dirty_paths.clear();
+        paths
+    }
+
     /// Event processing loop with debounce.
     async fn event_loop(
         mut rx: mpsc::Receiver<Event>,
         vault_path: PathBuf,
-        doc: Document<VaultFileDocument>,
+        local_index: Arc<RwLock<VaultFileDocument>>,
         blob_store: Arc<BlobStore>,
         user_id: UserId,
         suppressed: Arc<DashMap<PathBuf, Instant>>,
         known_hashes: Arc<DashMap<String, [u8; 32]>>,
-        relay: Option<Arc<RelayBlobSync>>,
+        dirty_paths: Arc<DashSet<String>>,
+        _relay: Option<Arc<RelayBlobSync>>,
     ) {
         // Debounce: collect events then process after quiet period
         let mut pending: std::collections::HashMap<PathBuf, EventKind> =
@@ -181,17 +189,14 @@ impl VaultWatcher {
                 match kind {
                     EventKind::Remove(_) => {
                         debug!(path = %rel_path, "File removed");
-                        let rp = rel_path.clone();
-                        if let Err(e) = doc.update(|d| d.remove(&rp, user_id)).await {
-                            warn!(path = %rel_path, error = %e, "Failed to delete file from vault index");
-                        }
+                        local_index.write().await.remove(&rel_path, user_id);
+                        dirty_paths.insert(rel_path);
                     }
                     EventKind::Create(_) | EventKind::Modify(_) => {
-                        // Read file, hash, store blob, upsert
+                        // Read file, hash, store blob, upsert local index
                         let data = match tokio::fs::read(&path).await {
                             Ok(d) => d,
                             Err(e) => {
-                                // File may have been deleted between event and read
                                 debug!(path = %rel_path, error = %e, "Failed to read file");
                                 continue;
                             }
@@ -200,12 +205,9 @@ impl VaultWatcher {
                         let size = data.len() as u64;
 
                         // Skip if hash matches the last-known hash for this path.
-                        // This prevents re-indexing stale content with a new timestamp
-                        // when a CRDT merge has updated the index but SyncToDisk hasn't
-                        // yet written the winner content to disk.
                         if let Some(known) = known_hashes.get(&rel_path) {
                             if *known == hash {
-                                debug!(path = %rel_path, "File hash unchanged from last index, skipping");
+                                debug!(path = %rel_path, "File hash unchanged, skipping");
                                 continue;
                             }
                         }
@@ -216,18 +218,13 @@ impl VaultWatcher {
                             continue;
                         }
 
-                        // Push to relay for remote peers
-                        if let Some(ref relay) = relay {
-                            let _ = relay.push_blob(&hash, &data).await;
-                        }
+                        // Do NOT push to relay — blobs are pushed at sync time only.
 
-                        let file = VaultFile::with_content(&rel_path, hash, size, user_id, data.clone());
-                        if let Err(e) = doc.update(|d| d.upsert(file)).await {
-                            warn!(path = %rel_path, error = %e, "Failed to upsert file in vault index");
-                        } else {
-                            known_hashes.insert(rel_path.clone(), hash);
-                            info!(path = %rel_path, size, hash = %hex::encode(&hash[..6]), "Vault file indexed (local write)");
-                        }
+                        let file = VaultFile::new(&rel_path, hash, size, user_id);
+                        local_index.write().await.upsert(file);
+                        known_hashes.insert(rel_path.clone(), hash);
+                        dirty_paths.insert(rel_path.clone());
+                        info!(path = %rel_path, size, hash = %hex::encode(&hash[..6]), "Vault file indexed (local write)");
                     }
                     _ => {}
                 }
