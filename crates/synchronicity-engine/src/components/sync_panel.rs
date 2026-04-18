@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use dioxus::prelude::*;
 use indras_network::IndrasNetwork;
-use indras_sync_engine::braid::{BraidDag, ChangeId, PatchFile, PatchManifest, RealmBraid};
+use indras_sync_engine::braid::{ChangeId, PatchFile, PatchManifest, RealmBraid};
 use indras_sync_engine::realm_vault::RealmVault;
 use indras_sync_engine::team::LogicalAgentId;
 use indras_sync_engine::workspace::LocalWorkspaceIndex;
@@ -334,14 +334,13 @@ pub fn SyncOverlay(
     // the Phase-1 surface).
     let refresh: Signal<u32> = use_signal(|| 0);
 
-    let heads_resource = use_resource(move || async move {
-        // Reading refresh so Dioxus re-runs this resource when it's bumped
-        // after a successful commit.
+    // Read HEAD from the persisted vault doc (not the ephemeral team-realm
+    // DAG, which doesn't survive restart for single-device scenarios).
+    let head_resource = use_resource(move || async move {
         let _ = *refresh.read();
-        let net_opt = network.read().clone();
         let vm_opt = vault_manager.read().clone();
-        let (net, vm) = match (net_opt, vm_opt) {
-            (Some(n), Some(v)) => (n, v),
+        let vm = match vm_opt {
+            Some(v) => v,
             _ => return Vec::new(),
         };
         let Some(vault_realm) = vm.realms().await.into_iter().next() else {
@@ -351,22 +350,14 @@ pub fn SyncOverlay(
             Ok(i) => i,
             Err(_) => return Vec::new(),
         };
-        let team_realm_id = match idx.read().await.team.team_realm_id {
-            Some(id) => id,
-            None => return Vec::new(),
-        };
-        let Some(team_realm) = net.get_realm_by_id(&team_realm_id) else {
-            return Vec::new();
-        };
-        let dag = match team_realm.document::<BraidDag>("braid-dag").await {
-            Ok(d) => d,
-            Err(_) => return Vec::new(),
-        };
-        let mut heads: Vec<ChangeId> = dag.read().await.heads().into_iter().collect();
-        heads.sort();
-        heads
+        // Refresh so we see writes made via sibling Document handles.
+        let _ = idx.refresh().await;
+        match idx.read().await.team.head {
+            Some(id) => vec![id],
+            None => Vec::new(),
+        }
     });
-    let heads: Vec<ChangeId> = heads_resource
+    let heads: Vec<ChangeId> = head_resource
         .read()
         .as_ref()
         .cloned()
