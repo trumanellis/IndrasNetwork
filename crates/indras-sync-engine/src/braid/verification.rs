@@ -172,7 +172,7 @@ pub async fn run(req: &VerificationRequest) -> Result<Evidence, VerificationFail
 
     let runtime_ms = start.elapsed().as_millis() as u64;
 
-    Ok(Evidence {
+    Ok(Evidence::Agent {
         compiled: true,
         tests_passed,
         lints_clean,

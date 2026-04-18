@@ -16,7 +16,7 @@ fn patch() -> PatchManifest {
 }
 
 fn evidence(a: UserId) -> Evidence {
-    Evidence {
+    Evidence::Agent {
         compiled: true,
         tests_passed: vec!["indras-sync-engine".into()],
         lints_clean: true,

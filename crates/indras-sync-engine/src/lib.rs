@@ -174,6 +174,8 @@ pub use team::{LogicalAgentId, Team};
 // Re-export braid types
 pub use braid::{
     detect_heal_needed, BraidDag, ChangeId, Changeset, Evidence, LocalRepo, PatchFile,
-    PatchManifest, RealmBraid, RepairTask, TryLandError, VerificationFailure, VerificationRequest,
+    PatchManifest, PeerState, RealmBraid, RepairTask, TryLandError, VerificationFailure,
+    VerificationRequest,
 };
+pub use vault::trust::LocalTrustStore;
 pub use braid::verification::run as verify;

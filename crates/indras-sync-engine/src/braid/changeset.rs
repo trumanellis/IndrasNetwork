@@ -68,22 +68,56 @@ impl PatchManifest {
     }
 }
 
-/// Verification outcome attached to a `Changeset`, signed by the author.
+/// Proof of intent attached to a `Changeset`.
 ///
 /// Peers trust signed `Evidence` on incoming changesets and do not re-run
-/// verification on import. `signed_by` matches the changeset's `author`.
+/// verification on import.
+///
+/// - [`Evidence::Agent`]: automated verification (build + test + lint).
+/// - [`Evidence::Human`]: explicit user approval to publish.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Evidence {
-    /// Whether `cargo build` succeeded.
-    pub compiled: bool,
-    /// Names of the `cargo test -p <crate>` runs that passed.
-    pub tests_passed: Vec<String>,
-    /// Whether `cargo clippy -- -D warnings` was clean.
-    pub lints_clean: bool,
-    /// Total wall-clock runtime of the verification suite, in milliseconds.
-    pub runtime_ms: u64,
-    /// Agent who produced and signed this evidence.
-    pub signed_by: UserId,
+pub enum Evidence {
+    /// Agent verification: build/test/lint results from cargo.
+    Agent {
+        /// Whether `cargo build` succeeded.
+        compiled: bool,
+        /// Names of the `cargo test -p <crate>` runs that passed.
+        tests_passed: Vec<String>,
+        /// Whether `cargo clippy -- -D warnings` was clean.
+        lints_clean: bool,
+        /// Total wall-clock runtime of the verification suite, in milliseconds.
+        runtime_ms: u64,
+        /// Agent who produced and signed this evidence.
+        signed_by: UserId,
+    },
+    /// Human approval: explicit user consent to publish.
+    Human {
+        /// The user who approved this sync.
+        approved_by: UserId,
+        /// Timestamp of approval (Unix millis).
+        approved_at_ms: i64,
+        /// Optional message from the user.
+        message: Option<String>,
+    },
+}
+
+impl Evidence {
+    /// Return the identity that signed / approved this evidence.
+    pub fn signed_by(&self) -> UserId {
+        match self {
+            Evidence::Agent { signed_by, .. } => *signed_by,
+            Evidence::Human { approved_by, .. } => *approved_by,
+        }
+    }
+
+    /// Convenience constructor for human-approved evidence.
+    pub fn human(user_id: UserId, message: Option<String>) -> Self {
+        Evidence::Human {
+            approved_by: user_id,
+            approved_at_ms: chrono::Utc::now().timestamp_millis(),
+            message,
+        }
+    }
 }
 
 /// A verified, broadcastable unit of change.
@@ -159,7 +193,7 @@ mod tests {
     use super::*;
 
     fn sample_evidence(agent: UserId) -> Evidence {
-        Evidence {
+        Evidence::Agent {
             compiled: true,
             tests_passed: vec!["indras-sync-engine".into()],
             lints_clean: true,

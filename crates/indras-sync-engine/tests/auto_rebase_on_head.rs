@@ -13,8 +13,7 @@ use std::time::Duration;
 
 use indras_network::IndrasNetwork;
 use indras_storage::{BlobStore, BlobStoreConfig};
-use indras_sync_engine::braid::{BraidDag, PatchManifest, RealmBraid};
-use indras_sync_engine::realm_team::RealmTeam;
+use indras_sync_engine::braid::{PatchManifest, RealmBraid};
 use indras_sync_engine::vault::Vault;
 use indras_sync_engine::workspace::LocalWorkspaceIndex;
 use tempfile::TempDir;
@@ -71,7 +70,6 @@ async fn sequential_commits_auto_parent_on_prior_heads() {
     let id1 = vault
         .realm()
         .try_land(
-            net.as_ref(),
             "agent1: add a.rs".into(),
             manifest1,
             Vec::new(),
@@ -96,7 +94,6 @@ async fn sequential_commits_auto_parent_on_prior_heads() {
     let id2 = vault
         .realm()
         .try_land(
-            net.as_ref(),
             "agent2: add b.rs".into(),
             manifest2,
             Vec::new(),
@@ -108,22 +105,10 @@ async fn sequential_commits_auto_parent_on_prior_heads() {
 
     // The DAG should have a single head (id2); id1 is no longer a head
     // because id2 superseded it. And id2's parents must include id1.
-    let team_realm_id = vault
-        .realm()
-        .ensure_team_realm(net.as_ref(), "team-realm")
-        .await
-        .expect("ensure_team_realm");
-    let team_realm = net
-        .get_realm_by_id(&team_realm_id)
-        .expect("team realm open");
-    let dag = team_realm
-        .document::<BraidDag>("braid-dag")
-        .await
-        .expect("braid-dag");
-    let dag_guard = dag.read().await;
+    let dag = vault.dag().read().await;
 
     // id2 is the sole head (id1 was superseded).
-    let heads = dag_guard.heads();
+    let heads = dag.heads();
     assert!(
         heads.contains(&id2),
         "id2 must be a head; heads = {heads:?}"
@@ -134,7 +119,7 @@ async fn sequential_commits_auto_parent_on_prior_heads() {
     );
 
     // id2's parents include id1.
-    let cs2 = dag_guard.get(&id2).expect("changeset id2");
+    let cs2 = dag.get(&id2).expect("changeset id2");
     assert!(
         cs2.parents.contains(&id1),
         "id2's parents must include id1; parents = {:?}",

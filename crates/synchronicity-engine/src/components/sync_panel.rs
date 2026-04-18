@@ -13,7 +13,7 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 use indras_network::IndrasNetwork;
 use indras_sync_engine::braid::{ChangeId, PatchFile, PatchManifest, RealmBraid};
-use indras_sync_engine::realm_vault::RealmVault;
+
 use indras_sync_engine::team::LogicalAgentId;
 use indras_sync_engine::workspace::LocalWorkspaceIndex;
 
@@ -276,7 +276,6 @@ fn commit_for_agent(
         let user_id = net.node().pq_identity().user_id();
         let result = realm
             .try_land(
-                net.as_ref(),
                 intent,
                 manifest,
                 Vec::new(),
@@ -294,6 +293,7 @@ fn commit_for_agent(
                     &realm,
                     id,
                     &manifest_for_publish,
+                    user_id,
                 )
                 .await;
             }
@@ -334,8 +334,7 @@ pub fn SyncOverlay(
     // the Phase-1 surface).
     let refresh: Signal<u32> = use_signal(|| 0);
 
-    // Read HEAD from the persisted .braid-head.json file on disk.
-    // Survives restarts — no Document event-replay dependency.
+    // Read HEAD from the braid DAG's per-peer head tracking.
     let head_resource = use_resource(move || async move {
         let _ = *refresh.read();
         let vm_opt = vault_manager.read().clone();
@@ -346,14 +345,14 @@ pub fn SyncOverlay(
         let Some(vault_realm) = vm.realms().await.into_iter().next() else {
             return Vec::new();
         };
-        let rid = *vault_realm.id().as_bytes();
-        let Some(vault_path) = vm.vault_path(&rid) else {
-            return Vec::new();
+        use indras_sync_engine::braid::RealmBraid;
+        let dag = match vault_realm.braid_dag().await {
+            Ok(d) => d,
+            Err(_) => return Vec::new(),
         };
-        match crate::team::load_persisted_head(&vault_path) {
-            Some(id) => vec![id],
-            None => Vec::new(),
-        }
+        let _ = dag.refresh().await;
+        let guard = dag.read().await;
+        guard.heads().into_iter().collect()
     });
     let heads: Vec<ChangeId> = head_resource
         .read()

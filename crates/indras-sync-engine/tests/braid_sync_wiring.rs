@@ -69,13 +69,12 @@ async fn poll_file_contains(path: &Path, expected: &[u8], deadline: Duration) ->
 /// Poll a realm's BraidDag until it contains `id`, or `deadline` elapses.
 async fn wait_for_changeset(
     realm: &indras_network::Realm,
-    network: &IndrasNetwork,
     id: ChangeId,
     deadline: Duration,
 ) -> bool {
     let end = tokio::time::Instant::now() + deadline;
     loop {
-        if let Ok(dag) = realm.braid_dag(network).await {
+        if let Ok(dag) = realm.braid_dag().await {
             if dag.read().await.contains(&id) {
                 return true;
             }
@@ -91,7 +90,6 @@ async fn wait_for_changeset(
 /// with synthetic green evidence. Returns the new ChangeId.
 async fn land_synthetic(
     realm: &indras_network::Realm,
-    network: &IndrasNetwork,
     author: [u8; 32],
     intent: &str,
     touched_paths: &[String],
@@ -100,8 +98,8 @@ async fn land_synthetic(
         .snapshot_patch(touched_paths)
         .await
         .expect("snapshot_patch");
-    let parents = realm.braid_heads(network).await.expect("braid_heads");
-    let evidence = Evidence {
+    let parents = realm.braid_heads().await.expect("braid_heads");
+    let evidence = Evidence::Agent {
         compiled: true,
         tests_passed: vec![],
         lints_clean: true,
@@ -112,7 +110,7 @@ async fn land_synthetic(
     let cs = Changeset::new(author, parents, intent.into(), patch, evidence, ts);
     let id = cs.id;
     realm
-        .braid_dag(network)
+        .braid_dag()
         .await
         .expect("braid_dag")
         .update(|d| d.insert(cs))
@@ -169,7 +167,6 @@ async fn two_peer_braid_sync_and_checkout() {
     let author_a = net_a.node().pq_identity().user_id();
     let cs_id = land_synthetic(
         vault_a.realm(),
-        &net_a,
         author_a,
         "feat: add answer fn",
         &["src/lib.rs".into()],
@@ -177,11 +174,11 @@ async fn two_peer_braid_sync_and_checkout() {
     .await;
 
     // BraidDag must reach B.
-    let arrived = wait_for_changeset(vault_b.realm(), &net_b, cs_id, Duration::from_secs(15)).await;
+    let arrived = wait_for_changeset(vault_b.realm(), cs_id, Duration::from_secs(15)).await;
     assert!(arrived, "changeset {cs_id} must propagate to B within 15s");
 
     // B checks out; file must materialize on B's disk.
-    vault_b.checkout(&net_b, cs_id).await.expect("B: checkout");
+    vault_b.checkout(cs_id).await.expect("B: checkout");
     let b_file = tmp_b_vault.path().join("src/lib.rs");
     let materialized =
         poll_file_contains(&b_file, content, Duration::from_secs(15)).await;
@@ -256,29 +253,29 @@ async fn three_peer_concurrent_braid_and_checkout() {
     let id_b = net_b.node().pq_identity().user_id();
     let id_c = net_c.node().pq_identity().user_id();
 
-    let cs_a = land_synthetic(vault_a.realm(), &net_a, id_a, "A: add a.rs", &["a.rs".into()]).await;
-    let cs_b = land_synthetic(vault_b.realm(), &net_b, id_b, "B: add b.rs", &["b.rs".into()]).await;
-    let cs_c = land_synthetic(vault_c.realm(), &net_c, id_c, "C: add c.rs", &["c.rs".into()]).await;
+    let cs_a = land_synthetic(vault_a.realm(), id_a, "A: add a.rs", &["a.rs".into()]).await;
+    let cs_b = land_synthetic(vault_b.realm(), id_b, "B: add b.rs", &["b.rs".into()]).await;
+    let cs_c = land_synthetic(vault_c.realm(), id_c, "C: add c.rs", &["c.rs".into()]).await;
 
     // All three changesets must reach all three peers.
-    for (label, vault, net) in [
-        ("A", &vault_a, &net_a),
-        ("B", &vault_b, &net_b),
-        ("C", &vault_c, &net_c),
+    for (label, vault) in [
+        ("A", &vault_a),
+        ("B", &vault_b),
+        ("C", &vault_c),
     ] {
         for (who, id) in [("A", cs_a), ("B", cs_b), ("C", cs_c)] {
-            let ok = wait_for_changeset(vault.realm(), net, id, Duration::from_secs(30)).await;
+            let ok = wait_for_changeset(vault.realm(), id, Duration::from_secs(30)).await;
             assert!(ok, "peer {label} must receive changeset from {who}");
         }
     }
 
     // Each peer checks out the other two and sees their files appear.
-    vault_a.checkout(&net_a, cs_b).await.expect("A checkout cs_b");
-    vault_a.checkout(&net_a, cs_c).await.expect("A checkout cs_c");
-    vault_b.checkout(&net_b, cs_a).await.expect("B checkout cs_a");
-    vault_b.checkout(&net_b, cs_c).await.expect("B checkout cs_c");
-    vault_c.checkout(&net_c, cs_a).await.expect("C checkout cs_a");
-    vault_c.checkout(&net_c, cs_b).await.expect("C checkout cs_b");
+    vault_a.checkout(cs_b).await.expect("A checkout cs_b");
+    vault_a.checkout(cs_c).await.expect("A checkout cs_c");
+    vault_b.checkout(cs_a).await.expect("B checkout cs_a");
+    vault_b.checkout(cs_c).await.expect("B checkout cs_c");
+    vault_c.checkout(cs_a).await.expect("C checkout cs_a");
+    vault_c.checkout(cs_b).await.expect("C checkout cs_b");
 
     let d = Duration::from_secs(20);
     assert!(poll_file_contains(&tmps[0].1.path().join("b.rs"), content_b, d).await);
@@ -338,7 +335,7 @@ async fn subscribe_yields_incoming_changesets() {
     // B subscribes BEFORE A lands — so the merge event is guaranteed to arrive.
     let mut rx = vault_b
         .realm()
-        .braid_dag_subscribe(&net_b)
+        .braid_dag_subscribe()
         .await
         .expect("subscribe");
 
@@ -350,7 +347,6 @@ async fn subscribe_yields_incoming_changesets() {
     let author_a = net_a.node().pq_identity().user_id();
     let cs_id = land_synthetic(
         vault_a.realm(),
-        &net_a,
         author_a,
         "feat: observed",
         &["observed.rs".into()],

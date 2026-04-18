@@ -39,7 +39,7 @@ pub mod realm_braid;
 pub mod verification;
 
 pub use changeset::{ChangeId, Changeset, Evidence, PatchFile, PatchManifest};
-pub use dag::BraidDag;
+pub use dag::{BraidDag, PeerState};
 pub use gate::{LocalRepo, TryLandError};
 pub use heal::{detect_heal_needed, RepairTask};
 pub use realm_braid::{verify_only, RealmBraid};

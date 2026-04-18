@@ -137,7 +137,7 @@ mod tests {
     }
 
     fn green_evidence() -> Evidence {
-        Evidence {
+        Evidence::Agent {
             compiled: true,
             tests_passed: vec!["some-crate".to_owned()],
             lints_clean: true,

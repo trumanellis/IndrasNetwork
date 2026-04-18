@@ -172,7 +172,6 @@ async fn process_request(
 
     match realm
         .try_land(
-            network,
             req.intent,
             manifest,
             Vec::new(),
@@ -187,6 +186,7 @@ async fn process_request(
                 &realm,
                 id,
                 &manifest_for_publish,
+                user_id,
             )
             .await;
             SyncResponse::success(id.to_string())

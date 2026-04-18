@@ -14,8 +14,6 @@
 
 use indras_network::IndrasNetwork;
 use indras_storage::BlobStore;
-use indras_sync_engine::realm_team::RealmTeam;
-use indras_sync_engine::realm_vault::RealmVault;
 use indras_sync_engine::team::{LogicalAgentId, Team};
 use indras_sync_engine::workspace::{FolderLock, LocalWorkspaceIndex, WorkspaceWatcher};
 use serde::{Deserialize, Serialize};
@@ -238,33 +236,12 @@ pub async fn spawn_workspace_watchers(
     handles
 }
 
-/// Persisted HEAD state on disk — a plain JSON file at
-/// `{vault_path}/.braid-head.json`. Survives restarts reliably without
-/// depending on the Document event-replay pipeline.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct PersistedHead {
-    change_id: indras_sync_engine::braid::ChangeId,
-    manifest: indras_sync_engine::braid::PatchManifest,
-}
-
-/// Read the persisted HEAD for a vault. Returns `None` if the file
-/// doesn't exist or can't be parsed.
-pub fn load_persisted_head(
-    vault_path: &std::path::Path,
-) -> Option<indras_sync_engine::braid::ChangeId> {
-    let path = vault_path.join(".braid-head.json");
-    let data = std::fs::read_to_string(&path).ok()?;
-    let head: PersistedHead = serde_json::from_str(&data).ok()?;
-    Some(head.change_id)
-}
-
-/// After a successful commit, persist HEAD to disk and materialize
-/// the committed files to the vault root so they appear in the vault
-/// column + sync to other devices via the existing CRDT pipeline.
+/// After a successful commit, publish the new HEAD to the braid DAG's
+/// per-peer head tracking and materialize files to the vault root.
 ///
 /// Two steps:
-/// 1. Write HEAD (ChangeId + PatchManifest) to a plain JSON file at
-///    `{vault_path}/.braid-head.json` — survives restarts.
+/// 1. Update `peer_heads` in the `BraidDag` with this peer's new HEAD
+///    (CRDT-synced via the DAG document, visible to all vault members).
 /// 2. Write each file in the manifest from the blob store to the vault
 ///    root on disk; the vault's `VaultWatcher` picks up the writes and
 ///    syncs the `VaultFileDocument`.
@@ -273,49 +250,32 @@ pub async fn publish_and_materialize_head(
     vault_realm: &indras_network::Realm,
     change_id: indras_sync_engine::braid::ChangeId,
     manifest: &indras_sync_engine::braid::PatchManifest,
+    user_id: indras_sync_engine::UserId,
 ) {
-    let rid = *vault_realm.id().as_bytes();
-    let Some(vault_path) = vault_manager.vault_path(&rid) else {
-        tracing::warn!("vault path not found; skipping HEAD publish");
-        return;
-    };
+    use indras_sync_engine::braid::RealmBraid;
 
-    // 1a. Persist HEAD to a plain JSON file (local restart survival).
-    let head = PersistedHead {
-        change_id,
-        manifest: manifest.clone(),
-    };
-    let head_path = vault_path.join(".braid-head.json");
-    match serde_json::to_string_pretty(&head) {
-        Ok(json) => {
-            if let Err(e) = tokio::fs::write(&head_path, json).await {
-                tracing::warn!(error = %e, "failed to write .braid-head.json");
+    // 1. Publish HEAD to the braid DAG's peer_heads.
+    match vault_realm.braid_dag().await {
+        Ok(dag) => {
+            let manifest_clone = manifest.clone();
+            if let Err(e) = dag
+                .update(|d| {
+                    d.update_peer_head(user_id, change_id, manifest_clone);
+                })
+                .await
+            {
+                tracing::warn!(error = %e, "failed to publish HEAD to braid DAG");
             }
         }
-        Err(e) => tracing::warn!(error = %e, "failed to serialize HEAD"),
-    }
-
-    // 1b. Write HEAD to the vault doc for cross-device CRDT sync.
-    {
-        use indras_sync_engine::realm_vault::RealmVault;
-        match vault_realm.vault_index().await {
-            Ok(idx) => {
-                let manifest_clone = manifest.clone();
-                if let Err(e) = idx
-                    .update(|doc| {
-                        doc.team.head = Some(change_id);
-                        doc.team.head_manifest = Some(manifest_clone);
-                    })
-                    .await
-                {
-                    tracing::warn!(error = %e, "failed to publish HEAD to vault doc");
-                }
-            }
-            Err(e) => tracing::warn!(error = %e, "vault_index unavailable for HEAD publish"),
-        }
+        Err(e) => tracing::warn!(error = %e, "braid_dag unavailable for HEAD publish"),
     }
 
     // 2. Materialize files to the vault root on disk.
+    let rid = *vault_realm.id().as_bytes();
+    let Some(vault_path) = vault_manager.vault_path(&rid) else {
+        tracing::warn!("vault path not found; skipping materialization");
+        return;
+    };
     let blob = vault_manager.blob_store();
     for file in &manifest.files {
         let content_ref = indras_storage::ContentRef::new(file.hash, file.size);
@@ -336,137 +296,19 @@ pub async fn publish_and_materialize_head(
     }
 }
 
-/// Watch the vault doc for remote HEAD changes and auto-materialize.
+/// No-op: the braid DAG now lives on the vault realm directly.
 ///
-/// Spawns a background task that subscribes to the vault's
-/// `VaultFileDocument` change events. On each change, if `team.head`
-/// differs from the local `.braid-head.json`, the new HEAD's manifest
-/// files are materialized to the vault root and the local file is
-/// updated. This is the receiving side of the multi-device sync:
-/// alice commits → vault doc CRDT propagates → bob's watcher fires →
-/// bob materializes.
-pub fn start_head_watcher(
-    vault_manager: Arc<VaultManager>,
-    vault_realm: indras_network::Realm,
-) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
-        use indras_sync_engine::realm_vault::RealmVault;
-
-        let idx = match vault_realm.vault_index().await {
-            Ok(i) => i,
-            Err(e) => {
-                tracing::warn!(error = %e, "head_watcher: vault_index unavailable");
-                return;
-            }
-        };
-        let mut rx = idx.subscribe();
-
-        loop {
-            match rx.recv().await {
-                Ok(change) => {
-                    // Only react to remote changes (not our own commits).
-                    if !change.is_remote {
-                        continue;
-                    }
-                    let remote_head = change.new_state.team.head;
-                    let remote_manifest = change.new_state.team.head_manifest.clone();
-
-                    let (Some(head_id), Some(manifest)) = (remote_head, remote_manifest) else {
-                        continue;
-                    };
-
-                    // Check if this HEAD is new vs. what we have locally.
-                    let rid = *vault_realm.id().as_bytes();
-                    let Some(vault_path) = vault_manager.vault_path(&rid) else {
-                        continue;
-                    };
-                    let local_head = load_persisted_head(&vault_path);
-                    if local_head == Some(head_id) {
-                        continue; // Already up to date.
-                    }
-
-                    tracing::info!(
-                        head = %head_id,
-                        files = manifest.files.len(),
-                        "head_watcher: remote HEAD advance — materializing"
-                    );
-
-                    // Persist the new HEAD locally.
-                    let persisted = PersistedHead {
-                        change_id: head_id,
-                        manifest: manifest.clone(),
-                    };
-                    let head_path = vault_path.join(".braid-head.json");
-                    if let Ok(json) = serde_json::to_string_pretty(&persisted) {
-                        let _ = tokio::fs::write(&head_path, json).await;
-                    }
-
-                    // Materialize files to the vault root.
-                    let blob = vault_manager.blob_store();
-                    for file in &manifest.files {
-                        let content_ref =
-                            indras_storage::ContentRef::new(file.hash, file.size);
-                        match blob.load(&content_ref).await {
-                            Ok(bytes) => {
-                                let target = vault_path.join(&file.path);
-                                if let Some(parent) = target.parent() {
-                                    let _ = tokio::fs::create_dir_all(parent).await;
-                                }
-                                let _ = tokio::fs::write(&target, &bytes).await;
-                            }
-                            Err(e) => {
-                                tracing::debug!(
-                                    path = %file.path,
-                                    error = %e,
-                                    "head_watcher: blob load failed"
-                                );
-                            }
-                        }
-                    }
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                    tracing::debug!(skipped = n, "head_watcher: lagged, continuing");
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                    tracing::info!("head_watcher: channel closed, stopping");
-                    break;
-                }
-            }
-        }
-    })
-}
-
-/// Materialize the team realm for every currently-tracked synced vault on
-/// this device that has a declared team this device participates in.
-///
-/// Iterates the vault manager's known realms, reads each vault's
-/// [`Team`] from its vault-index document, and — if this device hosts
-/// at least one of the team's roster members — calls
-/// [`RealmTeam::ensure_team_realm`] to join (or create) the team realm.
-/// Vaults without a team, or where this device hosts no agent, are
-/// skipped silently. Errors are logged and do not abort the loop; a
-/// single bad vault must not prevent the others from materializing.
+/// Previously, this function materialized a separate team realm for each
+/// vault. With DAG universalization, all vault members automatically
+/// participate in the DAG — no separate realm is needed. This function
+/// is retained for call-site compatibility and will be removed in a
+/// future cleanup.
 pub async fn ensure_team_realms_for_hosted_vaults(
-    network: &IndrasNetwork,
-    vault_manager: &VaultManager,
-    registry: &TeamBindingRegistry,
+    _network: &IndrasNetwork,
+    _vault_manager: &VaultManager,
+    _registry: &TeamBindingRegistry,
 ) {
-    for realm in vault_manager.realms().await {
-        let idx = match realm.vault_index().await {
-            Ok(idx) => idx,
-            Err(e) => {
-                tracing::debug!(error = %e, "vault_index fetch failed while ensuring team realms");
-                continue;
-            }
-        };
-        let team = idx.read().await.team.clone();
-        if !registry.membership_for(&team).is_participating() {
-            continue;
-        }
-        if let Err(e) = realm.ensure_team_realm(network, "team-realm").await {
-            tracing::warn!(error = %e, "ensure_team_realm failed for a hosted vault");
-        }
-    }
+    // DAG lives on vault realm; no team realm materialization needed.
 }
 
 #[cfg(test)]

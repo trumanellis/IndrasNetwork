@@ -1,9 +1,22 @@
 //! `BraidDag`: the repo-level CRDT document that holds the changeset DAG.
 
-use super::changeset::{ChangeId, Changeset};
+use super::changeset::{ChangeId, Changeset, PatchManifest};
+use crate::vault::vault_file::UserId;
 use indras_network::document::DocumentSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
+
+/// Per-peer state within the shared DAG: which changeset a peer has checked out.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PeerState {
+    /// Which changeset this peer has checked out.
+    pub head: ChangeId,
+    /// The `PatchManifest` of `head`, so peers can materialize without
+    /// traversing the DAG.
+    pub head_manifest: PatchManifest,
+    /// Timestamp of last head update (LWW tiebreaker, Unix millis).
+    pub updated_ms: i64,
+}
 
 /// The repo-level CRDT document: a set of changesets keyed by `ChangeId`.
 ///
@@ -11,10 +24,15 @@ use std::collections::{HashMap, HashSet, VecDeque};
 /// changesets with the same id are guaranteed to have the same content.
 ///
 /// Heads (DAG tips) are derived on demand from `parents` pointers.
+/// Per-peer HEAD tracking is stored in `peer_heads` with LWW merge per peer.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BraidDag {
     /// All known changesets, indexed by content id.
     pub changesets: HashMap<ChangeId, Changeset>,
+    /// Per-peer HEAD tracking: each peer publishes which changeset they
+    /// have checked out. Merged via LWW per peer (highest `updated_ms` wins).
+    #[serde(default)]
+    pub peer_heads: HashMap<UserId, PeerState>,
 }
 
 impl BraidDag {
@@ -66,6 +84,33 @@ impl BraidDag {
             .collect()
     }
 
+    /// Update (or set) a peer's HEAD to the given changeset.
+    pub fn update_peer_head(
+        &mut self,
+        user_id: UserId,
+        head: ChangeId,
+        head_manifest: PatchManifest,
+    ) {
+        self.peer_heads.insert(
+            user_id,
+            PeerState {
+                head,
+                head_manifest,
+                updated_ms: chrono::Utc::now().timestamp_millis(),
+            },
+        );
+    }
+
+    /// Look up a peer's current HEAD state.
+    pub fn peer_head(&self, user_id: &UserId) -> Option<&PeerState> {
+        self.peer_heads.get(user_id)
+    }
+
+    /// All peer HEAD states.
+    pub fn all_peer_heads(&self) -> &HashMap<UserId, PeerState> {
+        &self.peer_heads
+    }
+
     /// Return all ancestors of `id` (exclusive) via BFS over parent pointers.
     ///
     /// Missing parents are skipped silently (the DAG may be partially
@@ -95,11 +140,21 @@ impl BraidDag {
 }
 
 impl DocumentSchema for BraidDag {
-    /// Merge via HashMap union: keep local entry if id collides (changesets
-    /// are immutable — same id means same content by construction).
+    /// Merge via HashMap union for changesets (same id = same content) and
+    /// LWW per peer for `peer_heads` (highest `updated_ms` wins).
     fn merge(&mut self, remote: Self) {
         for (id, cs) in remote.changesets {
             self.changesets.entry(id).or_insert(cs);
+        }
+        for (user_id, remote_ps) in remote.peer_heads {
+            match self.peer_heads.get(&user_id) {
+                Some(local_ps) if local_ps.updated_ms >= remote_ps.updated_ms => {
+                    // Local is newer or equal — keep it.
+                }
+                _ => {
+                    self.peer_heads.insert(user_id, remote_ps);
+                }
+            }
         }
     }
 }
@@ -115,7 +170,7 @@ mod tests {
     }
 
     fn evidence(a: UserId) -> Evidence {
-        Evidence {
+        Evidence::Agent {
             compiled: true,
             tests_passed: vec!["indras-sync-engine".into()],
             lints_clean: true,

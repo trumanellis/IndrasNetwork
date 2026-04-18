@@ -1,16 +1,15 @@
-//! Phase 5 integration test: after a commit, HEAD persists to
-//! `.braid-head.json` and files materialize at the vault root.
+//! Integration test: after a commit, HEAD is published to the DAG's
+//! peer_heads and files materialize at the vault root.
 
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
 
 use indras_network::IndrasNetwork;
 use indras_storage::{BlobStore, BlobStoreConfig};
 use indras_sync_engine::braid::{PatchManifest, RealmBraid};
 use indras_sync_engine::vault::Vault;
 use indras_sync_engine::workspace::LocalWorkspaceIndex;
-use synchronicity_engine::team::{load_persisted_head, publish_and_materialize_head};
+use synchronicity_engine::team::publish_and_materialize_head;
 use synchronicity_engine::vault_manager::VaultManager;
 use tempfile::TempDir;
 
@@ -76,7 +75,6 @@ async fn head_persists_and_files_materialize() {
     let change_id = vault
         .realm()
         .try_land(
-            net.as_ref(),
             "add lib.rs".into(),
             manifest,
             Vec::new(),
@@ -87,14 +85,18 @@ async fn head_persists_and_files_materialize() {
         .expect("try_land");
 
     // Publish HEAD + materialize.
-    publish_and_materialize_head(&vm, vault.realm(), change_id, &manifest_for_publish).await;
+    publish_and_materialize_head(&vm, vault.realm(), change_id, &manifest_for_publish, user_id).await;
 
-    // Assert 1: .braid-head.json persists the change_id.
-    let persisted = load_persisted_head(&vault_dir);
+    // Assert 1: DAG peer_heads carries the committed change_id.
+    let dag = vault.dag().read().await;
+    let peer_head = dag.peer_head(&user_id);
+    assert!(
+        peer_head.is_some(),
+        "DAG peer_heads must carry our HEAD after publish"
+    );
     assert_eq!(
-        persisted,
-        Some(change_id),
-        ".braid-head.json must carry the committed change_id"
+        peer_head.unwrap().head, change_id,
+        "peer_heads HEAD must match the committed change_id"
     );
 
     // Assert 2: lib.rs materialized at the vault root.

@@ -12,8 +12,7 @@ use std::time::Duration;
 
 use indras_network::IndrasNetwork;
 use indras_storage::{BlobStore, BlobStoreConfig};
-use indras_sync_engine::braid::{BraidDag, PatchManifest, RealmBraid};
-use indras_sync_engine::realm_team::RealmTeam;
+use indras_sync_engine::braid::{PatchManifest, RealmBraid};
 use indras_sync_engine::vault::Vault;
 use indras_sync_engine::workspace::{FolderLock, LocalWorkspaceIndex, WorkspaceWatcher};
 use tempfile::TempDir;
@@ -88,7 +87,6 @@ async fn commit_lands_changeset_in_team_realm_dag() {
     let change_id = vault
         .realm()
         .try_land(
-            net.as_ref(),
             "add work.rs".into(),
             manifest,
             Vec::new(),
@@ -98,28 +96,15 @@ async fn commit_lands_changeset_in_team_realm_dag() {
         .await
         .expect("try_land");
 
-    // The resulting Changeset must live in the team realm's DAG on
-    // this device. Look up team_realm_id via the vault doc, open the
-    // team realm, read its braid-dag document, assert containment.
-    let team_realm_id = vault
-        .realm()
-        .ensure_team_realm(net.as_ref(), "team-realm")
-        .await
-        .expect("ensure_team_realm");
-    let team_realm = net
-        .get_realm_by_id(&team_realm_id)
-        .expect("team realm must be open after try_land");
-    let dag = team_realm
-        .document::<BraidDag>("braid-dag")
-        .await
-        .expect("team realm braid-dag");
+    // The resulting Changeset must live in the vault's braid DAG.
+    let dag = vault.dag().read().await;
     assert!(
-        dag.read().await.contains(&change_id),
+        dag.contains(&change_id),
         "DAG must contain the changeset we just landed"
     );
 
     // The Changeset's manifest must reference the content hash we wrote.
-    let cs = dag.read().await.get(&change_id).cloned().expect("changeset");
+    let cs = dag.get(&change_id).cloned().expect("changeset");
     assert_eq!(cs.patch.files.len(), 1, "manifest carries one file");
     assert_eq!(cs.patch.files[0].path, "work.rs");
     let expected_hash = *blake3::hash(bytes).as_bytes();

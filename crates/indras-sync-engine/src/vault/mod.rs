@@ -5,10 +5,13 @@
 
 pub mod relay_sync;
 pub mod sync_to_disk;
+pub mod trust;
 pub mod vault_document;
 pub mod vault_file;
 pub mod watcher;
 
+use crate::braid::dag::BraidDag;
+use crate::braid::RealmBraid;
 use crate::realm_vault::RealmVault;
 use relay_sync::RelayBlobSync;
 use sync_to_disk::SyncToDisk;
@@ -39,6 +42,8 @@ pub struct Vault {
     realm: Realm,
     /// Cached vault-index document (shared state via Arc<RwLock>).
     doc: Document<VaultFileDocument>,
+    /// Braid DAG document — the single source of truth for VCS state.
+    dag: Document<BraidDag>,
     /// Path to the vault directory on disk.
     vault_path: PathBuf,
     /// Content-addressed blob storage.
@@ -169,6 +174,9 @@ impl Vault {
         // Created before the watcher so they share the same Document.
         let doc = realm.vault_index().await?;
 
+        // Create the braid DAG document on the vault realm.
+        let dag = realm.braid_dag().await?;
+
         // Start watcher (local FS -> vault-index) using a clone of the cached doc handle
         let watcher = VaultWatcher::start(
             vault_path.clone(),
@@ -197,6 +205,7 @@ impl Vault {
         Ok(Self {
             realm,
             doc,
+            dag,
             vault_path,
             blob_store,
             member_id,
@@ -370,18 +379,15 @@ impl Vault {
 
     /// Check out a braid changeset: apply its `PatchManifest` to the vault.
     ///
-    /// Looks up the changeset by id in the team realm's braid DAG and calls
+    /// Looks up the changeset by id in the vault's braid DAG and calls
     /// [`apply_manifest`](Self::apply_manifest). Returns an error if the
     /// changeset is unknown locally (the DAG must have propagated first).
     pub async fn checkout(
         &self,
-        network: &indras_network::IndrasNetwork,
         change_id: super::braid::ChangeId,
     ) -> Result<()> {
-        use crate::braid::RealmBraid;
-        let dag = self.realm.braid_dag(network).await?;
         let manifest = {
-            let guard = dag.read().await;
+            let guard = self.dag.read().await;
             match guard.get(&change_id) {
                 Some(cs) => cs.patch.clone(),
                 None => {
@@ -442,6 +448,11 @@ impl Vault {
         self.doc
             .update(|d| d.resolve_conflict(path, loser_hash))
             .await
+    }
+
+    /// Get a reference to the braid DAG document.
+    pub fn dag(&self) -> &Document<BraidDag> {
+        &self.dag
     }
 
     /// Get a reference to the underlying realm.
