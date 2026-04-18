@@ -16,6 +16,7 @@ use crate::braid::dag::BraidDag;
 use crate::braid::RealmBraid;
 use relay_sync::RelayBlobSync;
 use sync_to_disk::SyncToDisk;
+use trust::LocalTrustStore;
 use vault_document::VaultFileDocument;
 use vault_file::{UserId, VaultFile};
 use watcher::{should_ignore, VaultWatcher};
@@ -57,6 +58,8 @@ pub struct Vault {
     sync: Option<SyncToDisk>,
     /// Relay blob sync (push/pull file content via relay).
     relay: Option<Arc<RelayBlobSync>>,
+    /// Per-peer trust store (local-only, persisted to disk).
+    trust_store: Arc<RwLock<LocalTrustStore>>,
 }
 
 impl Vault {
@@ -171,6 +174,9 @@ impl Vault {
         // Create a local-only file index (not a shared CRDT).
         let local_index = Arc::new(RwLock::new(VaultFileDocument::default()));
 
+        // Load per-peer trust store from disk.
+        let trust_store = Arc::new(RwLock::new(LocalTrustStore::load(&vault_path).await));
+
         // Create the braid DAG document on the vault realm.
         let dag = realm.braid_dag().await?;
 
@@ -184,13 +190,16 @@ impl Vault {
         )
         .map_err(|e| std::io::Error::other(e.to_string()))?;
 
-        // Start sync-to-disk (DAG -> local FS)
+        // Start sync-from-DAG (DAG changes -> local FS)
         let sync = SyncToDisk::start(
+            dag.clone(),
             local_index.clone(),
             vault_path.clone(),
             Arc::clone(&blob_store),
             &watcher,
             relay.clone(),
+            Arc::clone(&trust_store),
+            user_id,
         );
 
         info!(
@@ -210,6 +219,7 @@ impl Vault {
             watcher: Some(watcher),
             sync: Some(sync),
             relay,
+            trust_store,
         })
     }
 
@@ -457,6 +467,11 @@ impl Vault {
         self.user_id
     }
 
+    /// Get a reference to the watcher (for test access to dirty_paths).
+    pub fn watcher_ref(&self) -> Option<&VaultWatcher> {
+        self.watcher.as_ref()
+    }
+
     /// Wait until the vault's realm has at least `expected` members, or timeout.
     ///
     /// Returns the actual member count when done. Useful as a convergence
@@ -596,6 +611,33 @@ impl Vault {
     }
 
     // ── Merge consent (Phase 8) ─────────────────────────────────────────
+
+    /// Set the trust level for a peer. Trusted peers' changes auto-merge.
+    ///
+    /// When transitioning from untrusted to trusted, any pending fork
+    /// from that peer is auto-merged.
+    pub async fn set_peer_trust(&self, peer_id: UserId, trusted: bool) -> Result<()> {
+        self.trust_store.write().await.set_trust(peer_id, trusted).await;
+        // If newly trusted and they have a fork, auto-merge it.
+        if trusted {
+            let dag = self.dag.read().await;
+            let has_fork = match (dag.peer_head(&peer_id), dag.peer_head(&self.user_id)) {
+                (Some(theirs), Some(mine)) => theirs.head != mine.head,
+                (Some(_), None) => true,
+                _ => false,
+            };
+            drop(dag);
+            if has_fork {
+                let _ = self.merge_from_peer(peer_id).await;
+            }
+        }
+        Ok(())
+    }
+
+    /// Check if a peer is trusted (auto-merge enabled).
+    pub async fn is_peer_trusted(&self, peer_id: &UserId) -> bool {
+        self.trust_store.read().await.is_trusted(peer_id)
+    }
 
     /// Return peer heads that diverge from this peer's HEAD.
     pub async fn pending_forks(
