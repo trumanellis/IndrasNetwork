@@ -1,0 +1,13 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/index.js --bundle --format=iife --outfile=../milkdown-bundle.js --minify --target=es2020"
+  },
+  "dependencies": {
+    "@milkdown/kit": "^7.6.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

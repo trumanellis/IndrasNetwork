@@ -7,6 +7,7 @@ use synchronicity_engine::components::App;
 
 const SHARED_CSS: &str = indras_ui::SHARED_CSS;
 const STYLES_CSS: &str = include_str!("../assets/styles.css");
+const MILKDOWN_JS: &str = include_str!("../assets/milkdown-bundle.js");
 
 fn main() {
     // JSONL log file under the per-instance data dir so Love/Joy/Peace don't
@@ -71,8 +72,8 @@ fn main() {
             Config::new()
                 .with_window(wb)
                 .with_custom_head(format!(
-                    r#"<style>{}</style><style>{}</style>"#,
-                    SHARED_CSS, STYLES_CSS
+                    r#"<style>{}</style><style>{}</style><script>{}</script>"#,
+                    SHARED_CSS, STYLES_CSS, MILKDOWN_JS
                 )),
         )
         .launch(App);
