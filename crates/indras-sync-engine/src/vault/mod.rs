@@ -1,7 +1,9 @@
 //! Vault — high-level P2P vault sync orchestrator.
 //!
-//! Ties together the vault-index document, file watcher, blob store,
-//! and sync-to-disk into a single ergonomic API.
+//! Ties together the braid DAG, local file index, file watcher, blob store,
+//! and sync-from-DAG into a single ergonomic API. The braid DAG is the
+//! single source of truth for file state across peers; the local index
+//! tracks the current checkout on this device.
 
 pub mod relay_sync;
 pub mod sync_to_disk;
@@ -12,11 +14,10 @@ pub mod watcher;
 
 use crate::braid::dag::BraidDag;
 use crate::braid::RealmBraid;
-use crate::realm_vault::RealmVault;
 use relay_sync::RelayBlobSync;
 use sync_to_disk::SyncToDisk;
 use vault_document::VaultFileDocument;
-use vault_file::{ConflictRecord, UserId, VaultFile};
+use vault_file::{UserId, VaultFile};
 use watcher::{should_ignore, VaultWatcher};
 
 use indras_network::document::Document;
@@ -27,21 +28,19 @@ use indras_storage::BlobStore;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::RwLock;
 use tracing::info;
 
 /// A P2P-synced vault directory.
 ///
-/// Each vault maps to a Realm. Files are tracked in a CRDT document
-/// (`VaultFileDocument`) with LWW-per-file merge and conflict detection.
-///
-/// The vault holds a single cached `Document<VaultFileDocument>` handle
-/// so that all operations share the same in-memory state. This avoids
-/// stale reads that occur when creating fresh Document handles per call.
+/// Each vault maps to a Realm. The braid DAG (on the vault realm) is the
+/// shared source of truth. The local index (`VaultFileDocument`) tracks
+/// what's currently checked out on this device — it is NOT a shared CRDT.
 pub struct Vault {
     /// The realm backing this vault.
     realm: Realm,
-    /// Cached vault-index document (shared state via Arc<RwLock>).
-    doc: Document<VaultFileDocument>,
+    /// Local-only file index — tracks current checkout state on this device.
+    local_index: Arc<RwLock<VaultFileDocument>>,
     /// Braid DAG document — the single source of truth for VCS state.
     dag: Document<BraidDag>,
     /// Path to the vault directory on disk.
@@ -52,9 +51,9 @@ pub struct Vault {
     member_id: MemberId,
     /// Our user ID (user-level, from PQ signing key — shared across devices).
     user_id: UserId,
-    /// File system watcher (local -> network).
+    /// File system watcher (local -> local index).
     watcher: Option<VaultWatcher>,
-    /// Sync-to-disk task (network -> local).
+    /// Sync-to-disk task (DAG -> local).
     sync: Option<SyncToDisk>,
     /// Relay blob sync (push/pull file content via relay).
     relay: Option<Arc<RelayBlobSync>>,
@@ -169,27 +168,25 @@ impl Vault {
             relay_sync::start_listener_spawned(rs, Arc::clone(&blob_store));
         }
 
-        // Create a single cached document handle for the vault index.
-        // All reads and writes go through this handle, ensuring consistent state.
-        // Created before the watcher so they share the same Document.
-        let doc = realm.vault_index().await?;
+        // Create a local-only file index (not a shared CRDT).
+        let local_index = Arc::new(RwLock::new(VaultFileDocument::default()));
 
         // Create the braid DAG document on the vault realm.
         let dag = realm.braid_dag().await?;
 
-        // Start watcher (local FS -> vault-index) using a clone of the cached doc handle
+        // Start watcher (local FS -> local index)
         let watcher = VaultWatcher::start(
             vault_path.clone(),
-            doc.clone(),
+            local_index.clone(),
             Arc::clone(&blob_store),
             user_id,
             relay.clone(),
         )
         .map_err(|e| std::io::Error::other(e.to_string()))?;
 
-        // Start sync-to-disk (vault-index -> local FS) using a clone of the doc handle
+        // Start sync-to-disk (DAG -> local FS)
         let sync = SyncToDisk::start(
-            doc.clone(),
+            local_index.clone(),
             vault_path.clone(),
             Arc::clone(&blob_store),
             &watcher,
@@ -204,7 +201,7 @@ impl Vault {
 
         Ok(Self {
             realm,
-            doc,
+            local_index,
             dag,
             vault_path,
             blob_store,
@@ -260,8 +257,8 @@ impl Vault {
                         .to_string_lossy()
                         .replace('\\', "/");
 
-                    self.upsert_file(&rel_path, hash, size, self.user_id, Some(data))
-                        .await?;
+                    self.upsert_file(&rel_path, hash, size, self.user_id)
+                        .await;
                     count += 1;
                 }
             }
@@ -271,28 +268,24 @@ impl Vault {
         Ok(count)
     }
 
-    /// Insert or update a file in the vault index.
+    /// Insert or update a file in the local index.
     pub async fn upsert_file(
         &self,
         path: &str,
         hash: [u8; 32],
         size: u64,
         author: UserId,
-        data: Option<Vec<u8>>,
-    ) -> Result<()> {
-        let file = match data {
-            Some(d) => VaultFile::with_content(path, hash, size, author, d),
-            None => VaultFile::new(path, hash, size, author),
-        };
-        self.doc.update(|d| d.upsert(file)).await
+    ) {
+        let file = VaultFile::new(path, hash, size, author);
+        self.local_index.write().await.upsert(file);
     }
 
-    /// Mark a file as deleted (tombstone) in the vault index.
-    pub async fn delete_file(&self, path: &str, author: UserId) -> Result<()> {
-        self.doc.update(|d| d.remove(path, author)).await
+    /// Mark a file as deleted (tombstone) in the local index.
+    pub async fn delete_file(&self, path: &str, author: UserId) {
+        self.local_index.write().await.remove(path, author);
     }
 
-    /// Write file content to disk, store blob, and update the CRDT index.
+    /// Write file content to disk, store blob, and update the local index.
     ///
     /// Suppresses the watcher for this path to prevent echo (the watcher
     /// would otherwise pick up the disk write and create a redundant update).
@@ -329,8 +322,9 @@ impl Vault {
             let _ = relay.push_blob(&hash, data).await;
         }
 
-        // Update CRDT index (inline content for small files)
-        self.upsert_file(rel_path, hash, size, self.user_id, Some(data.to_vec())).await
+        // Update local index
+        self.upsert_file(rel_path, hash, size, self.user_id).await;
+        Ok(())
     }
 
     /// Materialize the file versions named by a [`PatchManifest`].
@@ -340,7 +334,7 @@ impl Vault {
     ///    pull from the relay (when configured) and retry.
     /// 2. Write the bytes to disk via
     ///    [`write_file_content`](Self::write_file_content), which handles
-    ///    directory creation, watcher suppression, and CRDT upsert.
+    ///    directory creation, watcher suppression, and local index update.
     ///
     /// This is the "checkout" primitive: the braid layer calls this with a
     /// manifest from a verified changeset to replay a peer's verified vault
@@ -401,7 +395,7 @@ impl Vault {
         self.apply_manifest(&manifest).await
     }
 
-    /// Delete a file from disk and mark it as deleted in the CRDT index.
+    /// Delete a file from disk and mark it as deleted in the local index.
     ///
     /// Suppresses the watcher for this path to prevent echo.
     pub async fn delete_file_content(&self, rel_path: &str) -> Result<()> {
@@ -417,37 +411,20 @@ impl Vault {
             tokio::fs::remove_file(&full_path).await?;
         }
 
-        // Mark deleted in index
-        self.delete_file(rel_path, self.user_id).await
+        // Mark deleted in local index
+        self.delete_file(rel_path, self.user_id).await;
+        Ok(())
     }
 
     /// List all active (non-deleted) files in the vault.
     pub async fn list_files(&self) -> Vec<VaultFile> {
-        self.doc
+        self.local_index
             .read()
             .await
             .active_files()
             .into_iter()
             .cloned()
             .collect()
-    }
-
-    /// List all unresolved conflicts.
-    pub async fn list_conflicts(&self) -> Vec<ConflictRecord> {
-        self.doc
-            .read()
-            .await
-            .unresolved_conflicts()
-            .into_iter()
-            .cloned()
-            .collect()
-    }
-
-    /// Resolve a conflict by marking it as resolved.
-    pub async fn resolve_conflict(&self, path: &str, loser_hash: &[u8; 32]) -> Result<()> {
-        self.doc
-            .update(|d| d.resolve_conflict(path, loser_hash))
-            .await
     }
 
     /// Get a reference to the braid DAG document.
@@ -473,6 +450,11 @@ impl Vault {
     /// Get a reference to the blob store.
     pub fn blob_store(&self) -> &Arc<BlobStore> {
         &self.blob_store
+    }
+
+    /// Get the user ID.
+    pub fn user_id(&self) -> UserId {
+        self.user_id
     }
 
     /// Wait until the vault's realm has at least `expected` members, or timeout.
@@ -513,6 +495,228 @@ impl Vault {
         } else {
             false
         }
+    }
+
+    // ── Human sync path (Phase 7) ──────────────────────────────────────
+
+    /// Explicitly sync local changes to the braid DAG.
+    ///
+    /// Collects dirty paths from the watcher, builds a `PatchManifest`,
+    /// pushes blobs to the relay, creates a changeset with
+    /// `Evidence::Human`, inserts it into the DAG, and updates this
+    /// peer's HEAD. This is the "sync button" action.
+    pub async fn sync(
+        &self,
+        intent: String,
+        message: Option<String>,
+    ) -> Result<super::braid::ChangeId> {
+        use super::braid::changeset::{Changeset, Evidence, PatchFile, PatchManifest};
+
+        // 1. Collect dirty paths from watcher.
+        let dirty = match self.watcher {
+            Some(ref w) => w.take_dirty(),
+            None => Vec::new(),
+        };
+        if dirty.is_empty() {
+            return Err(std::io::Error::other("nothing to sync").into());
+        }
+
+        // 2. Build PatchManifest from local index for dirty paths.
+        let local = self.local_index.read().await;
+        let mut files: Vec<PatchFile> = Vec::new();
+        for path in &dirty {
+            if let Some(vf) = local.files.get(path) {
+                if !vf.deleted {
+                    files.push(PatchFile {
+                        path: vf.path.clone(),
+                        hash: vf.hash,
+                        size: vf.size,
+                    });
+                }
+            }
+        }
+        drop(local);
+
+        if files.is_empty() {
+            return Err(std::io::Error::other("no active files to sync").into());
+        }
+        let manifest = PatchManifest::new(files);
+
+        // 3. Push blobs to relay (deferred from watcher time).
+        if let Some(ref relay) = self.relay {
+            for pf in &manifest.files {
+                let content_ref = indras_storage::ContentRef::new(pf.hash, pf.size);
+                if let Ok(data) = self.blob_store.load(&content_ref).await {
+                    let _ = relay.push_blob(&pf.hash, &data).await;
+                }
+            }
+        }
+
+        // 4. Create Evidence::Human.
+        let evidence = Evidence::human(self.user_id, message);
+
+        // 5. Build changeset with parents = my current head or DAG heads.
+        let dag_guard = self.dag.read().await;
+        let parents = match dag_guard.peer_head(&self.user_id) {
+            Some(ps) => vec![ps.head],
+            None => {
+                let heads = dag_guard.heads();
+                if heads.is_empty() {
+                    Vec::new()
+                } else {
+                    let mut h: Vec<_> = heads.into_iter().collect();
+                    h.sort();
+                    h
+                }
+            }
+        };
+        drop(dag_guard);
+
+        let timestamp_millis = chrono::Utc::now().timestamp_millis();
+        let changeset = Changeset::new(
+            self.user_id,
+            parents,
+            intent,
+            manifest.clone(),
+            evidence,
+            timestamp_millis,
+        );
+        let change_id = changeset.id;
+
+        // 6. Insert into DAG and update my peer head.
+        self.dag
+            .update(|d| {
+                d.insert(changeset);
+                d.update_peer_head(self.user_id, change_id, manifest);
+            })
+            .await?;
+
+        info!(change = %change_id, "Human sync committed");
+        Ok(change_id)
+    }
+
+    // ── Merge consent (Phase 8) ─────────────────────────────────────────
+
+    /// Return peer heads that diverge from this peer's HEAD.
+    pub async fn pending_forks(
+        &self,
+    ) -> Vec<(UserId, super::braid::dag::PeerState)> {
+        let dag = self.dag.read().await;
+        let my_head = dag.peer_head(&self.user_id);
+        dag.all_peer_heads()
+            .iter()
+            .filter(|(uid, ps)| {
+                **uid != self.user_id
+                    && my_head.map_or(true, |mh| ps.head != mh.head)
+            })
+            .map(|(uid, ps)| (*uid, ps.clone()))
+            .collect()
+    }
+
+    /// Merge a peer's HEAD into ours, creating a merge changeset.
+    pub async fn merge_from_peer(
+        &self,
+        peer_id: UserId,
+    ) -> Result<super::braid::ChangeId> {
+        use super::braid::changeset::{Changeset, Evidence, PatchFile, PatchManifest};
+
+        let dag_guard = self.dag.read().await;
+        let peer_state = dag_guard
+            .peer_head(&peer_id)
+            .ok_or_else(|| std::io::Error::other("peer has no HEAD"))?
+            .clone();
+        let my_state = dag_guard.peer_head(&self.user_id).cloned();
+        drop(dag_guard);
+
+        // Build merge parents: my head + their head.
+        let mut parents = vec![peer_state.head];
+        if let Some(ref ms) = my_state {
+            parents.push(ms.head);
+        }
+
+        // Merge manifest: union of files, peer wins for conflicts (LWW).
+        let mut merged: std::collections::BTreeMap<String, PatchFile> =
+            std::collections::BTreeMap::new();
+        if let Some(ref ms) = my_state {
+            for pf in &ms.head_manifest.files {
+                merged.insert(
+                    pf.path.clone(),
+                    PatchFile {
+                        path: pf.path.clone(),
+                        hash: pf.hash,
+                        size: pf.size,
+                    },
+                );
+            }
+        }
+        // Peer's files overwrite ours (peer wins on conflict).
+        for pf in &peer_state.head_manifest.files {
+            merged.insert(
+                pf.path.clone(),
+                PatchFile {
+                    path: pf.path.clone(),
+                    hash: pf.hash,
+                    size: pf.size,
+                },
+            );
+        }
+        let manifest = PatchManifest::new(merged.into_values().collect());
+
+        let evidence = Evidence::human(self.user_id, Some("merge".to_string()));
+        let timestamp_millis = chrono::Utc::now().timestamp_millis();
+        let changeset = Changeset::new(
+            self.user_id,
+            parents,
+            format!("merge from peer {}", hex::encode(&peer_id[..4])),
+            manifest.clone(),
+            evidence,
+            timestamp_millis,
+        );
+        let change_id = changeset.id;
+
+        // Insert into DAG and update our HEAD.
+        self.dag
+            .update(|d| {
+                d.insert(changeset);
+                d.update_peer_head(self.user_id, change_id, manifest.clone());
+            })
+            .await?;
+
+        // Materialize the merged manifest to disk.
+        self.apply_manifest(&manifest).await?;
+
+        info!(change = %change_id, peer = %hex::encode(&peer_id[..4]), "Merged from peer");
+        Ok(change_id)
+    }
+
+    /// Show what files differ between my head and a peer's head.
+    pub async fn diff_fork(
+        &self,
+        peer_id: UserId,
+    ) -> Vec<super::braid::PatchFile> {
+        let dag = self.dag.read().await;
+        let peer_state = match dag.peer_head(&peer_id) {
+            Some(ps) => ps,
+            None => return Vec::new(),
+        };
+        // Return the peer's manifest files that differ from ours.
+        let my_files: std::collections::HashMap<String, [u8; 32]> =
+            match dag.peer_head(&self.user_id) {
+                Some(ms) => ms
+                    .head_manifest
+                    .files
+                    .iter()
+                    .map(|f| (f.path.clone(), f.hash))
+                    .collect(),
+                None => std::collections::HashMap::new(),
+            };
+        peer_state
+            .head_manifest
+            .files
+            .iter()
+            .filter(|pf| my_files.get(&pf.path).map_or(true, |h| *h != pf.hash))
+            .cloned()
+            .collect()
     }
 
     /// Stop the vault (watcher + sync).

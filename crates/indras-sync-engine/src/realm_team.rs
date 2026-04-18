@@ -20,8 +20,6 @@
 use indras_network::artifact::ArtifactId;
 use indras_network::{IndrasNetwork, Realm, RealmId, error::Result};
 
-use crate::realm_vault::RealmVault;
-
 /// Derive the team realm's artifact id from a synced vault's id.
 ///
 /// Deterministic and symmetric across devices — any device that knows the
@@ -69,17 +67,7 @@ impl RealmTeam for Realm {
         let team_realm = network
             .create_realm_with_artifact(artifact_id, team_realm_name)
             .await?;
-        let team_realm_id = team_realm.id();
-
-        let idx = self.vault_index().await?;
-        if idx.read().await.team.team_realm_id != Some(team_realm_id) {
-            idx.update(|doc| {
-                doc.team.team_realm_id = Some(team_realm_id);
-            })
-            .await?;
-        }
-
-        Ok(team_realm_id)
+        Ok(team_realm.id())
     }
 }
 
