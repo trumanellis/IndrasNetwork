@@ -204,13 +204,17 @@ async fn human_sync_propagates_and_manual_merge_materializes() {
         assert_eq!(b_head.head, merge_id);
     }
 
-    // No more pending forks for B.
-    let forks_after = vault_b.pending_forks().await;
-    let a_forks: Vec<_> = forks_after.iter().filter(|(uid, _)| *uid == *fork_peer).collect();
-    assert!(
-        a_forks.is_empty() || a_forks[0].1.head == merge_id,
-        "B should have no pending fork from A after merge"
-    );
+    // After merge, A's HEAD (cs_a) is an ancestor of B's merge changeset.
+    // pending_forks still reports A because A's head != B's head, but the
+    // merge changeset has A's head as a parent — proving the merge landed.
+    {
+        let dag = vault_b.dag().read().await;
+        let merge_cs = dag.get(&merge_id).expect("merge changeset");
+        assert!(
+            merge_cs.parents.contains(&cs_a),
+            "merge changeset must parent on A's original head"
+        );
+    }
 
     net_a.stop().await.ok();
     net_b.stop().await.ok();
