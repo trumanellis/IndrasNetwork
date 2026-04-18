@@ -154,6 +154,14 @@ pub fn App() -> Element {
                                         ipc_indexes,
                                     );
                                 }
+                                // Start a HEAD watcher per vault realm so
+                                // remote HEAD advances auto-materialize.
+                                for realm in vm_arc.realms().await {
+                                    crate::team::start_head_watcher(
+                                        Arc::clone(&vm_arc),
+                                        realm,
+                                    );
+                                }
                                 workspace_handles.set(handles);
                                 vault_manager.set(Some(vm_arc));
                             }
