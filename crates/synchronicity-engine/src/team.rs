@@ -238,13 +238,33 @@ pub async fn spawn_workspace_watchers(
     handles
 }
 
-/// After a successful commit, publish the new HEAD and materialize its
-/// files to the vault root so they appear in the vault column + sync
-/// to other devices via the existing CRDT pipeline.
+/// Persisted HEAD state on disk — a plain JSON file at
+/// `{vault_path}/.braid-head.json`. Survives restarts reliably without
+/// depending on the Document event-replay pipeline.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct PersistedHead {
+    change_id: indras_sync_engine::braid::ChangeId,
+    manifest: indras_sync_engine::braid::PatchManifest,
+}
+
+/// Read the persisted HEAD for a vault. Returns `None` if the file
+/// doesn't exist or can't be parsed.
+pub fn load_persisted_head(
+    vault_path: &std::path::Path,
+) -> Option<indras_sync_engine::braid::ChangeId> {
+    let path = vault_path.join(".braid-head.json");
+    let data = std::fs::read_to_string(&path).ok()?;
+    let head: PersistedHead = serde_json::from_str(&data).ok()?;
+    Some(head.change_id)
+}
+
+/// After a successful commit, persist HEAD to disk and materialize
+/// the committed files to the vault root so they appear in the vault
+/// column + sync to other devices via the existing CRDT pipeline.
 ///
 /// Two steps:
-/// 1. Write `head` + `head_manifest` into the vault document's `Team`
-///    struct (CRDT-synced, visible to all devices).
+/// 1. Write HEAD (ChangeId + PatchManifest) to a plain JSON file at
+///    `{vault_path}/.braid-head.json` — survives restarts.
 /// 2. Write each file in the manifest from the blob store to the vault
 ///    root on disk; the vault's `VaultWatcher` picks up the writes and
 ///    syncs the `VaultFileDocument`.
@@ -254,31 +274,28 @@ pub async fn publish_and_materialize_head(
     change_id: indras_sync_engine::braid::ChangeId,
     manifest: &indras_sync_engine::braid::PatchManifest,
 ) {
-    use indras_sync_engine::realm_vault::RealmVault;
+    let rid = *vault_realm.id().as_bytes();
+    let Some(vault_path) = vault_manager.vault_path(&rid) else {
+        tracing::warn!("vault path not found; skipping HEAD publish");
+        return;
+    };
 
-    // 1. Publish HEAD to the synced vault doc.
-    match vault_realm.vault_index().await {
-        Ok(idx) => {
-            let manifest_clone = manifest.clone();
-            if let Err(e) = idx
-                .update(|doc| {
-                    doc.team.head = Some(change_id);
-                    doc.team.head_manifest = Some(manifest_clone);
-                })
-                .await
-            {
-                tracing::warn!(error = %e, "failed to publish HEAD to vault doc");
+    // 1. Persist HEAD to a plain JSON file.
+    let head = PersistedHead {
+        change_id,
+        manifest: manifest.clone(),
+    };
+    let head_path = vault_path.join(".braid-head.json");
+    match serde_json::to_string_pretty(&head) {
+        Ok(json) => {
+            if let Err(e) = tokio::fs::write(&head_path, json).await {
+                tracing::warn!(error = %e, "failed to write .braid-head.json");
             }
         }
-        Err(e) => tracing::warn!(error = %e, "vault_index unavailable for HEAD publish"),
+        Err(e) => tracing::warn!(error = %e, "failed to serialize HEAD"),
     }
 
     // 2. Materialize files to the vault root on disk.
-    let rid = *vault_realm.id().as_bytes();
-    let Some(vault_path) = vault_manager.vault_path(&rid) else {
-        tracing::warn!("vault path not found; skipping materialization");
-        return;
-    };
     let blob = vault_manager.blob_store();
     for file in &manifest.files {
         let content_ref = indras_storage::ContentRef::new(file.hash, file.size);

@@ -334,8 +334,8 @@ pub fn SyncOverlay(
     // the Phase-1 surface).
     let refresh: Signal<u32> = use_signal(|| 0);
 
-    // Read HEAD from the persisted vault doc (not the ephemeral team-realm
-    // DAG, which doesn't survive restart for single-device scenarios).
+    // Read HEAD from the persisted .braid-head.json file on disk.
+    // Survives restarts — no Document event-replay dependency.
     let head_resource = use_resource(move || async move {
         let _ = *refresh.read();
         let vm_opt = vault_manager.read().clone();
@@ -346,13 +346,11 @@ pub fn SyncOverlay(
         let Some(vault_realm) = vm.realms().await.into_iter().next() else {
             return Vec::new();
         };
-        let idx = match vault_realm.vault_index().await {
-            Ok(i) => i,
-            Err(_) => return Vec::new(),
+        let rid = *vault_realm.id().as_bytes();
+        let Some(vault_path) = vm.vault_path(&rid) else {
+            return Vec::new();
         };
-        // Refresh so we see writes made via sibling Document handles.
-        let _ = idx.refresh().await;
-        match idx.read().await.team.head {
+        match crate::team::load_persisted_head(&vault_path) {
             Some(id) => vec![id],
             None => Vec::new(),
         }
