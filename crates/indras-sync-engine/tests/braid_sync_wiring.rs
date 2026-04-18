@@ -21,7 +21,7 @@ use std::time::Duration;
 
 use indras_network::IndrasNetwork;
 use indras_storage::{BlobStore, BlobStoreConfig};
-use indras_sync_engine::braid::{ChangeId, Changeset, Evidence, RealmBraid};
+use indras_sync_engine::braid::{ChangeId, Changeset, Evidence, PatchFile, PatchManifest, RealmBraid};
 use indras_sync_engine::vault::Vault;
 use tempfile::TempDir;
 use tokio::time::sleep;
@@ -88,16 +88,29 @@ async fn wait_for_changeset(
 
 /// Build + insert a changeset referencing `touched_paths` in the realm's vault,
 /// with synthetic green evidence. Returns the new ChangeId.
+///
+/// Builds the manifest from the vault's list_files (local index) rather
+/// than the old snapshot_patch (which relied on the shared CRDT).
 async fn land_synthetic(
-    realm: &indras_network::Realm,
+    vault: &indras_sync_engine::vault::Vault,
     author: [u8; 32],
     intent: &str,
     touched_paths: &[String],
 ) -> ChangeId {
-    let patch = realm
-        .snapshot_patch(touched_paths)
-        .await
-        .expect("snapshot_patch");
+    let files = vault.list_files().await;
+    let patch = PatchManifest::new(
+        touched_paths
+            .iter()
+            .filter_map(|p| {
+                files.iter().find(|f| &f.path == p).map(|f| PatchFile {
+                    path: f.path.clone(),
+                    hash: f.hash,
+                    size: f.size,
+                })
+            })
+            .collect(),
+    );
+    let realm = vault.realm();
     let parents = realm.braid_heads().await.expect("braid_heads");
     let evidence = Evidence::Agent {
         compiled: true,
@@ -166,7 +179,7 @@ async fn two_peer_braid_sync_and_checkout() {
 
     let author_a = net_a.node().pq_identity().user_id();
     let cs_id = land_synthetic(
-        vault_a.realm(),
+        &vault_a,
         author_a,
         "feat: add answer fn",
         &["src/lib.rs".into()],
@@ -253,9 +266,9 @@ async fn three_peer_concurrent_braid_and_checkout() {
     let id_b = net_b.node().pq_identity().user_id();
     let id_c = net_c.node().pq_identity().user_id();
 
-    let cs_a = land_synthetic(vault_a.realm(), id_a, "A: add a.rs", &["a.rs".into()]).await;
-    let cs_b = land_synthetic(vault_b.realm(), id_b, "B: add b.rs", &["b.rs".into()]).await;
-    let cs_c = land_synthetic(vault_c.realm(), id_c, "C: add c.rs", &["c.rs".into()]).await;
+    let cs_a = land_synthetic(&vault_a, id_a, "A: add a.rs", &["a.rs".into()]).await;
+    let cs_b = land_synthetic(&vault_b, id_b, "B: add b.rs", &["b.rs".into()]).await;
+    let cs_c = land_synthetic(&vault_c, id_c, "C: add c.rs", &["c.rs".into()]).await;
 
     // All three changesets must reach all three peers.
     for (label, vault) in [
@@ -346,7 +359,7 @@ async fn subscribe_yields_incoming_changesets() {
         .expect("A: write");
     let author_a = net_a.node().pq_identity().user_id();
     let cs_id = land_synthetic(
-        vault_a.realm(),
+        &vault_a,
         author_a,
         "feat: observed",
         &["observed.rs".into()],

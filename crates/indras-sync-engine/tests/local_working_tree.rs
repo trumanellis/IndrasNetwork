@@ -21,7 +21,7 @@ use std::time::Duration;
 
 use indras_network::IndrasNetwork;
 use indras_storage::{BlobStore, BlobStoreConfig};
-use indras_sync_engine::realm_vault::RealmVault;
+
 use indras_sync_engine::vault::Vault;
 use indras_sync_engine::workspace::{FolderLock, LocalWorkspaceIndex, WorkspaceWatcher};
 use tempfile::TempDir;
@@ -100,18 +100,10 @@ async fn disk_edits_stay_local_until_commit() {
         "local index hash must match BLAKE3 of disk bytes"
     );
 
-    // (b) The synced vault's CRDT VaultFileDocument must NOT have leaked
-    // the in-flight work. We refresh the document so we observe any
-    // writes that might have happened via sibling handles.
-    let vault_idx_doc = vault.realm().vault_index().await.expect("vault_index");
-    vault_idx_doc.refresh().await.expect("refresh vault_index");
-    let shared_files = &vault_idx_doc.read().await.files;
-    assert!(
-        !shared_files.contains_key("work.rs"),
-        "work.rs must NOT appear in the synced VaultFileDocument before commit; \
-         found keys: {:?}",
-        shared_files.keys().collect::<Vec<_>>()
-    );
+    // (b) VaultFileDocument is now local-only (not a shared CRDT),
+    // so there's no shared document to check for leaks. The local
+    // vault index only contains files written through the vault's
+    // own watcher — agent workspace files are separate.
 
     // (c) A snapshot of the local index gives a PatchManifest whose
     // content hash matches the on-disk file — confirming the commit
