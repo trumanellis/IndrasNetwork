@@ -14,8 +14,12 @@
 
 use indras_network::IndrasNetwork;
 use indras_storage::BlobStore;
+use indras_sync_engine::braid::changeset::Evidence;
+use indras_sync_engine::braid::ChangeId;
 use indras_sync_engine::team::{LogicalAgentId, Team};
+use indras_sync_engine::vault::Vault;
 use indras_sync_engine::workspace::{FolderLock, LocalWorkspaceIndex, WorkspaceWatcher};
+use indras_sync_engine::{ContentAddr, LogicalPath, SymlinkIndex};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -180,6 +184,35 @@ pub struct WorkspaceHandle {
     pub index: Arc<LocalWorkspaceIndex>,
 }
 
+impl WorkspaceHandle {
+    /// Snapshot the agent's current on-disk state and land it into
+    /// `vault`'s inner (local-only) braid as an agent-authored changeset.
+    ///
+    /// This is the primary bridge from the device-local working tree to
+    /// the hierarchical braid: the agent's edits live in a
+    /// [`LocalWorkspaceIndex`], and this call lifts the full snapshot
+    /// into a [`SymlinkIndex`] and records it on the inner DAG via
+    /// [`Vault::agent_land`]. No CRDT sync, no peer visibility — the
+    /// user still has to merge the agent's HEAD and then
+    /// [`Vault::promote`](indras_sync_engine::vault::Vault::promote) to
+    /// broadcast.
+    pub async fn land_to_inner_braid(
+        &self,
+        vault: &Vault,
+        intent: String,
+        evidence: Evidence,
+    ) -> ChangeId {
+        let files = self.index.snapshot_all().await;
+        let sym = SymlinkIndex::from_iter(files.into_iter().map(|pf| {
+            (
+                LogicalPath::new(pf.path),
+                ContentAddr::new(pf.hash, pf.size),
+            )
+        }));
+        vault.agent_land(&self.agent, intent, sym, evidence).await
+    }
+}
+
 /// For each binding in `registry`, acquire a folder lock, populate an
 /// initial index of the folder's current content, and start an
 /// [`WorkspaceWatcher`]. Returns one [`WorkspaceHandle`] per successfully
@@ -257,7 +290,7 @@ pub async fn publish_and_materialize_head(
     // 1. Publish HEAD to the braid DAG's peer_heads.
     match vault_realm.braid_dag().await {
         Ok(dag) => {
-            let manifest_clone = manifest.clone();
+            let manifest_clone: SymlinkIndex = manifest.clone().into();
             if let Err(e) = dag
                 .update(|d| {
                     d.update_peer_head(user_id, change_id, manifest_clone);

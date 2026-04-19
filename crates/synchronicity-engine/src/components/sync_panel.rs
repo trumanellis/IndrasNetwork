@@ -278,7 +278,7 @@ fn commit_for_agent(
         let result = realm
             .try_land(
                 intent,
-                manifest,
+                manifest.into(),
                 Vec::new(),
                 workspace_root,
                 user_id,

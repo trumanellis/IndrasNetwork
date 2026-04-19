@@ -77,7 +77,7 @@ async fn head_persists_and_files_materialize() {
         .realm()
         .try_land(
             "add lib.rs".into(),
-            manifest,
+            manifest.into(),
             Vec::new(),
             tmp_agent.path().to_path_buf(),
             user_id,

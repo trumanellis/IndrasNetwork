@@ -174,7 +174,7 @@ async fn process_request(
     match realm
         .try_land(
             req.intent,
-            manifest,
+            manifest.into(),
             Vec::new(),
             workspace_root,
             user_id,
