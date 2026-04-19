@@ -170,6 +170,62 @@ impl BraidDag {
         addrs
     }
 
+    /// All changesets reachable forward from `id` (inclusive).
+    ///
+    /// Walks child edges by inverting the stored parent pointers into a
+    /// per-changeset child index, then BFS from `id`. Changesets whose
+    /// parents are missing from the DAG (incomplete sync) are still
+    /// considered — they are just not reached from `id` unless listed as
+    /// a parent by some stored changeset.
+    ///
+    /// Returns `id` itself even if the DAG does not contain it; this
+    /// mirrors [`ancestors`](Self::ancestors), which is silent on
+    /// missing roots, and keeps `rollup` robust against stale checkpoints.
+    pub fn descendants_inclusive(&self, id: &ChangeId) -> HashSet<ChangeId> {
+        // Build reverse (parent -> children) index once per call. Callers
+        // that roll up in a loop can cache this externally if needed.
+        let mut children: HashMap<ChangeId, Vec<ChangeId>> = HashMap::new();
+        for cs in self.changesets.values() {
+            for p in &cs.parents {
+                children.entry(*p).or_default().push(cs.id);
+            }
+        }
+
+        let mut seen = HashSet::new();
+        let mut queue: VecDeque<ChangeId> = VecDeque::new();
+        seen.insert(*id);
+        queue.push_back(*id);
+        while let Some(next) = queue.pop_front() {
+            if let Some(kids) = children.get(&next) {
+                for k in kids {
+                    if seen.insert(*k) {
+                        queue.push_back(*k);
+                    }
+                }
+            }
+        }
+        seen
+    }
+
+    /// Roll up the DAG at `checkpoint_id`: prune every changeset that is
+    /// not a descendant (inclusive) of the checkpoint.
+    ///
+    /// Returns the set of [`ContentAddr`]s that became unreferenced — the
+    /// caller feeds this to blob-store GC (typically via staged deletion
+    /// so re-referenced blobs during sync have a grace period).
+    ///
+    /// Peer HEADs are not touched; callers should ensure every peer HEAD
+    /// is already a descendant of the checkpoint before calling, or the
+    /// HEAD's `head_index` will reference ContentAddrs that appear live
+    /// without a corresponding changeset backing them.
+    pub fn rollup(&mut self, checkpoint_id: ChangeId) -> HashSet<ContentAddr> {
+        let before = self.all_referenced_addrs();
+        let descendants = self.descendants_inclusive(&checkpoint_id);
+        self.changesets.retain(|id, _| descendants.contains(id));
+        let after = self.all_referenced_addrs();
+        before.difference(&after).copied().collect()
+    }
+
     /// Content addresses referenced by any current peer HEAD (live tier).
     ///
     /// Subset of [`all_referenced_addrs`](Self::all_referenced_addrs)
@@ -415,5 +471,94 @@ mod tests {
         let dag = BraidDag::new();
         assert!(dag.all_referenced_addrs().is_empty());
         assert!(dag.live_addrs().is_empty());
+    }
+
+    // ── rollup + descendants_inclusive (Phase 5) ──────────────────────
+
+    #[test]
+    fn descendants_inclusive_linear_chain() {
+        let mut dag = BraidDag::new();
+        let a = mk(agent(1), vec![], "A", 1, 10);
+        let b = mk(agent(1), vec![a.id], "B", 2, 20);
+        let c = mk(agent(1), vec![b.id], "C", 3, 30);
+        let (a_id, b_id, c_id) = (a.id, b.id, c.id);
+        dag.insert(a);
+        dag.insert(b);
+        dag.insert(c);
+
+        let from_b = dag.descendants_inclusive(&b_id);
+        assert_eq!(from_b.len(), 2);
+        assert!(from_b.contains(&b_id));
+        assert!(from_b.contains(&c_id));
+        assert!(!from_b.contains(&a_id), "ancestors must not be reached forward");
+
+        let from_c = dag.descendants_inclusive(&c_id);
+        assert_eq!(from_c, HashSet::from([c_id]));
+    }
+
+    #[test]
+    fn descendants_inclusive_branch_and_merge() {
+        let mut dag = BraidDag::new();
+        let root = mk(agent(1), vec![], "R", 1, 10);
+        let left = mk(agent(2), vec![root.id], "L", 2, 20);
+        let right = mk(agent(3), vec![root.id], "R2", 3, 20);
+        let merge = mk(agent(1), vec![left.id, right.id], "M", 4, 30);
+        let (root_id, left_id, right_id, merge_id) =
+            (root.id, left.id, right.id, merge.id);
+        dag.insert(root);
+        dag.insert(left);
+        dag.insert(right);
+        dag.insert(merge);
+
+        let from_root = dag.descendants_inclusive(&root_id);
+        assert_eq!(from_root.len(), 4, "all reachable forward from root");
+        assert!(from_root.contains(&merge_id));
+
+        let from_left = dag.descendants_inclusive(&left_id);
+        assert!(from_left.contains(&left_id));
+        assert!(from_left.contains(&merge_id));
+        assert!(!from_left.contains(&right_id), "siblings are not descendants");
+    }
+
+    #[test]
+    fn rollup_prunes_pre_checkpoint_changesets() {
+        let mut dag = BraidDag::new();
+        // a -> b -> c. Checkpoint at b: prunes a, keeps b and c.
+        let a = mk(agent(1), vec![], "A", 1, 10);
+        let b = mk(agent(1), vec![a.id], "B", 2, 20);
+        let c = mk(agent(1), vec![b.id], "C", 3, 30);
+        let (a_id, b_id, c_id) = (a.id, b.id, c.id);
+        dag.insert(a);
+        dag.insert(b);
+        dag.insert(c);
+
+        let freed = dag.rollup(b_id);
+
+        assert!(!dag.contains(&a_id), "pre-checkpoint changeset must be pruned");
+        assert!(dag.contains(&b_id), "checkpoint itself must be retained");
+        assert!(dag.contains(&c_id), "descendant must be retained");
+
+        // addr(1) was only referenced by A's index — it's freed.
+        // addr(2) and addr(3) remain referenced by b and c.
+        assert!(freed.contains(&addr(1)), "addr only in pruned changeset is freed");
+        assert!(!freed.contains(&addr(2)), "addr still referenced is not freed");
+    }
+
+    #[test]
+    fn rollup_with_head_pointing_at_checkpoint_keeps_addrs_live() {
+        let mut dag = BraidDag::new();
+        let a = mk(agent(1), vec![], "A", 1, 10);
+        let b = mk(agent(1), vec![a.id], "B", 2, 20);
+        let (_, b_id) = (a.id, b.id);
+        let b_index = b.index.clone();
+        dag.insert(a);
+        dag.insert(b);
+        dag.update_peer_head(agent(1), b_id, b_index);
+
+        let _ = dag.rollup(b_id);
+
+        let live = dag.live_addrs();
+        assert!(live.contains(&addr(2)), "HEAD-referenced addr stays live post-rollup");
+        assert!(!live.contains(&addr(1)), "ancestor-only addr is no longer live");
     }
 }
