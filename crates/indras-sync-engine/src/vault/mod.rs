@@ -899,6 +899,38 @@ impl Vault {
         Ok(change_id)
     }
 
+    /// Garbage-collect unreferenced blobs from the shared blob store.
+    ///
+    /// Builds the union of every [`ContentAddr`] referenced by the outer
+    /// peer-synced DAG (via `all_referenced_addrs`) and the inner
+    /// agent-local braid, then runs [`BlobStore::gc`] with a keep-set
+    /// predicate: any blob whose address is in the union is retained,
+    /// everything else is deleted.
+    ///
+    /// Call after a rollup or when free-disk pressure warrants it.
+    pub async fn gc_blobs(&self) -> Result<indras_storage::GcResult> {
+        use super::content_addr::ContentAddr;
+
+        let outer_refs = self.dag.read().await.all_referenced_addrs();
+        let inner_refs = self.inner_braid.read().await.all_referenced_addrs();
+        let all_refs: std::collections::HashSet<ContentAddr> =
+            outer_refs.union(&inner_refs).copied().collect();
+
+        let result = self
+            .blob_store
+            .gc(|cr| all_refs.contains(&ContentAddr::from(*cr)))
+            .await
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
+
+        info!(
+            deleted = result.deleted_count,
+            retained = result.retained_count,
+            bytes_freed = result.bytes_freed,
+            "Blob GC complete"
+        );
+        Ok(result)
+    }
+
     /// Route an agent's verified changeset into the inner braid.
     ///
     /// Thin wrapper around [`AgentBraid::agent_land`] that takes the

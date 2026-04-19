@@ -9,4 +9,4 @@ mod content_ref;
 mod store;
 
 pub use content_ref::ContentRef;
-pub use store::{BlobStore, BlobStoreConfig};
+pub use store::{BlobStore, BlobStoreConfig, GcResult};

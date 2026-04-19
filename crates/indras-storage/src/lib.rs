@@ -69,7 +69,7 @@ pub use quota::{EvictionPolicy, QuotaManager, QuotaManagerBuilder};
 
 // Tri-layer storage re-exports
 pub use append_log::{CompactionConfig, EventLog, EventLogConfig, EventLogEntry};
-pub use blobs::{BlobStore, BlobStoreConfig, ContentRef};
+pub use blobs::{BlobStore, BlobStoreConfig, ContentRef, GcResult};
 pub use composite::{CompositeStorage, CompositeStorageConfig};
 pub use node_log::{NodeEvent, NodeLog, NodeLogEntry, NodeLogMeta, NodeSequence};
 pub use structured::{
