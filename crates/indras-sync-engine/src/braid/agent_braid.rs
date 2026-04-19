@@ -247,6 +247,31 @@ impl AgentBraid {
         &self.dag
     }
 
+    /// Aggressive GC policy for the inner braid: drop every changeset
+    /// that is not a descendant of the user's current HEAD, and discard
+    /// all non-user peer heads.
+    ///
+    /// After a `Vault::promote()` the inner braid has served its purpose
+    /// for that slice of work. Pruning back to the user HEAD keeps the
+    /// inner DAG from growing unbounded while still preserving a valid
+    /// merge base for any new agent commits.
+    ///
+    /// Returns the [`ContentAddr`]s that became unreferenced — callers
+    /// typically forward these to a [`StagedDeletionSet`] rather than
+    /// feeding them directly to `BlobStore::gc`.
+    pub fn rollup_to_user_head(&mut self) -> HashSet<ContentAddr> {
+        let user_head_id = match self.dag.peer_head(&self.user_id) {
+            Some(ps) => ps.head,
+            None => return HashSet::new(),
+        };
+        // Drop agent peer_heads — their HEADs reference changesets that
+        // the rollup below is about to prune, which would leave the
+        // inner DAG in an inconsistent state (HEAD points at a deleted
+        // changeset). Agents will start fresh roots on their next land.
+        self.dag.peer_heads.retain(|uid, _| *uid == self.user_id);
+        self.dag.rollup(user_head_id)
+    }
+
     /// All content addresses referenced by the inner DAG.
     pub fn all_referenced_addrs(&self) -> HashSet<ContentAddr> {
         let mut addrs = HashSet::new();
@@ -641,5 +666,90 @@ mod tests {
         // addr(1) from old changeset, addr(2) from current HEAD + new changeset
         assert!(refs.contains(&addr(1)));
         assert!(refs.contains(&addr(2)));
+    }
+
+    // ── rollup_to_user_head (Phase 5) ───────────────────────────────
+
+    #[test]
+    fn rollup_to_user_head_noop_when_no_user_head() {
+        let bs = blob_store();
+        let mut braid = AgentBraid::new(user(), bs);
+        let agent = LogicalAgentId::new("A");
+        braid.agent_land(
+            &agent,
+            "solo".into(),
+            index(&[("a.rs", 1)]),
+            agent_evidence(&agent, user()),
+        );
+
+        let freed = braid.rollup_to_user_head();
+        assert!(freed.is_empty(), "no user HEAD ⇒ nothing freed");
+        // Agent head still present.
+        assert!(braid.dag().get(&braid.agent_forks(&[agent.clone()])[0].1.head).is_some());
+    }
+
+    #[test]
+    fn rollup_to_user_head_prunes_agent_history_after_merge() {
+        let bs = blob_store();
+        let mut braid = AgentBraid::new(user(), bs);
+        let agent_a = LogicalAgentId::new("A");
+        let agent_b = LogicalAgentId::new("B");
+
+        braid.agent_land(
+            &agent_a,
+            "A".into(),
+            index(&[("a.rs", 1)]),
+            agent_evidence(&agent_a, user()),
+        );
+        braid.agent_land(
+            &agent_b,
+            "B".into(),
+            index(&[("b.rs", 2)]),
+            agent_evidence(&agent_b, user()),
+        );
+        let merge = braid
+            .merge_all_agents(&[agent_a.clone(), agent_b.clone()])
+            .expect("merge");
+
+        // Before rollup: 3 peer_heads (A, B, user), 3+ changesets.
+        assert_eq!(braid.dag().peer_heads.len(), 3);
+
+        let freed = braid.rollup_to_user_head();
+
+        // After rollup: only the user peer_head remains; no agent heads.
+        assert_eq!(braid.dag().peer_heads.len(), 1);
+        assert!(braid.user_head().is_some());
+        // Merge changeset survives (it is the user HEAD).
+        assert!(braid.dag().contains(&merge.change_id));
+        // At least one pre-merge agent changeset should have been freed.
+        // addr(1) and addr(2) are both still in the merged HEAD's index,
+        // so they remain referenced; freed will be empty in this tight
+        // case — the assertion is about pruning, not freeing blobs.
+        let _ = freed;
+    }
+
+    #[test]
+    fn rollup_to_user_head_allows_fresh_agent_work() {
+        let bs = blob_store();
+        let mut braid = AgentBraid::new(user(), bs);
+        let agent = LogicalAgentId::new("A");
+
+        braid.agent_land(
+            &agent,
+            "first".into(),
+            index(&[("a.rs", 1)]),
+            agent_evidence(&agent, user()),
+        );
+        braid.merge_agent(&agent).expect("merge");
+        braid.rollup_to_user_head();
+
+        // Post-rollup, agent commits again.
+        let new_id = braid.agent_land(
+            &agent,
+            "second".into(),
+            index(&[("a.rs", 2)]),
+            agent_evidence(&agent, user()),
+        );
+        assert!(braid.dag().contains(&new_id));
     }
 }

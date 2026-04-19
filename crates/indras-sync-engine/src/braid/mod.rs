@@ -43,7 +43,10 @@ pub mod verification;
 
 pub use agent_braid::{AgentBraid, MergeResult, derive_agent_id};
 pub use changeset::{ChangeId, Changeset, Evidence, PatchFile, PatchManifest};
-pub use gc::{StagedDeletion, StagedDeletionSet, DEFAULT_GRACE_PERIOD_MS};
+pub use gc::{
+    StagedDeletion, StagedDeletionSet, DEFAULT_GRACE_PERIOD_MS,
+    DEFAULT_OUTER_RETENTION_MS,
+};
 pub use dag::{BraidDag, PeerState};
 pub use gate::{LocalRepo, TryLandError};
 pub use heal::{detect_heal_needed, RepairTask};

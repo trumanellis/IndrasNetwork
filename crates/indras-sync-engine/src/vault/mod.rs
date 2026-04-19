@@ -895,6 +895,13 @@ impl Vault {
             })
             .await?;
 
+        // Inner-braid GC policy: aggressively roll up to the user HEAD
+        // post-promote. The inner DAG's historical changesets have
+        // already been captured in the outer signed changeset we just
+        // inserted; keeping them around would let the inner DAG grow
+        // unbounded across promote cycles.
+        self.inner_braid.write().await.rollup_to_user_head();
+
         info!(change = %change_id, "Promoted inner HEAD to outer DAG");
         Ok(change_id)
     }

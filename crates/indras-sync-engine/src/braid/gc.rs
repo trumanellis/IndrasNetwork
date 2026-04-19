@@ -35,6 +35,16 @@ impl StagedDeletion {
 /// deletion: seven days, in milliseconds.
 pub const DEFAULT_GRACE_PERIOD_MS: i64 = 7 * 24 * 60 * 60 * 1_000;
 
+/// Default retention window for the outer peer-synced DAG: thirty days.
+///
+/// Unlike the inner braid (which uses aggressive rollup after every
+/// [`Vault::promote`](crate::vault::Vault::promote)), the outer DAG is
+/// the peer-visible source of truth — a peer that has been offline for
+/// a while should still be able to fast-forward on return, so
+/// changesets within this window are retained even when they are
+/// ancestors of every live HEAD.
+pub const DEFAULT_OUTER_RETENTION_MS: i64 = 30 * 24 * 60 * 60 * 1_000;
+
 /// Set of blobs pending deletion, keyed by [`ContentAddr`].
 ///
 /// Use [`stage`](Self::stage) to schedule a deletion, [`unstage`](Self::unstage)
