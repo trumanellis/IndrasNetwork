@@ -16,6 +16,7 @@ use super::watcher::VaultWatcher;
 
 use crate::braid::changeset::{Changeset, Evidence, PatchFile, PatchManifest};
 use crate::braid::dag::BraidDag;
+use indras_crypto::PQIdentity;
 
 use dashmap::DashMap;
 use indras_network::document::Document;
@@ -49,6 +50,7 @@ impl SyncToDisk {
         relay: Option<Arc<RelayBlobSync>>,
         trust_store: Arc<RwLock<LocalTrustStore>>,
         user_id: UserId,
+        pq_identity: PQIdentity,
     ) -> Self {
         let rx = dag.subscribe();
         let suppressed = Arc::clone(&watcher.suppressed);
@@ -64,6 +66,7 @@ impl SyncToDisk {
             relay,
             trust_store,
             user_id,
+            pq_identity,
         ));
 
         info!("SyncFromDag started");
@@ -89,6 +92,7 @@ impl SyncToDisk {
         relay: Option<Arc<RelayBlobSync>>,
         trust_store: Arc<RwLock<LocalTrustStore>>,
         user_id: UserId,
+        pq_identity: PQIdentity,
     ) {
         // Track last-known peer heads to detect changes.
         let mut last_peer_heads: HashMap<UserId, crate::braid::changeset::ChangeId> =
@@ -167,13 +171,14 @@ impl SyncToDisk {
                     );
                     let ts = chrono::Utc::now().timestamp_millis();
                     let manifest = peer_state.head_manifest.clone();
-                    let changeset = Changeset::new_unsigned(
+                    let changeset = Changeset::new(
                         user_id,
                         parents,
                         format!("auto-merge from {peer_short}"),
                         manifest.clone(),
                         evidence,
                         ts,
+                        &pq_identity,
                     );
                     let change_id = changeset.id;
 

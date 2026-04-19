@@ -21,6 +21,7 @@ use vault_document::VaultFileDocument;
 use vault_file::{UserId, VaultFile};
 use watcher::{should_ignore, VaultWatcher};
 
+use indras_crypto::PQIdentity;
 use indras_network::document::Document;
 use indras_network::error::Result;
 use indras_network::member::MemberId;
@@ -52,6 +53,8 @@ pub struct Vault {
     member_id: MemberId,
     /// Our user ID (user-level, from PQ signing key — shared across devices).
     user_id: UserId,
+    /// Our PQ signing identity (ML-DSA-65) for signing changesets.
+    pq_identity: PQIdentity,
     /// File system watcher (local -> local index).
     watcher: Option<VaultWatcher>,
     /// Sync-to-disk task (DAG -> local).
@@ -78,7 +81,8 @@ impl Vault {
             .cloned()
             .expect("newly created realm should have invite code");
         let member_id = network.id();
-        let user_id = network.node().pq_identity().user_id();
+        let pq_identity = network.node().pq_identity().clone();
+        let user_id = pq_identity.user_id();
 
         // Set up relay blob sync: local relay for pulling (no peer relay yet)
         let relay = relay_sync::connect_relays(
@@ -89,7 +93,7 @@ impl Vault {
         )
         .await;
 
-        let vault = Self::setup(realm, vault_path, member_id, user_id, relay, blob_store).await?;
+        let vault = Self::setup(realm, vault_path, member_id, user_id, pq_identity, relay, blob_store).await?;
         Ok((vault, invite))
     }
 
@@ -114,7 +118,8 @@ impl Vault {
 
         let realm = network.join(invite).await?;
         let member_id = network.id();
-        let user_id = network.node().pq_identity().user_id();
+        let pq_identity = network.node().pq_identity().clone();
+        let user_id = pq_identity.user_id();
 
         // Set up relay blob sync: push to creator's relay, pull from local relay
         let relay = relay_sync::connect_relays(
@@ -125,7 +130,7 @@ impl Vault {
         )
         .await;
 
-        Self::setup(realm, vault_path, member_id, user_id, relay, blob_store).await
+        Self::setup(realm, vault_path, member_id, user_id, pq_identity, relay, blob_store).await
     }
 
     /// Attach vault sync to an existing realm.
@@ -140,7 +145,8 @@ impl Vault {
         blob_store: Arc<BlobStore>,
     ) -> Result<Self> {
         let member_id = network.id();
-        let user_id = network.node().pq_identity().user_id();
+        let pq_identity = network.node().pq_identity().clone();
+        let user_id = pq_identity.user_id();
         let relay = relay_sync::connect_relays(
             network,
             realm.node_arc(),
@@ -148,7 +154,7 @@ impl Vault {
             realm.id(),
         )
         .await;
-        Self::setup(realm, vault_path, member_id, user_id, relay, blob_store).await
+        Self::setup(realm, vault_path, member_id, user_id, pq_identity, relay, blob_store).await
     }
 
     /// Common setup: wire up watcher, sync-to-disk, and relay.
@@ -160,6 +166,7 @@ impl Vault {
         vault_path: PathBuf,
         member_id: MemberId,
         user_id: UserId,
+        pq_identity: PQIdentity,
         relay: Option<Arc<RelayBlobSync>>,
         blob_store: Arc<BlobStore>,
     ) -> Result<Self> {
@@ -179,6 +186,17 @@ impl Vault {
 
         // Create the braid DAG document on the vault realm.
         let dag = realm.braid_dag().await?;
+
+        // Publish our PQ verifying key to the peer key directory.
+        let key_dir = realm
+            .document::<crate::peer_key_directory::PeerKeyDirectory>("peer-keys")
+            .await?;
+        let vk_bytes = pq_identity.verifying_key_bytes();
+        key_dir
+            .update(|d| {
+                d.publish(user_id, vk_bytes);
+            })
+            .await?;
 
         // Start watcher (local FS -> local index)
         let watcher = VaultWatcher::start(
@@ -200,6 +218,7 @@ impl Vault {
             relay.clone(),
             Arc::clone(&trust_store),
             user_id,
+            pq_identity.clone(),
         );
 
         info!(
@@ -216,6 +235,7 @@ impl Vault {
             blob_store,
             member_id,
             user_id,
+            pq_identity,
             watcher: Some(watcher),
             sync: Some(sync),
             relay,
@@ -467,6 +487,11 @@ impl Vault {
         self.user_id
     }
 
+    /// Get the PQ signing identity.
+    pub fn pq_identity(&self) -> &PQIdentity {
+        &self.pq_identity
+    }
+
     /// Get a reference to the watcher (for test access to dirty_paths).
     pub fn watcher_ref(&self) -> Option<&VaultWatcher> {
         self.watcher.as_ref()
@@ -590,13 +615,14 @@ impl Vault {
         drop(dag_guard);
 
         let timestamp_millis = chrono::Utc::now().timestamp_millis();
-        let changeset = Changeset::new_unsigned(
+        let changeset = Changeset::new(
             self.user_id,
             parents,
             intent,
             manifest.clone(),
             evidence,
             timestamp_millis,
+            &self.pq_identity,
         );
         let change_id = changeset.id;
 
@@ -726,13 +752,14 @@ impl Vault {
 
         let evidence = Evidence::human(self.user_id, Some("merge".to_string()));
         let timestamp_millis = chrono::Utc::now().timestamp_millis();
-        let changeset = Changeset::new_unsigned(
+        let changeset = Changeset::new(
             self.user_id,
             parents,
             format!("merge from peer {}", hex::encode(&peer_id[..4])),
             manifest.clone(),
             evidence,
             timestamp_millis,
+            &self.pq_identity,
         );
         let change_id = changeset.id;
 

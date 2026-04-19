@@ -74,6 +74,9 @@ pub mod workspace;
 // Braided VCS submodule (rides on top of the vault)
 pub mod braid;
 
+// Peer key directory (PQ verifying keys for signature verification)
+pub mod peer_key_directory;
+
 // SyncEngine struct
 pub mod sync_engine;
 
@@ -175,3 +178,4 @@ pub use braid::{
 };
 pub use vault::trust::LocalTrustStore;
 pub use braid::verification::run as verify;
+pub use peer_key_directory::PeerKeyDirectory;

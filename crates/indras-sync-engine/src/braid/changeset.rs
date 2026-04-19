@@ -7,7 +7,7 @@
 //! states constitute this changeset.
 
 use crate::vault::vault_file::UserId;
-use indras_crypto::{PQIdentity, PQSignature};
+use indras_crypto::{PQIdentity, PQPublicIdentity, PQSignature};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -218,6 +218,20 @@ impl Changeset {
             timestamp_millis,
             signature: PQSignature::dummy(),
         }
+    }
+
+    /// Verify the changeset's ML-DSA-65 signature against a verifying key.
+    ///
+    /// Returns `true` if the signature is valid for this changeset's `ChangeId`.
+    /// The caller is responsible for ensuring the verifying key belongs to
+    /// `self.author` (i.e., `blake3(vk_bytes) == self.author`).
+    pub fn verify_signature(&self, verifying_key: &PQPublicIdentity) -> bool {
+        verifying_key.verify(self.id.as_bytes(), &self.signature)
+    }
+
+    /// Whether this changeset carries a real signature (not a dummy).
+    pub fn is_signed(&self) -> bool {
+        self.signature != PQSignature::dummy()
     }
 }
 
