@@ -24,6 +24,42 @@ use indras_sync_engine::vault::Vault;
 use tokio::sync::RwLock;
 use tracing::info;
 
+/// Step in the full sync process, reported to the UI via progress channel.
+#[derive(Debug, Clone)]
+pub enum SyncStep {
+    /// Checking for local changes.
+    Checking,
+    /// Committing dirty files to the DAG.
+    Committing { dirty_count: usize },
+    /// Commit landed.
+    Committed { change_id: String },
+    /// Checking for peer changes.
+    Pulling,
+    /// Peer forks detected.
+    PeerForks { count: usize },
+    /// Merged a trusted peer's fork.
+    Merged { peer: String, change_id: String },
+    /// Sync complete.
+    Done { summary: String },
+    /// Nothing to sync.
+    NothingToSync,
+    /// Sync failed.
+    Failed(String),
+}
+
+/// Summary of a full sync operation.
+#[derive(Debug, Clone, Default)]
+pub struct SyncSummary {
+    /// Short hex of the committed changeset (if any).
+    pub committed: Option<String>,
+    /// Number of files in the commit.
+    pub files_committed: usize,
+    /// Number of peer forks detected.
+    pub peer_forks: usize,
+    /// Number of trusted peer forks auto-merged.
+    pub merges: usize,
+}
+
 /// Manages per-realm vault sync instances.
 ///
 /// Each shared realm (DM, Group, World) gets its own on-disk vault
@@ -208,6 +244,114 @@ impl VaultManager {
     pub async fn user_id(&self) -> Option<indras_sync_engine::vault::vault_file::UserId> {
         let vaults = self.vaults.read().await;
         vaults.values().next().map(|v| v.user_id())
+    }
+
+    /// Full sync: commit local changes, check for peer forks, auto-merge
+    /// trusted peers. Reports each step via `progress` channel.
+    pub async fn full_sync(
+        &self,
+        realm_id: &[u8; 32],
+        intent: String,
+        progress: tokio::sync::mpsc::Sender<SyncStep>,
+    ) -> Result<SyncSummary, String> {
+        let mut summary = SyncSummary::default();
+
+        // Step 1: Check dirty count.
+        let _ = progress.send(SyncStep::Checking).await;
+        let dirty_count = {
+            let vaults = self.vaults.read().await;
+            let vault = vaults
+                .get(realm_id)
+                .ok_or_else(|| "vault not found".to_string())?;
+            vault.dirty_count()
+        };
+
+        // Step 2: Commit if there are dirty files.
+        if dirty_count > 0 {
+            let _ = progress.send(SyncStep::Committing { dirty_count }).await;
+            let mut vaults = self.vaults.write().await;
+            let vault = vaults.get_mut(realm_id).ok_or("vault not found")?;
+            match vault.sync(intent, None).await {
+                Ok(id) => {
+                    let short: String = id
+                        .as_bytes()
+                        .iter()
+                        .take(4)
+                        .map(|b| format!("{b:02x}"))
+                        .collect();
+                    summary.committed = Some(short.clone());
+                    summary.files_committed = dirty_count;
+                    let _ = progress.send(SyncStep::Committed { change_id: short }).await;
+                }
+                Err(e) => {
+                    let msg = format!("{e}");
+                    let _ = progress.send(SyncStep::Failed(msg.clone())).await;
+                    return Err(msg);
+                }
+            }
+        } else {
+            let _ = progress.send(SyncStep::NothingToSync).await;
+        }
+
+        // Step 3: Check for peer forks.
+        let _ = progress.send(SyncStep::Pulling).await;
+        let fork_count = {
+            let vaults = self.vaults.read().await;
+            let vault = vaults.get(realm_id).ok_or("vault not found")?;
+            vault.pending_forks().await.len()
+        };
+        summary.peer_forks = fork_count;
+        if fork_count > 0 {
+            let _ = progress.send(SyncStep::PeerForks { count: fork_count }).await;
+        }
+
+        // Step 4: Auto-merge trusted peer forks.
+        if fork_count > 0 {
+            let merged = {
+                let vaults = self.vaults.read().await;
+                let vault = vaults.get(realm_id).ok_or("vault not found")?;
+                vault.auto_merge_trusted().await
+            };
+            for (peer_id, change_id) in &merged {
+                let peer_short: String = peer_id[..4].iter().map(|b| format!("{b:02x}")).collect();
+                let change_short: String = change_id
+                    .as_bytes()
+                    .iter()
+                    .take(4)
+                    .map(|b| format!("{b:02x}"))
+                    .collect();
+                let _ = progress
+                    .send(SyncStep::Merged {
+                        peer: peer_short,
+                        change_id: change_short,
+                    })
+                    .await;
+            }
+            summary.merges = merged.len();
+        }
+
+        // Step 5: Done.
+        let done_msg = if summary.files_committed > 0 || summary.merges > 0 {
+            let mut parts = Vec::new();
+            if summary.files_committed > 0 {
+                parts.push(format!("{} files committed", summary.files_committed));
+            }
+            if summary.merges > 0 {
+                parts.push(format!("{} merged", summary.merges));
+            }
+            if summary.peer_forks > summary.merges {
+                parts.push(format!(
+                    "{} untrusted forks",
+                    summary.peer_forks - summary.merges
+                ));
+            }
+            parts.join(", ")
+        } else {
+            "up to date".to_string()
+        };
+        let _ = progress.send(SyncStep::Done { summary: done_msg }).await;
+
+        Ok(summary)
     }
 
     /// Resolve the final sanitized vault directory name for a realm,

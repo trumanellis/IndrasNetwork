@@ -2,6 +2,7 @@
 //!
 //! Always-live inline editor: markdown renders as styled blocks and each block
 //! becomes an inline textarea on click. No mode toggle, no save button.
+//! Includes a Sync button that shows commit/pull/merge progress.
 
 use std::sync::Arc;
 
@@ -10,16 +11,7 @@ use dioxus::prelude::*;
 use super::markdown_editor::{obsidian_open_url, InlineMarkdownEditor};
 use super::obsidian::{is_vault_registered, quit_obsidian, register_vault};
 use crate::state::AppState;
-use crate::vault_manager::VaultManager;
-
-/// Status of the last sync attempt, shown briefly next to the button.
-#[derive(Clone, Debug, PartialEq)]
-enum SyncStatus {
-    Idle,
-    Syncing,
-    Done(String),
-    Failed(String),
-}
+use crate::vault_manager::{SyncStep, VaultManager};
 
 /// Strip the .md extension for display as a title.
 fn title_from_filename(name: &str) -> String {
@@ -27,6 +19,46 @@ fn title_from_filename(name: &str) -> String {
         .or_else(|| name.strip_suffix(".markdown"))
         .unwrap_or(name)
         .to_string()
+}
+
+/// Render the current sync step as a user-visible string.
+fn step_text(step: &SyncStep) -> &'static str {
+    match step {
+        SyncStep::Checking => "Checking...",
+        SyncStep::Committing { .. } => "Committing...",
+        SyncStep::Committed { .. } => "Committed",
+        SyncStep::Pulling => "Pulling...",
+        SyncStep::PeerForks { .. } => "Forks found",
+        SyncStep::Merged { .. } => "Merged",
+        SyncStep::Done { .. } => "Done",
+        SyncStep::NothingToSync => "Up to date",
+        SyncStep::Failed(_) => "Failed",
+    }
+}
+
+/// CSS class suffix for the current step (drives color).
+fn step_class(step: &SyncStep) -> &'static str {
+    match step {
+        SyncStep::Checking | SyncStep::Pulling => "active",
+        SyncStep::Committing { .. } | SyncStep::Merged { .. } => "active",
+        SyncStep::Committed { .. } | SyncStep::Done { .. } => "done",
+        SyncStep::NothingToSync => "idle",
+        SyncStep::PeerForks { .. } => "info",
+        SyncStep::Failed(_) => "fail",
+    }
+}
+
+/// Detail text for richer steps.
+fn step_detail(step: &SyncStep) -> Option<String> {
+    match step {
+        SyncStep::Committing { dirty_count } => Some(format!("{dirty_count} files")),
+        SyncStep::Committed { change_id } => Some(change_id.clone()),
+        SyncStep::PeerForks { count } => Some(format!("{count} available")),
+        SyncStep::Merged { peer, change_id } => Some(format!("{peer} -> {change_id}")),
+        SyncStep::Done { summary } => Some(summary.clone()),
+        SyncStep::Failed(msg) => Some(msg.clone()),
+        _ => None,
+    }
 }
 
 /// Popup modal for viewing and editing a file.
@@ -40,11 +72,6 @@ pub fn FileModal(
         return rsx! {};
     };
 
-    // Resolve the correct vault directory for this file. Files from a shared
-    // realm (DM, group, world) live in that realm's vault dir, not the user's
-    // private vault. Falling back to the private vault here caused edits to
-    // shared files to silently land in the wrong directory, so they never
-    // reached VaultWatcher → send_message → other peers.
     let vault_path = match modal.realm_id {
         Some(rid) => vault_manager
             .read()
@@ -59,12 +86,17 @@ pub fn FileModal(
     let mut title_editing = use_signal(|| false);
     let mut title_draft = use_signal(String::new);
     let mut vault_registered = use_signal(|| is_vault_registered(&vault_path));
-    let mut sync_status = use_signal(|| SyncStatus::Idle);
+    let mut sync_step: Signal<Option<SyncStep>> = use_signal(|| None);
 
     let close = move |_| {
         title_editing.set(false);
         state.write().modal_file = None;
     };
+
+    let is_syncing = sync_step
+        .read()
+        .as_ref()
+        .map_or(false, |s| matches!(s, SyncStep::Checking | SyncStep::Committing { .. } | SyncStep::Pulling | SyncStep::Merged { .. }));
 
     rsx! {
         div {
@@ -124,59 +156,70 @@ pub fn FileModal(
 
                     // Controls
                     div { class: "file-modal-controls",
-                        // Sync button — pushes local changes through the braid DAG
+                        // ── Sync button + status ──
                         {
                             let realm_id = modal.realm_id;
                             let fp = file_path.clone();
-                            let is_syncing = matches!(*sync_status.read(), SyncStatus::Syncing);
                             rsx! {
-                                button {
-                                    class: "md-editor-sync",
-                                    title: "Sync this file to peers via the braid DAG",
-                                    disabled: is_syncing,
-                                    onclick: move |_| {
-                                        let vm = vault_manager;
-                                        let fp = fp.clone();
-                                        sync_status.set(SyncStatus::Syncing);
-                                        spawn(async move {
-                                            let result = if let Some(vm) = vm.read().as_ref() {
-                                                // Determine which realm to sync. Private vault
-                                                // files use the home realm (first realm).
+                                div { class: "sync-inline",
+                                    button {
+                                        class: "md-editor-sync",
+                                        title: "Sync changes with peers",
+                                        disabled: is_syncing,
+                                        onclick: move |_| {
+                                            let vm = vault_manager;
+                                            let fp = fp.clone();
+                                            sync_step.set(Some(SyncStep::Checking));
+                                            spawn(async move {
+                                                let Some(vm) = vm.read().as_ref().cloned() else {
+                                                    sync_step.set(Some(SyncStep::Failed("not ready".into())));
+                                                    return;
+                                                };
                                                 let rid = match realm_id {
                                                     Some(rid) => rid,
                                                     None => {
-                                                        // Private vault — find home realm
                                                         match vm.realms().await.first() {
                                                             Some(r) => *r.id().as_bytes(),
                                                             None => {
-                                                                sync_status.set(SyncStatus::Failed("no realm".into()));
+                                                                sync_step.set(Some(SyncStep::Failed("no realm".into())));
                                                                 return;
                                                             }
                                                         }
                                                     }
                                                 };
-                                                vm.sync_vault(
-                                                    &rid,
-                                                    format!("sync {fp}"),
-                                                    None,
-                                                ).await
-                                            } else {
-                                                Err("vault manager not ready".into())
-                                            };
-                                            match result {
-                                                Ok(id) => {
-                                                    let short: String = id.as_bytes().iter().take(4).map(|b| format!("{b:02x}")).collect();
-                                                    sync_status.set(SyncStatus::Done(short));
+                                                let (tx, mut rx) = tokio::sync::mpsc::channel::<SyncStep>(16);
+
+                                                // Spawn the sync and drain progress in parallel.
+                                                let vm_clone = vm.clone();
+                                                let intent = format!("sync {fp}");
+                                                let sync_handle = tokio::spawn(async move {
+                                                    vm_clone.full_sync(&rid, intent, tx).await
+                                                });
+
+                                                // Drain progress updates into the signal.
+                                                while let Some(step) = rx.recv().await {
+                                                    sync_step.set(Some(step));
                                                 }
-                                                Err(e) => sync_status.set(SyncStatus::Failed(e)),
+
+                                                // Capture final result.
+                                                match sync_handle.await {
+                                                    Ok(Ok(_)) => {} // Done step already sent
+                                                    Ok(Err(e)) => sync_step.set(Some(SyncStep::Failed(e))),
+                                                    Err(e) => sync_step.set(Some(SyncStep::Failed(format!("{e}")))),
+                                                }
+                                            });
+                                        },
+                                        if is_syncing { "Syncing..." } else { "Sync" }
+                                    }
+                                    // Status pill
+                                    if let Some(ref step) = *sync_step.read() {
+                                        span {
+                                            class: "sync-step-pill sync-step-{step_class(step)}",
+                                            span { class: "sync-step-label", "{step_text(step)}" }
+                                            if let Some(detail) = step_detail(step) {
+                                                span { class: "sync-step-detail", " {detail}" }
                                             }
-                                        });
-                                    },
-                                    match &*sync_status.read() {
-                                        SyncStatus::Syncing => "Syncing...",
-                                        SyncStatus::Done(_) => "Synced",
-                                        SyncStatus::Failed(_) => "Sync",
-                                        SyncStatus::Idle => "Sync",
+                                        }
                                     }
                                 }
                             }
@@ -199,10 +242,6 @@ pub fn FileModal(
                                     let vp = vault_path.clone();
                                     let url = obsidian_open_url(&full_path);
                                     move |_| {
-                                        // Quit any running Obsidian first — it caches its
-                                        // vault list in memory at launch, so editing
-                                        // obsidian.json while it is running has no effect
-                                        // on the live instance.
                                         quit_obsidian();
                                         std::thread::sleep(std::time::Duration::from_millis(600));
                                         match register_vault(&vp) {
@@ -253,7 +292,6 @@ fn commit_rename(
     let old_p = vault_path.join(old_name);
     let new_p = vault_path.join(&new_name);
     if std::fs::rename(&old_p, &new_p).is_ok() {
-        // Preserve the realm_id so the modal stays pointed at the right vault.
         let realm_id = state.read().modal_file.as_ref().and_then(|m| m.realm_id);
         state.write().modal_file = Some(crate::state::ModalFile {
             realm_id,

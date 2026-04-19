@@ -457,6 +457,14 @@ impl Vault {
             .collect()
     }
 
+    /// Number of files changed since the last sync.
+    pub fn dirty_count(&self) -> usize {
+        match self.watcher {
+            Some(ref w) => w.dirty_paths.len(),
+            None => 0,
+        }
+    }
+
     /// Get a reference to the braid DAG document.
     pub fn dag(&self) -> &Document<BraidDag> {
         &self.dag
@@ -588,8 +596,15 @@ impl Vault {
         if let Some(ref relay) = self.relay {
             for pf in &manifest.files {
                 let content_ref = indras_storage::ContentRef::new(pf.hash, pf.size);
-                if let Ok(data) = self.blob_store.load(&content_ref).await {
-                    let _ = relay.push_blob(&pf.hash, &data).await;
+                match self.blob_store.load(&content_ref).await {
+                    Ok(data) => {
+                        if let Err(e) = relay.push_blob(&pf.hash, &data).await {
+                            tracing::warn!(path = %pf.path, error = %e, "blob relay push failed");
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(path = %pf.path, error = %e, "blob not in local store during sync");
+                    }
                 }
             }
         }
@@ -818,6 +833,23 @@ impl Vault {
             .filter(|pf| my_files.get(&pf.path).map_or(true, |h| *h != pf.hash))
             .cloned()
             .collect()
+    }
+
+    /// Auto-merge all pending forks from trusted peers.
+    ///
+    /// Returns a list of `(peer_id, merge_change_id)` for each merge
+    /// that was performed.
+    pub async fn auto_merge_trusted(&self) -> Vec<(UserId, super::braid::ChangeId)> {
+        let forks = self.pending_forks().await;
+        let mut merged = Vec::new();
+        for (peer_id, _) in forks {
+            if self.is_peer_trusted(&peer_id).await {
+                if let Ok(id) = self.merge_from_peer(peer_id).await {
+                    merged.push((peer_id, id));
+                }
+            }
+        }
+        merged
     }
 
     /// Stop the vault (watcher + sync).
