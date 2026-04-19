@@ -98,9 +98,11 @@ mod tests {
     fn merge_union_roster_and_sort() {
         let mut a = Team {
             roster: vec![agent("b"), agent("a")],
+            ..Default::default()
         };
         let b = Team {
             roster: vec![agent("c"), agent("a")],
+            ..Default::default()
         };
         a.merge(b);
         assert_eq!(a.roster, vec![agent("a"), agent("b"), agent("c")]);

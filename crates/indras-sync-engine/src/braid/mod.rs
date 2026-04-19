@@ -32,6 +32,7 @@
 //! Authorship uses [`crate::vault::vault_file::UserId`] — the same 32-byte
 //! identity key the vault already tracks — rather than a distinct `AgentId`.
 
+pub mod agent_braid;
 pub mod changeset;
 pub mod dag;
 pub mod gate;
@@ -39,6 +40,7 @@ pub mod heal;
 pub mod realm_braid;
 pub mod verification;
 
+pub use agent_braid::{AgentBraid, MergeResult, derive_agent_id};
 pub use changeset::{ChangeId, Changeset, Evidence, PatchFile, PatchManifest};
 pub use dag::{BraidDag, PeerState};
 pub use gate::{LocalRepo, TryLandError};

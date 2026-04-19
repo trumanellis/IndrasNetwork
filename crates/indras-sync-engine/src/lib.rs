@@ -180,9 +180,9 @@ pub use content_addr::{
 
 // Re-export braid types
 pub use braid::{
-    detect_heal_needed, BraidDag, ChangeId, Changeset, Evidence, LocalRepo, PatchFile,
-    PatchManifest, PeerState, RealmBraid, RepairTask, TryLandError, VerificationFailure,
-    VerificationRequest,
+    detect_heal_needed, AgentBraid, BraidDag, ChangeId, Changeset, Evidence, LocalRepo,
+    MergeResult, PatchFile, PatchManifest, PeerState, RealmBraid, RepairTask, TryLandError,
+    VerificationFailure, VerificationRequest, derive_agent_id,
 };
 pub use vault::trust::LocalTrustStore;
 pub use braid::verification::run as verify;

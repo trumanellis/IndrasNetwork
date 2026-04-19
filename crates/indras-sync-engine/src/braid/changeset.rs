@@ -382,7 +382,7 @@ mod tests {
         let p2 = ChangeId([3u8; 32]);
         let patch = sample_patch();
 
-        let a = Changeset::new_unsigned(
+        let a = Changeset::new(
             author,
             vec![p1, p2],
             "intent".into(),
@@ -390,7 +390,7 @@ mod tests {
             sample_evidence(author),
             100,
         );
-        let b = Changeset::new_unsigned(
+        let b = Changeset::new(
             author,
             vec![p2, p1],
             "intent".into(),
@@ -408,7 +408,7 @@ mod tests {
         let patch = sample_patch();
         let ev = sample_evidence(author);
 
-        let base = Changeset::new_unsigned(
+        let base = Changeset::new(
             author,
             parents.clone(),
             "a".into(),
@@ -417,7 +417,7 @@ mod tests {
             100,
         );
 
-        let diff_author = Changeset::new_unsigned(
+        let diff_author = Changeset::new(
             [9u8; 32],
             parents.clone(),
             "a".into(),
@@ -425,7 +425,7 @@ mod tests {
             ev.clone(),
             100,
         );
-        let diff_parents = Changeset::new_unsigned(
+        let diff_parents = Changeset::new(
             author,
             vec![ChangeId([4u8; 32])],
             "a".into(),
@@ -433,7 +433,7 @@ mod tests {
             ev.clone(),
             100,
         );
-        let diff_intent = Changeset::new_unsigned(
+        let diff_intent = Changeset::new(
             author,
             parents.clone(),
             "b".into(),
@@ -441,7 +441,7 @@ mod tests {
             ev.clone(),
             100,
         );
-        let diff_patch = Changeset::new_unsigned(
+        let diff_patch = Changeset::new(
             author,
             parents.clone(),
             "a".into(),
@@ -453,7 +453,7 @@ mod tests {
             ev.clone(),
             100,
         );
-        let diff_time = Changeset::new_unsigned(author, parents, "a".into(), patch, ev, 101);
+        let diff_time = Changeset::new(author, parents, "a".into(), patch, ev, 101);
 
         for other in [diff_author, diff_parents, diff_intent, diff_patch, diff_time] {
             assert_ne!(
@@ -493,7 +493,7 @@ mod tests {
             (LogicalPath::new("c.rs"), ContentAddr::new([4; 32], 40)), // added
         ]);
 
-        let cs = Changeset::with_index(
+        let cs = Changeset::new_unsigned(
             [0u8; 32],
             vec![],
             "test".into(),
@@ -510,7 +510,7 @@ mod tests {
     #[test]
     fn root_changeset_delta_is_all_add() {
         let idx = sample_index();
-        let cs = Changeset::with_index(
+        let cs = Changeset::new_unsigned(
             [0u8; 32],
             vec![],
             "root".into(),
@@ -527,7 +527,7 @@ mod tests {
     }
 
     #[test]
-    fn new_and_with_index_produce_same_id() {
+    fn new_and_new_unsigned_produce_same_id() {
         let author: UserId = [1u8; 32];
         let patch = sample_patch();
         let idx: SymlinkIndex = patch.clone().into();
@@ -536,11 +536,11 @@ mod tests {
             author, vec![], "intent".into(), patch,
             sample_evidence(author), 100,
         );
-        let from_with = Changeset::with_index(
+        let from_unsigned = Changeset::new_unsigned(
             author, vec![], "intent".into(), idx, None,
             sample_evidence(author), 100,
         );
-        assert_eq!(from_new.id, from_with.id);
+        assert_eq!(from_new.id, from_unsigned.id);
     }
 
     #[test]

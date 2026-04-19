@@ -199,7 +199,7 @@ mod tests {
     }
 
     fn mk(author: UserId, parents: Vec<ChangeId>, intent: &str, patch_byte: u8, ts: i64) -> Changeset {
-        Changeset::new_unsigned(
+        Changeset::new(
             author,
             parents,
             intent.into(),

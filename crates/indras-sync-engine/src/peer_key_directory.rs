@@ -140,11 +140,12 @@ mod tests {
         let identity = PQIdentity::generate();
         let user_id = identity.user_id();
 
-        let cs = Changeset::new(
+        let cs = Changeset::with_index(
             user_id,
             vec![],
             "test commit".into(),
-            PatchManifest::default(),
+            crate::content_addr::SymlinkIndex::new(),
+            None,
             Evidence::human(user_id, None),
             1000,
             &identity,
