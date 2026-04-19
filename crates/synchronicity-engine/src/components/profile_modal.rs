@@ -6,8 +6,12 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 use indras_network::IndrasNetwork;
 
+use super::markdown_editor::InlineMarkdownEditor;
 use crate::profile_bridge::{self, FieldVisibility, ProfileFieldVisibility, ALL_FIELDS};
-use crate::state::{AppState, AppStep, default_data_dir, PEER_COLORS};
+use crate::state::{AppState, AppStep, default_data_dir, MEMBER_IDENTITY_CLASSES};
+
+/// Well-known bio file name inside the home vault.
+const BIO_FILENAME: &str = "BIO.md";
 
 /// UI feedback state for inline field saves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,10 +70,10 @@ fn truncate_hex(s: &str) -> String {
     }
 }
 
-/// Pick a stable color class for the avatar based on member id bytes.
+/// Pick a stable Member Identity Color class for the avatar based on member id bytes.
 fn avatar_color(member_id: &[u8; 32]) -> &'static str {
-    let idx = (member_id[0] as usize) % PEER_COLORS.len();
-    PEER_COLORS[idx]
+    let idx = (member_id[0] as usize) % MEMBER_IDENTITY_CLASSES.len();
+    MEMBER_IDENTITY_CLASSES[idx]
 }
 
 /// Overlay modal for viewing and editing the local user's profile.
@@ -102,9 +106,32 @@ pub fn ProfileOverlay(
     let device_count = state.read().device_count;
     let has_story = !state.read().pass_story_slots.is_empty();
 
-    // Bio / username drafts start as `None` until the CRDT load resolves — this
+    // Resolve the user's bio file path and make sure it exists on disk so the
+    // Milkdown editor has something to load. Creating an empty file synchronously
+    // avoids a race where the editor mounts before an async seed task runs.
+    let vault_path = state.read().vault_path.clone();
+    let bio_path = vault_path.join(BIO_FILENAME);
+    if !bio_path.exists() {
+        if let Some(parent) = bio_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(&bio_path, "");
+    }
+
+    // Callback fires on every Milkdown save: mirrors BIO.md contents into the
+    // CRDT `bio` field so the visibility panel and peer views stay fresh.
+    let bio_callback: Option<Callback<String>> = net_ref.as_ref().map(|net| {
+        let net = net.clone();
+        Callback::new(move |content: String| {
+            let net = net.clone();
+            spawn(async move {
+                profile_bridge::save_bio(&net, content).await;
+            });
+        })
+    });
+
+    // Username draft starts as `None` until the CRDT load resolves — this
     // prevents the async load from clobbering keystrokes typed by an early user.
-    let mut bio_draft: Signal<Option<String>> = use_signal(|| None);
     let mut username_draft: Signal<Option<String>> = use_signal(|| None);
     // Seed with a Private placeholder for every known field so the user sees
     // all 12 rows immediately while the async load resolves real state.
@@ -124,7 +151,6 @@ pub fn ProfileOverlay(
     // Save-state indicators per editable field.
     let name_save = use_signal(|| SaveFeedback::Idle);
     let username_save = use_signal(|| SaveFeedback::Idle);
-    let bio_save = use_signal(|| SaveFeedback::Idle);
 
     // Set of field names whose per-grantee list is currently expanded.
     let mut expanded: Signal<HashSet<&'static str>> = use_signal(HashSet::new);
@@ -140,10 +166,8 @@ pub fn ProfileOverlay(
         loaded.set(true);
         spawn(async move {
             if let Some(p) = profile_bridge::load_profile_identity(&net).await {
-                bio_draft.set(Some(p.bio.unwrap_or_default()));
                 username_draft.set(Some(p.username));
             } else {
-                bio_draft.set(Some(String::new()));
                 username_draft.set(Some(String::new()));
             }
             let v = profile_bridge::list_field_visibilities(&net).await;
@@ -182,9 +206,9 @@ pub fn ProfileOverlay(
 
                 // Header
                 div { class: "file-modal-header",
-                    div { class: "relay-header-titles",
-                        div { class: "relay-eyebrow", "YOU" }
-                        div { class: "relay-title", "Profile" }
+                    div { class: "profile-header-titles",
+                        div { class: "profile-eyebrow", "YOU" }
+                        div { class: "profile-title", "Profile" }
                     }
                     button {
                         class: "file-modal-close",
@@ -194,7 +218,7 @@ pub fn ProfileOverlay(
                 }
 
                 // Body
-                div { class: "file-modal-content relay-body",
+                div { class: "file-modal-content profile-body",
 
                     // Identity: avatar + editable name + username
                     div { class: "profile-identity",
@@ -262,78 +286,52 @@ pub fn ProfileOverlay(
                         }
                     }
 
-                    // Bio — inline-edit textarea. Renders only once the CRDT load resolves
-                    // so early keystrokes can't be clobbered by a late async `set`.
-                    if let Some(bio) = bio_draft.read().clone() {
-                        div { class: "profile-bio-wrap",
-                            textarea {
-                                class: "profile-bio-input",
-                                placeholder: "A few words about you\u{2026}",
-                                value: "{bio}",
-                                rows: "3",
-                                oninput: move |e| bio_draft.set(Some(e.value())),
-                                onblur: move |_| {
-                                    let Some(text) = bio_draft.read().clone() else { return };
-                                    let Some(net) = network.read().clone() else { return };
-                                    dispatch_save(bio_save, move || {
-                                        let text = text.clone();
-                                        async move {
-                                            profile_bridge::save_bio(&net, text).await;
-                                        }
-                                    });
-                                },
-                            }
-                            SaveIndicator { state: bio_save }
+                    // Bio — WYSIWYG Milkdown editor backed by BIO.md in the home vault.
+                    // Content auto-saves to disk; the callback mirrors each save into the
+                    // CRDT `bio` field so the visibility panel stays in sync.
+                    div { class: "profile-bio-wrap",
+                        InlineMarkdownEditor {
+                            full_path: bio_path.clone(),
+                            on_content: bio_callback,
                         }
                     }
 
-                    // Member ID
-                    div { class: "relay-panel",
-                        div { class: "relay-panel-header", "MEMBER ID" }
-                        div { class: "relay-panel-body",
-                            div { class: "relay-row",
-                                span {
-                                    class: "relay-id-value",
-                                    title: "Click to copy",
-                                    onclick: move |_| {
-                                        let hex = member_hex.clone();
-                                        #[cfg(target_os = "macos")]
-                                        {
-                                            let _ = std::process::Command::new("pbcopy")
-                                                .arg(&hex)
-                                                .stdin(std::process::Stdio::piped())
-                                                .spawn()
-                                                .and_then(|mut c| {
-                                                    use std::io::Write;
-                                                    if let Some(mut stdin) = c.stdin.take() {
-                                                        let _ = stdin.write_all(hex.as_bytes());
-                                                    }
-                                                    c.wait()
-                                                });
-                                        }
-                                        copied.set(true);
-                                        spawn(async move {
-                                            tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
-                                            copied.set(false);
+                    // Inline identity strip: member ID (click to copy) · device count
+                    div { class: "profile-meta-strip",
+                        span {
+                            class: "profile-id-value",
+                            title: "Click to copy",
+                            onclick: move |_| {
+                                let hex = member_hex.clone();
+                                #[cfg(target_os = "macos")]
+                                {
+                                    let _ = std::process::Command::new("pbcopy")
+                                        .arg(&hex)
+                                        .stdin(std::process::Stdio::piped())
+                                        .spawn()
+                                        .and_then(|mut c| {
+                                            use std::io::Write;
+                                            if let Some(mut stdin) = c.stdin.take() {
+                                                let _ = stdin.write_all(hex.as_bytes());
+                                            }
+                                            c.wait()
                                         });
-                                    },
-                                    "{member_display}"
                                 }
-                                if *copied.read() {
-                                    span { class: "relay-copied-flash", "copied" }
-                                }
-                            }
+                                copied.set(true);
+                                spawn(async move {
+                                    tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+                                    copied.set(false);
+                                });
+                            },
+                            "{member_display}"
                         }
-                    }
-
-                    // Devices
-                    div { class: "relay-panel",
-                        div { class: "relay-panel-header", "DEVICES" }
-                        div { class: "relay-panel-body",
-                            div { class: "relay-row",
-                                span { class: "relay-row-label", "CONNECTED" }
-                                span { class: "relay-row-value", "{device_count}" }
-                            }
+                        span { class: "profile-meta-sep", "\u{00b7}" }
+                        span { class: "profile-meta-devices",
+                            "{device_count} "
+                            if device_count == 1 { "device" } else { "devices" }
+                        }
+                        if *copied.read() {
+                            span { class: "profile-copied-flash", "copied" }
                         }
                     }
 
@@ -341,11 +339,9 @@ pub fn ProfileOverlay(
                     // Row rendering is inlined (not extracted to a child component) because
                     // Dioxus 0.7's `#[component]` in a `for` loop has a memoization quirk
                     // that dropped all but the first few instances in this context.
-                    div { class: "relay-panel",
-                        div { class: "relay-panel-header",
-                            "VISIBILITY (debug: {visibilities.read().len()} rows)"
-                        }
-                        div { class: "relay-panel-body",
+                    div { class: "profile-panel",
+                        div { class: "profile-panel-header", "VISIBILITY" }
+                        div { class: "profile-panel-body",
                             for field in visibilities.read().clone() {
                                 {
                                     let field_name: &'static str = field.field_name;
@@ -448,9 +444,9 @@ pub fn ProfileOverlay(
                     }
 
                     // Recovery story
-                    div { class: "relay-panel",
-                        div { class: "relay-panel-header", "RECOVERY STORY" }
-                        div { class: "relay-panel-body",
+                    div { class: "profile-panel",
+                        div { class: "profile-panel-header", "RECOVERY STORY" }
+                        div { class: "profile-panel-body",
                             if has_story {
                                 div { class: "profile-hint",
                                     "Your pass story is the only way to recover this identity on a new device. Keep it somewhere private."
@@ -464,9 +460,9 @@ pub fn ProfileOverlay(
                     }
 
                     // Danger zone
-                    div { class: "relay-panel profile-danger",
-                        div { class: "relay-panel-header", "DANGER" }
-                        div { class: "relay-panel-body",
+                    div { class: "profile-panel profile-danger",
+                        div { class: "profile-panel-header", "DANGER" }
+                        div { class: "profile-panel-body",
                             if *confirming_reset.read() {
                                 div { class: "profile-hint warn",
                                     "This will erase local identity and all vault data on this device."

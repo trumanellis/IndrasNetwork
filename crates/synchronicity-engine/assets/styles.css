@@ -862,10 +862,13 @@ body > * {
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.12);
 }
 
-/* Generic peer-dot color rules so the same classes work outside .profile-avatar */
-.realm-entry-avatar.peer-dot-sage { background: #9ad3a8; }
-.realm-entry-avatar.peer-dot-zeph { background: #7fc9e8; }
-.realm-entry-avatar.peer-dot-rose { background: #e89fb3; }
+/* Member Identity Color classes (DESIGN.md §2) — apply on any avatar surface */
+.realm-entry-avatar.identity-love  { background: #ff6b9d; }
+.realm-entry-avatar.identity-joy   { background: #ffd93d; }
+.realm-entry-avatar.identity-peace { background: #6bcfff; }
+.realm-entry-avatar.identity-grace { background: #b19cd9; }
+.realm-entry-avatar.identity-hope  { background: #98d8aa; }
+.realm-entry-avatar.identity-faith { background: #ffb347; }
 
 /* Make the name look clickable (it's now the expand toggle) */
 .realm-entry-name {
@@ -2699,172 +2702,57 @@ body > * {
   margin-top: 4px;
 }
 
-/* Profile modal */
+/* ============================================================
+   PROFILE MODAL — DESIGN.md-aligned (see §2 colors, §4 components)
+   ============================================================ */
+
+/* Shell — override the generic .file-modal defaults */
 .profile-modal {
   max-width: 520px;
+  height: auto;
+  max-height: 80vh;
+}
+.profile-modal .file-modal-header {
+  padding: 16px 24px;
 }
 
+/* Header eyebrow + title (replaces .relay-*) */
+.profile-header-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.profile-eyebrow {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--indigo);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  line-height: 1.3;
+}
+.profile-title {
+  font-family: var(--display);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--tx);
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+/* Body */
+.profile-body {
+  gap: 24px;
+  padding: 24px;
+}
+
+/* Identity row: avatar + stacked name/handle inputs */
 .profile-identity {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 8px 4px 20px;
+  padding: 4px 0 4px;
 }
-
-.profile-avatar {
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 22px;
-  font-weight: 500;
-  color: #0b0b0d;
-  flex: 0 0 auto;
-  background: #888;
-}
-.profile-avatar.peer-dot-sage { background: #9ad3a8; }
-.profile-avatar.peer-dot-zeph { background: #7fc9e8; }
-.profile-avatar.peer-dot-rose { background: #e89fb3; }
-
-.profile-name-input {
-  flex: 1 1 auto;
-  background: transparent;
-  border: none;
-  border-bottom: 1px solid transparent;
-  outline: none;
-  color: var(--t1);
-  font-size: 22px;
-  font-weight: 400;
-  padding: 4px 2px;
-  transition: border-color 0.15s ease;
-}
-.profile-name-input:focus,
-.profile-name-input:hover {
-  border-bottom-color: var(--t3, rgba(255, 255, 255, 0.2));
-}
-
-.profile-hint {
-  font-size: 12px;
-  color: var(--t3);
-  line-height: 1.4;
-  padding: 4px 0;
-}
-.profile-hint.warn {
-  color: #e8b96f;
-}
-
-.relay-row-value {
-  color: var(--t1);
-  font-size: 13px;
-}
-
-.profile-danger {
-  margin-top: 8px;
-}
-.profile-danger-actions {
-  display: flex;
-  gap: 8px;
-  padding-top: 8px;
-}
-
-.se-btn-danger,
-.se-btn-danger-outline {
-  font-family: inherit;
-  font-size: 12px;
-  letter-spacing: 0.04em;
-  padding: 8px 14px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
-}
-.se-btn-danger {
-  background: #c04a4a;
-  color: #fff;
-  border: 1px solid #c04a4a;
-}
-.se-btn-danger:hover {
-  background: #d65a5a;
-  border-color: #d65a5a;
-}
-.se-btn-danger-outline {
-  background: transparent;
-  color: #d67a7a;
-  border: 1px solid rgba(214, 90, 90, 0.5);
-}
-.se-btn-danger-outline:hover {
-  background: rgba(214, 90, 90, 0.1);
-  color: #e88a8a;
-  border-color: #d65a5a;
-}
-
-.profile-bio-input {
-  display: block;
-  box-sizing: border-box;
-  width: 100%;
-  min-height: 72px;
-  margin: 0 0 8px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid #27272a;
-  border-radius: 6px;
-  outline: none;
-  color: #fafafa;
-  font-size: 13px;
-  line-height: 1.4;
-  font-family: inherit;
-  padding: 10px 12px;
-  resize: vertical;
-  transition: border-color 0.15s ease, background 0.15s ease;
-}
-.profile-bio-input::placeholder {
-  color: #52525b;
-}
-.profile-bio-input:focus {
-  border-color: #818cf8;
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.profile-vis-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 4px 0;
-}
-.profile-vis-label {
-  font-size: 12px;
-  color: var(--t2);
-  flex: 1 1 auto;
-}
-.profile-vis-toggle {
-  display: flex;
-  gap: 2px;
-  flex: 0 0 auto;
-}
-.profile-vis-btn {
-  background: transparent;
-  border: 1px solid var(--t3, rgba(255, 255, 255, 0.15));
-  color: var(--t3);
-  font-size: 11px;
-  padding: 2px 8px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-.profile-vis-btn:first-child { border-radius: 3px 0 0 3px; }
-.profile-vis-btn:last-child { border-radius: 0 3px 3px 0; }
-.profile-vis-btn + .profile-vis-btn { border-left: none; }
-.profile-vis-btn:hover {
-  color: var(--t1);
-  border-color: var(--t2);
-}
-.profile-vis-btn.active {
-  background: var(--t2, rgba(255, 255, 255, 0.12));
-  color: var(--t1);
-  border-color: var(--t2);
-}
-
-/* Identity row: avatar + stacked name/handle inputs with save indicators */
 .profile-identity-fields {
   display: flex;
   flex-direction: column;
@@ -2875,7 +2763,7 @@ body > * {
 .profile-input-row {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
 }
 .profile-input-row .profile-name-input,
@@ -2883,43 +2771,122 @@ body > * {
   flex: 1 1 auto;
   min-width: 0;
 }
+
+/* Avatar — Member Identity Colors (DESIGN.md §2) */
+.profile-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--display);
+  font-size: 22px;
+  font-weight: 600;
+  color: #09090b;
+  flex: 0 0 auto;
+  background: #888;
+  letter-spacing: -0.01em;
+}
+.profile-avatar.identity-love  { background: #ff6b9d; }
+.profile-avatar.identity-joy   { background: #ffd93d; }
+.profile-avatar.identity-peace { background: #6bcfff; }
+.profile-avatar.identity-grace { background: #b19cd9; }
+.profile-avatar.identity-hope  { background: #98d8aa; }
+.profile-avatar.identity-faith { background: #ffb347; }
+
+/* Name input — inline-editable sub-heading */
+.profile-name-input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--t1);
+  font-family: var(--display);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  padding: 2px 4px;
+  border-radius: 6px;
+  transition: background 0.15s var(--ease), box-shadow 0.15s var(--ease);
+  margin-left: -4px;
+}
+.profile-name-input:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+.profile-name-input:focus {
+  background: rgba(129, 140, 248, 0.06);
+  box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.35);
+}
+
+/* Handle input */
 .profile-handle-prefix {
   color: var(--t3);
+  font-family: var(--mono);
   font-size: 13px;
   flex: 0 0 auto;
 }
 .profile-handle-input {
   background: transparent;
   border: none;
-  border-bottom: 1px solid transparent;
   outline: none;
   color: var(--t2);
   font-size: 13px;
-  font-family: 'JetBrains Mono', monospace;
-  padding: 2px 2px;
-  transition: border-color 0.15s ease, color 0.15s ease;
+  font-family: var(--mono);
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: background 0.15s var(--ease), color 0.15s var(--ease);
+  margin-left: -4px;
 }
-.profile-handle-input:focus,
 .profile-handle-input:hover {
-  border-bottom-color: var(--t3);
+  background: rgba(255, 255, 255, 0.03);
   color: var(--t1);
 }
+.profile-handle-input:focus {
+  background: rgba(129, 140, 248, 0.06);
+  color: var(--t1);
+  box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.35);
+}
 
+/* Bio textarea — DESIGN.md Mock Input */
 .profile-bio-wrap {
   position: relative;
   display: flex;
   align-items: flex-start;
   gap: 6px;
 }
-.profile-bio-wrap .profile-bio-input {
+.profile-bio-input {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 80px;
+  margin: 0;
+  background: var(--bg);
+  border: 1px solid var(--bd);
+  border-radius: 8px;
+  outline: none;
+  color: var(--t1);
+  font-family: var(--display);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.6;
+  padding: 10px 14px;
+  resize: vertical;
+  transition: border-color 0.15s var(--ease), box-shadow 0.15s var(--ease);
   flex: 1 1 auto;
 }
+.profile-bio-input::placeholder { color: var(--t3); }
+.profile-bio-input:focus {
+  border-color: var(--indigo);
+  box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.15);
+}
 
+/* Save indicator — small mono flash */
 .profile-save-indicator {
+  font-family: var(--mono);
   font-size: 10px;
   color: var(--t3);
-  letter-spacing: 0.04em;
-  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   flex: 0 0 auto;
   align-self: center;
   min-width: 48px;
@@ -2931,14 +2898,71 @@ body > * {
   to { opacity: 1; transform: none; }
 }
 
-/* Extended visibility rows (replaces profile-vis-row for expandable grants) */
+/* Inline identity strip: member id · device count */
+.profile-meta-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 4px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--t3);
+  letter-spacing: 0.04em;
+}
+.profile-id-value {
+  color: var(--t2);
+  cursor: pointer;
+  transition: color 0.15s var(--ease);
+  user-select: all;
+}
+.profile-id-value:hover { color: var(--t1); }
+.profile-meta-sep {
+  color: var(--dim);
+  font-size: 14px;
+  line-height: 1;
+}
+.profile-meta-devices { color: var(--t3); }
+.profile-copied-flash {
+  color: var(--glow-green);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* Panel — DESIGN.md Data Panel */
+.profile-panel {
+  background: var(--bg2);
+  border: 1px solid var(--bd);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.profile-panel-header {
+  background: var(--bg3);
+  border-bottom: 1px solid var(--bd);
+  padding: 10px 16px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--t3);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.profile-panel-body {
+  padding: 8px 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Visibility row (one per field) */
 .profile-field-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 6px 0;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--bd2);
 }
+.profile-field-row:last-child { border-bottom: none; }
 .profile-field-info {
   display: flex;
   flex-direction: column;
@@ -2947,13 +2971,14 @@ body > * {
   min-width: 0;
 }
 .profile-field-label {
-  font-size: 12px;
-  color: var(--t2);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--t1);
 }
 .profile-field-value {
   font-size: 11px;
   color: var(--t3);
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--mono);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2961,30 +2986,63 @@ body > * {
 .profile-field-controls {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   flex: 0 0 auto;
 }
+
+/* Segmented visibility toggle — indigo active per DESIGN.md */
+.profile-vis-toggle {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg);
+  border: 1px solid var(--bd);
+  border-radius: 100px;
+}
+.profile-vis-btn {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 4px 12px;
+  border: none;
+  border-radius: 100px;
+  background: transparent;
+  color: var(--t3);
+  cursor: pointer;
+  transition: background 0.15s var(--ease), color 0.15s var(--ease);
+}
+.profile-vis-btn:hover { color: var(--t1); }
+.profile-vis-btn.active {
+  background: rgba(129, 140, 248, 0.12);
+  color: var(--indigo);
+}
+
+/* Expand chevron */
 .profile-expand-btn {
   background: transparent;
-  border: 1px solid var(--t3, rgba(255, 255, 255, 0.15));
-  color: var(--t2);
-  font-size: 10px;
-  padding: 2px 6px;
-  border-radius: 3px;
+  border: 1px solid var(--bd);
+  color: var(--t3);
+  font-size: 9px;
+  padding: 3px 7px;
+  border-radius: 4px;
   cursor: pointer;
-  transition: color 0.15s ease, border-color 0.15s ease;
+  transition: color 0.15s var(--ease), border-color 0.15s var(--ease), background 0.15s var(--ease);
 }
 .profile-expand-btn:hover {
   color: var(--t1);
-  border-color: var(--t2);
+  border-color: var(--t3);
+  background: rgba(255, 255, 255, 0.03);
 }
 
+/* Per-grantee list */
 .profile-grants-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  margin: 0 0 6px 12px;
-  padding: 4px 0 4px 8px;
+  gap: 4px;
+  margin: 0 0 8px 12px;
+  padding: 8px 0 8px 12px;
   border-left: 1px solid var(--bd2);
 }
 .profile-grant-item {
@@ -3004,24 +3062,84 @@ body > * {
 .profile-grant-mode {
   font-size: 10px;
   color: var(--t3);
-  font-family: 'JetBrains Mono', monospace;
-  letter-spacing: 0.02em;
+  font-family: var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 .profile-revoke-btn {
   background: transparent;
-  border: 1px solid rgba(214, 90, 90, 0.4);
-  color: #d67a7a;
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  color: #f87171;
+  font-family: var(--mono);
   font-size: 10px;
-  letter-spacing: 0.04em;
-  padding: 2px 8px;
-  border-radius: 3px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 3px 10px;
+  border-radius: 100px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background 0.15s var(--ease), border-color 0.15s var(--ease);
 }
 .profile-revoke-btn:hover {
-  background: rgba(214, 90, 90, 0.1);
-  border-color: #d65a5a;
-  color: #e88a8a;
+  background: rgba(248, 113, 113, 0.08);
+  border-color: #f87171;
+}
+
+/* Hints inside recovery / danger panels */
+.profile-hint {
+  font-family: var(--display);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--t2);
+  line-height: 1.6;
+  padding: 10px 0;
+}
+.profile-hint.warn { color: #fbbf24; }
+
+/* Danger zone */
+.profile-danger .profile-panel-header { color: #f87171; }
+.profile-danger-actions {
+  display: flex;
+  gap: 10px;
+  padding-top: 12px;
+}
+.se-btn-danger,
+.se-btn-danger-outline,
+.se-btn-outline {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s var(--ease), color 0.15s var(--ease), border-color 0.15s var(--ease), filter 0.15s var(--ease);
+}
+.se-btn-danger {
+  background: #f87171;
+  color: #09090b;
+  border: 1px solid #f87171;
+}
+.se-btn-danger:hover { filter: brightness(1.08); }
+.se-btn-danger-outline {
+  background: transparent;
+  color: #f87171;
+  border: 1px solid rgba(248, 113, 113, 0.5);
+}
+.se-btn-danger-outline:hover {
+  background: rgba(248, 113, 113, 0.08);
+  border-color: #f87171;
+}
+.se-btn-outline {
+  background: transparent;
+  color: var(--t2);
+  border: 1px solid var(--bd);
+}
+.se-btn-outline:hover {
+  color: var(--t1);
+  border-color: var(--t3);
+  background: rgba(255, 255, 255, 0.03);
 }
 
 /* ============================================================

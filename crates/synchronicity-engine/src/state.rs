@@ -103,7 +103,7 @@ pub struct PeerDisplayInfo {
     pub name: String,
     /// First letter of name for avatar dot.
     pub letter: String,
-    /// CSS class for dot color (e.g. "peer-dot-sage").
+    /// CSS class for dot color (e.g. "identity-love").
     pub color_class: String,
     /// Whether the peer is currently online.
     pub online: bool,
@@ -111,8 +111,15 @@ pub struct PeerDisplayInfo {
     pub member_id: [u8; 32],
 }
 
-/// Rotating color classes for peer dots.
-pub const PEER_COLORS: &[&str] = &["peer-dot-sage", "peer-dot-zeph", "peer-dot-rose"];
+/// Rotating Member Identity Color classes (see DESIGN.md §2 Member Identity Colors).
+pub const MEMBER_IDENTITY_CLASSES: &[&str] = &[
+    "identity-love",
+    "identity-joy",
+    "identity-peace",
+    "identity-grace",
+    "identity-hope",
+    "identity-faith",
+];
 
 /// View model for a realm entry in the column UI.
 #[derive(Debug, Clone)]

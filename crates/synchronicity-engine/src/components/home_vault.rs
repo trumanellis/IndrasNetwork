@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use dioxus::prelude::*;
 use indras_network::IndrasNetwork;
 
-use crate::state::{AppState, ModalFile, PeerDisplayInfo, PEER_COLORS};
+use crate::state::{AppState, PeerDisplayInfo, MEMBER_IDENTITY_CLASSES};
 use crate::vault_bridge::scan_vault;
 use crate::vault_manager::VaultManager;
 
@@ -145,7 +145,7 @@ pub fn HomeVault(
                                         mid.iter().take(4).map(|b| format!("{b:02x}")).collect()
                                     });
                                     let letter = name.chars().next().unwrap_or('?').to_string();
-                                    let color_class = PEER_COLORS[i % PEER_COLORS.len()].to_string();
+                                    let color_class = MEMBER_IDENTITY_CLASSES[i % MEMBER_IDENTITY_CLASSES.len()].to_string();
                                     PeerDisplayInfo {
                                         name,
                                         letter,
@@ -379,16 +379,6 @@ pub fn HomeVault(
                 let col = state.read().selection.focused_column;
 
                 match key {
-                    // Spacebar = Quick Look (open modal for selected file)
-                    Key::Character(ref c) if c == " " => {
-                        e.prevent_default();
-                        if let Some(ref file) = sel_file {
-                            state.write().modal_file = Some(ModalFile {
-                                realm_id: sel_realm,
-                                file_path: file.clone(),
-                            });
-                        }
-                    }
                     // F2 = Rename
                     Key::F2 => {
                         if let Some(ref file) = sel_file {

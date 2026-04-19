@@ -54,8 +54,16 @@ fn escape_for_js(s: &str) -> String {
 
 /// WYSIWYG Milkdown markdown editor: renders as a rich editor, auto-saves to
 /// disk on content changes.
+///
+/// `on_content`, if provided, is invoked with the full markdown after every
+/// persisted write (both the polling tick and the flush-on-unmount). It lets
+/// callers mirror content into a CRDT or other side-channel without blocking
+/// the editor's own disk write.
 #[component]
-pub fn InlineMarkdownEditor(full_path: PathBuf) -> Element {
+pub fn InlineMarkdownEditor(
+    full_path: PathBuf,
+    on_content: Option<Callback<String>>,
+) -> Element {
     let mut loaded_path: Signal<Option<PathBuf>> = use_signal(|| None);
     // Generation counter: bumped on each file switch so stale save loops
     // silently stop writing to the wrong file.
@@ -69,11 +77,15 @@ pub fn InlineMarkdownEditor(full_path: PathBuf) -> Element {
     use_drop({
         move || {
             let fp = save_path.read().clone();
+            let cb = on_content;
             spawn(async move {
                 let mut eval =
                     document::eval("dioxus.send(window.MilkdownBridge.getMarkdown())");
                 if let Ok(md) = eval.recv::<String>().await {
                     let _ = std::fs::write(&fp, &md);
+                    if let Some(cb) = cb {
+                        cb.call(md);
+                    }
                 }
             });
         }
@@ -127,6 +139,9 @@ pub fn InlineMarkdownEditor(full_path: PathBuf) -> Element {
                             break;
                         }
                         let _ = std::fs::write(&fp, &md);
+                        if let Some(cb) = on_content {
+                            cb.call(md);
+                        }
                     }
                     Err(_) => break,
                 }

@@ -41,7 +41,7 @@ pub fn PeerProfilePopup(
     let avatar_color = peer_info
         .as_ref()
         .map(|p| p.color_class.clone())
-        .unwrap_or_else(|| "peer-dot-sage".to_string());
+        .unwrap_or_else(|| "identity-love".to_string());
     let header_name = peer_info
         .as_ref()
         .map(|p| p.name.clone())

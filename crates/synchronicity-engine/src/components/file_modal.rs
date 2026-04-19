@@ -268,7 +268,7 @@ pub fn FileModal(
 
                 // Content area — always live, inline editable.
                 div { class: "file-modal-content",
-                    InlineMarkdownEditor { full_path: full_path.clone() }
+                    InlineMarkdownEditor { full_path: full_path.clone(), on_content: None }
                 }
             }
         }
