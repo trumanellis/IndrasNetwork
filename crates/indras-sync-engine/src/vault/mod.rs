@@ -12,6 +12,7 @@ pub mod vault_document;
 pub mod vault_file;
 pub mod watcher;
 
+use crate::braid::agent_braid::AgentBraid;
 use crate::braid::dag::BraidDag;
 use crate::braid::RealmBraid;
 use relay_sync::RelayBlobSync;
@@ -63,6 +64,9 @@ pub struct Vault {
     relay: Option<Arc<RelayBlobSync>>,
     /// Per-peer trust store (local-only, persisted to disk).
     trust_store: Arc<RwLock<LocalTrustStore>>,
+    /// Inner braid: local-only DAG for agent-level work. Agent commits go
+    /// here; the user merges agent HEADs and then promotes to the outer DAG.
+    inner_braid: Arc<RwLock<AgentBraid>>,
 }
 
 impl Vault {
@@ -227,6 +231,11 @@ impl Vault {
             "Vault started"
         );
 
+        let inner_braid = Arc::new(RwLock::new(AgentBraid::new(
+            user_id,
+            Arc::clone(&blob_store),
+        )));
+
         Ok(Self {
             realm,
             local_index,
@@ -240,6 +249,7 @@ impl Vault {
             sync: Some(sync),
             relay,
             trust_store,
+            inner_braid,
         })
     }
 
@@ -818,6 +828,75 @@ impl Vault {
             }
         }
         merged
+    }
+
+    // ── Inner braid routing (Phase 3) ──────────────────────────────────
+
+    /// Access the inner (agent-level, local-only) braid.
+    pub fn inner_braid(&self) -> &Arc<RwLock<AgentBraid>> {
+        &self.inner_braid
+    }
+
+    /// Promote the user's inner HEAD to the outer peer-synced DAG.
+    ///
+    /// Bridges merged agent work into the peer-visible braid: takes the
+    /// current inner HEAD's `SymlinkIndex`, creates a signed changeset in
+    /// the outer DAG parented on the current outer HEAD, inserts it, and
+    /// advances the user's outer peer_head to the promoted state.
+    ///
+    /// Errors if there is no inner HEAD to promote.
+    pub async fn promote(
+        &self,
+        intent: String,
+    ) -> Result<super::braid::ChangeId> {
+        use super::braid::changeset::{Changeset, Evidence};
+
+        // 1. Snapshot the user's inner HEAD.
+        let inner_index = {
+            let guard = self.inner_braid.read().await;
+            guard
+                .user_head()
+                .ok_or_else(|| std::io::Error::other("nothing to promote"))?
+                .head_index
+                .clone()
+        };
+
+        // 2. Snapshot the outer HEAD for parent linkage.
+        let outer_head = {
+            let guard = self.dag.read().await;
+            guard.peer_head(&self.user_id).cloned()
+        };
+
+        let parents = outer_head
+            .as_ref()
+            .map(|h| vec![h.head])
+            .unwrap_or_default();
+        let parent_index = outer_head.as_ref().map(|h| h.head_index.clone());
+
+        let evidence = Evidence::human(self.user_id, Some(intent.clone()));
+        let timestamp_millis = chrono::Utc::now().timestamp_millis();
+        let changeset = Changeset::with_index(
+            self.user_id,
+            parents,
+            intent,
+            inner_index.clone(),
+            parent_index.as_ref(),
+            evidence,
+            timestamp_millis,
+            &self.pq_identity,
+        );
+        let change_id = changeset.id;
+
+        let head_index = inner_index.clone();
+        self.dag
+            .update(|d| {
+                d.insert(changeset);
+                d.update_peer_head(self.user_id, change_id, head_index.clone());
+            })
+            .await?;
+
+        info!(change = %change_id, "Promoted inner HEAD to outer DAG");
+        Ok(change_id)
     }
 
     /// Stop the vault (watcher + sync).
