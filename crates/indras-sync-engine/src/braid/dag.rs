@@ -1,7 +1,7 @@
 //! `BraidDag`: the repo-level CRDT document that holds the changeset DAG.
 
 use super::changeset::{ChangeId, Changeset, PatchManifest};
-use crate::content_addr::SymlinkIndex;
+use crate::content_addr::{ContentAddr, SymlinkIndex};
 use crate::vault::vault_file::UserId;
 use indras_network::document::DocumentSchema;
 use serde::{Deserialize, Serialize};
@@ -146,6 +146,44 @@ impl BraidDag {
             }
         }
         seen
+    }
+
+    /// All content addresses referenced anywhere in the DAG.
+    ///
+    /// Unions entries from every peer HEAD's `head_index` with entries
+    /// from every stored changeset's `index`. This is the full reference
+    /// set used by GC to decide which blobs are still reachable — any
+    /// `ContentAddr` not in this set is safe to delete from the blob
+    /// store (subject to the staged-deletion grace period).
+    pub fn all_referenced_addrs(&self) -> HashSet<ContentAddr> {
+        let mut addrs = HashSet::new();
+        for ps in self.peer_heads.values() {
+            for (_, addr) in ps.head_index.iter() {
+                addrs.insert(*addr);
+            }
+        }
+        for cs in self.changesets.values() {
+            for (_, addr) in cs.index.iter() {
+                addrs.insert(*addr);
+            }
+        }
+        addrs
+    }
+
+    /// Content addresses referenced by any current peer HEAD (live tier).
+    ///
+    /// Subset of [`all_referenced_addrs`](Self::all_referenced_addrs)
+    /// restricted to addrs in `peer_heads`. Useful after a rollup to
+    /// distinguish "still live" content from "only referenced by old
+    /// history that is about to be pruned".
+    pub fn live_addrs(&self) -> HashSet<ContentAddr> {
+        let mut addrs = HashSet::new();
+        for ps in self.peer_heads.values() {
+            for (_, addr) in ps.head_index.iter() {
+                addrs.insert(*addr);
+            }
+        }
+        addrs
     }
 }
 
@@ -320,5 +358,62 @@ mod tests {
 
         let anc_a = dag.ancestors(&a_id);
         assert!(anc_a.is_empty(), "root has no ancestors");
+    }
+
+    // ── Reference-set queries for GC (Phase 5) ──────────────────────────
+
+    fn addr(byte: u8) -> ContentAddr {
+        ContentAddr::new([byte; 32], 0)
+    }
+
+    #[test]
+    fn all_referenced_addrs_unions_changesets_and_heads() {
+        let mut dag = BraidDag::new();
+        // Root references addr(1); child references addr(2).
+        let root = mk(agent(1), vec![], "root", 1, 10);
+        let child = mk(agent(1), vec![root.id], "child", 2, 20);
+        let (_, child_id) = (root.id, child.id);
+        let child_index = child.index.clone();
+        dag.insert(root);
+        dag.insert(child);
+
+        // Peer HEAD points at child only.
+        dag.update_peer_head(agent(1), child_id, child_index);
+
+        let all = dag.all_referenced_addrs();
+        assert!(all.contains(&addr(1)), "root's addr must be in all_referenced");
+        assert!(all.contains(&addr(2)), "child's addr must be in all_referenced");
+        assert_eq!(all.len(), 2);
+
+        let live = dag.live_addrs();
+        assert!(live.contains(&addr(2)), "child's addr is live (in HEAD)");
+        assert!(
+            !live.contains(&addr(1)),
+            "root's addr is historical only — not live"
+        );
+        assert_eq!(live.len(), 1);
+    }
+
+    #[test]
+    fn live_addrs_is_subset_of_all_referenced() {
+        let mut dag = BraidDag::new();
+        let root = mk(agent(1), vec![], "r", 1, 10);
+        let root_id = root.id;
+        let root_index = root.index.clone();
+        dag.insert(root);
+        dag.update_peer_head(agent(1), root_id, root_index);
+
+        let all = dag.all_referenced_addrs();
+        let live = dag.live_addrs();
+        for a in &live {
+            assert!(all.contains(a), "live must be subset of all_referenced");
+        }
+    }
+
+    #[test]
+    fn all_referenced_addrs_empty_for_empty_dag() {
+        let dag = BraidDag::new();
+        assert!(dag.all_referenced_addrs().is_empty());
+        assert!(dag.live_addrs().is_empty());
     }
 }
