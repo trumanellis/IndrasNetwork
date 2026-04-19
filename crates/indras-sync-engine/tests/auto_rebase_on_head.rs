@@ -13,7 +13,8 @@ use std::time::Duration;
 
 use indras_network::IndrasNetwork;
 use indras_storage::{BlobStore, BlobStoreConfig};
-use indras_sync_engine::braid::{PatchManifest, RealmBraid};
+use indras_sync_engine::braid::RealmBraid;
+use indras_sync_engine::{PatchManifest, SymlinkIndex};
 use indras_sync_engine::vault::Vault;
 use indras_sync_engine::workspace::LocalWorkspaceIndex;
 use tempfile::TempDir;
@@ -67,12 +68,12 @@ async fn sequential_commits_auto_parent_on_prior_heads() {
         .unwrap();
     idx1.ingest_bytes("a.rs", b"agent 1 work").await.unwrap();
 
-    let manifest1 = PatchManifest::new(idx1.snapshot_all().await);
+    let index1: SymlinkIndex = PatchManifest::new(idx1.snapshot_all().await).into();
     let id1 = vault
         .realm()
         .try_land(
             "agent1: add a.rs".into(),
-            manifest1,
+            index1,
             Vec::new(),
             tmp_agent1.path().to_path_buf(),
             user_id,
@@ -92,12 +93,12 @@ async fn sequential_commits_auto_parent_on_prior_heads() {
         .unwrap();
     idx2.ingest_bytes("b.rs", b"agent 2 work").await.unwrap();
 
-    let manifest2 = PatchManifest::new(idx2.snapshot_all().await);
+    let index2: SymlinkIndex = PatchManifest::new(idx2.snapshot_all().await).into();
     let id2 = vault
         .realm()
         .try_land(
             "agent2: add b.rs".into(),
-            manifest2,
+            index2,
             Vec::new(),
             tmp_agent2.path().to_path_buf(),
             user_id,

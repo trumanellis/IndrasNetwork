@@ -1,11 +1,15 @@
 //! Changeset types: the verified, broadcastable unit of change in the braid.
 //!
-//! The `patch` field of a `Changeset` is a [`PatchManifest`] — a list of
-//! `(path, content_hash)` entries describing which vault file versions make
-//! up this changeset. The blobs themselves already live in the vault's
-//! content-addressed storage; this is simply the snapshot of which file
-//! states constitute this changeset.
+//! A `Changeset` carries a [`SymlinkIndex`] — the full state of the
+//! content-addressed filesystem at that point — plus an [`IndexDelta`]
+//! describing what changed from the first parent. The actual bytes live in
+//! the global content store; the changeset just references content
+//! addresses.
+//!
+//! Legacy [`PatchManifest`] and [`PatchFile`] types are re-exported as
+//! conversions to/from [`SymlinkIndex`] for migration.
 
+use crate::content_addr::{ContentAddr, IndexDelta, LogicalPath, SymlinkIndex};
 use crate::vault::vault_file::UserId;
 use indras_crypto::{PQIdentity, PQPublicIdentity, PQSignature};
 use serde::{Deserialize, Serialize};
@@ -14,7 +18,7 @@ use std::fmt;
 /// Content-addressed identifier for a [`Changeset`].
 ///
 /// Computed as the blake3 hash of a canonical postcard encoding of
-/// `(author, sorted_parents, patch_manifest, intent, timestamp_millis)`.
+/// `(author, sorted_parents, index, intent, timestamp_millis)`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct ChangeId(pub [u8; 32]);
 
@@ -34,11 +38,13 @@ impl fmt::Display for ChangeId {
     }
 }
 
+// ── Legacy compat types ────────────────────────────────────────────────
+// Kept during migration so downstream code can convert incrementally.
+
 /// One file referenced by a [`PatchManifest`]: path + vault content hash + size.
 ///
-/// `size` is carried so a peer can reconstruct a `ContentRef` and drive
-/// `SyncToDisk` to materialize the blob without first consulting the
-/// vault index.
+/// **Migration note**: prefer [`SymlinkIndex`] entries (`LogicalPath → ContentAddr`)
+/// for new code. `PatchFile` is retained for backward compatibility.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord, Hash)]
 pub struct PatchFile {
     /// Vault-relative path (forward slashes), e.g. `"src/lib.rs"`.
@@ -51,10 +57,9 @@ pub struct PatchFile {
 
 /// A changeset's patch is a manifest of vault file versions by content hash.
 ///
-/// The blobs already live in the vault's content-addressed storage — this is
-/// just the snapshot of which file states constitute this changeset. To
-/// "apply" a changeset is to request those hashes from the vault and write
-/// them to disk; the braid does not carry bytes itself.
+/// **Migration note**: prefer [`SymlinkIndex`] for new code.
+/// `PatchManifest` is retained for backward compatibility and converts
+/// to/from `SymlinkIndex` via `From` impls.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PatchManifest {
     /// Files referenced by this patch, sorted by path for deterministic hashing.
@@ -66,6 +71,58 @@ impl PatchManifest {
     pub fn new(mut files: Vec<PatchFile>) -> Self {
         files.sort();
         Self { files }
+    }
+}
+
+impl From<SymlinkIndex> for PatchManifest {
+    fn from(idx: SymlinkIndex) -> Self {
+        let files = idx
+            .entries
+            .into_iter()
+            .map(|(path, addr)| PatchFile {
+                path: path.0,
+                hash: addr.hash,
+                size: addr.size,
+            })
+            .collect();
+        // Already sorted because BTreeMap iterates in order.
+        PatchManifest { files }
+    }
+}
+
+impl From<PatchManifest> for SymlinkIndex {
+    fn from(manifest: PatchManifest) -> Self {
+        SymlinkIndex::from_iter(manifest.files.into_iter().map(|pf| {
+            (
+                LogicalPath::new(pf.path),
+                ContentAddr::new(pf.hash, pf.size),
+            )
+        }))
+    }
+}
+
+impl From<&PatchManifest> for SymlinkIndex {
+    fn from(manifest: &PatchManifest) -> Self {
+        SymlinkIndex::from_iter(manifest.files.iter().map(|pf| {
+            (
+                LogicalPath::new(&pf.path),
+                ContentAddr::new(pf.hash, pf.size),
+            )
+        }))
+    }
+}
+
+impl From<&SymlinkIndex> for PatchManifest {
+    fn from(idx: &SymlinkIndex) -> Self {
+        let files = idx
+            .iter()
+            .map(|(path, addr)| PatchFile {
+                path: path.0.clone(),
+                hash: addr.hash,
+                size: addr.size,
+            })
+            .collect();
+        PatchManifest { files }
     }
 }
 
@@ -126,6 +183,11 @@ impl Evidence {
 /// Parents are DAG edges: concurrent heads produce a braid. `id` is a
 /// content hash over the other fields so duplicate changesets collapse
 /// naturally under set-union merge.
+///
+/// The `index` field is the full [`SymlinkIndex`] at this point — the
+/// complete content-addressed filesystem state. The `delta` is what
+/// changed from the first parent's index (or all-`Add` for root
+/// changesets). `delta` is NOT included in the `ChangeId` hash.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Changeset {
     /// Content-addressed id (blake3 of canonical encoding of the rest).
@@ -136,8 +198,11 @@ pub struct Changeset {
     pub parents: Vec<ChangeId>,
     /// Human-readable intent / commit message.
     pub intent: String,
-    /// Manifest of vault file versions constituting this changeset.
-    pub patch: PatchManifest,
+    /// Full symlink index at this point — the complete filesystem state.
+    pub index: SymlinkIndex,
+    /// What changed from the first parent's index. Not in ChangeId hash.
+    #[serde(default)]
+    pub delta: IndexDelta,
     /// Signed verification outcome.
     pub evidence: Evidence,
     /// Authoring time in milliseconds since the Unix epoch.
@@ -146,20 +211,34 @@ pub struct Changeset {
     pub signature: PQSignature,
 }
 
+/// Backward-compatible accessor: the `patch` field was renamed to `index`.
+impl Changeset {
+    /// Legacy accessor — returns the index as a `PatchManifest`.
+    pub fn patch(&self) -> PatchManifest {
+        PatchManifest::from(&self.index)
+    }
+}
+
 impl Changeset {
     /// Compute the deterministic `ChangeId` for the given fields.
     ///
-    /// `parents` is sorted internally.
+    /// `parents` is sorted internally. The `delta` is NOT included — it
+    /// is derived metadata.
     pub fn compute_id(
         author: &UserId,
         parents: &[ChangeId],
-        patch: &PatchManifest,
+        index: &SymlinkIndex,
         intent: &str,
         timestamp_millis: i64,
     ) -> ChangeId {
         let mut sorted_parents: Vec<ChangeId> = parents.to_vec();
         sorted_parents.sort();
-        let payload = (author, &sorted_parents, patch, intent, timestamp_millis);
+        // Convert SymlinkIndex to PatchManifest for hash computation to
+        // maintain backward compatibility with existing ChangeIds during
+        // migration. TODO: hash SymlinkIndex directly once migration is
+        // complete.
+        let patch: PatchManifest = index.into();
+        let payload = (author, &sorted_parents, &patch, intent, timestamp_millis);
         let bytes = postcard::to_allocvec(&payload)
             .expect("Changeset::compute_id: postcard serialization is infallible for these types");
         ChangeId(*blake3::hash(&bytes).as_bytes())
@@ -168,26 +247,35 @@ impl Changeset {
     /// Construct a new signed `Changeset`, filling `id` via `compute_id`.
     ///
     /// The stored `parents` vector is sorted so on-wire representations are
-    /// deterministic regardless of caller order. The `ChangeId` is signed
-    /// with the author's ML-DSA-65 identity.
-    pub fn new(
+    /// deterministic regardless of caller order.
+    ///
+    /// `delta` is computed automatically: if a `parent_index` is provided
+    /// (the first parent's SymlinkIndex), the delta is `index.diff(parent_index)`.
+    /// If `None` (root changeset), every entry is `Add`.
+    pub fn with_index(
         author: UserId,
         mut parents: Vec<ChangeId>,
         intent: String,
-        patch: PatchManifest,
+        index: SymlinkIndex,
+        parent_index: Option<&SymlinkIndex>,
         evidence: Evidence,
         timestamp_millis: i64,
         identity: &PQIdentity,
     ) -> Self {
         parents.sort();
-        let id = Self::compute_id(&author, &parents, &patch, &intent, timestamp_millis);
+        let id = Self::compute_id(&author, &parents, &index, &intent, timestamp_millis);
+        let delta = match parent_index {
+            Some(pi) => index.diff(pi),
+            None => IndexDelta::from_root(&index),
+        };
         let signature = identity.sign(id.as_bytes());
         Self {
             id,
             author,
             parents,
             intent,
-            patch,
+            index,
+            delta,
             evidence,
             timestamp_millis,
             signature,
@@ -202,18 +290,24 @@ impl Changeset {
         author: UserId,
         mut parents: Vec<ChangeId>,
         intent: String,
-        patch: PatchManifest,
+        index: SymlinkIndex,
+        parent_index: Option<&SymlinkIndex>,
         evidence: Evidence,
         timestamp_millis: i64,
     ) -> Self {
         parents.sort();
-        let id = Self::compute_id(&author, &parents, &patch, &intent, timestamp_millis);
+        let id = Self::compute_id(&author, &parents, &index, &intent, timestamp_millis);
+        let delta = match parent_index {
+            Some(pi) => index.diff(pi),
+            None => IndexDelta::from_root(&index),
+        };
         Self {
             id,
             author,
             parents,
             intent,
-            patch,
+            index,
+            delta,
             evidence,
             timestamp_millis,
             signature: PQSignature::dummy(),
@@ -233,6 +327,23 @@ impl Changeset {
     pub fn is_signed(&self) -> bool {
         self.signature != PQSignature::dummy()
     }
+
+    /// Construct a new unsigned `Changeset` from a legacy `PatchManifest`.
+    ///
+    /// Converts the manifest to a `SymlinkIndex` internally. Delta is
+    /// computed as all-`Add` (no parent index provided). Uses a dummy
+    /// signature — for tests and backward compat.
+    pub fn new(
+        author: UserId,
+        parents: Vec<ChangeId>,
+        intent: String,
+        patch: PatchManifest,
+        evidence: Evidence,
+        timestamp_millis: i64,
+    ) -> Self {
+        let index: SymlinkIndex = patch.into();
+        Self::new_unsigned(author, parents, intent, index, None, evidence, timestamp_millis)
+    }
 }
 
 #[cfg(test)]
@@ -247,6 +358,13 @@ mod tests {
             runtime_ms: 1234,
             signed_by: agent,
         }
+    }
+
+    fn sample_index() -> SymlinkIndex {
+        SymlinkIndex::from_iter([(
+            LogicalPath::new("src/lib.rs"),
+            ContentAddr::new([7u8; 32], 0),
+        )])
     }
 
     fn sample_patch() -> PatchManifest {
@@ -353,5 +471,86 @@ mod tests {
         ]);
         assert_eq!(m.files[0].path, "a.rs");
         assert_eq!(m.files[1].path, "z.rs");
+    }
+
+    #[test]
+    fn symlink_index_patch_manifest_roundtrip() {
+        let idx = sample_index();
+        let manifest: PatchManifest = idx.clone().into();
+        let idx2: SymlinkIndex = manifest.into();
+        assert_eq!(idx, idx2);
+    }
+
+    #[test]
+    fn with_index_computes_delta() {
+        let parent_index = SymlinkIndex::from_iter([
+            (LogicalPath::new("a.rs"), ContentAddr::new([1; 32], 10)),
+            (LogicalPath::new("b.rs"), ContentAddr::new([2; 32], 20)),
+        ]);
+        let child_index = SymlinkIndex::from_iter([
+            (LogicalPath::new("a.rs"), ContentAddr::new([1; 32], 10)),
+            (LogicalPath::new("b.rs"), ContentAddr::new([3; 32], 30)), // modified
+            (LogicalPath::new("c.rs"), ContentAddr::new([4; 32], 40)), // added
+        ]);
+
+        let cs = Changeset::with_index(
+            [0u8; 32],
+            vec![],
+            "test".into(),
+            child_index,
+            Some(&parent_index),
+            sample_evidence([0u8; 32]),
+            100,
+        );
+
+        assert_eq!(cs.delta.len(), 2); // b.rs modified, c.rs added
+        assert!(!cs.delta.ops.contains_key(&LogicalPath::new("a.rs"))); // unchanged
+    }
+
+    #[test]
+    fn root_changeset_delta_is_all_add() {
+        let idx = sample_index();
+        let cs = Changeset::with_index(
+            [0u8; 32],
+            vec![],
+            "root".into(),
+            idx,
+            None,
+            sample_evidence([0u8; 32]),
+            100,
+        );
+        assert_eq!(cs.delta.len(), 1);
+        assert!(matches!(
+            cs.delta.ops[&LogicalPath::new("src/lib.rs")],
+            crate::content_addr::DeltaOp::Add(_)
+        ));
+    }
+
+    #[test]
+    fn new_and_with_index_produce_same_id() {
+        let author: UserId = [1u8; 32];
+        let patch = sample_patch();
+        let idx: SymlinkIndex = patch.clone().into();
+
+        let from_new = Changeset::new(
+            author, vec![], "intent".into(), patch,
+            sample_evidence(author), 100,
+        );
+        let from_with = Changeset::with_index(
+            author, vec![], "intent".into(), idx, None,
+            sample_evidence(author), 100,
+        );
+        assert_eq!(from_new.id, from_with.id);
+    }
+
+    #[test]
+    fn legacy_patch_accessor() {
+        let cs = Changeset::new(
+            [0u8; 32], vec![], "test".into(), sample_patch(),
+            sample_evidence([0u8; 32]), 100,
+        );
+        let patch = cs.patch();
+        assert_eq!(patch.files.len(), 1);
+        assert_eq!(patch.files[0].path, "src/lib.rs");
     }
 }

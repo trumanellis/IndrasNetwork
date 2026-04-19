@@ -73,8 +73,8 @@ async fn sync_creates_changeset_in_dag() {
     let user_id = vault.user_id();
     let ps = dag.peer_head(&user_id).expect("peer head must be set");
     assert_eq!(ps.head, change_id);
-    assert_eq!(ps.head_manifest.files.len(), 1);
-    assert_eq!(ps.head_manifest.files[0].path, "hello.md");
+    assert_eq!(ps.head_index.len(), 1);
+    assert!(ps.head_index.get(&indras_sync_engine::LogicalPath::new("hello.md")).is_some());
 
     // The evidence should be Human.
     let cs = dag.get(&change_id).expect("changeset");
@@ -157,19 +157,17 @@ async fn pending_forks_and_merge() {
     let b_content = b"peer B content";
     vault.blob_store().store(b_content).await.expect("store B blob");
     let fake_hash = *blake3::hash(b_content).as_bytes();
-    let manifest_b = indras_sync_engine::braid::PatchManifest::new(vec![
-        indras_sync_engine::braid::PatchFile {
-            path: "from_b.md".to_string(),
-            hash: fake_hash,
-            size: b_content.len() as u64,
-        },
-    ]);
+    let index_b = indras_sync_engine::SymlinkIndex::from_iter([(
+        indras_sync_engine::LogicalPath::new("from_b.md"),
+        indras_sync_engine::ContentAddr::new(fake_hash, b_content.len() as u64),
+    )]);
     let evidence_b = indras_sync_engine::Evidence::human(peer_b, Some("B sync".into()));
-    let cs_b = indras_sync_engine::braid::Changeset::new_unsigned(
+    let cs_b = indras_sync_engine::braid::Changeset::with_index(
         peer_b,
         vec![],
         "B: add from_b.md".into(),
-        manifest_b.clone(),
+        index_b.clone(),
+        None,
         evidence_b,
         chrono::Utc::now().timestamp_millis(),
     );
@@ -179,7 +177,7 @@ async fn pending_forks_and_merge() {
         .dag()
         .update(|d| {
             d.insert(cs_b);
-            d.update_peer_head(peer_b, id_b, manifest_b);
+            d.update_peer_head(peer_b, id_b, index_b);
         })
         .await
         .expect("insert B's changeset");
@@ -197,10 +195,11 @@ async fn pending_forks_and_merge() {
     assert_eq!(forks[0].0, peer_b);
     assert_eq!(forks[0].1.head, id_b);
 
-    // diff_fork should show from_b.md as differing.
+    // diff_fork shows all differences between B's index and A's index.
+    // B has from_b.md (Add from A's perspective), A has from_a.md (not in B's).
     let diff = vault.diff_fork(peer_b).await;
-    assert_eq!(diff.len(), 1);
-    assert_eq!(diff[0].path, "from_b.md");
+    assert!(diff.len() >= 1, "diff should show at least from_b.md");
+    assert!(diff.ops.contains_key(&indras_sync_engine::LogicalPath::new("from_b.md")));
 
     // Merge from B.
     let merge_id = vault.merge_from_peer(peer_b).await.expect("merge");

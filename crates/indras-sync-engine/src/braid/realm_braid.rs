@@ -20,6 +20,7 @@ use super::{
     gate::TryLandError,
     verification::{self, VerificationFailure, VerificationRequest},
 };
+use crate::content_addr::SymlinkIndex;
 use crate::vault::vault_file::UserId;
 
 /// Run the verification suite (build + test + clippy) for the given
@@ -58,23 +59,23 @@ pub trait RealmBraid {
     async fn braid_dag(&self) -> Result<Document<BraidDag>>;
 
     /// Run verification for `crates`, and if green, insert a changeset
-    /// whose `patch` is the provided [`PatchManifest`].
+    /// whose `index` is the provided [`SymlinkIndex`].
     ///
-    /// The caller is responsible for building the manifest — typically
+    /// The caller is responsible for building the index — typically
     /// by snapshotting a [`LocalWorkspaceIndex`](crate::workspace::LocalWorkspaceIndex)
     /// of agent-owned working-tree state. This lets agent disk edits
     /// remain device-local until `try_land`; a synced `vault_index` is
     /// no longer consulted on the commit path.
     ///
     /// Flow:
-    /// 1. Reject empty manifests.
+    /// 1. Reject empty indexes.
     /// 2. Run the full verification suite.
     /// 3. Build a changeset whose `parents` are the current DAG heads.
     /// 4. Insert into the DAG.
     async fn try_land(
         &self,
         intent: String,
-        manifest: PatchManifest,
+        index: SymlinkIndex,
         crates: Vec<String>,
         workspace_root: PathBuf,
         agent: UserId,
@@ -103,13 +104,13 @@ impl RealmBraid for Realm {
     async fn try_land(
         &self,
         intent: String,
-        manifest: PatchManifest,
+        index: SymlinkIndex,
         crates: Vec<String>,
         workspace_root: PathBuf,
         agent: UserId,
         identity: &PQIdentity,
     ) -> std::result::Result<ChangeId, TryLandError> {
-        if manifest.files.is_empty() {
+        if index.is_empty() {
             return Err(TryLandError::NothingToLand);
         }
 
@@ -122,11 +123,12 @@ impl RealmBraid for Realm {
         parents.sort();
 
         let timestamp_millis = Utc::now().timestamp_millis();
-        let changeset = Changeset::new(
+        let changeset = Changeset::with_index(
             agent,
             parents,
             intent,
-            manifest,
+            index,
+            None,
             evidence,
             timestamp_millis,
             identity,

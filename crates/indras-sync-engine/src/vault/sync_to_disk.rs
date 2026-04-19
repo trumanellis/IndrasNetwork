@@ -2,7 +2,7 @@
 //!
 //! Subscribes to the braid DAG's change stream. When a remote peer
 //! publishes a new HEAD:
-//! - If **trusted**: auto-merge by materializing their manifest to disk
+//! - If **trusted**: auto-merge by materializing their index to disk
 //!   and advancing our local HEAD.
 //! - If **untrusted**: log the fork for later UI notification.
 //!
@@ -14,8 +14,9 @@ use super::vault_document::VaultFileDocument;
 use super::vault_file::UserId;
 use super::watcher::VaultWatcher;
 
-use crate::braid::changeset::{Changeset, Evidence, PatchFile, PatchManifest};
+use crate::braid::changeset::{Changeset, Evidence};
 use crate::braid::dag::BraidDag;
+use crate::content_addr::SymlinkIndex;
 use indras_crypto::PQIdentity;
 
 use dashmap::DashMap;
@@ -27,7 +28,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 /// Suppress duration when writing files from DAG changes.
 const SUPPRESS_DURATION: Duration = Duration::from_secs(2);
@@ -140,9 +141,9 @@ impl SyncToDisk {
                         "Trusted peer advanced HEAD — auto-materializing"
                     );
 
-                    // Materialize their manifest to disk.
-                    if let Err(e) = materialize_manifest(
-                        &peer_state.head_manifest,
+                    // Materialize their index to disk.
+                    if let Err(e) = materialize_index(
+                        &peer_state.head_index,
                         &vault_path,
                         &blob_store,
                         relay.as_deref(),
@@ -154,7 +155,7 @@ impl SyncToDisk {
                         warn!(
                             peer = %peer_short,
                             error = %e,
-                            "Failed to materialize trusted peer's manifest"
+                            "Failed to materialize trusted peer's index"
                         );
                     }
 
@@ -170,12 +171,13 @@ impl SyncToDisk {
                         Some("auto-merge from trusted peer".to_string()),
                     );
                     let ts = chrono::Utc::now().timestamp_millis();
-                    let manifest = peer_state.head_manifest.clone();
-                    let changeset = Changeset::new(
+                    let index = peer_state.head_index.clone();
+                    let changeset = Changeset::with_index(
                         user_id,
                         parents,
                         format!("auto-merge from {peer_short}"),
-                        manifest.clone(),
+                        index.clone(),
+                        None,
                         evidence,
                         ts,
                         &pq_identity,
@@ -185,7 +187,7 @@ impl SyncToDisk {
                     if let Err(e) = dag
                         .update(|d| {
                             d.insert(changeset);
-                            d.update_peer_head(user_id, change_id, manifest);
+                            d.update_peer_head(user_id, change_id, index);
                         })
                         .await
                     {
@@ -208,21 +210,21 @@ impl SyncToDisk {
     }
 }
 
-/// Materialize a [`PatchManifest`] to disk at `vault_path`.
+/// Materialize a [`SymlinkIndex`] to disk at `vault_path`.
 ///
-/// For each file in the manifest, loads the blob from the store (with
-/// relay fallback) and writes it to the vault directory. Suppresses the
-/// watcher for each written path to prevent echo.
-pub(crate) async fn materialize_manifest(
-    manifest: &PatchManifest,
+/// For each entry in the index, loads the blob from the content store
+/// (with relay fallback) and writes it to the vault directory. Suppresses
+/// the watcher for each written path to prevent echo.
+pub(crate) async fn materialize_index(
+    index: &SymlinkIndex,
     vault_path: &std::path::Path,
     blob_store: &BlobStore,
     relay: Option<&RelayBlobSync>,
     suppressed: &DashMap<PathBuf, Instant>,
     known_hashes: &DashMap<String, [u8; 32]>,
 ) -> Result<(), std::io::Error> {
-    for pf in &manifest.files {
-        let content_ref = ContentRef::new(pf.hash, pf.size);
+    for (path, addr) in index.iter() {
+        let content_ref = ContentRef::new(addr.hash, addr.size);
         let mut data = blob_store.load(&content_ref).await;
 
         // Relay fallback if blob not found locally
@@ -242,11 +244,11 @@ pub(crate) async fn materialize_manifest(
         let bytes = data.map_err(|e| {
             std::io::Error::other(format!(
                 "materialize: blob for {} not available: {e}",
-                pf.path
+                path
             ))
         })?;
 
-        let disk_path = vault_path.join(&pf.path);
+        let disk_path = vault_path.join(path.as_str());
 
         // Ensure parent directory exists
         if let Some(parent) = disk_path.parent() {
@@ -260,9 +262,9 @@ pub(crate) async fn materialize_manifest(
         tokio::fs::write(&disk_path, &bytes).await?;
 
         // Record hash so watcher won't re-index
-        known_hashes.insert(pf.path.clone(), pf.hash);
+        known_hashes.insert(path.0.clone(), addr.hash);
 
-        info!(path = %pf.path, size = bytes.len(), "Materialized file from DAG");
+        info!(path = %path, size = bytes.len(), "Materialized file from DAG");
     }
     Ok(())
 }

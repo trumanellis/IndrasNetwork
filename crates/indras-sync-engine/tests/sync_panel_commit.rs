@@ -12,7 +12,8 @@ use std::time::Duration;
 
 use indras_network::IndrasNetwork;
 use indras_storage::{BlobStore, BlobStoreConfig};
-use indras_sync_engine::braid::{PatchManifest, RealmBraid};
+use indras_sync_engine::braid::RealmBraid;
+use indras_sync_engine::SymlinkIndex;
 use indras_sync_engine::vault::Vault;
 use indras_sync_engine::workspace::{FolderLock, LocalWorkspaceIndex, WorkspaceWatcher};
 use tempfile::TempDir;
@@ -78,18 +79,18 @@ async fn commit_lands_changeset_in_team_realm_dag() {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 
-    // Snapshot → PatchManifest → try_land. crates=[] ⇒ verification
+    // Snapshot → SymlinkIndex → try_land. crates=[] ⇒ verification
     // no-op returning green Evidence (matches MVP behavior).
     let files = index.snapshot_all().await;
     assert!(!files.is_empty(), "snapshot should see at least work.rs");
-    let manifest = PatchManifest::new(files);
+    let symlink_index: SymlinkIndex = indras_sync_engine::PatchManifest::new(files).into();
     let pq = net.node().pq_identity();
     let user_id = pq.user_id();
     let change_id = vault
         .realm()
         .try_land(
             "add work.rs".into(),
-            manifest,
+            symlink_index,
             Vec::new(),
             tmp_agent_folder.path().to_path_buf(),
             user_id,
@@ -106,12 +107,13 @@ async fn commit_lands_changeset_in_team_realm_dag() {
         "DAG must contain the changeset we just landed"
     );
 
-    // The Changeset's manifest must reference the content hash we wrote.
+    // The Changeset's index must reference the content hash we wrote.
     let cs = dag.get(&change_id).cloned().expect("changeset");
-    assert_eq!(cs.patch.files.len(), 1, "manifest carries one file");
-    assert_eq!(cs.patch.files[0].path, "work.rs");
+    assert_eq!(cs.index.len(), 1, "index carries one file");
+    let work_path = indras_sync_engine::LogicalPath::new("work.rs");
+    let addr = cs.index.get(&work_path).expect("work.rs in index");
     let expected_hash = *blake3::hash(bytes).as_bytes();
-    assert_eq!(cs.patch.files[0].hash, expected_hash);
+    assert_eq!(addr.hash, expected_hash);
 
     net.stop().await.ok();
 }

@@ -71,6 +71,9 @@ pub mod team;
 // Device-local working-tree index (never synced via CRDT).
 pub mod workspace;
 
+// Content-addressed filesystem primitives (SymlinkIndex, IndexDelta, etc.)
+pub mod content_addr;
+
 // Braided VCS submodule (rides on top of the vault)
 pub mod braid;
 
@@ -169,6 +172,11 @@ pub use vault::Vault as VaultSync;
 pub use vault::vault_document::VaultFileDocument;
 pub use vault::vault_file::{UserId, VaultFile};
 pub use team::{LogicalAgentId, Team};
+
+// Re-export content-addressed filesystem types
+pub use content_addr::{
+    ContentAddr, Conflict, DeltaOp, IndexDelta, LogicalPath, SymlinkIndex,
+};
 
 // Re-export braid types
 pub use braid::{

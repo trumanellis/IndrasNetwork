@@ -357,26 +357,26 @@ impl Vault {
         Ok(())
     }
 
-    /// Materialize the file versions named by a [`PatchManifest`].
+    /// Materialize the file versions named by a [`SymlinkIndex`].
     ///
-    /// For each `(path, hash, size)` entry:
+    /// For each `(path, addr)` entry:
     /// 1. Fetch the blob from the local content-addressed store; if absent,
     ///    pull from the relay (when configured) and retry.
     /// 2. Write the bytes to disk via
     ///    [`write_file_content`](Self::write_file_content), which handles
     ///    directory creation, watcher suppression, and local index update.
     ///
-    /// This is the "checkout" primitive: the braid layer calls this with a
-    /// manifest from a verified changeset to replay a peer's verified vault
+    /// This is the "checkout" primitive: the braid layer calls this with an
+    /// index from a verified changeset to replay a peer's verified vault
     /// state locally. Fails if any blob cannot be loaded.
-    pub async fn apply_manifest(
+    pub async fn apply_index(
         &self,
-        manifest: &super::braid::PatchManifest,
+        index: &super::content_addr::SymlinkIndex,
     ) -> Result<()> {
         use indras_storage::ContentRef;
 
-        for pf in &manifest.files {
-            let content_ref = ContentRef::new(pf.hash, pf.size);
+        for (path, addr) in index.iter() {
+            let content_ref = ContentRef::new(addr.hash, addr.size);
             let mut data = self.blob_store.load(&content_ref).await;
             if data.is_err() {
                 if let Some(ref relay) = self.relay {
@@ -392,28 +392,37 @@ impl Vault {
             }
             let bytes = data.map_err(|e| {
                 std::io::Error::other(format!(
-                    "apply_manifest: blob for {} not available: {e}",
-                    pf.path
+                    "apply_index: blob for {} not available: {e}",
+                    path
                 ))
             })?;
-            self.write_file_content(&pf.path, &bytes).await?;
+            self.write_file_content(path.as_str(), &bytes).await?;
         }
         Ok(())
     }
 
-    /// Check out a braid changeset: apply its `PatchManifest` to the vault.
+    /// Legacy alias for [`apply_index`](Self::apply_index).
+    pub async fn apply_manifest(
+        &self,
+        manifest: &super::braid::PatchManifest,
+    ) -> Result<()> {
+        let index: super::content_addr::SymlinkIndex = manifest.into();
+        self.apply_index(&index).await
+    }
+
+    /// Check out a braid changeset: apply its [`SymlinkIndex`] to the vault.
     ///
     /// Looks up the changeset by id in the vault's braid DAG and calls
-    /// [`apply_manifest`](Self::apply_manifest). Returns an error if the
+    /// [`apply_index`](Self::apply_index). Returns an error if the
     /// changeset is unknown locally (the DAG must have propagated first).
     pub async fn checkout(
         &self,
         change_id: super::braid::ChangeId,
     ) -> Result<()> {
-        let manifest = {
+        let index = {
             let guard = self.dag.read().await;
             match guard.get(&change_id) {
-                Some(cs) => cs.patch.clone(),
+                Some(cs) => cs.index.clone(),
                 None => {
                     return Err(std::io::Error::other(format!(
                         "unknown changeset: {change_id}"
@@ -422,7 +431,7 @@ impl Vault {
                 }
             }
         };
-        self.apply_manifest(&manifest).await
+        self.apply_index(&index).await
     }
 
     /// Delete a file from disk and mark it as deleted in the local index.
@@ -550,7 +559,7 @@ impl Vault {
     /// Explicitly sync local changes to the braid DAG.
     ///
     /// Checks for dirty paths (anything changed since last sync), then
-    /// snapshots the **entire** local index into a `PatchManifest` — a
+    /// snapshots the **entire** local index into a [`SymlinkIndex`] — a
     /// full snapshot of the vault state at commit time, not a delta.
     /// Pushes blobs to the relay, creates a changeset with
     /// `Evidence::Human`, inserts it into the DAG, and updates this
@@ -560,7 +569,8 @@ impl Vault {
         intent: String,
         message: Option<String>,
     ) -> Result<super::braid::ChangeId> {
-        use super::braid::changeset::{Changeset, Evidence, PatchFile, PatchManifest};
+        use super::braid::changeset::{Changeset, Evidence};
+        use super::content_addr::{ContentAddr, LogicalPath, SymlinkIndex};
 
         // 1. Check dirty paths — gate against no-op syncs.
         let dirty = match self.watcher {
@@ -571,39 +581,38 @@ impl Vault {
             return Err(std::io::Error::other("nothing to sync").into());
         }
 
-        // 2. Build PatchManifest as a FULL SNAPSHOT of all active files.
-        //    Dirty paths gate whether we sync at all, but the manifest
+        // 2. Build SymlinkIndex as a FULL SNAPSHOT of all active files.
+        //    Dirty paths gate whether we sync at all, but the index
         //    captures the complete vault state so that merge_from_peer
         //    can compute correct unions and detect deletions.
         let local = self.local_index.read().await;
-        let files: Vec<PatchFile> = local
-            .active_files()
-            .iter()
-            .map(|vf| PatchFile {
-                path: vf.path.clone(),
-                hash: vf.hash,
-                size: vf.size,
-            })
-            .collect();
+        let mut index = SymlinkIndex::new();
+        for vf in local.active_files() {
+            if !vf.deleted {
+                index.set(
+                    LogicalPath::new(&vf.path),
+                    ContentAddr::new(vf.hash, vf.size),
+                );
+            }
+        }
         drop(local);
 
-        if files.is_empty() {
+        if index.is_empty() {
             return Err(std::io::Error::other("no active files to sync").into());
         }
-        let manifest = PatchManifest::new(files);
 
         // 3. Push blobs to relay (deferred from watcher time).
         if let Some(ref relay) = self.relay {
-            for pf in &manifest.files {
-                let content_ref = indras_storage::ContentRef::new(pf.hash, pf.size);
+            for (path, addr) in index.iter() {
+                let content_ref = indras_storage::ContentRef::new(addr.hash, addr.size);
                 match self.blob_store.load(&content_ref).await {
                     Ok(data) => {
-                        if let Err(e) = relay.push_blob(&pf.hash, &data).await {
-                            tracing::warn!(path = %pf.path, error = %e, "blob relay push failed");
+                        if let Err(e) = relay.push_blob(&addr.hash, &data).await {
+                            tracing::warn!(path = %path, error = %e, "blob relay push failed");
                         }
                     }
                     Err(e) => {
-                        tracing::warn!(path = %pf.path, error = %e, "blob not in local store during sync");
+                        tracing::warn!(path = %path, error = %e, "blob not in local store during sync");
                     }
                 }
             }
@@ -614,27 +623,28 @@ impl Vault {
 
         // 5. Build changeset with parents = my current head or DAG heads.
         let dag_guard = self.dag.read().await;
-        let parents = match dag_guard.peer_head(&self.user_id) {
-            Some(ps) => vec![ps.head],
+        let (parents, parent_index) = match dag_guard.peer_head(&self.user_id) {
+            Some(ps) => (vec![ps.head], Some(ps.head_index.clone())),
             None => {
                 let heads = dag_guard.heads();
                 if heads.is_empty() {
-                    Vec::new()
+                    (Vec::new(), None)
                 } else {
                     let mut h: Vec<_> = heads.into_iter().collect();
                     h.sort();
-                    h
+                    (h, None)
                 }
             }
         };
         drop(dag_guard);
 
         let timestamp_millis = chrono::Utc::now().timestamp_millis();
-        let changeset = Changeset::new(
+        let changeset = Changeset::with_index(
             self.user_id,
             parents,
             intent,
-            manifest.clone(),
+            index.clone(),
+            parent_index.as_ref(),
             evidence,
             timestamp_millis,
             &self.pq_identity,
@@ -645,7 +655,7 @@ impl Vault {
         self.dag
             .update(|d| {
                 d.insert(changeset);
-                d.update_peer_head(self.user_id, change_id, manifest);
+                d.update_peer_head(self.user_id, change_id, index);
             })
             .await?;
 
@@ -703,7 +713,8 @@ impl Vault {
         &self,
         peer_id: UserId,
     ) -> Result<super::braid::ChangeId> {
-        use super::braid::changeset::{Changeset, Evidence, PatchFile, PatchManifest};
+        use super::braid::changeset::{Changeset, Evidence};
+        use super::content_addr::SymlinkIndex;
 
         let dag_guard = self.dag.read().await;
         let peer_state = dag_guard
@@ -719,59 +730,31 @@ impl Vault {
             parents.push(ms.head);
         }
 
-        // Merge manifests (both are full snapshots):
+        // Merge indexes (both are full snapshots):
         // - Start with the peer's snapshot (peer wins on path conflicts).
-        // - Add files from my snapshot that the peer doesn't have
+        // - Add entries from my snapshot that the peer doesn't have
         //   (files I created that the peer hasn't seen yet).
-        // - Files in my snapshot but absent from the peer's are kept
-        //   (the peer may not have seen them). Files that were in a
-        //   common ancestor but are absent from the peer's snapshot
-        //   are treated as peer deletions — but since we don't track
-        //   common ancestors yet, we use the peer's snapshot as the
-        //   base and add only my unique additions.
-        let peer_paths: std::collections::HashSet<String> = peer_state
-            .head_manifest
-            .files
-            .iter()
-            .map(|pf| pf.path.clone())
-            .collect();
-        let mut merged: std::collections::BTreeMap<String, PatchFile> =
-            std::collections::BTreeMap::new();
-        // Peer's files first (they are the authority).
-        for pf in &peer_state.head_manifest.files {
-            merged.insert(
-                pf.path.clone(),
-                PatchFile {
-                    path: pf.path.clone(),
-                    hash: pf.hash,
-                    size: pf.size,
-                },
-            );
-        }
-        // Add my files that the peer doesn't have (my unique additions).
-        if let Some(ref ms) = my_state {
-            for pf in &ms.head_manifest.files {
-                if !peer_paths.contains(&pf.path) {
-                    merged.insert(
-                        pf.path.clone(),
-                        PatchFile {
-                            path: pf.path.clone(),
-                            hash: pf.hash,
-                            size: pf.size,
-                        },
-                    );
-                }
+        let my_index = my_state
+            .as_ref()
+            .map(|ms| &ms.head_index)
+            .cloned()
+            .unwrap_or_default();
+        let mut merged = peer_state.head_index.clone();
+        // Add my entries that the peer doesn't have (my unique additions).
+        for (path, addr) in my_index.iter() {
+            if merged.get(path).is_none() {
+                merged.set(path.clone(), *addr);
             }
         }
-        let manifest = PatchManifest::new(merged.into_values().collect());
 
         let evidence = Evidence::human(self.user_id, Some("merge".to_string()));
         let timestamp_millis = chrono::Utc::now().timestamp_millis();
-        let changeset = Changeset::new(
+        let changeset = Changeset::with_index(
             self.user_id,
             parents,
             format!("merge from peer {}", hex::encode(&peer_id[..4])),
-            manifest.clone(),
+            merged.clone(),
+            Some(&my_index),
             evidence,
             timestamp_millis,
             &self.pq_identity,
@@ -782,22 +765,18 @@ impl Vault {
         self.dag
             .update(|d| {
                 d.insert(changeset);
-                d.update_peer_head(self.user_id, change_id, manifest.clone());
+                d.update_peer_head(self.user_id, change_id, merged.clone());
             })
             .await?;
 
-        // Materialize the merged manifest to disk.
-        self.apply_manifest(&manifest).await?;
+        // Materialize the merged index to disk.
+        self.apply_index(&merged).await?;
 
-        // Remove files from disk that were in my old manifest but are
-        // absent from the merged manifest (peer deletions).
-        let merged_paths: std::collections::HashSet<&str> =
-            manifest.files.iter().map(|f| f.path.as_str()).collect();
-        if let Some(ref ms) = my_state {
-            for pf in &ms.head_manifest.files {
-                if !merged_paths.contains(pf.path.as_str()) {
-                    let _ = self.delete_file_content(&pf.path).await;
-                }
+        // Remove files from disk that were in my old index but are
+        // absent from the merged index (peer deletions).
+        for (path, _) in my_index.iter() {
+            if merged.get(path).is_none() {
+                let _ = self.delete_file_content(path.as_str()).await;
             }
         }
 
@@ -805,34 +784,23 @@ impl Vault {
         Ok(change_id)
     }
 
-    /// Show what files differ between my head and a peer's head.
+    /// Show what changed between my head and a peer's head as an [`IndexDelta`].
     pub async fn diff_fork(
         &self,
         peer_id: UserId,
-    ) -> Vec<super::braid::PatchFile> {
+    ) -> super::content_addr::IndexDelta {
         let dag = self.dag.read().await;
         let peer_state = match dag.peer_head(&peer_id) {
             Some(ps) => ps,
-            None => return Vec::new(),
+            None => return super::content_addr::IndexDelta::new(),
         };
-        // Return the peer's manifest files that differ from ours.
-        let my_files: std::collections::HashMap<String, [u8; 32]> =
-            match dag.peer_head(&self.user_id) {
-                Some(ms) => ms
-                    .head_manifest
-                    .files
-                    .iter()
-                    .map(|f| (f.path.clone(), f.hash))
-                    .collect(),
-                None => std::collections::HashMap::new(),
-            };
-        peer_state
-            .head_manifest
-            .files
-            .iter()
-            .filter(|pf| my_files.get(&pf.path).map_or(true, |h| *h != pf.hash))
-            .cloned()
-            .collect()
+        let my_index = match dag.peer_head(&self.user_id) {
+            Some(ms) => &ms.head_index,
+            None => {
+                return super::content_addr::IndexDelta::from_root(&peer_state.head_index);
+            }
+        };
+        peer_state.head_index.diff(my_index)
     }
 
     /// Auto-merge all pending forks from trusted peers.

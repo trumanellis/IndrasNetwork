@@ -1,6 +1,7 @@
 //! `BraidDag`: the repo-level CRDT document that holds the changeset DAG.
 
 use super::changeset::{ChangeId, Changeset, PatchManifest};
+use crate::content_addr::SymlinkIndex;
 use crate::vault::vault_file::UserId;
 use indras_network::document::DocumentSchema;
 use serde::{Deserialize, Serialize};
@@ -11,11 +12,18 @@ use std::collections::{HashMap, HashSet, VecDeque};
 pub struct PeerState {
     /// Which changeset this peer has checked out.
     pub head: ChangeId,
-    /// The `PatchManifest` of `head`, so peers can materialize without
+    /// The symlink index of `head`, so peers can materialize without
     /// traversing the DAG.
-    pub head_manifest: PatchManifest,
+    pub head_index: SymlinkIndex,
     /// Timestamp of last head update (LWW tiebreaker, Unix millis).
     pub updated_ms: i64,
+}
+
+impl PeerState {
+    /// Legacy accessor — returns the head index as a `PatchManifest`.
+    pub fn head_manifest(&self) -> PatchManifest {
+        PatchManifest::from(&self.head_index)
+    }
 }
 
 /// The repo-level CRDT document: a set of changesets keyed by `ChangeId`.
@@ -91,13 +99,13 @@ impl BraidDag {
         &mut self,
         user_id: UserId,
         head: ChangeId,
-        head_manifest: PatchManifest,
+        head_index: SymlinkIndex,
     ) {
         self.peer_heads.insert(
             user_id,
             PeerState {
                 head,
-                head_manifest,
+                head_index,
                 updated_ms: chrono::Utc::now().timestamp_millis(),
             },
         );

@@ -13,9 +13,10 @@
 //!
 //! - The **working tree** is the realm's `VaultFileDocument`. There is no
 //!   separate `SourceTree`; the vault IS the source tree.
-//! - A [`Changeset`] carries a [`PatchManifest`]: a list of
-//!   `(path, content_hash)` entries pinning a set of vault file versions.
-//!   The blobs themselves live in the vault's content-addressed store.
+//! - A [`Changeset`] carries a [`SymlinkIndex`]: the full
+//!   content-addressed filesystem state at that point, plus an
+//!   [`IndexDelta`] of what changed from the parent.
+//!   The blobs themselves live in the global content-addressed store.
 //! - A [`BraidDag`] is a CRDT document (set-union on `ChangeId`) that
 //!   holds the DAG history. It rides the same Automerge sync as every
 //!   other `DocumentSchema`.

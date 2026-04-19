@@ -6,6 +6,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::braid::changeset::ChangeId;
+use crate::content_addr::SymlinkIndex;
 /// Stable identifier for an AI-agent participant on a team.
 ///
 /// Human-readable (e.g. `"agent1"`, `"researcher"`). Uniqueness scope is the
@@ -37,6 +39,14 @@ pub struct Team {
     /// Roster of logical agents belonging to the team. Kept sorted after
     /// merges so peers converge to the same order.
     pub roster: Vec<LogicalAgentId>,
+    /// The current published HEAD — the latest committed changeset.
+    #[serde(default)]
+    pub head: Option<ChangeId>,
+    /// The [`SymlinkIndex`] of `head` — carried alongside so non-hosting
+    /// devices can materialize the HEAD state from blobs without joining
+    /// the team realm or reading the DAG.
+    #[serde(default)]
+    pub head_index: Option<SymlinkIndex>,
 }
 
 impl Team {
@@ -58,6 +68,21 @@ impl Team {
             }
         }
         self.roster.sort();
+
+        // HEAD: take whichever side has a head; if both do, the higher
+        // byte-value ChangeId wins (deterministic tiebreak). The
+        // index travels with its head.
+        match (&self.head, &remote.head) {
+            (None, Some(_)) => {
+                self.head = remote.head;
+                self.head_index = remote.head_index;
+            }
+            (Some(local), Some(remote_head)) if remote_head > local => {
+                self.head = Some(*remote_head);
+                self.head_index = remote.head_index;
+            }
+            _ => {} // local wins or both None
+        }
     }
 }
 

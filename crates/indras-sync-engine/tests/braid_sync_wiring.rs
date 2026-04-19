@@ -21,7 +21,8 @@ use std::time::Duration;
 
 use indras_network::IndrasNetwork;
 use indras_storage::{BlobStore, BlobStoreConfig};
-use indras_sync_engine::braid::{ChangeId, Changeset, Evidence, PatchFile, PatchManifest, RealmBraid};
+use indras_sync_engine::braid::{ChangeId, Changeset, Evidence, RealmBraid};
+use indras_sync_engine::{ContentAddr, LogicalPath, SymlinkIndex};
 use indras_sync_engine::vault::Vault;
 use tempfile::TempDir;
 use tokio::time::sleep;
@@ -98,17 +99,14 @@ async fn land_synthetic(
     touched_paths: &[String],
 ) -> ChangeId {
     let files = vault.list_files().await;
-    let patch = PatchManifest::new(
+    let index = SymlinkIndex::from_iter(
         touched_paths
             .iter()
             .filter_map(|p| {
-                files.iter().find(|f| &f.path == p).map(|f| PatchFile {
-                    path: f.path.clone(),
-                    hash: f.hash,
-                    size: f.size,
+                files.iter().find(|f| &f.path == p).map(|f| {
+                    (LogicalPath::new(&f.path), ContentAddr::new(f.hash, f.size))
                 })
-            })
-            .collect(),
+            }),
     );
     let realm = vault.realm();
     let parents = realm.braid_heads().await.expect("braid_heads");
@@ -120,7 +118,7 @@ async fn land_synthetic(
         signed_by: author,
     };
     let ts = chrono::Utc::now().timestamp_millis();
-    let cs = Changeset::new_unsigned(author, parents, intent.into(), patch, evidence, ts);
+    let cs = Changeset::with_index(author, parents, intent.into(), index, None, evidence, ts);
     let id = cs.id;
     realm
         .braid_dag()
