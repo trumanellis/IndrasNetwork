@@ -1,66 +1,64 @@
-# indras-vault-sync — Implementation Status
+# agent1 — Current Status (2026-04-19)
 
-## What's Built
+## What just shipped
 
-### Core Crate (`crates/indras-vault-sync/`)
-- **vault_file.rs** — `VaultFile`, `ConflictRecord` types, 60s conflict window
-- **vault_document.rs** — `VaultFileDocument` with set-union CRDT merge, LWW per file, conflict detection, resolution propagation
-- **realm_vault.rs** — `RealmVault` extension trait on `Realm`
-- **watcher.rs** — `notify`-based FS watcher with debounce + echo suppression
-- **sync_to_disk.rs** — Remote CRDT changes → local filesystem writer
-- **vault.rs** — `Vault` orchestrator with cached `Document<VaultFileDocument>` handle
-- **26 unit tests passing**
+**Plan `fancy-wiggling-pony` is complete** (all 5 phases, 10 sessions). Hierarchical braid sync is fully implemented in the library layer.
 
-### Lua Bindings (`simulation/src/lua/bindings/vault_sync.rs`)
-- Full API: `VaultSync.create`, `VaultSync.join`, `:scan`, `:write_file`, `:delete_file`, `:list_files`, `:list_conflicts`, `:resolve_conflict`, `:stop`
+Library (`indras-sync-engine`):
+- Core CAFS types: `SymlinkIndex`, `ContentAddr`, `IndexDelta`, `LogicalPath`, `Conflict` (`crates/indras-sync-engine/src/content_addr.rs`)
+- `AgentBraid` — local-only inner DAG (`src/braid/agent_braid.rs`)
+- `Vault::promote()` bridges inner HEAD → outer signed changeset, with auto inner-rollup (`src/vault/mod.rs`)
+- `Vault::agent_land` / `merge_agent` / `gc_blobs` routing methods
+- `BraidDag::all_referenced_addrs` / `live_addrs` / `rollup` / `descendants_inclusive` (`src/braid/dag.rs`)
+- `StagedDeletion` + `StagedDeletionSet` + `DEFAULT_GRACE_PERIOD_MS` (7d) + `DEFAULT_OUTER_RETENTION_MS` (30d) (`src/braid/gc.rs`)
+- `WorkspaceHandle::land_to_inner_braid` (`crates/synchronicity-engine/src/team.rs`)
 
-### E2E Test Scenarios (5 total)
+Tests green across the board: 58 braid lib tests, 4 promote integration tests, 1 workspace-wire test, 1 gc_blobs test, 1 full-cycle GC test.
 
-| Scenario | Status | What it tests |
-|----------|--------|---------------|
-| `live_vault_sync.lua` | PASS | Basic 7-phase: create/join, write, LWW, conflict detect, delete, convergence |
-| `live_vault_scan_convergence.lua` | PASS | Pre-populated scan, hash-level convergence, binary dedup (8 phases) |
-| `live_vault_offline_rejoin.lua` | PASS | Offline/rejoin via relay, node restart with persistence (9 phases) |
-| `live_vault_conflict_lifecycle.lua` | PASS | Full conflict lifecycle: detect, resolve, sync resolution, same-content-no-conflict (8 phases) |
-| `live_vault_stress.lua` | PARTIAL | Phases 1-2 pass (50 files sync to 3 nodes). Phase 3 (rapid edits convergence) hangs — needs longer timeouts or debouncing |
+Plan files: `~/.claude/plans/fancy-wiggling-pony.{md,progress.md,sessions.md}`.
 
-## Bugs Fixed During Testing
+## What's NOT wired
 
-1. **Delta sync causes stale reads** — `extract_delta` sent compact deltas that `Document::load_or_create` couldn't find when creating fresh handles. Fixed by disabling delta (always sends full state — vault index is small metadata).
+The library surface is complete but the `synchronicity-engine` desktop app still uses the pre-braid commit path:
+- `ipc.rs` — agent socket commits call `realm.try_land(..)` directly on the outer DAG (bypasses inner braid)
+- `components/sync_panel.rs` — same pattern
+- No UI for merge/promote/gc
+- No background blob GC task
 
-2. **Cached Document handle** — Each `vault_index()` call was creating a new `Document<T>` that loaded potentially stale state from event history. Fixed by caching the Document handle in the `Vault` struct so all operations share the same in-memory state.
+`WorkspaceHandle::land_to_inner_braid` compiles but has zero production callers.
 
-3. **Conflict resolution not propagating** — `merge()` skipped remote conflicts with matching `(path, loser_hash)` even when the remote version was resolved. Fixed by propagating the `resolved` flag during merge.
+## Next work — proposed plan `brisk-orbiting-lantern` (NOT YET SAVED)
 
-## Remaining Work
+**Important constraints from the user:**
+- Follow the dashboard design at `refs/Braid Dashboard — Synchronicity Engine Prototype.html`
+- **Agent 2 is doing the UI** — agent1's scope is **backend wiring only**. Do not ship Dioxus components.
 
-### Stress Test Fix (`live_vault_stress.lua`)
-- Phase 3 (rapid sequential edits) hangs waiting for convergence
-- Root cause: 10 rapid edits flood the sync with full-state messages; remote nodes may not converge within the 15s timeout
-- Fix options:
-  - Increase timeout to 30s for rapid-edit convergence checks
-  - Add debounce in the test (longer sleep between edits)
-  - Or accept that rapid edits are eventually consistent and test final state only
+**Phase 1** — Rewire `ipc.rs` to call `WorkspaceHandle::land_to_inner_braid` instead of `realm.try_land`. Extend `SyncRequest` with optional `evidence` fields.
 
-### Not Yet Committed
-All changes are in the jj working copy. Need to `jj describe` + `jj bookmark set main` + `jj git push` when ready.
+**Phase 2** — `Vault::sync_all(intent)` composite: merge agent forks → promote if inner HEAD diverges → auto-merge trusted peers → broadcast. Returns a `SyncAllReport`.
 
-## Files Modified Since Last Push
+**Phase 3** — View-model accessors for the UI drawers (agent2 will call these):
+- `Vault::agent_forks_view(&roster)`
+- `Vault::peer_heads_view()`
+- `Vault::recent_commits_view(limit)`
 
-```
-M Cargo.lock
-M Cargo.toml (workspace members + deps)
-M crates/indras-vault-sync/src/vault.rs (cached Document handle)
-M crates/indras-vault-sync/src/vault_document.rs (disable delta, fix conflict merge)
-M simulation/Cargo.toml (add vault-sync dep)
-M simulation/src/lua/bindings/live_network.rs (pub(crate) for vault_sync access)
-M simulation/src/lua/bindings/mod.rs (add vault_sync module)
-M simulation/src/lua/mod.rs (register vault_sync bindings)
-A crates/indras-vault-sync/* (entire new crate)
-A simulation/src/lua/bindings/vault_sync.rs
-A simulation/scripts/scenarios/live_vault_sync.lua
-A simulation/scripts/scenarios/live_vault_scan_convergence.lua
-A simulation/scripts/scenarios/live_vault_offline_rejoin.lua
-A simulation/scripts/scenarios/live_vault_conflict_lifecycle.lua
-A simulation/scripts/scenarios/live_vault_stress.lua
-```
+**Phase 4** — Blob GC background task in `VaultManager` using the existing `StagedDeletionSet`. 15-minute interval by default.
+
+**Non-goals:** no outer-DAG rollup UI, no persistent staged-deletion across restarts, no changes to indras-sync-engine public API beyond Phases 2–3.
+
+## How to pick up
+
+1. Confirm the plan with the user (it's drafted in-conversation; not yet written to disk). Adjust slug/scope if they redirect.
+2. Once approved, save via plan-driver: `~/.claude/plans/brisk-orbiting-lantern.md` + progress + sessions, and update `~/.claude/projects/-Users-truman-Code-IndrasNetwork/memory/project_active_plan.md`.
+3. Start with Phase 1 — the IPC rewire is the smallest slice and exercises the inner-braid path end-to-end.
+
+## Coordination with agent2
+
+Agent2 is working the UI against the same dashboard design. Read `~/.claude/plans/fancy-wiggling-pony.sessions.md` to see recent commits from agent1; check `syncgit status` before starting work to pull agent2's PRs. Their UI will need the view-model methods from Phase 3, so get those merged early.
+
+## Repo policy reminders
+
+- `/sync` workflow, not manual `git push` / `git commit`
+- Tests scoped to `-p <crate>` — never full `cargo test` (hangs)
+- Working directory: `/Users/truman/Code/IndrasNetwork` (do not `cd` into subdirs)
+- Follow `project_braid_local_working_tree` — agent disk edits stay local until `/sync`
