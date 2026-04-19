@@ -588,7 +588,7 @@ impl Vault {
         drop(dag_guard);
 
         let timestamp_millis = chrono::Utc::now().timestamp_millis();
-        let changeset = Changeset::new(
+        let changeset = Changeset::new_unsigned(
             self.user_id,
             parents,
             intent,
@@ -706,7 +706,7 @@ impl Vault {
 
         let evidence = Evidence::human(self.user_id, Some("merge".to_string()));
         let timestamp_millis = chrono::Utc::now().timestamp_millis();
-        let changeset = Changeset::new(
+        let changeset = Changeset::new_unsigned(
             self.user_id,
             parents,
             format!("merge from peer {}", hex::encode(&peer_id[..4])),

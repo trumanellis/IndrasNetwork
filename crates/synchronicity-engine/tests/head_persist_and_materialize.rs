@@ -90,7 +90,8 @@ async fn head_persists_and_files_materialize() {
     publish_and_materialize_head(&vm, vault.realm(), change_id, &manifest_for_publish, user_id).await;
 
     // Assert 1: DAG peer_heads carries the committed change_id.
-    let dag = vault.dag().read().await;
+    let dag_doc = vault.realm().braid_dag().await.expect("braid_dag");
+    let dag = dag_doc.read().await;
     let peer_head = dag.peer_head(&user_id);
     assert!(
         peer_head.is_some(),

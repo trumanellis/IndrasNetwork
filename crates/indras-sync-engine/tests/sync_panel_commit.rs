@@ -99,7 +99,8 @@ async fn commit_lands_changeset_in_team_realm_dag() {
         .expect("try_land");
 
     // The resulting Changeset must live in the vault's braid DAG.
-    let dag = vault.dag().read().await;
+    let dag_doc = vault.realm().braid_dag().await.expect("braid_dag");
+    let dag = dag_doc.read().await;
     assert!(
         dag.contains(&change_id),
         "DAG must contain the changeset we just landed"

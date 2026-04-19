@@ -165,7 +165,7 @@ async fn pending_forks_and_merge() {
         },
     ]);
     let evidence_b = indras_sync_engine::Evidence::human(peer_b, Some("B sync".into()));
-    let cs_b = indras_sync_engine::braid::Changeset::new(
+    let cs_b = indras_sync_engine::braid::Changeset::new_unsigned(
         peer_b,
         vec![],
         "B: add from_b.md".into(),

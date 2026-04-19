@@ -108,7 +108,8 @@ async fn sequential_commits_auto_parent_on_prior_heads() {
 
     // The DAG should have a single head (id2); id1 is no longer a head
     // because id2 superseded it. And id2's parents must include id1.
-    let dag = vault.dag().read().await;
+    let dag_doc = vault.realm().braid_dag().await.expect("braid_dag");
+    let dag = dag_doc.read().await;
 
     // id2 is the sole head (id1 was superseded).
     let heads = dag.heads();

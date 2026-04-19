@@ -167,7 +167,7 @@ impl SyncToDisk {
                     );
                     let ts = chrono::Utc::now().timestamp_millis();
                     let manifest = peer_state.head_manifest.clone();
-                    let changeset = Changeset::new(
+                    let changeset = Changeset::new_unsigned(
                         user_id,
                         parents,
                         format!("auto-merge from {peer_short}"),
