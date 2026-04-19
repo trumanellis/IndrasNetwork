@@ -182,6 +182,34 @@ impl VaultManager {
         Arc::clone(&self.blob_store)
     }
 
+    /// Sync a vault's dirty files to the braid DAG.
+    ///
+    /// Calls `Vault::sync()` on the vault for the given realm, creating
+    /// a changeset with `Evidence::Human`. Returns the new `ChangeId`
+    /// on success, or an error if the vault isn't found or has nothing
+    /// to sync.
+    pub async fn sync_vault(
+        &self,
+        realm_id: &[u8; 32],
+        intent: String,
+        message: Option<String>,
+    ) -> Result<indras_sync_engine::braid::ChangeId, String> {
+        let mut vaults = self.vaults.write().await;
+        let vault = vaults
+            .get_mut(realm_id)
+            .ok_or_else(|| "vault not found for this realm".to_string())?;
+        vault
+            .sync(intent, message)
+            .await
+            .map_err(|e| format!("{e}"))
+    }
+
+    /// Get the user ID for the first vault (all vaults share the same user).
+    pub async fn user_id(&self) -> Option<indras_sync_engine::vault::vault_file::UserId> {
+        let vaults = self.vaults.read().await;
+        vaults.values().next().map(|v| v.user_id())
+    }
+
     /// Resolve the final sanitized vault directory name for a realm,
     /// handling sanitization, empty fallback, and collision suffixing.
     async fn resolve_vault_name(

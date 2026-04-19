@@ -1585,6 +1585,29 @@ body > * {
   background: var(--bg2);
 }
 
+.md-editor-sync {
+  background: transparent;
+  color: var(--t3);
+  border: 1px solid var(--bd);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 0.85rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease, background-color 120ms ease;
+}
+
+.md-editor-sync:hover {
+  color: var(--tx);
+  border-color: #4ade80;
+  background: var(--bg2);
+}
+
+.md-editor-sync:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .editor-split-textarea {
   background: var(--bg2);
   color: var(--tx);

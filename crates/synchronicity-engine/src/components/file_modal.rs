@@ -12,6 +12,15 @@ use super::obsidian::{is_vault_registered, quit_obsidian, register_vault};
 use crate::state::AppState;
 use crate::vault_manager::VaultManager;
 
+/// Status of the last sync attempt, shown briefly next to the button.
+#[derive(Clone, Debug, PartialEq)]
+enum SyncStatus {
+    Idle,
+    Syncing,
+    Done(String),
+    Failed(String),
+}
+
 /// Strip the .md extension for display as a title.
 fn title_from_filename(name: &str) -> String {
     name.strip_suffix(".md")
@@ -50,6 +59,7 @@ pub fn FileModal(
     let mut title_editing = use_signal(|| false);
     let mut title_draft = use_signal(String::new);
     let mut vault_registered = use_signal(|| is_vault_registered(&vault_path));
+    let mut sync_status = use_signal(|| SyncStatus::Idle);
 
     let close = move |_| {
         title_editing.set(false);
@@ -114,6 +124,63 @@ pub fn FileModal(
 
                     // Controls
                     div { class: "file-modal-controls",
+                        // Sync button — pushes local changes through the braid DAG
+                        {
+                            let realm_id = modal.realm_id;
+                            let fp = file_path.clone();
+                            let is_syncing = matches!(*sync_status.read(), SyncStatus::Syncing);
+                            rsx! {
+                                button {
+                                    class: "md-editor-sync",
+                                    title: "Sync this file to peers via the braid DAG",
+                                    disabled: is_syncing,
+                                    onclick: move |_| {
+                                        let vm = vault_manager;
+                                        let fp = fp.clone();
+                                        sync_status.set(SyncStatus::Syncing);
+                                        spawn(async move {
+                                            let result = if let Some(vm) = vm.read().as_ref() {
+                                                // Determine which realm to sync. Private vault
+                                                // files use the home realm (first realm).
+                                                let rid = match realm_id {
+                                                    Some(rid) => rid,
+                                                    None => {
+                                                        // Private vault — find home realm
+                                                        match vm.realms().await.first() {
+                                                            Some(r) => *r.id().as_bytes(),
+                                                            None => {
+                                                                sync_status.set(SyncStatus::Failed("no realm".into()));
+                                                                return;
+                                                            }
+                                                        }
+                                                    }
+                                                };
+                                                vm.sync_vault(
+                                                    &rid,
+                                                    format!("sync {fp}"),
+                                                    None,
+                                                ).await
+                                            } else {
+                                                Err("vault manager not ready".into())
+                                            };
+                                            match result {
+                                                Ok(id) => {
+                                                    let short: String = id.as_bytes().iter().take(4).map(|b| format!("{b:02x}")).collect();
+                                                    sync_status.set(SyncStatus::Done(short));
+                                                }
+                                                Err(e) => sync_status.set(SyncStatus::Failed(e)),
+                                            }
+                                        });
+                                    },
+                                    match &*sync_status.read() {
+                                        SyncStatus::Syncing => "Syncing...",
+                                        SyncStatus::Done(_) => "Synced",
+                                        SyncStatus::Failed(_) => "Sync",
+                                        SyncStatus::Idle => "Sync",
+                                    }
+                                }
+                            }
+                        }
                         if *vault_registered.read() {
                             button {
                                 class: "md-editor-obsidian",
