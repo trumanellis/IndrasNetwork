@@ -57,6 +57,8 @@ pub mod pq_kem;
 pub mod credential;
 pub mod entropy;
 pub mod pass_story;
+pub mod shamir;
+pub mod steward_share;
 pub mod story_template;
 pub mod word_frequencies;
 

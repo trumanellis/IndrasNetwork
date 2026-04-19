@@ -42,6 +42,7 @@ realm.create_intention("Review doc", "Please review", None).await?;
 | `sentiment.rs` | `SentimentRelayDocument`, `RelayedSentiment`, `SentimentView`, `DEFAULT_RELAY_ATTENUATION` | Relayed sentiment across contacts |
 | `proof_folder.rs` | `ProofFolder`, `ProofFolderDocument`, `ProofFolderArtifact`, `ProofFolderError`, `ProofFolderId` | Proof-of-service folders |
 | `story_auth.rs` | `StoryAuth`, `AuthResult` | Story-based authentication |
+| `steward_recovery.rs` | `StewardId`, `StewardManifest`, `StewardAssignment`, `PreparedRecovery`, `prepare_recovery`, `recover_encryption_subkey`, `save_manifest`, `load_manifest` | Shamir K-of-N steward recovery for the encryption subkey; offline orchestration + JSON manifest |
 | `rehearsal.rs` | `RehearsalState` | Story rehearsal state |
 | `bioregion_catalog.rs` | - | Bioregional delegation catalog |
 | `content.rs` | `SyncContent` | Extended content type for sync engine |

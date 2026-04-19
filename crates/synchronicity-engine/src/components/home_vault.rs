@@ -452,6 +452,8 @@ pub fn HomeVault(
             super::profile_modal::ProfileOverlay { state, network }
             // Sync overlay
             super::sync_panel::SyncOverlay { state, network, vault_manager, workspace_handles }
+            // Recovery Setup overlay
+            super::recovery_setup::RecoverySetupOverlay { state }
         }
     }
 }

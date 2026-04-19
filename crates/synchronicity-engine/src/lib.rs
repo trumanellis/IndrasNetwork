@@ -13,6 +13,7 @@ pub mod ipc;
 pub mod profile_bridge;
 pub mod profile_mirror;
 pub mod profile_server;
+pub mod recovery_bridge;
 pub mod state;
 pub mod team;
 pub mod vault_bridge;

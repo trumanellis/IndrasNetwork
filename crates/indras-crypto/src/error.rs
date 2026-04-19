@@ -64,6 +64,15 @@ pub enum CryptoError {
 
     #[error("Key derivation failed: {0}")]
     KeyDerivationFailed(String),
+
+    #[error("Invalid Shamir share")]
+    InvalidShare,
+
+    #[error("Invalid Shamir parameters: {0}")]
+    ShamirParams(String),
+
+    #[error("Shamir reconstruction failed (wrong shares or threshold mismatch)")]
+    ShamirReconstruction,
 }
 
 /// Result type for crypto operations

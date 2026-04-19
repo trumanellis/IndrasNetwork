@@ -35,6 +35,15 @@ pub fn StatusBar(mut state: Signal<AppState>) -> Element {
                 span { class: "{dot_class}", "\u{25cf}" }
                 " Relay: {connected}/{relay_count} connected"
             }
+            span {
+                class: "status-left muted status-relay-link",
+                onclick: move |_| {
+                    let cur = state.read().show_recovery_setup;
+                    state.write().show_recovery_setup = !cur;
+                },
+                title: "Set up backup friends who can help you recover if you lose access",
+                " · Backup plan"
+            }
             span { class: "status-center muted", "Last sync: {last_sync}" }
             span { class: "status-right muted", "{file_count} file(s) · {size_label}" }
         }

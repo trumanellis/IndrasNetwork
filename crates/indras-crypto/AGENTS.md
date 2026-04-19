@@ -20,6 +20,8 @@ authentication, and Argon2id/HKDF for deterministic key derivation from mnemonic
 | `pq_kem` | `PQKemKeyPair`, `PQEncapsulationKey`, `PQCiphertext`; ML-KEM-768 KEM |
 | `artifact_encryption` | `ArtifactKey`, `EncryptedArtifact`; per-blob envelope encryption |
 | `pass_story` | `StorySubkeys`; Argon2id + HKDF key derivation from a story phrase |
+| `shamir` | `ShamirShare`, `split_secret`, `combine_shares`; K-of-N over a 32-byte secret (used by steward recovery) |
+| `steward_share` | `EncryptedStewardShare`, `encrypt_share_for_steward`; envelope a Shamir share to one steward's ML-KEM-768 pubkey |
 | `story_template` | `PassStory`, `StoryTemplate`, `StoryStage`; mnemonic template engine |
 | `word_frequencies` | Frequency-weighted word list used by template generation |
 | `entropy` | Entropy helpers (CSPRNG wrappers) |
@@ -84,6 +86,7 @@ authentication, and Argon2id/HKDF for deterministic key derivation from mnemonic
 | `blake3` | Content hashing for blobs |
 | `argon2` | Memory-hard KDF for pass-story |
 | `hkdf` + `sha2` | Key expansion from Argon2id output |
+| `sharks` | Shamir K-of-N secret sharing (steward recovery primitive) |
 | `zeroize` | Secure memory zeroing |
 | `unicode-normalization` | NFC passphrase normalisation before KDF |
 | `serde` + `postcard` | Wire serialisation of invite types |

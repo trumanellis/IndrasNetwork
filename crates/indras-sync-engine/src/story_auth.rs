@@ -9,12 +9,16 @@ use indras_crypto::pass_story::{
     derive_master_key, expand_subkeys, story_verification_token,
 };
 use indras_crypto::entropy;
+use indras_crypto::pq_kem::PQEncapsulationKey;
 use indras_crypto::story_template::PassStory;
 use indras_crypto::SecureBytes;
 use indras_node::StoryKeystore;
 
 use indras_network::error::{IndraError, Result};
 use crate::rehearsal::RehearsalState;
+use crate::steward_recovery::{
+    self, PreparedRecovery, StewardId, StewardRecoveryError,
+};
 
 /// Filename for rehearsal state persistence.
 const REHEARSAL_STATE_FILENAME: &str = "rehearsal.json";
@@ -295,6 +299,90 @@ impl StoryAuth {
         story.render()
     }
 
+    /// Re-derive the encryption subkey from the supplied story and
+    /// produce a fresh K-of-N steward recovery split.
+    ///
+    /// On success, the manifest is persisted under
+    /// `<data_dir>/steward_recovery.json` and the encrypted shares are
+    /// returned in the same order as `stewards` so the caller can
+    /// route each share to its intended steward (out-of-band today,
+    /// over the iroh transport in a follow-on).
+    ///
+    /// Authentication is implicit in success: if the story does not
+    /// match the keystore on disk, an `IndraError::StoryAuth` is
+    /// returned. `secret_version` should monotonically increase across
+    /// re-issuances; `1` is a sensible default for the first split.
+    pub fn prepare_steward_recovery(
+        data_dir: &Path,
+        story: &PassStory,
+        stewards: &[(StewardId, PQEncapsulationKey)],
+        k: u8,
+        secret_version: u64,
+    ) -> Result<PreparedRecovery> {
+        let keystore = StoryKeystore::new(data_dir);
+        if !keystore.is_initialized() {
+            return Err(IndraError::StoryAuth {
+                reason: "No story keystore found — create an account first".to_string(),
+            });
+        }
+
+        // Re-derive the subkey path: load salt, derive master, expand subkeys,
+        // recompute verification token, and check it against the on-disk token
+        // before exposing the subkey to the recovery module.
+        let salt = keystore
+            .load_story_salt()
+            .map_err(|e| IndraError::StoryAuth {
+                reason: format!("Failed to load salt: {}", e),
+            })?;
+
+        let canonical = story.canonical().map_err(|e| IndraError::StoryAuth {
+            reason: format!("Canonical encoding failed: {}", e),
+        })?;
+
+        let master_key = derive_master_key(&canonical, &salt).map_err(|e| {
+            IndraError::StoryAuth {
+                reason: format!("Key derivation failed: {}", e),
+            }
+        })?;
+
+        let subkeys = expand_subkeys(&master_key).map_err(|e| IndraError::StoryAuth {
+            reason: format!("Key expansion failed: {}", e),
+        })?;
+
+        let token = story_verification_token(&master_key);
+        if !keystore
+            .verify_token(&token)
+            .map_err(|e| IndraError::StoryAuth {
+                reason: format!("Token verification failed: {}", e),
+            })?
+        {
+            return Err(IndraError::StoryAuth {
+                reason: "Story does not match the stored keystore".to_string(),
+            });
+        }
+
+        let encryption_subkey: [u8; 32] = subkeys
+            .encryption
+            .as_slice()
+            .try_into()
+            .map_err(|_| IndraError::StoryAuth {
+                reason: "Invalid encryption subkey length".to_string(),
+            })?;
+
+        let prepared = steward_recovery::prepare_recovery(
+            &encryption_subkey,
+            stewards,
+            k,
+            secret_version,
+        )
+        .map_err(map_recovery_err)?;
+
+        steward_recovery::save_manifest(data_dir, &prepared.manifest)
+            .map_err(map_recovery_err)?;
+
+        Ok(prepared)
+    }
+
     /// Get the rehearsal state.
     pub fn rehearsal(&self) -> &RehearsalState {
         &self.rehearsal
@@ -315,6 +403,15 @@ impl StoryAuth {
     fn rehearsal_path(data_dir: &Path) -> PathBuf {
         data_dir.join(REHEARSAL_STATE_FILENAME)
     }
+}
+
+fn map_recovery_err(e: StewardRecoveryError) -> IndraError {
+    IndraError::StoryAuth {
+        reason: format!("Steward recovery: {}", e),
+    }
+}
+
+impl StoryAuth {
 
     fn save_rehearsal_state(&self) -> Result<()> {
         let bytes = self.rehearsal.to_bytes().map_err(|e| IndraError::StoryAuth {
@@ -422,6 +519,124 @@ mod tests {
         .unwrap();
 
         assert_eq!(result, AuthResult::Failed);
+    }
+
+    #[test]
+    fn test_prepare_steward_recovery_roundtrip() {
+        use indras_crypto::pq_kem::PQKemKeyPair;
+        use indras_crypto::shamir;
+        use crate::steward_recovery::{recover_encryption_subkey, StewardId};
+
+        let temp_dir = TempDir::new().unwrap();
+        let raw = test_raw_slots();
+        let story = PassStory::from_raw(&raw).unwrap();
+
+        // Setup identity.
+        let _auth = StoryAuth::create_account(
+            temp_dir.path(),
+            &story,
+            b"user_zephyr",
+            1234567890,
+        )
+        .unwrap();
+
+        // Nominate 5 stewards.
+        let stewards: Vec<(StewardId, PQKemKeyPair)> = (0..5)
+            .map(|i| {
+                (
+                    StewardId::new(format!("steward-{}", i).into_bytes()),
+                    PQKemKeyPair::generate(),
+                )
+            })
+            .collect();
+        let eks: Vec<(StewardId, indras_crypto::pq_kem::PQEncapsulationKey)> = stewards
+            .iter()
+            .map(|(id, kp)| (id.clone(), kp.encapsulation_key()))
+            .collect();
+
+        // Prepare recovery via StoryAuth (re-derives the subkey).
+        let prepared = StoryAuth::prepare_steward_recovery(
+            temp_dir.path(),
+            &story,
+            &eks,
+            3,
+            1,
+        )
+        .unwrap();
+
+        assert_eq!(prepared.manifest.threshold, 3);
+        assert_eq!(prepared.manifest.total_shares, 5);
+        assert_eq!(prepared.encrypted_shares.len(), 5);
+
+        // Stewards 0, 1, 2 release their shares.
+        let shares: Vec<_> = [0usize, 1, 2]
+            .iter()
+            .map(|&i| prepared.encrypted_shares[i].decrypt(&stewards[i].1).unwrap())
+            .collect();
+
+        let recovered_subkey = recover_encryption_subkey(&shares, 3).unwrap();
+
+        // Independently re-derive the subkey via authenticate to confirm match.
+        let (_auth, result) = StoryAuth::authenticate(temp_dir.path(), &story).unwrap();
+        assert!(matches!(result, AuthResult::Success | AuthResult::RehearsalDue));
+
+        // The recovered subkey should equal what the KDF produces. Easiest
+        // way to check: re-derive manually and compare.
+        let salt = indras_node::StoryKeystore::new(temp_dir.path())
+            .load_story_salt()
+            .unwrap();
+        let canonical = story.canonical().unwrap();
+        let master = derive_master_key(&canonical, &salt).unwrap();
+        let subkeys = expand_subkeys(&master).unwrap();
+        let expected: [u8; shamir::SHAMIR_SECRET_SIZE] =
+            subkeys.encryption.as_slice().try_into().unwrap();
+        assert_eq!(recovered_subkey, expected);
+    }
+
+    #[test]
+    fn test_prepare_steward_recovery_wrong_story_rejected() {
+        use indras_crypto::pq_kem::PQKemKeyPair;
+        use crate::steward_recovery::StewardId;
+
+        let temp_dir = TempDir::new().unwrap();
+        let raw = test_raw_slots();
+        let story = PassStory::from_raw(&raw).unwrap();
+
+        let _auth = StoryAuth::create_account(
+            temp_dir.path(),
+            &story,
+            b"user_zephyr",
+            1234567890,
+        )
+        .unwrap();
+
+        let stewards: Vec<(StewardId, indras_crypto::pq_kem::PQEncapsulationKey)> = (0..3)
+            .map(|i| {
+                (
+                    StewardId::new(format!("s-{}", i).into_bytes()),
+                    PQKemKeyPair::generate().encapsulation_key(),
+                )
+            })
+            .collect();
+
+        let wrong_raw: [&str; 23] = [
+            "wrong", "words", "here", "completely",
+            "different", "story", "from", "the",
+            "original", "one", "that",
+            "was", "used", "to", "create",
+            "the", "account", "in", "the",
+            "first", "place", "cassiterite", "pyrrhic",
+        ];
+        let wrong_story = PassStory::from_raw(&wrong_raw).unwrap();
+
+        let err = StoryAuth::prepare_steward_recovery(
+            temp_dir.path(),
+            &wrong_story,
+            &stewards,
+            2,
+            1,
+        );
+        assert!(err.is_err());
     }
 
     #[test]

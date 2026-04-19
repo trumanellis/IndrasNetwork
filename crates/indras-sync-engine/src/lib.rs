@@ -40,6 +40,7 @@ pub mod humanness;
 pub mod sentiment;
 pub mod proof_folder;
 pub mod story_auth;
+pub mod steward_recovery;
 pub mod rehearsal;
 pub mod bioregion_catalog;
 pub mod profile_identity;
