@@ -22,7 +22,7 @@
 //! - The [`verification`] runner shells to `cargo` for build/test/clippy;
 //!   [`heal`] detects post-merge breakage and emits repair-task descriptions.
 //! - [`RealmBraid`](realm_braid::RealmBraid) exposes the gate as a `Realm`
-//!   extension trait, mirroring the shape of `RealmVault`.
+//!   extension trait.
 //! - [`gate::LocalRepo`] is a thin orchestration struct used by the
 //!   `try_land` flow.
 //!

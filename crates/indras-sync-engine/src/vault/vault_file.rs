@@ -10,9 +10,6 @@ use serde::{Deserialize, Serialize};
 /// same-user edits from different devices don't create spurious conflicts.
 pub type UserId = [u8; 32];
 
-/// Default conflict detection window in milliseconds (60 seconds).
-pub const CONFLICT_WINDOW_MS: i64 = 60_000;
-
 /// A tracked file in the vault.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct VaultFile {
@@ -67,52 +64,12 @@ impl VaultFile {
     }
 }
 
-/// Record of a detected conflict (two peers edited same file concurrently).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ConflictRecord {
-    /// The file path that had a conflict.
-    pub path: String,
-    /// Hash of the winning version (kept as the main file).
-    pub winner_hash: [u8; 32],
-    /// Hash of the losing version (saved as .conflict-<hash> copy).
-    pub loser_hash: [u8; 32],
-    /// The member who authored the losing version.
-    pub loser_author: UserId,
-    /// When the conflict was detected (Unix milliseconds).
-    pub detected_ms: i64,
-    /// Whether this conflict has been resolved by the user.
-    #[serde(default)]
-    pub resolved: bool,
-}
-
-impl ConflictRecord {
-    /// Unique identity for dedup: (path, loser_hash).
-    pub fn dedup_key(&self) -> (&str, &[u8; 32]) {
-        (&self.path, &self.loser_hash)
-    }
-
-    /// The filename for the conflict copy, e.g. "notes/daily.conflict-ab1234.md"
-    pub fn conflict_filename(&self) -> String {
-        let short = hex::encode(&self.loser_hash[..6]);
-        if let Some(dot_pos) = self.path.rfind('.') {
-            let (stem, ext) = self.path.split_at(dot_pos);
-            format!("{}.conflict-{}{}", stem, short, ext)
-        } else {
-            format!("{}.conflict-{}", self.path, short)
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn test_member() -> UserId {
         [1u8; 32]
-    }
-
-    fn other_member() -> UserId {
-        [2u8; 32]
     }
 
     #[test]
@@ -136,72 +93,11 @@ mod tests {
     }
 
     #[test]
-    fn conflict_filename_with_extension() {
-        let loser_hash = [0xab, 0xcd, 0xef, 0x12, 0x34, 0x56, 0, 0,
-                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                          0, 0, 0, 0, 0, 0, 0, 0];
-        let conflict = ConflictRecord {
-            path: "notes/daily.md".into(),
-            winner_hash: [0; 32],
-            loser_hash,
-            loser_author: other_member(),
-            detected_ms: 1000,
-            resolved: false,
-        };
-        assert_eq!(conflict.conflict_filename(), "notes/daily.conflict-abcdef123456.md");
-    }
-
-    #[test]
-    fn conflict_filename_without_extension() {
-        let loser_hash = [0xab, 0xcd, 0xef, 0x12, 0x34, 0x56, 0, 0,
-                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                          0, 0, 0, 0, 0, 0, 0, 0];
-        let conflict = ConflictRecord {
-            path: "LICENSE".into(),
-            winner_hash: [0; 32],
-            loser_hash,
-            loser_author: other_member(),
-            detected_ms: 1000,
-            resolved: false,
-        };
-        assert_eq!(conflict.conflict_filename(), "LICENSE.conflict-abcdef123456");
-    }
-
-    #[test]
-    fn conflict_dedup_key() {
-        let loser_hash = [1u8; 32];
-        let conflict = ConflictRecord {
-            path: "a.md".into(),
-            winner_hash: [0; 32],
-            loser_hash,
-            loser_author: other_member(),
-            detected_ms: 1000,
-            resolved: false,
-        };
-        assert_eq!(conflict.dedup_key(), ("a.md", &loser_hash));
-    }
-
-    #[test]
     fn serialization_round_trip_vault_file() {
         let hash = blake3::hash(b"content").as_bytes().to_owned();
         let file = VaultFile::new("path/to/file.md", hash, 42, test_member());
         let bytes = postcard::to_allocvec(&file).unwrap();
         let decoded: VaultFile = postcard::from_bytes(&bytes).unwrap();
         assert_eq!(file, decoded);
-    }
-
-    #[test]
-    fn serialization_round_trip_conflict() {
-        let conflict = ConflictRecord {
-            path: "a.md".into(),
-            winner_hash: [1; 32],
-            loser_hash: [2; 32],
-            loser_author: other_member(),
-            detected_ms: 12345,
-            resolved: false,
-        };
-        let bytes = postcard::to_allocvec(&conflict).unwrap();
-        let decoded: ConflictRecord = postcard::from_bytes(&bytes).unwrap();
-        assert_eq!(conflict, decoded);
     }
 }

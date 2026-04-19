@@ -516,8 +516,10 @@ impl Vault {
 
     /// Explicitly sync local changes to the braid DAG.
     ///
-    /// Collects dirty paths from the watcher, builds a `PatchManifest`,
-    /// pushes blobs to the relay, creates a changeset with
+    /// Checks for dirty paths (anything changed since last sync), then
+    /// snapshots the **entire** local index into a `PatchManifest` — a
+    /// full snapshot of the vault state at commit time, not a delta.
+    /// Pushes blobs to the relay, creates a changeset with
     /// `Evidence::Human`, inserts it into the DAG, and updates this
     /// peer's HEAD. This is the "sync button" action.
     pub async fn sync(
@@ -527,7 +529,7 @@ impl Vault {
     ) -> Result<super::braid::ChangeId> {
         use super::braid::changeset::{Changeset, Evidence, PatchFile, PatchManifest};
 
-        // 1. Collect dirty paths from watcher.
+        // 1. Check dirty paths — gate against no-op syncs.
         let dirty = match self.watcher {
             Some(ref w) => w.take_dirty(),
             None => Vec::new(),
@@ -536,20 +538,20 @@ impl Vault {
             return Err(std::io::Error::other("nothing to sync").into());
         }
 
-        // 2. Build PatchManifest from local index for dirty paths.
+        // 2. Build PatchManifest as a FULL SNAPSHOT of all active files.
+        //    Dirty paths gate whether we sync at all, but the manifest
+        //    captures the complete vault state so that merge_from_peer
+        //    can compute correct unions and detect deletions.
         let local = self.local_index.read().await;
-        let mut files: Vec<PatchFile> = Vec::new();
-        for path in &dirty {
-            if let Some(vf) = local.files.get(path) {
-                if !vf.deleted {
-                    files.push(PatchFile {
-                        path: vf.path.clone(),
-                        hash: vf.hash,
-                        size: vf.size,
-                    });
-                }
-            }
-        }
+        let files: Vec<PatchFile> = local
+            .active_files()
+            .iter()
+            .map(|vf| PatchFile {
+                path: vf.path.clone(),
+                hash: vf.hash,
+                size: vf.size,
+            })
+            .collect();
         drop(local);
 
         if files.is_empty() {
@@ -676,22 +678,25 @@ impl Vault {
             parents.push(ms.head);
         }
 
-        // Merge manifest: union of files, peer wins for conflicts (LWW).
+        // Merge manifests (both are full snapshots):
+        // - Start with the peer's snapshot (peer wins on path conflicts).
+        // - Add files from my snapshot that the peer doesn't have
+        //   (files I created that the peer hasn't seen yet).
+        // - Files in my snapshot but absent from the peer's are kept
+        //   (the peer may not have seen them). Files that were in a
+        //   common ancestor but are absent from the peer's snapshot
+        //   are treated as peer deletions — but since we don't track
+        //   common ancestors yet, we use the peer's snapshot as the
+        //   base and add only my unique additions.
+        let peer_paths: std::collections::HashSet<String> = peer_state
+            .head_manifest
+            .files
+            .iter()
+            .map(|pf| pf.path.clone())
+            .collect();
         let mut merged: std::collections::BTreeMap<String, PatchFile> =
             std::collections::BTreeMap::new();
-        if let Some(ref ms) = my_state {
-            for pf in &ms.head_manifest.files {
-                merged.insert(
-                    pf.path.clone(),
-                    PatchFile {
-                        path: pf.path.clone(),
-                        hash: pf.hash,
-                        size: pf.size,
-                    },
-                );
-            }
-        }
-        // Peer's files overwrite ours (peer wins on conflict).
+        // Peer's files first (they are the authority).
         for pf in &peer_state.head_manifest.files {
             merged.insert(
                 pf.path.clone(),
@@ -701,6 +706,21 @@ impl Vault {
                     size: pf.size,
                 },
             );
+        }
+        // Add my files that the peer doesn't have (my unique additions).
+        if let Some(ref ms) = my_state {
+            for pf in &ms.head_manifest.files {
+                if !peer_paths.contains(&pf.path) {
+                    merged.insert(
+                        pf.path.clone(),
+                        PatchFile {
+                            path: pf.path.clone(),
+                            hash: pf.hash,
+                            size: pf.size,
+                        },
+                    );
+                }
+            }
         }
         let manifest = PatchManifest::new(merged.into_values().collect());
 
@@ -726,6 +746,18 @@ impl Vault {
 
         // Materialize the merged manifest to disk.
         self.apply_manifest(&manifest).await?;
+
+        // Remove files from disk that were in my old manifest but are
+        // absent from the merged manifest (peer deletions).
+        let merged_paths: std::collections::HashSet<&str> =
+            manifest.files.iter().map(|f| f.path.as_str()).collect();
+        if let Some(ref ms) = my_state {
+            for pf in &ms.head_manifest.files {
+                if !merged_paths.contains(pf.path.as_str()) {
+                    let _ = self.delete_file_content(&pf.path).await;
+                }
+            }
+        }
 
         info!(change = %change_id, peer = %hex::encode(&peer_id[..4]), "Merged from peer");
         Ok(change_id)
