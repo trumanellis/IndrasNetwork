@@ -246,6 +246,30 @@ impl VaultManager {
         vaults.values().next().map(|v| v.user_id())
     }
 
+    /// Load a [`crate::state::BraidView`] snapshot for a realm's braid.
+    ///
+    /// Reads the vault's `BraidDag` CRDT and translates it into the
+    /// plain view model the drawer renders from. Returns `None` if the
+    /// realm has no attached vault on this device yet.
+    pub async fn load_braid_view(
+        &self,
+        realm_id: &[u8; 32],
+        peers: &[crate::state::PeerDisplayInfo],
+        self_display_name: &str,
+    ) -> Option<crate::state::BraidView> {
+        let vaults = self.vaults.read().await;
+        let vault = vaults.get(realm_id)?;
+        let dag_guard = vault.dag().read().await;
+        let self_user_id = vault.user_id();
+        Some(crate::braid_bridge::build_braid_view(
+            *realm_id,
+            &dag_guard,
+            peers,
+            self_user_id,
+            self_display_name,
+        ))
+    }
+
     /// Full sync: commit local changes, check for peer forks, auto-merge
     /// trusted peers. Reports each step via `progress` channel.
     pub async fn full_sync(

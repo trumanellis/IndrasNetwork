@@ -3807,3 +3807,632 @@ body > * {
   color: var(--t3);
   flex: 1;
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   Braid Drawer + Sparkline (DESIGN.md §4 — nocturnal palette)
+   Appended for the Braid-Aware Dashboard. All selectors are prefixed
+   by `braid-` / `commit-` / `peer-head-` / `fork-` / `conflict-` /
+   `evidence` so they do not collide with existing classes.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Outer main area layout — columns on the left, drawer docked right. */
+.home-vault-main {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  min-height: 0;
+  flex: 1;
+}
+
+/* ── Braid Drawer shell ────────────────────────────────────────────── */
+.braid-drawer {
+  width: 440px;
+  min-width: 440px;
+  background: var(--bg2);
+  border-left: 1px solid var(--bd);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  position: relative;
+}
+.braid-drawer::before {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(129,140,248,0.3), rgba(244,114,182,0.2), transparent);
+  pointer-events: none;
+}
+.braid-drawer-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--bd);
+  background: var(--bg3);
+}
+.braid-drawer-title {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--t2);
+}
+.braid-drawer-realm {
+  color: var(--t1);
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-size: 13px;
+  font-weight: 600;
+  margin-left: 6px;
+  flex: 1;
+}
+.braid-drawer-close {
+  background: transparent;
+  border: none;
+  color: var(--t3);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px 8px;
+  margin-left: auto;
+  line-height: 1;
+}
+.braid-drawer-close:hover { color: var(--t1); }
+
+.braid-drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0 20px;
+}
+.braid-drawer-body::-webkit-scrollbar { width: 6px; }
+.braid-drawer-body::-webkit-scrollbar-thumb { background: var(--surface); border-radius: 3px; }
+
+.braid-drawer-empty {
+  padding: 40px 24px;
+  color: var(--t3);
+  font-size: 13px;
+  text-align: center;
+}
+
+/* ── Graph block inside drawer ─────────────────────────────────────── */
+.braid-graph {
+  margin: 6px 0 10px;
+  padding: 10px 18px 12px;
+  background: linear-gradient(180deg, rgba(129,140,248,0.02), transparent);
+  border-top: 1px solid var(--bd-sub);
+  border-bottom: 1px solid var(--bd-sub);
+  overflow-x: auto;
+}
+.braid-graph .braid-graph-host { display: block; }
+.braid-graph svg.braid-svg { display: block; max-width: 100%; height: auto; }
+
+/* ── Sections ──────────────────────────────────────────────────────── */
+.braid-section {
+  padding: 16px 18px 4px;
+  border-bottom: 1px solid var(--bd-sub);
+}
+.braid-section:last-child { border-bottom: none; }
+.braid-section-title {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--t3);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.braid-section-title.warn { color: var(--glow-amber); }
+.braid-count {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  color: var(--dim);
+  background: var(--bg3);
+  border: 1px solid var(--bd);
+  border-radius: 100px;
+  padding: 1px 7px;
+  line-height: 1.3;
+}
+.braid-count.warn {
+  color: var(--glow-amber);
+  border-color: rgba(251,191,36,0.4);
+  background: rgba(251,191,36,0.06);
+}
+
+/* ── Peer head rows ────────────────────────────────────────────────── */
+.peer-head-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--bd-sub);
+}
+.peer-head-row:last-child { border-bottom: none; }
+.peer-head-dot {
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--bg);
+  flex-shrink: 0;
+}
+.peer-head-dot.lg { width: 24px; height: 24px; font-size: 10px; }
+.peer-head-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--t1);
+  min-width: 70px;
+}
+.peer-head-hash {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--t2);
+  letter-spacing: 0.04em;
+}
+.peer-head-meta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  color: var(--t3);
+  margin-left: auto;
+  letter-spacing: 0.04em;
+}
+.peer-head-row.you .peer-head-name::after {
+  content: "you";
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8px;
+  color: var(--indigo);
+  background: rgba(129,140,248,0.08);
+  border: 1px solid rgba(129,140,248,0.3);
+  padding: 1px 6px;
+  border-radius: 100px;
+  margin-left: 8px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* ── Pending merges (forks) ────────────────────────────────────────── */
+.fork-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--bd-sub);
+}
+.fork-row:last-child { border-bottom: none; }
+.fork-info { flex: 1; min-width: 0; }
+.fork-author {
+  font-size: 13px;
+  color: var(--t1);
+  font-weight: 500;
+}
+.fork-detail {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  color: var(--t3);
+  letter-spacing: 0.04em;
+  margin-top: 1px;
+}
+.btn-merge {
+  background: transparent;
+  color: var(--indigo);
+  border: 1px solid rgba(129,140,248,0.4);
+  border-radius: 100px;
+  padding: 5px 14px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 160ms ease;
+}
+.btn-merge:hover {
+  background: rgba(129,140,248,0.08);
+  border-color: var(--indigo);
+}
+.btn-merge.trusted {
+  color: var(--glow-green);
+  border-color: rgba(52,211,153,0.4);
+}
+.btn-merge.trusted:hover {
+  background: rgba(52,211,153,0.08);
+  border-color: var(--glow-green);
+}
+
+/* ── Conflicts ─────────────────────────────────────────────────────── */
+.conflict-row {
+  border-left: 3px solid var(--glow-amber);
+  background: rgba(251,191,36,0.04);
+  padding: 10px 14px;
+  border-radius: 0 8px 8px 0;
+  margin-bottom: 10px;
+}
+.conflict-path {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--glow-amber);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+.conflict-versions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+}
+.conflict-side {
+  background: var(--bg);
+  border: 1px solid var(--bd);
+  border-radius: 4px;
+  padding: 6px 8px;
+  cursor: pointer;
+  transition: border-color 140ms ease;
+}
+.conflict-side:hover { border-color: var(--glow-amber); }
+.conflict-side-label {
+  color: var(--t3);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 8px;
+  margin-bottom: 2px;
+}
+.conflict-side-hash {
+  color: var(--t1);
+  font-size: 10px;
+}
+
+/* ── Commit rows ───────────────────────────────────────────────────── */
+.commit-row {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--bd-sub);
+}
+.commit-row:last-child { border-bottom: none; }
+.commit-knot {
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  margin-top: 4px;
+  position: relative;
+}
+.commit-knot::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  box-shadow: 0 0 10px currentColor;
+  opacity: 0.35;
+  pointer-events: none;
+}
+.commit-body { min-width: 0; }
+.commit-intent {
+  font-size: 13px;
+  color: var(--t1);
+  line-height: 1.45;
+}
+.commit-meta {
+  display: flex;
+  gap: 8px;
+  margin-top: 3px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  color: var(--t3);
+  letter-spacing: 0.04em;
+}
+.commit-hash { color: var(--t2); }
+.commit-author { color: var(--t3); }
+
+/* ── Evidence badges ───────────────────────────────────────────────── */
+.evidence {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 100px;
+  border: 1px solid;
+  margin-top: 4px;
+  white-space: nowrap;
+}
+.evidence.agent-pass {
+  color: var(--glow-green);
+  border-color: rgba(52,211,153,0.3);
+  background: rgba(52,211,153,0.06);
+}
+.evidence.human {
+  color: var(--violet);
+  border-color: rgba(192,132,252,0.3);
+  background: rgba(192,132,252,0.06);
+}
+.evidence.agent-fail {
+  color: var(--danger);
+  border-color: rgba(248,113,113,0.3);
+  background: rgba(248,113,113,0.06);
+}
+
+/* ── Inline mini-braid sparkline ───────────────────────────────────── */
+.braid-sparkline {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  opacity: 0.85;
+  height: 14px;
+  margin-right: 2px;
+  overflow: hidden;
+  transition: opacity 140ms ease;
+}
+.braid-sparkline:hover { opacity: 1; }
+.braid-sparkline svg.braid-svg { display: block; }
+.braid-sparkline.empty {
+  /* Hold the slot open even when there's no data, so realm rows don't
+     jump when a drawer-focus change populates a braid view. */
+  background: transparent;
+  display: inline-block;
+}
+
+/* ── Empty-braid placeholder (no commits yet) ──────────────────── */
+.braid-no-yet {
+  padding: 64px 32px 48px;
+  text-align: center;
+  color: var(--t2);
+}
+.braid-no-yet-glyph {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 20px;
+  opacity: 0.7;
+}
+.braid-no-yet-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--t1);
+  margin-bottom: 8px;
+  letter-spacing: -0.01em;
+}
+.braid-no-yet-body {
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--t3);
+  max-width: 280px;
+  margin: 0 auto;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Shell — Topbar + Peer Bar + Main
+   Mirrors design/braid-prototype.html exactly (shell / topbar / peerbar).
+   ═══════════════════════════════════════════════════════════════════ */
+
+.shell {
+  display: grid;
+  grid-template-rows: 46px 40px 1fr auto;
+  height: 100vh;
+  position: relative;
+  z-index: 1;
+}
+
+/* ── Top bar ──────────────────────────────────────────────────────── */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--bd);
+  background: var(--bg2);
+  position: relative;
+  min-height: 46px;
+}
+.brand {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  background: linear-gradient(135deg, #818cf8 0%, #c084fc 50%, #f472b6 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  white-space: nowrap;
+}
+.brand::before {
+  content: "●";
+  -webkit-text-fill-color: var(--indigo);
+  color: var(--indigo);
+  margin-right: 8px;
+  font-size: 8px;
+  vertical-align: 2px;
+}
+.breadcrumb {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--t3);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.breadcrumb .crumb-sep { color: var(--dim); }
+.breadcrumb .crumb-active { color: var(--t1); }
+.topbar-spacer { flex: 1; }
+
+/* ── View toggle (Dashboard / Loom) ───────────────────────────────── */
+.view-toggle {
+  display: flex;
+  background: var(--bg);
+  border: 1px solid var(--bd);
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+}
+.view-toggle button {
+  background: transparent;
+  border: none;
+  color: var(--t2);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 160ms ease;
+}
+.view-toggle button.active {
+  background: var(--bg3);
+  color: var(--t1);
+  box-shadow: 0 0 0 1px var(--bd), 0 0 12px rgba(129,140,248,0.1);
+}
+.view-toggle button:hover:not(.active) { color: var(--t1); }
+
+/* ── Sync action button ───────────────────────────────────────────── */
+.sync-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
+  background: var(--bg3);
+  border: 1px solid var(--bd);
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--t1);
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 160ms ease;
+}
+.sync-action:hover { border-color: rgba(129,140,248,0.5); }
+.sync-action.active {
+  background: linear-gradient(90deg, rgba(129,140,248,0.12), rgba(244,114,182,0.12));
+  border-color: var(--indigo);
+}
+.sync-action .sync-icon {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--t3);
+  display: inline-block;
+  transition: background 140ms ease, box-shadow 140ms ease;
+}
+.sync-action.active .sync-icon {
+  background: var(--glow-green, #34d399);
+  box-shadow: 0 0 10px rgba(52,211,153,0.6);
+  animation: attn-beat 1.6s ease-in-out infinite;
+}
+.sync-action .sync-sub {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  color: var(--t3);
+  letter-spacing: 0.06em;
+}
+
+/* ── Peer bar (now a flat row matching the prototype) ─────────────── */
+.peer-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 18px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--bd);
+  min-height: 40px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.peer-bar-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--dim);
+  white-space: nowrap;
+}
+.peer-bar .peer-dot {
+  position: relative;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--bg);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform 160ms ease;
+}
+.peer-bar .peer-dot:hover { transform: scale(1.1); }
+.peer-bar .peer-dot.online::after {
+  content: "";
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--glow-green, #34d399);
+  border: 2px solid var(--bg2);
+}
+.peer-bar .peer-dot.self {
+  outline: 2px solid rgba(255, 255, 255, 0.12);
+  outline-offset: 2px;
+}
+
+/* Identity color overrides on the peer-bar only (prototype hex values,
+   so the bar reads correctly even where indras-ui's shared.css uses
+   slightly different identity hues). */
+.peer-bar .peer-dot.identity-love  { background: #ff6b9d; }
+.peer-bar .peer-dot.identity-joy   { background: #ffd93d; }
+.peer-bar .peer-dot.identity-peace { background: #6bcfff; }
+.peer-bar .peer-dot.identity-grace { background: #b19cd9; }
+.peer-bar .peer-dot.identity-hope  { background: #98d8aa; }
+.peer-bar .peer-dot.identity-faith { background: #ffb347; }
+
+.peer-add-btn {
+  margin-left: auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--t3);
+  background: transparent;
+  border: 1px dashed var(--bd);
+  border-radius: 100px;
+  padding: 2px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 140ms ease;
+}
+.peer-add-btn:hover {
+  border-color: var(--indigo);
+  color: var(--indigo);
+}
+.peer-bar-counter {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-left: 8px;
+  white-space: nowrap;
+}
+
+/* Hide the legacy vault-info-bar if anything still renders it — the
+   new topbar replaces it entirely. */
+.home-vault-main { flex: 1; min-height: 0; }
+

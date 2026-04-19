@@ -24,7 +24,14 @@ mod peer_profile_popup;
 mod recovery_setup;
 mod sync_panel;
 mod sync_stage_view;
+mod topbar;
+mod braid_graph;
+mod braid_sparkline;
+mod braid_drawer;
 
 pub use app::App;
 pub use sync_panel::{SyncOverlay, SyncPanel, SyncPanelRow};
 pub use sync_stage_view::SyncStageView;
+pub use braid_drawer::BraidDrawer;
+pub use braid_sparkline::BraidSparkline;
+pub use braid_graph::{BraidGraph, BraidGraphCfg, render_braid_svg};

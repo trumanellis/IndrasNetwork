@@ -121,6 +121,24 @@ pub const MEMBER_IDENTITY_CLASSES: &[&str] = &[
     "identity-faith",
 ];
 
+/// Deterministic member-identity class for a 32-byte id (rotates by first byte).
+pub fn member_class_for(id: &[u8; 32]) -> &'static str {
+    MEMBER_IDENTITY_CLASSES[(id[0] as usize) % MEMBER_IDENTITY_CLASSES.len()]
+}
+
+/// Hex color for a member-identity class (mirrors styles.css `.identity-*`).
+pub fn member_hex_for(id: &[u8; 32]) -> &'static str {
+    match member_class_for(id) {
+        "identity-love" => "#ff6b9d",
+        "identity-joy" => "#ffd93d",
+        "identity-peace" => "#6bcfff",
+        "identity-grace" => "#b19cd9",
+        "identity-hope" => "#98d8aa",
+        "identity-faith" => "#ffb347",
+        _ => "#818cf8",
+    }
+}
+
 /// View model for a realm entry in the column UI.
 #[derive(Debug, Clone)]
 pub struct RealmView {
@@ -208,6 +226,135 @@ pub struct ModalFile {
     pub file_path: String,
 }
 
+/// What the Braid Drawer is scoped to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BraidFocus {
+    /// Show the full braid for a realm.
+    Realm(RealmId),
+    /// Scope the braid view to a single file within a realm.
+    File {
+        /// The realm the file lives in.
+        realm: RealmId,
+        /// File path within that realm.
+        path: String,
+    },
+}
+
+impl BraidFocus {
+    /// The realm id being focused (either side of the enum).
+    pub fn realm_id(&self) -> &RealmId {
+        match self {
+            BraidFocus::Realm(r) => r,
+            BraidFocus::File { realm, .. } => realm,
+        }
+    }
+}
+
+/// Evidence badge as shown on a commit row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EvidenceView {
+    /// Automated verification passed (tests/build/lint).
+    AgentPass {
+        /// Summary string, e.g. "tests 12/12 · build · lint".
+        summary: String,
+    },
+    /// Automated verification failed.
+    AgentFail {
+        /// Short reason shown on the badge.
+        reason: String,
+    },
+    /// Human-approved commit.
+    Human {
+        /// Optional user message shown in tooltip.
+        message: Option<String>,
+    },
+}
+
+/// One changeset row as rendered in the drawer and graph.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommitView {
+    /// Short numeric id, e.g. "c6".
+    pub short_id: String,
+    /// First 8 hex chars of the ChangeId.
+    pub short_hex: String,
+    /// Author user id (raw 32 bytes).
+    pub author_id: [u8; 32],
+    /// Resolved author display name.
+    pub author_name: String,
+    /// Hex color for the author (from member identity palette).
+    pub author_color: String,
+    /// Commit intent / message.
+    pub intent: String,
+    /// Short hexes of parent change ids.
+    pub parents: Vec<String>,
+    /// Evidence badge.
+    pub evidence: EvidenceView,
+    /// Authoring time (ms since epoch).
+    pub timestamp_ms: i64,
+    /// Human-relative age (e.g. "2m", "18s").
+    pub relative_time: String,
+    /// True when this commit has 2+ parents.
+    pub is_merge: bool,
+    /// Y-lane (peer-row) assignment for graph layout.
+    pub lane: usize,
+    /// X-slot (temporal column) assignment for graph layout.
+    pub slot: usize,
+}
+
+/// One peer's HEAD within a braid.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PeerHeadView {
+    /// Raw user id.
+    pub user_id: [u8; 32],
+    /// Display name.
+    pub name: String,
+    /// Hex color.
+    pub color: String,
+    /// Is this the local user?
+    pub is_self: bool,
+    /// Short numeric id of their HEAD (e.g. "c7").
+    pub head_short_id: String,
+    /// 8-char hex of their HEAD ChangeId.
+    pub head_short_hex: String,
+    /// Number of files in their head index.
+    pub file_count: usize,
+    /// Relative time since last HEAD update.
+    pub relative_time: String,
+    /// Is this peer currently diverged from local HEAD? (Pending fork.)
+    pub is_diverged: bool,
+}
+
+/// Unresolved three-way merge conflict.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConflictView {
+    /// Logical path in conflict.
+    pub path: String,
+    /// Short hex of our side's content address.
+    pub ours_hex: String,
+    /// Short hex of their side's content address.
+    pub theirs_hex: String,
+    /// Peer name who authored the other side.
+    pub theirs_peer: String,
+}
+
+/// Pre-computed snapshot of a braid for the drawer/graph to render.
+///
+/// Built by a bridge task from a `Vault`'s `BraidDag`, then stored in
+/// `AppState::braid_view` for synchronous rendering.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BraidView {
+    /// Which realm this snapshot is for.
+    pub realm_id: RealmId,
+    /// Peers seen in this DAG, in lane-assignment order.
+    pub peers: Vec<PeerHeadView>,
+    /// All commits, newest first.
+    pub commits: Vec<CommitView>,
+    /// Peers whose HEAD diverges from local (pending merges).
+    pub pending_forks: Vec<PeerHeadView>,
+    /// Unresolved conflicts.
+    pub conflicts: Vec<ConflictView>,
+}
+
 /// Root application state.
 #[derive(Debug, Clone)]
 pub struct AppState {
@@ -265,6 +412,12 @@ pub struct AppState {
     pub peer_liveness: Option<Arc<PeerLiveness>>,
     /// Cached relay configuration loaded from `$INDRAS_DATA_DIR/relay.json`.
     pub relay_config: RelayConfig,
+    /// Is the right-docked Braid Drawer open?
+    pub braid_drawer_open: bool,
+    /// What the drawer is focused on (realm or file), if any.
+    pub braid_drawer_focus: Option<BraidFocus>,
+    /// Cached braid snapshot for the focused realm.
+    pub braid_view: Option<BraidView>,
 }
 
 impl AppState {
@@ -301,6 +454,9 @@ impl AppState {
             profile_popup_target: None,
             peer_liveness: None,
             relay_config: RelayConfig::load(),
+            braid_drawer_open: false,
+            braid_drawer_focus: None,
+            braid_view: None,
         }
     }
 }

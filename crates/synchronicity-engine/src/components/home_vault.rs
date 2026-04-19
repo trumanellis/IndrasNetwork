@@ -319,6 +319,28 @@ pub fn HomeVault(
                 }
                 state.write().realms = realm_views;
 
+                // Keep the Braid Drawer fresh: if it's focused on a realm,
+                // re-pull that realm's BraidView so new commits from peers
+                // become visible without requiring a click.
+                let drawer_focus = state.read().braid_drawer_focus.clone();
+                if let Some(focus) = drawer_focus {
+                    let realm_id = *focus.realm_id();
+                    if let Some(vm) = vault_manager.read().clone() {
+                        let peers_snap = peers.read().clone();
+                        let self_name = state.read().display_name.clone();
+                        if let Some(view) = vm
+                            .load_braid_view(&realm_id, &peers_snap, &self_name)
+                            .await
+                        {
+                            // Only write if changed, so unchanged DAGs don't
+                            // trigger re-render churn every 2 seconds.
+                            if state.read().braid_view.as_ref() != Some(&view) {
+                                state.write().braid_view = Some(view);
+                            }
+                        }
+                    }
+                }
+
                 // Proactive reconnect to ensure mutual discovery
                 for peer_info in peers.read().iter() {
                     let _ = net.connect(peer_info.member_id).await;
@@ -360,9 +382,12 @@ pub fn HomeVault(
         state.write().show_create_public = false;
     }
 
+    let player_name_for_topbar = player_name.clone();
+    let player_name_for_peerbar = player_name.clone();
+
     rsx! {
         div {
-            class: "home-vault",
+            class: "home-vault shell",
             tabindex: "0",
             onkeydown: move |e: KeyboardEvent| {
                 // Don't intercept keys when modal/editor is open
@@ -418,7 +443,16 @@ pub fn HomeVault(
                     _ => {}
                 }
             },
-            super::vault_columns::VaultColumns { state, network, vault_manager, peers: peers }
+            super::topbar::Topbar { state, display_name: player_name_for_topbar }
+            super::peer_bar::PeerBar {
+                player_name: player_name_for_peerbar,
+                peers: peers.read().clone(),
+                on_add_contact: move |_| { state.write().show_contact_invite = true; }
+            }
+            div { class: "home-vault-main",
+                super::vault_columns::VaultColumns { state, network, vault_manager, peers: peers }
+                super::braid_drawer::BraidDrawer { state }
+            }
             super::status_bar::StatusBar { state }
             super::file_modal::FileModal { state, vault_manager }
             super::context_menu::ContextMenu { state }

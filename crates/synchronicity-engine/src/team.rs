@@ -293,7 +293,7 @@ pub async fn publish_and_materialize_head(
             let manifest_clone: SymlinkIndex = manifest.clone().into();
             if let Err(e) = dag
                 .update(|d| {
-                    d.update_peer_head(user_id, change_id, manifest_clone);
+                    d.update_peer_head(user_id, change_id, manifest_clone.into());
                 })
                 .await
             {

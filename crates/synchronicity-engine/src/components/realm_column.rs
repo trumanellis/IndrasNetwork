@@ -11,9 +11,36 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 use indras_network::IndrasNetwork;
 
-use crate::state::{AppState, ContextMenu, DragPayload, ModalFile, PeerDisplayInfo, RealmCategory};
+use crate::state::{AppState, BraidFocus, ContextMenu, DragPayload, ModalFile, PeerDisplayInfo, RealmCategory};
 use crate::vault_manager::VaultManager;
+use super::braid_sparkline::BraidSparkline;
 use super::file_item::FileItem;
+
+/// Scope the Braid Drawer to a realm and kick off an async load of its
+/// `BraidView` from the live `BraidDag`. The drawer opens immediately so
+/// the slide-in animation isn't blocked by I/O; the graph fills in a
+/// moment later when the load completes.
+fn focus_drawer_on(
+    mut state: Signal<AppState>,
+    vault_manager: Signal<Option<Arc<VaultManager>>>,
+    peers: Signal<Vec<PeerDisplayInfo>>,
+    id: crate::state::RealmId,
+) {
+    {
+        let mut w = state.write();
+        w.braid_drawer_open = true;
+        w.braid_drawer_focus = Some(BraidFocus::Realm(id));
+    }
+    let vm_opt = vault_manager.read().clone();
+    let peers_snap = peers.read().clone();
+    let self_name = state.read().display_name.clone();
+    spawn(async move {
+        let Some(vm) = vm_opt else { return };
+        if let Some(view) = vm.load_braid_view(&id, &peers_snap, &self_name).await {
+            state.write().braid_view = Some(view);
+        }
+    });
+}
 
 /// A column showing realms of a specific category with accordion file lists.
 ///
@@ -180,6 +207,7 @@ pub fn RealmColumn(
                                                 sel.expanded_realms.insert(id);
                                             }
                                             state.write().selection = sel;
+                                            focus_drawer_on(state, vault_manager, peers, id);
                                         };
                                         rsx! {
                                             span {
@@ -217,6 +245,7 @@ pub fn RealmColumn(
                                                 sel.expanded_realms.insert(id);
                                             }
                                             state.write().selection = sel;
+                                            focus_drawer_on(state, vault_manager, peers, id);
                                         };
                                         rsx! {
                                             span {
@@ -224,6 +253,20 @@ pub fn RealmColumn(
                                                 onclick: toggle_name,
                                                 "{realm.display_name}"
                                             }
+                                        }
+                                    }
+                                    {
+                                        // Only render the sparkline if the currently-cached
+                                        // braid view belongs to this realm (otherwise we'd
+                                        // render other realms' history by mistake).
+                                        let sparkline_view = state
+                                            .read()
+                                            .braid_view
+                                            .as_ref()
+                                            .filter(|v| v.realm_id == id)
+                                            .cloned();
+                                        rsx! {
+                                            BraidSparkline { view: sparkline_view, width: 64.0 }
                                         }
                                     }
                                     span { class: "realm-entry-meta", "{realm.member_count}" }

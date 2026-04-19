@@ -1,0 +1,2029 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Braid Dashboard — Synchronicity Engine Prototype</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+  <style>
+    /* ===================================================================
+       DESIGN.md tokens — strict palette
+       =================================================================== */
+    :root {
+      --bg:        #09090b;        /* Deep Void */
+      --bg2:       #111114;        /* Dark Surface */
+      --bg3:       #151518;        /* Card Surface */
+      --surface:   #1c1c20;        /* Hover Surface */
+
+      --tx:        #fafafa;        /* Pure Light */
+      --t2:        #a0a0ab;        /* Soft Gray */
+      --t3:        #52525b;        /* Muted Zinc */
+      --dim:       #3f3f46;        /* Ghost Zinc */
+
+      --bd:        #27272a;        /* Border Primary */
+      --bd-sub:    #1c1c20;        /* Border Subtle */
+
+      --indigo:    #818cf8;
+      --violet:    #c084fc;
+      --pink:      #f472b6;
+      --emerald:   #34d399;
+      --amber:     #fbbf24;
+      --cyan:      #67e8f9;
+      --danger:    #f87171;
+
+      /* Gift Cycle Stages */
+      --s-intention:  #818cf8;
+      --s-attention:  #fbbf24;
+      --s-service:    #34d399;
+      --s-blessing:   #c084fc;
+      --s-token:      #f472b6;
+      --s-renewal:    #818cf8;
+
+      /* Member Identity Colors */
+      --m-love:    #ff6b9d;
+      --m-joy:     #ffd93d;
+      --m-peace:   #6bcfff;
+      --m-grace:   #b19cd9;
+      --m-hope:    #98d8aa;
+      --m-faith:   #ffb347;
+
+      /* Column glows — existing styles.css conventions */
+      --glow-private:     #ffd166;
+      --glow-connections: #5ee2ff;
+      --glow-groups:      #6ef28a;
+      --glow-world:       #ff6ef0;
+
+      --signature: linear-gradient(135deg, #818cf8 0%, #c084fc 50%, #f472b6 100%);
+
+      --radius-sm:  4px;
+      --radius:     8px;
+      --radius-md: 12px;
+      --radius-lg: 14px;
+      --radius-xl: 16px;
+
+      --body:    'Inter', -apple-system, system-ui, sans-serif;
+      --mono:    'JetBrains Mono', ui-monospace, monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--tx);
+      font-family: var(--body);
+      font-weight: 300;
+      font-size: 15px;
+      line-height: 1.7;
+      overflow: hidden;
+      letter-spacing: 0;
+    }
+
+    /* Page-level dot-grid — applied once, body::before only */
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image: radial-gradient(circle, rgba(129,140,248,0.05) 1px, transparent 1px);
+      background-size: 24px 24px;
+      z-index: 0;
+    }
+
+    /* Ambient hero glow behind the loom view */
+    .aurora-bg {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background:
+        radial-gradient(circle at 20% 30%, rgba(129,140,248,0.05) 0%, transparent 45%),
+        radial-gradient(circle at 80% 70%, rgba(244,114,182,0.04) 0%, transparent 50%);
+      z-index: 0;
+    }
+
+    button { font-family: inherit; }
+
+    /* ===================================================================
+       Shell — top bar, peer bar, main area
+       =================================================================== */
+    .shell {
+      display: grid;
+      grid-template-rows: 46px 40px 1fr;
+      height: 100vh;
+      position: relative;
+      z-index: 1;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--bd);
+      background: var(--bg2);
+      position: relative;
+    }
+
+    .brand {
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      background: var(--signature);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .brand::before {
+      content: "●";
+      -webkit-text-fill-color: var(--indigo);
+      margin-right: 8px;
+      font-size: 8px;
+      vertical-align: 2px;
+    }
+
+    .breadcrumb {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--t3);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .breadcrumb .crumb-sep { color: var(--dim); }
+    .breadcrumb .crumb-active { color: var(--tx); }
+
+    .topbar-spacer { flex: 1; }
+
+    .view-toggle {
+      display: flex;
+      background: var(--bg);
+      border: 1px solid var(--bd);
+      border-radius: var(--radius);
+      padding: 2px;
+      gap: 2px;
+    }
+    .view-toggle button {
+      background: transparent;
+      border: none;
+      color: var(--t2);
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      padding: 6px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 160ms ease;
+    }
+    .view-toggle button.active {
+      background: var(--bg3);
+      color: var(--tx);
+      box-shadow: 0 0 0 1px var(--bd), 0 0 12px rgba(129,140,248,0.1);
+    }
+    .view-toggle button:hover:not(.active) {
+      color: var(--tx);
+    }
+
+    .sync-action {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 14px;
+      background: var(--bg3);
+      border: 1px solid var(--bd);
+      border-radius: var(--radius);
+      cursor: pointer;
+      color: var(--tx);
+      font-size: 12px;
+      font-weight: 500;
+      transition: all 160ms ease;
+    }
+    .sync-action:hover { border-color: rgba(129,140,248,0.5); }
+    .sync-action.active {
+      background: linear-gradient(90deg, rgba(129,140,248,0.12), rgba(244,114,182,0.12));
+      border-color: var(--indigo);
+    }
+    .sync-action .sync-icon {
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      background: var(--t3);
+      display: inline-block;
+    }
+    .sync-action.active .sync-icon {
+      background: var(--emerald);
+      box-shadow: 0 0 10px rgba(52,211,153,0.6);
+      animation: pulse 1.6s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 0.5; }
+      50% { opacity: 1; }
+    }
+
+    /* Peer bar */
+    .peerbar {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 0 18px;
+      background: var(--bg2);
+      border-bottom: 1px solid var(--bd);
+    }
+    .peerbar-label {
+      font-family: var(--mono);
+      font-size: 9px;
+      font-weight: 500;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--dim);
+    }
+    .peer-dot {
+      position: relative;
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--bg);
+      cursor: pointer;
+      transition: transform 160ms ease;
+    }
+    .peer-dot:hover { transform: scale(1.1); }
+    .peer-dot.online::after {
+      content: "";
+      position: absolute;
+      bottom: -1px; right: -1px;
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--emerald);
+      border: 2px solid var(--bg2);
+    }
+    .peer-dot.self { outline: 2px solid rgba(255,255,255,0.12); outline-offset: 2px; }
+    .peer-dot.love    { background: var(--m-love);  }
+    .peer-dot.joy     { background: var(--m-joy);   }
+    .peer-dot.peace   { background: var(--m-peace); }
+    .peer-dot.grace   { background: var(--m-grace); }
+    .peer-dot.hope    { background: var(--m-hope);  }
+    .peer-dot.faith   { background: var(--m-faith); }
+
+    .peerbar-add {
+      margin-left: auto;
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--t3);
+      background: transparent;
+      border: 1px dashed var(--bd);
+      border-radius: 100px;
+      padding: 2px 10px;
+      cursor: pointer;
+    }
+    .peerbar-add:hover { border-color: var(--indigo); color: var(--indigo); }
+
+    /* ===================================================================
+       Main area — Dashboard (4 cols) or Loom, plus optional drawer
+       =================================================================== */
+    .main {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      min-height: 0;
+      position: relative;
+    }
+
+    .workspace {
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* --- Dashboard view: 4-column layout --- */
+    .columns {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      height: 100%;
+      min-height: 0;
+    }
+    .columns.hidden { display: none; }
+
+    .vault-column {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      border-right: 1px solid var(--bd);
+      position: relative;
+    }
+    .vault-column:last-child { border-right: none; }
+
+    /* Sync aurora — top edge animated gradient */
+    .vault-column::before {
+      content: "";
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 1px;
+      background: transparent;
+      z-index: 10;
+      pointer-events: none;
+    }
+    .vault-column.aurora::before {
+      background: linear-gradient(90deg,
+        transparent 0%,
+        var(--emerald) 20%,
+        var(--violet) 50%,
+        var(--pink) 80%,
+        transparent 100%);
+      height: 2px;
+      box-shadow: 0 0 12px rgba(129,140,248,0.5), 0 0 24px rgba(244,114,182,0.25);
+      animation: aurora-sweep 2.4s ease-in-out infinite;
+    }
+    @keyframes aurora-sweep {
+      0%   { background-position: -200% 0; }
+      100% { background-position: 200% 0; }
+    }
+    .vault-column.aurora::before { background-size: 200% 100%; }
+
+    .column-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 13px 16px 12px;
+      border-bottom: 1px solid var(--bd);
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .column-header .label { flex: 1; }
+    .column-header .icon-btn {
+      width: 22px; height: 22px;
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: var(--radius-sm);
+      color: var(--t3);
+      font-size: 14px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 140ms ease;
+    }
+    .column-header .icon-btn:hover {
+      background: var(--surface);
+      color: var(--tx);
+    }
+
+    .glow-private     { color: var(--glow-private);     text-shadow: 0 0 6px rgba(255,209,102,0.4), 0 0 14px rgba(255,209,102,0.2); }
+    .glow-connections { color: var(--glow-connections); text-shadow: 0 0 6px rgba(94,226,255,0.4),  0 0 14px rgba(94,226,255,0.2); }
+    .glow-groups      { color: var(--glow-groups);      text-shadow: 0 0 6px rgba(110,242,138,0.4), 0 0 14px rgba(110,242,138,0.2); }
+    .glow-world       { color: var(--glow-world);       text-shadow: 0 0 6px rgba(255,110,240,0.4), 0 0 14px rgba(255,110,240,0.2); }
+
+    .column-body {
+      flex: 1;
+      overflow-y: auto;
+      min-height: 0;
+    }
+    .column-body::-webkit-scrollbar { width: 6px; }
+    .column-body::-webkit-scrollbar-thumb { background: var(--surface); border-radius: 3px; }
+
+    /* Agent Lane — thin strip inside Private column */
+    .agent-lane {
+      border-bottom: 1px solid var(--bd-sub);
+      background: rgba(129,140,248,0.03);
+      padding: 10px 16px 12px;
+    }
+    .agent-lane-title {
+      font-family: var(--mono);
+      font-size: 9px;
+      font-weight: 500;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--t3);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .agent-lane-title::before {
+      content: "";
+      width: 4px; height: 4px;
+      background: var(--indigo);
+      border-radius: 50%;
+      box-shadow: 0 0 6px var(--indigo);
+      animation: pulse 2s infinite;
+    }
+    .agent-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 0;
+      font-size: 12px;
+      color: var(--t2);
+    }
+    .agent-strand {
+      flex: 1;
+      min-width: 0;
+    }
+    .agent-strand svg { display: block; }
+    .agent-name {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 500;
+      color: var(--tx);
+      letter-spacing: 0.04em;
+      min-width: 68px;
+    }
+    .agent-meta {
+      font-family: var(--mono);
+      font-size: 9px;
+      color: var(--t3);
+      letter-spacing: 0.04em;
+    }
+    .agent-merge {
+      background: transparent;
+      border: 1px solid var(--bd);
+      border-radius: 100px;
+      color: var(--indigo);
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 3px 9px;
+      cursor: pointer;
+      transition: all 140ms ease;
+    }
+    .agent-merge:hover {
+      border-color: var(--indigo);
+      background: rgba(129,140,248,0.08);
+    }
+
+    /* File + realm rows */
+    .file-item, .realm-entry {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 16px;
+      border-left: 3px solid transparent;
+      cursor: pointer;
+      transition: background 140ms ease, border-color 140ms ease;
+      position: relative;
+    }
+    .file-item:hover, .realm-entry:hover {
+      background: var(--surface);
+    }
+    .file-item.selected, .realm-entry.selected {
+      background: var(--surface);
+      border-left-color: var(--indigo);
+    }
+    .file-icon {
+      width: 20px;
+      text-align: center;
+      color: var(--t3);
+      flex-shrink: 0;
+    }
+    .file-name, .realm-entry-name {
+      flex: 1;
+      font-size: 13px;
+      color: var(--tx);
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .realm-entry-name { font-weight: 500; }
+    .file-meta {
+      font-family: var(--mono);
+      font-size: 9px;
+      color: var(--t3);
+      letter-spacing: 0.04em;
+    }
+
+    .realm-chevron {
+      width: 12px;
+      color: var(--t3);
+      font-size: 11px;
+      transition: transform 180ms ease;
+      display: inline-flex;
+      user-select: none;
+    }
+    .realm-entry.expanded .realm-chevron { transform: rotate(90deg); }
+
+    .realm-avatar {
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--bg);
+      flex-shrink: 0;
+    }
+
+    .realm-entry-meta {
+      font-family: var(--mono);
+      font-size: 9px;
+      color: var(--t3);
+      letter-spacing: 0.06em;
+    }
+
+    /* Mini braid sparkline — 80x14 inline SVG */
+    .sparkline {
+      flex-shrink: 0;
+      opacity: 0.85;
+      margin-right: 2px;
+    }
+    .sparkline:hover { opacity: 1; }
+
+    .realm-files {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 220ms ease;
+    }
+    .realm-files.expanded {
+      max-height: 500px;
+    }
+    .realm-files .file-item {
+      padding-left: 40px;
+      border-left: 3px solid transparent;
+    }
+
+    .empty-state {
+      padding: 32px 20px;
+      text-align: center;
+      color: var(--t3);
+    }
+    .empty-icon { font-size: 22px; margin-bottom: 6px; opacity: 0.5; }
+    .empty-text { font-size: 12px; }
+
+    /* ===================================================================
+       Braid Drawer (right-docked panel)
+       =================================================================== */
+    .drawer {
+      width: 440px;
+      min-width: 440px;
+      background: var(--bg2);
+      border-left: 1px solid var(--bd);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      position: relative;
+    }
+    .drawer::before {
+      content: "";
+      position: absolute;
+      left: 0; right: 0; top: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(129,140,248,0.3), rgba(244,114,182,0.2), transparent);
+    }
+    .drawer.hidden { display: none; }
+
+    .drawer-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--bd);
+      background: var(--bg3);
+    }
+    .drawer-title {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--t2);
+      flex: 1;
+    }
+    .drawer-title .realm {
+      color: var(--tx);
+      text-transform: none;
+      letter-spacing: 0.02em;
+      font-size: 13px;
+      font-weight: 600;
+      margin-left: 6px;
+    }
+    .drawer-close {
+      background: transparent;
+      border: none;
+      color: var(--t3);
+      font-size: 16px;
+      cursor: pointer;
+    }
+    .drawer-close:hover { color: var(--tx); }
+
+    .drawer-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 4px 0 20px;
+    }
+    .drawer-body::-webkit-scrollbar { width: 6px; }
+    .drawer-body::-webkit-scrollbar-thumb { background: var(--surface); border-radius: 3px; }
+
+    .drawer-section {
+      padding: 18px 18px 4px;
+      border-bottom: 1px solid var(--bd-sub);
+    }
+    .drawer-section:last-child { border-bottom: none; }
+    .drawer-section-title {
+      font-family: var(--mono);
+      font-size: 9px;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--t3);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .drawer-section-title .count {
+      font-family: var(--mono);
+      font-size: 9px;
+      color: var(--dim);
+      background: var(--bg3);
+      border: 1px solid var(--bd);
+      border-radius: 100px;
+      padding: 1px 7px;
+    }
+
+    /* Full braid graph — inside drawer */
+    .braid-graph {
+      margin: 6px -18px 18px;
+      padding: 12px 18px;
+      background: linear-gradient(180deg, rgba(129,140,248,0.02), transparent);
+      border-top: 1px solid var(--bd-sub);
+      border-bottom: 1px solid var(--bd-sub);
+    }
+    .braid-graph svg { display: block; width: 100%; height: auto; }
+
+    .peer-head-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 0;
+      border-bottom: 1px solid var(--bd-sub);
+    }
+    .peer-head-row:last-child { border-bottom: none; }
+    .peer-head-row .peer-dot { width: 18px; height: 18px; font-size: 9px; }
+    .peer-head-row .peer-name {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--tx);
+      min-width: 70px;
+    }
+    .peer-head-row .peer-hash {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--t2);
+      letter-spacing: 0.04em;
+    }
+    .peer-head-row .peer-meta {
+      font-family: var(--mono);
+      font-size: 9px;
+      color: var(--t3);
+      margin-left: auto;
+      letter-spacing: 0.04em;
+    }
+    .peer-head-row.you .peer-name::after {
+      content: "you";
+      font-family: var(--mono);
+      font-size: 8px;
+      color: var(--indigo);
+      background: rgba(129,140,248,0.08);
+      border: 1px solid rgba(129,140,248,0.3);
+      padding: 1px 6px;
+      border-radius: 100px;
+      margin-left: 8px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .commit-row {
+      display: grid;
+      grid-template-columns: 20px 1fr auto;
+      gap: 10px;
+      align-items: start;
+      padding: 9px 0;
+      border-bottom: 1px solid var(--bd-sub);
+    }
+    .commit-row:last-child { border-bottom: none; }
+    .commit-knot {
+      width: 12px; height: 12px;
+      border-radius: 50%;
+      margin-top: 4px;
+      position: relative;
+    }
+    .commit-knot::after {
+      content: "";
+      position: absolute;
+      inset: -3px;
+      border-radius: 50%;
+      box-shadow: 0 0 10px currentColor;
+      opacity: 0.35;
+    }
+    .commit-intent {
+      font-size: 13px;
+      color: var(--tx);
+      line-height: 1.45;
+    }
+    .commit-meta {
+      display: flex;
+      gap: 8px;
+      margin-top: 3px;
+      font-family: var(--mono);
+      font-size: 9px;
+      color: var(--t3);
+      letter-spacing: 0.04em;
+    }
+    .commit-hash { color: var(--t2); }
+    .commit-author { color: var(--t3); }
+
+    .evidence {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-family: var(--mono);
+      font-size: 8px;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      padding: 2px 7px;
+      border-radius: 100px;
+      border: 1px solid;
+      margin-top: 4px;
+      white-space: nowrap;
+    }
+    .evidence.agent-pass {
+      color: var(--emerald);
+      border-color: rgba(52,211,153,0.3);
+      background: rgba(52,211,153,0.06);
+    }
+    .evidence.human {
+      color: var(--violet);
+      border-color: rgba(192,132,252,0.3);
+      background: rgba(192,132,252,0.06);
+    }
+    .evidence.agent-fail {
+      color: var(--danger);
+      border-color: rgba(248,113,113,0.3);
+      background: rgba(248,113,113,0.06);
+    }
+
+    .fork-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 11px 0;
+      border-bottom: 1px solid var(--bd-sub);
+    }
+    .fork-row:last-child { border-bottom: none; }
+    .fork-info { flex: 1; }
+    .fork-author {
+      font-size: 13px;
+      color: var(--tx);
+      font-weight: 500;
+    }
+    .fork-detail {
+      font-family: var(--mono);
+      font-size: 9px;
+      color: var(--t3);
+      letter-spacing: 0.04em;
+      margin-top: 1px;
+    }
+    .btn-merge {
+      background: transparent;
+      color: var(--indigo);
+      border: 1px solid rgba(129,140,248,0.4);
+      border-radius: 100px;
+      padding: 5px 14px;
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: all 160ms ease;
+    }
+    .btn-merge:hover {
+      background: rgba(129,140,248,0.08);
+      border-color: var(--indigo);
+    }
+    .btn-merge.trusted {
+      color: var(--emerald);
+      border-color: rgba(52,211,153,0.4);
+    }
+    .btn-merge.trusted:hover {
+      background: rgba(52,211,153,0.08);
+      border-color: var(--emerald);
+    }
+
+    .conflict-row {
+      border-left: 3px solid var(--amber);
+      background: rgba(251,191,36,0.04);
+      padding: 10px 14px;
+      border-radius: 0 var(--radius) var(--radius) 0;
+      margin-bottom: 10px;
+    }
+    .conflict-path {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--amber);
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      margin-bottom: 6px;
+    }
+    .conflict-versions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      font-family: var(--mono);
+      font-size: 9px;
+    }
+    .conflict-side {
+      background: var(--bg);
+      border: 1px solid var(--bd);
+      border-radius: var(--radius-sm);
+      padding: 6px 8px;
+      cursor: pointer;
+      transition: border-color 140ms ease;
+    }
+    .conflict-side:hover { border-color: var(--amber); }
+    .conflict-side-label {
+      color: var(--t3);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-size: 8px;
+      margin-bottom: 2px;
+    }
+    .conflict-side-hash { color: var(--tx); font-size: 10px; }
+
+    /* ===================================================================
+       Loom View — full viewport horizontal braid
+       =================================================================== */
+    .loom {
+      display: none;
+      height: 100%;
+      min-height: 0;
+      background: var(--bg);
+    }
+    .loom.active { display: block; }
+
+    .loom-main {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    /* Legend trigger button in the filter bar */
+    .legend-trigger {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      background: var(--bg);
+      border: 1px solid var(--bd);
+      border-radius: 100px;
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--t2);
+      cursor: pointer;
+      margin-left: auto;
+      transition: all 140ms ease;
+    }
+    .legend-trigger:hover {
+      color: var(--indigo);
+      border-color: var(--indigo);
+    }
+    .legend-trigger::before {
+      content: "◎";
+      font-size: 10px;
+      color: var(--indigo);
+    }
+
+    /* Legend modal (replaces the former sidebar) */
+    .legend-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(9,9,11,0.6);
+      backdrop-filter: blur(8px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 90;
+    }
+    .legend-overlay.visible { display: flex; }
+    .legend-modal {
+      width: 380px;
+      max-width: 88vw;
+      background: var(--bg2);
+      border: 1px solid var(--bd);
+      border-radius: 12px;
+      padding: 24px 26px 22px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.6), 0 0 0 1px rgba(129,140,248,0.1);
+      position: relative;
+    }
+    .legend-modal::before {
+      content: "";
+      position: absolute;
+      left: 0; right: 0; top: 0;
+      height: 2px;
+      background: var(--signature);
+      opacity: 0.6;
+      border-radius: 12px 12px 0 0;
+    }
+    .legend-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .legend-modal-title {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--t2);
+    }
+    .legend-close {
+      background: transparent;
+      border: none;
+      color: var(--t3);
+      font-size: 16px;
+      cursor: pointer;
+      line-height: 1;
+      padding: 2px 6px;
+    }
+    .legend-close:hover { color: var(--tx); }
+    .legend-modal h4 {
+      font-family: var(--mono);
+      font-size: 9px;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--t3);
+      margin: 0 0 8px 0;
+    }
+    .legend-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+      font-size: 11px;
+      color: var(--t2);
+    }
+    .legend-swatch {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .legend-group + .legend-group { margin-top: 18px; }
+
+    .loom-filters {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--bd);
+      background: var(--bg2);
+      flex-wrap: wrap;
+    }
+    .filter-label {
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--t3);
+    }
+    .filter-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      background: var(--bg);
+      border: 1px solid var(--bd);
+      border-radius: 100px;
+      font-size: 11px;
+      color: var(--t2);
+      cursor: pointer;
+      transition: all 140ms ease;
+    }
+    .filter-chip:hover { border-color: var(--indigo); color: var(--tx); }
+    .filter-chip.active {
+      background: rgba(129,140,248,0.08);
+      border-color: var(--indigo);
+      color: var(--indigo);
+    }
+
+    .loom-canvas {
+      flex: 1;
+      overflow: auto;
+      padding: 20px 20px 40px;
+      background:
+        linear-gradient(180deg, transparent, rgba(129,140,248,0.015), transparent);
+    }
+    .loom-canvas svg {
+      display: block;
+      /* width is content-driven; height fits peer lanes */
+    }
+
+    /* ===================================================================
+       Tooltip
+       =================================================================== */
+    .tooltip {
+      position: fixed;
+      background: var(--bg3);
+      border: 1px solid var(--bd);
+      border-radius: var(--radius);
+      padding: 8px 10px;
+      font-size: 11px;
+      color: var(--tx);
+      pointer-events: none;
+      z-index: 1000;
+      display: none;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+      max-width: 280px;
+    }
+    .tooltip.visible { display: block; }
+    .tooltip-title {
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .tooltip-meta {
+      font-family: var(--mono);
+      font-size: 9px;
+      color: var(--t3);
+      letter-spacing: 0.04em;
+    }
+
+    /* ===================================================================
+       Content palette (Cmd-K)
+       =================================================================== */
+    .palette-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(9,9,11,0.7);
+      backdrop-filter: blur(8px);
+      display: none;
+      align-items: flex-start;
+      justify-content: center;
+      padding-top: 120px;
+      z-index: 100;
+    }
+    .palette-overlay.visible { display: flex; }
+    .palette {
+      width: 560px;
+      max-width: 90vw;
+      background: var(--bg2);
+      border: 1px solid var(--bd);
+      border-radius: var(--radius-md);
+      box-shadow: 0 20px 60px rgba(0,0,0,0.6), 0 0 0 1px rgba(129,140,248,0.1);
+      overflow: hidden;
+    }
+    .palette::before {
+      content: "";
+      display: block;
+      height: 2px;
+      background: var(--signature);
+      opacity: 0.5;
+    }
+    .palette input {
+      width: 100%;
+      background: transparent;
+      border: none;
+      color: var(--tx);
+      font-family: var(--mono);
+      font-size: 13px;
+      padding: 18px 22px;
+      outline: none;
+      border-bottom: 1px solid var(--bd);
+    }
+    .palette input::placeholder { color: var(--t3); }
+    .palette-result {
+      padding: 12px 22px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      cursor: pointer;
+      border-bottom: 1px solid var(--bd-sub);
+    }
+    .palette-result:hover { background: var(--surface); }
+    .palette-result-type {
+      font-family: var(--mono);
+      font-size: 8px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--t3);
+      background: var(--bg3);
+      border: 1px solid var(--bd);
+      padding: 2px 7px;
+      border-radius: 100px;
+    }
+    .palette-result-content {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--tx);
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* ===================================================================
+       Responsive: below 768, the drawer stacks
+       =================================================================== */
+    @media (max-width: 900px) {
+      .drawer { width: 380px; min-width: 380px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="aurora-bg"></div>
+
+  <div class="shell">
+    <!-- Top bar -->
+    <div class="topbar">
+      <div class="brand">Synchronicity Engine</div>
+      <div class="breadcrumb">
+        <span>vaults</span>
+        <span class="crumb-sep">/</span>
+        <span class="crumb-active">project&nbsp;indra</span>
+      </div>
+      <div class="topbar-spacer"></div>
+      <div class="view-toggle">
+        <button id="view-dashboard" class="active">Dashboard</button>
+        <button id="view-loom">Loom <span style="opacity: .55; margin-left: 4px; font-size: 8px;">⌘L</span></button>
+      </div>
+      <button class="sync-action" id="sync-btn">
+        <span class="sync-icon"></span>
+        <span>Sync</span>
+        <span style="font-family: var(--mono); font-size: 9px; color: var(--t3); letter-spacing: 0.06em;">up to date</span>
+      </button>
+    </div>
+
+    <!-- Peer bar -->
+    <div class="peerbar">
+      <span class="peerbar-label">peers</span>
+      <span class="peer-dot self love online" title="You — Love">L</span>
+      <span class="peer-dot joy online" title="Joy">J</span>
+      <span class="peer-dot peace online" title="Peace">P</span>
+      <span class="peer-dot grace" title="Grace (offline)">G</span>
+      <span class="peer-dot hope online" title="Hope">H</span>
+      <button class="peerbar-add">+ add contact</button>
+      <span class="peerbar-label" style="margin-left: 20px;">4 online · 1 offline</span>
+    </div>
+
+    <!-- Main area -->
+    <div class="main">
+      <div class="workspace">
+        <!-- Dashboard: 4 columns -->
+        <div class="columns" id="columns">
+
+          <!-- PRIVATE column -->
+          <div class="vault-column" id="col-private">
+            <div class="column-header">
+              <span class="label glow-private">private</span>
+              <button class="icon-btn" title="Edit profile">◔</button>
+              <button class="icon-btn" title="Open folder">⌘</button>
+              <button class="icon-btn" title="Sync">↻</button>
+              <button class="icon-btn" title="New file">+</button>
+            </div>
+
+            <!-- Agent Lane: visible only when AgentBraid has forks -->
+            <div class="agent-lane">
+              <div class="agent-lane-title">agents · 2 forks</div>
+              <div class="agent-row">
+                <span class="agent-name">researcher</span>
+                <div class="agent-strand">
+                  <svg viewBox="0 0 120 14" width="100%" height="14" preserveAspectRatio="none">
+                    <defs>
+                      <linearGradient id="agentStrandA" x1="0" x2="1" y1="0" y2="0">
+                        <stop offset="0" stop-color="#818cf8" stop-opacity="0.1"/>
+                        <stop offset="1" stop-color="#818cf8" stop-opacity="0.8"/>
+                      </linearGradient>
+                    </defs>
+                    <path d="M 0 7 C 30 2, 60 12, 90 7 S 120 6, 120 7" stroke="url(#agentStrandA)" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+                    <circle cx="30" cy="5" r="2" fill="#818cf8"/>
+                    <circle cx="60" cy="9" r="2" fill="#818cf8"/>
+                    <circle cx="90" cy="6" r="2.4" fill="#818cf8"/>
+                  </svg>
+                </div>
+                <span class="agent-meta">3 changes</span>
+                <button class="agent-merge">merge</button>
+              </div>
+              <div class="agent-row">
+                <span class="agent-name">coder</span>
+                <div class="agent-strand">
+                  <svg viewBox="0 0 120 14" width="100%" height="14" preserveAspectRatio="none">
+                    <defs>
+                      <linearGradient id="agentStrandB" x1="0" x2="1" y1="0" y2="0">
+                        <stop offset="0" stop-color="#c084fc" stop-opacity="0.1"/>
+                        <stop offset="1" stop-color="#c084fc" stop-opacity="0.8"/>
+                      </linearGradient>
+                    </defs>
+                    <path d="M 0 7 L 60 7 L 120 7" stroke="url(#agentStrandB)" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+                    <circle cx="90" cy="7" r="2.4" fill="#c084fc"/>
+                  </svg>
+                </div>
+                <span class="agent-meta">1 change</span>
+                <button class="agent-merge">merge</button>
+              </div>
+            </div>
+
+            <div class="column-body">
+              <div class="file-item" data-realm="private" data-file="draft.md">
+                <span class="file-icon">📝</span>
+                <span class="file-name">draft.md</span>
+                <svg class="sparkline" width="64" height="14" viewBox="0 0 64 14">
+                  <path d="M 2 7 L 64 7" stroke="#ff6b9d" stroke-width="1" stroke-opacity="0.3" fill="none"/>
+                  <circle cx="8"  cy="7" r="2" fill="#ff6b9d"/>
+                  <circle cx="24" cy="7" r="2" fill="#ff6b9d"/>
+                  <circle cx="40" cy="7" r="2" fill="#ff6b9d"/>
+                  <circle cx="58" cy="7" r="2.4" fill="#ff6b9d" stroke="#fafafa" stroke-width="0.6"/>
+                </svg>
+                <span class="file-meta">4.2k</span>
+              </div>
+              <div class="file-item" data-file="ideas.md">
+                <span class="file-icon">📝</span>
+                <span class="file-name">ideas/fractal-braids.md</span>
+                <svg class="sparkline" width="64" height="14" viewBox="0 0 64 14">
+                  <path d="M 2 7 L 64 7" stroke="#ff6b9d" stroke-width="1" stroke-opacity="0.3" fill="none"/>
+                  <circle cx="8"  cy="7" r="2" fill="#ff6b9d"/>
+                  <circle cx="58" cy="7" r="2.4" fill="#ff6b9d" stroke="#fafafa" stroke-width="0.6"/>
+                </svg>
+                <span class="file-meta">1.8k</span>
+              </div>
+              <div class="file-item" data-file="image.png">
+                <span class="file-icon">🖼</span>
+                <span class="file-name">artifacts/mandala.png</span>
+                <svg class="sparkline" width="64" height="14" viewBox="0 0 64 14">
+                  <circle cx="58" cy="7" r="2.4" fill="#ff6b9d" stroke="#fafafa" stroke-width="0.6"/>
+                </svg>
+                <span class="file-meta">220k</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- CONNECTIONS -->
+          <div class="vault-column">
+            <div class="column-header">
+              <span class="label glow-connections">connections</span>
+              <button class="icon-btn" title="Add contact">+</button>
+            </div>
+            <div class="column-body">
+              <div class="realm-entry" data-realm="joy-dm">
+                <span class="realm-chevron">▸</span>
+                <span class="realm-avatar peer-dot joy">J</span>
+                <span class="realm-entry-name">Joy</span>
+                <svg class="sparkline" width="60" height="14" viewBox="0 0 60 14">
+                  <path d="M 2 9 L 58 9" stroke="#ff6b9d" stroke-width="1" stroke-opacity="0.2" fill="none"/>
+                  <path d="M 2 5 L 58 5" stroke="#ffd93d" stroke-width="1" stroke-opacity="0.4" fill="none"/>
+                  <circle cx="12" cy="5" r="1.8" fill="#ffd93d"/>
+                  <circle cx="28" cy="9" r="1.8" fill="#ff6b9d"/>
+                  <circle cx="42" cy="5" r="1.8" fill="#ffd93d"/>
+                  <circle cx="54" cy="5" r="2.2" fill="#ffd93d" stroke="#fafafa" stroke-width="0.6"/>
+                </svg>
+                <span class="realm-entry-meta">2</span>
+              </div>
+              <div class="realm-entry" data-realm="peace-dm">
+                <span class="realm-chevron">▸</span>
+                <span class="realm-avatar peer-dot peace">P</span>
+                <span class="realm-entry-name">Peace</span>
+                <svg class="sparkline" width="60" height="14" viewBox="0 0 60 14">
+                  <path d="M 2 7 L 58 7" stroke="#6bcfff" stroke-width="1" stroke-opacity="0.3" fill="none"/>
+                  <circle cx="14" cy="7" r="1.8" fill="#6bcfff"/>
+                  <circle cx="54" cy="7" r="2.2" fill="#ff6b9d" stroke="#fafafa" stroke-width="0.6"/>
+                </svg>
+                <span class="realm-entry-meta">2</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- GROUPS -->
+          <div class="vault-column">
+            <div class="column-header">
+              <span class="label glow-groups">groups</span>
+              <button class="icon-btn" title="New group">+</button>
+            </div>
+            <div class="column-body">
+              <div class="realm-entry selected expanded" data-realm="indra">
+                <span class="realm-chevron">▸</span>
+                <span class="realm-avatar peer-dot grace">◆</span>
+                <span class="realm-entry-name">Project Indra</span>
+                <svg class="sparkline" width="70" height="14" viewBox="0 0 70 14">
+                  <defs>
+                    <linearGradient id="groupGrad" x1="0" y1="0" x2="1" y2="0">
+                      <stop offset="0" stop-color="#3f3f46"/>
+                      <stop offset="1" stop-color="#fafafa" stop-opacity="0.2"/>
+                    </linearGradient>
+                  </defs>
+                  <!-- Two braided strands -->
+                  <path d="M 2 5 C 12 5, 18 9, 30 9 S 48 9, 55 5" stroke="#ff6b9d" stroke-width="1.2" stroke-opacity="0.55" fill="none"/>
+                  <path d="M 2 9 C 12 9, 18 5, 30 5 S 48 5, 55 9" stroke="#ffd93d" stroke-width="1.2" stroke-opacity="0.55" fill="none"/>
+                  <path d="M 55 7 L 68 7" stroke="url(#groupGrad)" stroke-width="1.4" fill="none"/>
+                  <circle cx="10" cy="5" r="1.8" fill="#ff6b9d"/>
+                  <circle cx="20" cy="9" r="1.8" fill="#ffd93d"/>
+                  <circle cx="36" cy="5" r="1.8" fill="#6bcfff"/>
+                  <circle cx="48" cy="7" r="2.4" fill="#c084fc" stroke="#fafafa" stroke-width="0.6"/>
+                  <circle cx="64" cy="7" r="2.2" fill="#ff6b9d" stroke="#fafafa" stroke-width="0.6"/>
+                </svg>
+                <span class="realm-entry-meta">4</span>
+              </div>
+              <div class="realm-files expanded">
+                <div class="file-item">
+                  <span class="file-icon">📝</span>
+                  <span class="file-name">README.md</span>
+                  <svg class="sparkline" width="48" height="14" viewBox="0 0 48 14">
+                    <path d="M 2 7 L 46 7" stroke="#ff6b9d" stroke-width="1" stroke-opacity="0.3" fill="none"/>
+                    <circle cx="8"  cy="7" r="1.6" fill="#ff6b9d"/>
+                    <circle cx="24" cy="7" r="1.6" fill="#ffd93d"/>
+                    <circle cx="42" cy="7" r="2" fill="#ff6b9d" stroke="#fafafa" stroke-width="0.5"/>
+                  </svg>
+                  <span class="file-meta">3.1k</span>
+                </div>
+                <div class="file-item">
+                  <span class="file-icon">📝</span>
+                  <span class="file-name">DESIGN.md</span>
+                  <svg class="sparkline" width="48" height="14" viewBox="0 0 48 14">
+                    <path d="M 2 5 C 20 5, 30 9, 46 9" stroke="#ffd93d" stroke-width="1" stroke-opacity="0.4" fill="none"/>
+                    <path d="M 2 9 C 20 9, 30 5, 46 5" stroke="#ff6b9d" stroke-width="1" stroke-opacity="0.4" fill="none"/>
+                    <circle cx="14" cy="5" r="1.6" fill="#ffd93d"/>
+                    <circle cx="42" cy="5" r="2" fill="#ff6b9d" stroke="#fafafa" stroke-width="0.5"/>
+                  </svg>
+                  <span class="file-meta">12k</span>
+                </div>
+                <div class="file-item">
+                  <span class="file-icon">📎</span>
+                  <span class="file-name">src/lib.rs</span>
+                  <svg class="sparkline" width="48" height="14" viewBox="0 0 48 14">
+                    <path d="M 2 7 L 46 7" stroke="#6bcfff" stroke-width="1" stroke-opacity="0.3" fill="none"/>
+                    <circle cx="42" cy="7" r="2" fill="#6bcfff" stroke="#fafafa" stroke-width="0.5"/>
+                  </svg>
+                  <span class="file-meta">0.9k</span>
+                </div>
+                <div class="file-item">
+                  <span class="file-icon">📝</span>
+                  <span class="file-name">examples/mandala.md</span>
+                  <svg class="sparkline" width="48" height="14" viewBox="0 0 48 14">
+                    <circle cx="42" cy="7" r="2" fill="#ffd93d" stroke="#fafafa" stroke-width="0.5"/>
+                  </svg>
+                  <span class="file-meta">0.4k</span>
+                </div>
+              </div>
+              <div class="realm-entry" data-realm="notes">
+                <span class="realm-chevron">▸</span>
+                <span class="realm-avatar peer-dot hope">◆</span>
+                <span class="realm-entry-name">Garden Notes</span>
+                <svg class="sparkline" width="70" height="14" viewBox="0 0 70 14">
+                  <path d="M 2 7 L 68 7" stroke="#98d8aa" stroke-width="1" stroke-opacity="0.3" fill="none"/>
+                  <circle cx="18" cy="7" r="1.8" fill="#98d8aa"/>
+                  <circle cx="44" cy="7" r="1.8" fill="#ff6b9d"/>
+                  <circle cx="64" cy="7" r="2.2" fill="#98d8aa" stroke="#fafafa" stroke-width="0.6"/>
+                </svg>
+                <span class="realm-entry-meta">3</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- WORLD -->
+          <div class="vault-column">
+            <div class="column-header">
+              <span class="label glow-world">world</span>
+              <button class="icon-btn" title="New world vault">+</button>
+            </div>
+            <div class="column-body">
+              <div class="realm-entry" data-realm="forum">
+                <span class="realm-chevron">▸</span>
+                <span class="realm-avatar peer-dot faith">◆</span>
+                <span class="realm-entry-name">Gift Economy Forum</span>
+                <svg class="sparkline" width="70" height="14" viewBox="0 0 70 14">
+                  <path d="M 2 4 C 20 4, 30 10, 55 10" stroke="#ffb347" stroke-width="1" stroke-opacity="0.4" fill="none"/>
+                  <path d="M 2 10 C 20 10, 30 4, 55 4" stroke="#b19cd9" stroke-width="1" stroke-opacity="0.4" fill="none"/>
+                  <path d="M 2 7 L 68 7" stroke="#ff6b9d" stroke-width="1" stroke-opacity="0.3" fill="none"/>
+                  <circle cx="12" cy="4" r="1.6" fill="#ffb347"/>
+                  <circle cx="26" cy="10" r="1.6" fill="#b19cd9"/>
+                  <circle cx="40" cy="7" r="1.6" fill="#6bcfff"/>
+                  <circle cx="52" cy="7" r="2.4" fill="#c084fc" stroke="#fafafa" stroke-width="0.6"/>
+                  <circle cx="64" cy="7" r="2" fill="#ffb347" stroke="#fafafa" stroke-width="0.6"/>
+                </svg>
+                <span class="realm-entry-meta">47</span>
+              </div>
+              <div class="empty-state" style="padding-top: 48px;">
+                <div class="empty-icon">🌍</div>
+                <div class="empty-text">join a world to see its weave</div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Loom view -->
+        <div class="loom" id="loom">
+          <div class="loom-main">
+            <div class="loom-filters">
+              <span class="filter-label">realm</span>
+              <button class="filter-chip active">Project Indra</button>
+              <span class="filter-label" style="margin-left: 16px;">peers</span>
+              <button class="filter-chip active">Love</button>
+              <button class="filter-chip active">Joy</button>
+              <button class="filter-chip active">Peace</button>
+              <button class="filter-chip active">Grace</button>
+              <span class="filter-label" style="margin-left: 16px;">evidence</span>
+              <button class="filter-chip">only passing</button>
+              <button class="filter-chip">only human-approved</button>
+              <button class="legend-trigger" id="legend-trigger">Legend</button>
+            </div>
+            <div class="loom-canvas" id="loom-canvas">
+              <!-- Generated SVG braid fills here -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Legend modal (opens from the Loom filter bar) -->
+        <div class="legend-overlay" id="legend-overlay">
+          <div class="legend-modal" role="dialog" aria-label="Loom legend">
+            <div class="legend-modal-header">
+              <span class="legend-modal-title">Legend</span>
+              <button class="legend-close" id="legend-close" aria-label="Close legend">×</button>
+            </div>
+            <div class="legend-group">
+              <h4>peers</h4>
+              <div class="legend-row"><span class="legend-swatch" style="background: var(--m-love)"></span>Love (you)</div>
+              <div class="legend-row"><span class="legend-swatch" style="background: var(--m-joy)"></span>Joy</div>
+              <div class="legend-row"><span class="legend-swatch" style="background: var(--m-peace)"></span>Peace</div>
+              <div class="legend-row"><span class="legend-swatch" style="background: var(--m-grace)"></span>Grace</div>
+            </div>
+            <div class="legend-group">
+              <h4>evidence</h4>
+              <div class="legend-row"><span class="legend-swatch" style="background: var(--emerald)"></span>build + tests pass</div>
+              <div class="legend-row"><span class="legend-swatch" style="background: var(--violet)"></span>human approved</div>
+              <div class="legend-row"><span class="legend-swatch" style="background: var(--amber)"></span>conflict zone</div>
+              <div class="legend-row"><span class="legend-swatch" style="background: var(--danger)"></span>build failed</div>
+            </div>
+            <div class="legend-group">
+              <h4>threads</h4>
+              <div class="legend-row" style="font-size: 10px; line-height: 1.6; color: var(--t3);">inner feathered strands = local agent work (private, pre-promotion)</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Braid Drawer (right-docked) -->
+      <aside class="drawer" id="drawer">
+        <div class="drawer-header">
+          <span class="drawer-title">braid<span class="realm">Project Indra</span></span>
+          <button class="drawer-close" id="drawer-close">×</button>
+        </div>
+        <div class="drawer-body">
+          <!-- Inline braid graph at the top of the drawer -->
+          <div class="braid-graph" id="drawer-braid"></div>
+
+          <div class="drawer-section">
+            <div class="drawer-section-title">peer heads <span class="count">4</span></div>
+            <div class="peer-head-row you">
+              <span class="peer-dot love" style="width: 18px; height: 18px; font-size: 9px;">L</span>
+              <span class="peer-name">Love</span>
+              <span class="peer-hash">c6 · 4a9f…</span>
+              <span class="peer-meta">4 files · 2m ago</span>
+            </div>
+            <div class="peer-head-row">
+              <span class="peer-dot joy" style="width: 18px; height: 18px; font-size: 9px;">J</span>
+              <span class="peer-name">Joy</span>
+              <span class="peer-hash">c7 · 8c21…</span>
+              <span class="peer-meta">5 files · 18s ago</span>
+            </div>
+            <div class="peer-head-row">
+              <span class="peer-dot peace" style="width: 18px; height: 18px; font-size: 9px;">P</span>
+              <span class="peer-name">Peace</span>
+              <span class="peer-hash">c6 · 4a9f…</span>
+              <span class="peer-meta">4 files · 2m ago</span>
+            </div>
+            <div class="peer-head-row">
+              <span class="peer-dot grace" style="width: 18px; height: 18px; font-size: 9px;">G</span>
+              <span class="peer-name">Grace</span>
+              <span class="peer-hash">c2 · 11de…</span>
+              <span class="peer-meta">2 files · offline</span>
+            </div>
+          </div>
+
+          <div class="drawer-section">
+            <div class="drawer-section-title">pending merges <span class="count">1</span></div>
+            <div class="fork-row">
+              <span class="peer-dot joy" style="width: 24px; height: 24px; font-size: 10px;">J</span>
+              <div class="fork-info">
+                <div class="fork-author">Joy · 2 new changesets</div>
+                <div class="fork-detail">+2 files · c7 · 8c21d3e0</div>
+              </div>
+              <button class="btn-merge trusted">merge</button>
+            </div>
+          </div>
+
+          <div class="drawer-section" id="conflict-section" style="display: none;">
+            <div class="drawer-section-title">conflicts <span class="count" style="color: var(--amber); border-color: var(--amber);">1</span></div>
+            <div class="conflict-row">
+              <div class="conflict-path">src/lib.rs</div>
+              <div class="conflict-versions">
+                <div class="conflict-side">
+                  <div class="conflict-side-label">ours (Love)</div>
+                  <div class="conflict-side-hash">af02…7d41</div>
+                </div>
+                <div class="conflict-side">
+                  <div class="conflict-side-label">theirs (Joy)</div>
+                  <div class="conflict-side-hash">9c88…2e1a</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="drawer-section">
+            <div class="drawer-section-title">recent commits <span class="count">7</span></div>
+            <div id="commit-list">
+              <div class="commit-row">
+                <div class="commit-knot" style="background: #ffd93d; color: #ffd93d;"></div>
+                <div>
+                  <div class="commit-intent">add worked examples</div>
+                  <div class="commit-meta">
+                    <span class="commit-hash">c7 · 8c21d3e0</span>
+                    <span class="commit-author">Joy · 18s</span>
+                  </div>
+                  <span class="evidence agent-pass">● tests 12/12 · build · lint</span>
+                </div>
+                <div></div>
+              </div>
+              <div class="commit-row">
+                <div class="commit-knot" style="background: #ff6b9d; color: #ff6b9d;"></div>
+                <div>
+                  <div class="commit-intent">extend spec: fractal promotion rules</div>
+                  <div class="commit-meta">
+                    <span class="commit-hash">c6 · 4a9f6b21</span>
+                    <span class="commit-author">Love · 2m</span>
+                  </div>
+                  <span class="evidence human">✦ human approved</span>
+                </div>
+                <div></div>
+              </div>
+              <div class="commit-row">
+                <div class="commit-knot" style="background: #ff6b9d; color: #ff6b9d;"></div>
+                <div>
+                  <div class="commit-intent">merge: Joy's design spec + Peace's typo fix</div>
+                  <div class="commit-meta">
+                    <span class="commit-hash">c5 · 2110fa4c</span>
+                    <span class="commit-author">Love · 5m · merge</span>
+                  </div>
+                  <span class="evidence agent-pass">● tests 11/11 · build · lint</span>
+                </div>
+                <div></div>
+              </div>
+              <div class="commit-row">
+                <div class="commit-knot" style="background: #6bcfff; color: #6bcfff;"></div>
+                <div>
+                  <div class="commit-intent">fix typo in architecture notes</div>
+                  <div class="commit-meta">
+                    <span class="commit-hash">c4 · d6e1ab09</span>
+                    <span class="commit-author">Peace · 6m</span>
+                  </div>
+                  <span class="evidence agent-pass">● lint clean</span>
+                </div>
+                <div></div>
+              </div>
+              <div class="commit-row">
+                <div class="commit-knot" style="background: #ffd93d; color: #ffd93d;"></div>
+                <div>
+                  <div class="commit-intent">add design spec sections</div>
+                  <div class="commit-meta">
+                    <span class="commit-hash">c3 · 77ba0f13</span>
+                    <span class="commit-author">Joy · 6m</span>
+                  </div>
+                  <span class="evidence agent-fail">✕ 2 tests failed</span>
+                </div>
+                <div></div>
+              </div>
+              <div class="commit-row">
+                <div class="commit-knot" style="background: #ff6b9d; color: #ff6b9d;"></div>
+                <div>
+                  <div class="commit-intent">add architecture notes</div>
+                  <div class="commit-meta">
+                    <span class="commit-hash">c2 · 11de9081</span>
+                    <span class="commit-author">Love · 14m</span>
+                  </div>
+                </div>
+                <div></div>
+              </div>
+              <div class="commit-row">
+                <div class="commit-knot" style="background: #ff6b9d; color: #ff6b9d;"></div>
+                <div>
+                  <div class="commit-intent">init readme</div>
+                  <div class="commit-meta">
+                    <span class="commit-hash">c1 · 00b44a7f</span>
+                    <span class="commit-author">Love · 22m</span>
+                  </div>
+                </div>
+                <div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <div class="tooltip" id="tooltip"></div>
+
+  <!-- Command palette -->
+  <div class="palette-overlay" id="palette-overlay">
+    <div class="palette">
+      <input type="text" placeholder="paste a hash, changeset id, or logical path…" />
+      <div class="palette-result">
+        <span class="palette-result-type">changeset</span>
+        <span class="palette-result-content">4a9f6b21… · Love · extend spec: fractal promotion rules</span>
+      </div>
+      <div class="palette-result">
+        <span class="palette-result-type">blob</span>
+        <span class="palette-result-content">af02e3cd7d41… · src/lib.rs @ c6</span>
+      </div>
+      <div class="palette-result">
+        <span class="palette-result-type">path</span>
+        <span class="palette-result-content">examples/mandala.md · 1 realm · 1 head</span>
+      </div>
+    </div>
+  </div>
+
+<script>
+/* ===================================================================
+   Braid data + rendering
+   =================================================================== */
+
+// Sample data: Project Indra realm, 4 peers.
+const peers = [
+  { id: 'love',  name: 'Love',  color: '#ff6b9d' },
+  { id: 'joy',   name: 'Joy',   color: '#ffd93d' },
+  { id: 'peace', name: 'Peace', color: '#6bcfff' },
+  { id: 'grace', name: 'Grace', color: '#b19cd9' },
+];
+
+// Changesets. `t` = temporal slot (column index), `lane` = vertical peer index.
+// `parents` are ids of parent changesets. Merge commits have 2+.
+// `evidence`: 'pass' (emerald), 'human' (violet), 'fail' (red).
+const commits = [
+  { id: 'c1', t: 0, peer: 'love',  intent: 'init readme',              parents: [],             evidence: 'human' },
+  { id: 'c2', t: 1, peer: 'love',  intent: 'add architecture notes',   parents: ['c1'],         evidence: 'human' },
+  { id: 'g1', t: 1, peer: 'grace', intent: 'welcome draft (offline)',  parents: ['c1'],         evidence: 'human' },
+  { id: 'c3', t: 2, peer: 'joy',   intent: 'add design spec',          parents: ['c2'],         evidence: 'fail' },
+  { id: 'c4', t: 2, peer: 'peace', intent: 'fix typo',                 parents: ['c2'],         evidence: 'pass' },
+  { id: 'c5', t: 3, peer: 'love',  intent: 'merge joy + peace',        parents: ['c3','c4'],    evidence: 'pass' },
+  { id: 'c6', t: 4, peer: 'love',  intent: 'extend spec: fractal promotion rules', parents: ['c5'], evidence: 'human' },
+  { id: 'c7', t: 5, peer: 'joy',   intent: 'add worked examples',      parents: ['c6'],         evidence: 'pass' },
+];
+
+// Agent work (inside user's strand, pre-promotion). These are feathered inner threads.
+const agentCommits = [
+  { id: 'a1', t: 3.4, agent: 'researcher', intent: 'scan references', parents: [], color: '#818cf8' },
+  { id: 'a2', t: 3.7, agent: 'researcher', intent: 'summarize axioms', parents: ['a1'], color: '#818cf8' },
+  { id: 'a3', t: 4.2, agent: 'researcher', intent: 'flag open question', parents: ['a2'], color: '#818cf8' },
+  { id: 'b1', t: 4.5, agent: 'coder', intent: 'scaffold promote() API', parents: [], color: '#c084fc' },
+];
+
+// Layout tunables
+const loomCfg = {
+  colWidth: 140,         // time -> x pixel scale
+  laneHeight: 72,
+  padX: 60,
+  padY: 30,
+  knotRadius: 10,
+  strandWidth: 2.5,
+  innerStrandWidth: 1.2,
+};
+
+function peerLane(peerId) {
+  return peers.findIndex(p => p.id === peerId);
+}
+
+function commitPos(c) {
+  return {
+    x: loomCfg.padX + c.t * loomCfg.colWidth,
+    y: loomCfg.padY + peerLane(c.peer) * loomCfg.laneHeight + loomCfg.laneHeight / 2,
+  };
+}
+
+// Render the full Loom braid into a given container.
+function renderLoom(container) {
+  const totalWidth = loomCfg.padX * 2 + 6 * loomCfg.colWidth;
+  const totalHeight = loomCfg.padY * 2 + peers.length * loomCfg.laneHeight;
+  const byId = Object.fromEntries(commits.map(c => [c.id, c]));
+
+  const svg = [
+    `<svg viewBox="0 0 ${totalWidth} ${totalHeight}" width="${totalWidth}" height="${totalHeight}">`,
+    `<defs>
+      <filter id="glow"><feGaussianBlur stdDeviation="1.5"/></filter>
+      <filter id="glow-strong"><feGaussianBlur stdDeviation="3"/></filter>
+      <linearGradient id="strandGlow" x1="0" x2="1" y1="0" y2="0">
+        <stop offset="0" stop-color="#818cf8" stop-opacity="0"/>
+        <stop offset=".5" stop-color="#c084fc" stop-opacity=".4"/>
+        <stop offset="1" stop-color="#f472b6" stop-opacity="0"/>
+      </linearGradient>
+    </defs>`,
+  ];
+
+  // Peer lane labels on the left
+  peers.forEach((p, i) => {
+    const y = loomCfg.padY + i * loomCfg.laneHeight + loomCfg.laneHeight / 2;
+    svg.push(
+      `<text x="16" y="${y - 8}" fill="${p.color}" font-family="JetBrains Mono" font-size="10" font-weight="500" letter-spacing="1.4">${p.name.toUpperCase()}</text>`,
+      `<line x1="${loomCfg.padX - 14}" y1="${y}" x2="${totalWidth - 20}" y2="${y}" stroke="${p.color}" stroke-opacity=".1" stroke-width="1" stroke-dasharray="1 4"/>`,
+    );
+  });
+
+  // Time ticks at top
+  for (let t = 0; t <= 6; t++) {
+    const x = loomCfg.padX + t * loomCfg.colWidth;
+    svg.push(`<text x="${x}" y="14" fill="#3f3f46" font-family="JetBrains Mono" font-size="9" text-anchor="middle" letter-spacing="1">${t === 6 ? 'HEAD' : `t${t}`}</text>`);
+  }
+
+  // Parent edges (strands) — draw first so knots render on top.
+  commits.forEach(c => {
+    const to = commitPos(c);
+    c.parents.forEach(pid => {
+      const parent = byId[pid];
+      if (!parent) return;
+      const from = commitPos(parent);
+      const parentColor = peers.find(p => p.id === parent.peer).color;
+      const childColor = peers.find(p => p.id === c.peer).color;
+
+      // Control points for smooth S-curve between lanes
+      const midX = (from.x + to.x) / 2;
+      const path = `M ${from.x} ${from.y} C ${midX} ${from.y}, ${midX} ${to.y}, ${to.x} ${to.y}`;
+
+      // Outer glow pass
+      svg.push(`<path d="${path}" stroke="${parentColor}" stroke-width="6" stroke-opacity=".08" fill="none" filter="url(#glow-strong)"/>`);
+      // Main strand — gradient from parent to child color
+      const gid = `grad_${parent.id}_${c.id}`;
+      svg.push(`<defs><linearGradient id="${gid}" x1="${from.x}" y1="${from.y}" x2="${to.x}" y2="${to.y}" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stop-color="${parentColor}"/>
+        <stop offset="1" stop-color="${childColor}"/>
+      </linearGradient></defs>`);
+      svg.push(`<path d="${path}" stroke="url(#${gid})" stroke-width="${loomCfg.strandWidth}" stroke-opacity=".85" fill="none" stroke-linecap="round"/>`);
+    });
+  });
+
+  // Agent inner strands — feathered inside user's (Love's) lane
+  const loveLaneY = loomCfg.padY + peerLane('love') * loomCfg.laneHeight + loomCfg.laneHeight / 2;
+  agentCommits.forEach((a, i) => {
+    const x = loomCfg.padX + a.t * loomCfg.colWidth;
+    const yOffset = (i % 2 === 0 ? -1 : 1) * (6 + (i * 2));
+    const y = loveLaneY + yOffset;
+    const parentA = agentCommits.find(p => p.id === a.parents[0]);
+    if (parentA) {
+      const px = loomCfg.padX + parentA.t * loomCfg.colWidth;
+      const pYOffset = (agentCommits.indexOf(parentA) % 2 === 0 ? -1 : 1) * (6 + (agentCommits.indexOf(parentA) * 2));
+      const py = loveLaneY + pYOffset;
+      const midx = (px + x) / 2;
+      svg.push(`<path d="M ${px} ${py} C ${midx} ${py}, ${midx} ${y}, ${x} ${y}" stroke="${a.color}" stroke-width="${loomCfg.innerStrandWidth}" stroke-opacity=".5" fill="none" stroke-dasharray="3 2"/>`);
+    } else {
+      // Attach to the user's main strand at the agent's t position
+      svg.push(`<path d="M ${x - 14} ${loveLaneY} Q ${x - 7} ${y}, ${x} ${y}" stroke="${a.color}" stroke-width="${loomCfg.innerStrandWidth}" stroke-opacity=".5" fill="none" stroke-dasharray="3 2"/>`);
+    }
+    // Inner knot
+    svg.push(`<circle cx="${x}" cy="${y}" r="3" fill="${a.color}" fill-opacity=".9" stroke="${a.color}" stroke-width="0.5"/>`);
+    svg.push(`<circle cx="${x}" cy="${y}" r="5" fill="${a.color}" fill-opacity=".15"/>`);
+  });
+
+  // Knots — changeset nodes
+  commits.forEach(c => {
+    const pos = commitPos(c);
+    const peerColor = peers.find(p => p.id === c.peer).color;
+    const evidenceColor = c.evidence === 'pass' ? '#34d399'
+                        : c.evidence === 'human' ? '#c084fc'
+                        : c.evidence === 'fail' ? '#f87171'
+                        : '#52525b';
+
+    // Outer glow ring
+    svg.push(`<circle cx="${pos.x}" cy="${pos.y}" r="${loomCfg.knotRadius + 6}" fill="${peerColor}" fill-opacity=".08"/>`);
+    // Evidence ring
+    svg.push(`<circle cx="${pos.x}" cy="${pos.y}" r="${loomCfg.knotRadius + 2}" fill="none" stroke="${evidenceColor}" stroke-width="1.5" stroke-opacity=".65"/>`);
+    // Main knot
+    svg.push(`<circle cx="${pos.x}" cy="${pos.y}" r="${loomCfg.knotRadius}" fill="${peerColor}" stroke="#09090b" stroke-width="2" data-commit="${c.id}" class="knot"/>`);
+    // Merge marker: inner ring for commits with >1 parents
+    if (c.parents.length > 1) {
+      svg.push(`<circle cx="${pos.x}" cy="${pos.y}" r="${loomCfg.knotRadius - 4}" fill="none" stroke="#09090b" stroke-width="1.5"/>`);
+    }
+    // Changeset id label above knot
+    svg.push(`<text x="${pos.x}" y="${pos.y - loomCfg.knotRadius - 12}" fill="#a0a0ab" font-family="JetBrains Mono" font-size="9" text-anchor="middle" letter-spacing="0.6">${c.id}</text>`);
+    // Intent label below knot, truncated
+    const shortIntent = c.intent.length > 22 ? c.intent.slice(0, 20) + '…' : c.intent;
+    svg.push(`<text x="${pos.x}" y="${pos.y + loomCfg.knotRadius + 18}" fill="#52525b" font-family="Inter" font-size="10" text-anchor="middle">${shortIntent}</text>`);
+  });
+
+  // HEAD markers for each peer (rightmost commit of their strand, or divergent)
+  peers.forEach(p => {
+    const owned = commits.filter(c => c.peer === p.id).sort((a,b) => b.t - a.t);
+    if (!owned.length) return;
+    const head = owned[0];
+    const pos = commitPos(head);
+    svg.push(`<rect x="${pos.x - 18}" y="${pos.y - loomCfg.knotRadius - 30}" width="36" height="13" rx="6.5" fill="${p.color}" fill-opacity=".18" stroke="${p.color}" stroke-opacity=".5" stroke-width="1"/>`);
+    svg.push(`<text x="${pos.x}" y="${pos.y - loomCfg.knotRadius - 20}" fill="${p.color}" font-family="JetBrains Mono" font-size="8" text-anchor="middle" letter-spacing="1.4" font-weight="500">HEAD</text>`);
+  });
+
+  svg.push('</svg>');
+  container.innerHTML = svg.join('');
+
+  // Attach hover tooltips
+  const tooltip = document.getElementById('tooltip');
+  container.querySelectorAll('.knot').forEach(el => {
+    el.style.cursor = 'pointer';
+    el.addEventListener('mouseenter', (e) => {
+      const c = commits.find(x => x.id === el.dataset.commit);
+      if (!c) return;
+      const peer = peers.find(p => p.id === c.peer);
+      tooltip.innerHTML = `
+        <div class="tooltip-title">${c.intent}</div>
+        <div class="tooltip-meta">${c.id} · <span style="color: ${peer.color}">${peer.name}</span>${c.parents.length > 1 ? ' · merge' : ''}</div>
+        <div class="tooltip-meta" style="margin-top: 4px; color: ${c.evidence === 'pass' ? '#34d399' : c.evidence === 'human' ? '#c084fc' : '#f87171'}">
+          ${c.evidence === 'pass' ? '● build + tests pass' : c.evidence === 'human' ? '✦ human approved' : '✕ build failed'}
+        </div>
+      `;
+      tooltip.classList.add('visible');
+    });
+    el.addEventListener('mousemove', (e) => {
+      tooltip.style.left = (e.clientX + 14) + 'px';
+      tooltip.style.top = (e.clientY + 14) + 'px';
+    });
+    el.addEventListener('mouseleave', () => tooltip.classList.remove('visible'));
+  });
+}
+
+// Render a compact braid for the drawer — same data, tighter scale.
+function renderDrawerBraid(container) {
+  const scale = 0.55;
+  const cfgBackup = { ...loomCfg };
+  Object.assign(loomCfg, {
+    colWidth: 60,
+    laneHeight: 40,
+    padX: 40,
+    padY: 22,
+    knotRadius: 6,
+    strandWidth: 1.8,
+    innerStrandWidth: 1,
+  });
+  renderLoom(container);
+  Object.assign(loomCfg, cfgBackup);
+}
+
+// Initial render
+renderDrawerBraid(document.getElementById('drawer-braid'));
+
+/* ===================================================================
+   View toggle + interactions
+   =================================================================== */
+
+const btnDashboard = document.getElementById('view-dashboard');
+const btnLoom = document.getElementById('view-loom');
+const columnsEl = document.getElementById('columns');
+const loomEl = document.getElementById('loom');
+const drawerEl = document.getElementById('drawer');
+const loomCanvas = document.getElementById('loom-canvas');
+
+function showDashboard() {
+  btnDashboard.classList.add('active');
+  btnLoom.classList.remove('active');
+  columnsEl.classList.remove('hidden');
+  loomEl.classList.remove('active');
+  drawerEl.classList.remove('hidden');
+}
+function showLoom() {
+  btnLoom.classList.add('active');
+  btnDashboard.classList.remove('active');
+  columnsEl.classList.add('hidden');
+  loomEl.classList.add('active');
+  drawerEl.classList.add('hidden'); // drawer hidden in loom (loom is the full picture)
+  if (!loomCanvas.dataset.rendered) {
+    renderLoom(loomCanvas);
+    loomCanvas.dataset.rendered = '1';
+  }
+}
+btnDashboard.addEventListener('click', showDashboard);
+btnLoom.addEventListener('click', showLoom);
+
+// Keyboard: Cmd-L toggles loom, Cmd-K opens palette
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'l') {
+    e.preventDefault();
+    if (loomEl.classList.contains('active')) showDashboard(); else showLoom();
+  }
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault();
+    document.getElementById('palette-overlay').classList.add('visible');
+    document.querySelector('.palette input').focus();
+  }
+  if (e.key === 'Escape') {
+    document.getElementById('palette-overlay').classList.remove('visible');
+  }
+});
+
+// Close drawer
+document.getElementById('drawer-close').addEventListener('click', () => {
+  drawerEl.classList.add('hidden');
+});
+
+// Clicking a realm entry opens drawer
+document.querySelectorAll('.realm-entry[data-realm]').forEach(el => {
+  el.addEventListener('click', (e) => {
+    // Toggle chevron for expandable ones
+    if (e.target.classList.contains('realm-chevron') || e.target.classList.contains('realm-entry-name')) {
+      el.classList.toggle('expanded');
+      const next = el.nextElementSibling;
+      if (next && next.classList.contains('realm-files')) {
+        next.classList.toggle('expanded');
+      }
+    }
+    // Always open/update drawer
+    document.querySelectorAll('.realm-entry.selected, .file-item.selected').forEach(s => s.classList.remove('selected'));
+    el.classList.add('selected');
+    drawerEl.classList.remove('hidden');
+  });
+});
+
+// Clicking a file item also opens drawer (in real app: drawer scopes to file)
+document.querySelectorAll('.file-item').forEach(el => {
+  el.addEventListener('click', () => {
+    document.querySelectorAll('.realm-entry.selected, .file-item.selected').forEach(s => s.classList.remove('selected'));
+    el.classList.add('selected');
+    drawerEl.classList.remove('hidden');
+  });
+});
+
+// Simulate a sync cycle: clicking sync button triggers the aurora on Private column.
+document.getElementById('sync-btn').addEventListener('click', (e) => {
+  const btn = e.currentTarget;
+  btn.classList.add('active');
+  btn.querySelector('span:last-child').textContent = 'checking…';
+  const col = document.getElementById('col-private');
+  col.classList.add('aurora');
+
+  const steps = [
+    ['committing 2 files…', 400],
+    ['pulling peers…',       700],
+    ['merged Joy → c8',      600],
+    ['done · 2 committed, 1 merged', 900],
+  ];
+  let i = 0;
+  const tick = () => {
+    if (i >= steps.length) {
+      btn.classList.remove('active');
+      col.classList.remove('aurora');
+      btn.querySelector('span:last-child').textContent = 'up to date';
+      return;
+    }
+    btn.querySelector('span:last-child').textContent = steps[i][0];
+    setTimeout(() => { i++; tick(); }, steps[i][1]);
+  };
+  setTimeout(tick, 300);
+});
+
+// Palette overlay close on outside click
+document.getElementById('palette-overlay').addEventListener('click', (e) => {
+  if (e.target.id === 'palette-overlay') {
+    e.currentTarget.classList.remove('visible');
+  }
+});
+
+// Legend modal — opens from the Loom filter bar, closes on X / outside / Esc.
+const legendOverlay = document.getElementById('legend-overlay');
+document.getElementById('legend-trigger').addEventListener('click', () => {
+  legendOverlay.classList.add('visible');
+});
+document.getElementById('legend-close').addEventListener('click', () => {
+  legendOverlay.classList.remove('visible');
+});
+legendOverlay.addEventListener('click', (e) => {
+  if (e.target.id === 'legend-overlay') {
+    legendOverlay.classList.remove('visible');
+  }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') legendOverlay.classList.remove('visible');
+});
+
+// Auto-scroll loom canvas to HEAD when loom first shows
+const loomObserver = new MutationObserver(() => {
+  if (loomEl.classList.contains('active')) {
+    setTimeout(() => {
+      loomCanvas.scrollLeft = loomCanvas.scrollWidth;
+    }, 50);
+  }
+});
+loomObserver.observe(loomEl, { attributes: true, attributeFilter: ['class'] });
+</script>
+</body>
+</html>
