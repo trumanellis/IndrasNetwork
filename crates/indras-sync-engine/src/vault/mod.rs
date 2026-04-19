@@ -899,6 +899,33 @@ impl Vault {
         Ok(change_id)
     }
 
+    /// Route an agent's verified changeset into the inner braid.
+    ///
+    /// Thin wrapper around [`AgentBraid::agent_land`] that takes the
+    /// write lock. Returns the new [`ChangeId`] in the inner DAG.
+    pub async fn agent_land(
+        &self,
+        agent: &crate::team::LogicalAgentId,
+        intent: String,
+        index: crate::content_addr::SymlinkIndex,
+        evidence: super::braid::changeset::Evidence,
+    ) -> super::braid::ChangeId {
+        let mut inner = self.inner_braid.write().await;
+        inner.agent_land(agent, intent, index, evidence)
+    }
+
+    /// Merge an agent's inner HEAD into the user's inner HEAD.
+    ///
+    /// Thin wrapper around [`AgentBraid::merge_agent`] that takes the
+    /// write lock. Returns `None` if the agent has no HEAD yet.
+    pub async fn merge_agent(
+        &self,
+        agent: &crate::team::LogicalAgentId,
+    ) -> Option<super::braid::agent_braid::MergeResult> {
+        let mut inner = self.inner_braid.write().await;
+        inner.merge_agent(agent)
+    }
+
     /// Stop the vault (watcher + sync).
     pub fn stop(mut self) {
         if let Some(w) = self.watcher.take() {

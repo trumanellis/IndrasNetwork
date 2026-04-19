@@ -128,6 +128,58 @@ async fn promote_lands_inner_head_into_outer_dag() {
 }
 
 #[tokio::test]
+async fn vault_routing_agent_land_and_merge_agent() {
+    let tmp_data = TempDir::new().unwrap();
+    let tmp_vault = TempDir::new().unwrap();
+
+    let net = build_network("A", tmp_data.path()).await;
+    let blob = build_blob_store(tmp_data.path()).await;
+
+    let (vault, _invite) = Vault::create(
+        &net,
+        "routing-flow",
+        tmp_vault.path().to_path_buf(),
+        Arc::clone(&blob),
+    )
+    .await
+    .expect("Vault::create");
+
+    let agent = LogicalAgentId::new("A");
+    let user_id = vault.user_id();
+    let evidence = Evidence::Agent {
+        compiled: true,
+        tests_passed: vec!["test-crate".into()],
+        lints_clean: true,
+        runtime_ms: 42,
+        signed_by: derive_agent_id(&user_id, agent.as_str()),
+    };
+
+    // Exercise the Vault-level routing API end-to-end.
+    let land_id = vault
+        .agent_land(&agent, "add foo".into(), index(&[("foo.rs", 1)]), evidence)
+        .await;
+    let merge = vault.merge_agent(&agent).await.expect("merge_agent");
+    assert!(merge.conflicts.is_empty());
+
+    // Inner DAG observable through the accessor still agrees.
+    {
+        let inner = vault.inner_braid().read().await;
+        assert!(inner.dag().contains(&land_id));
+        let head = inner.user_head().expect("user inner HEAD");
+        assert_eq!(head.head, merge.change_id);
+    }
+
+    // Promote now works through the outer DAG.
+    let promote_id = vault.promote("ship".into()).await.expect("promote");
+    let dag = vault.dag().read().await;
+    let cs = dag.get(&promote_id).expect("promoted cs");
+    assert_eq!(
+        cs.index.get(&LogicalPath::new("foo.rs")),
+        Some(&addr(1))
+    );
+}
+
+#[tokio::test]
 async fn second_promote_parents_on_first() {
     let tmp_data = TempDir::new().unwrap();
     let tmp_vault = TempDir::new().unwrap();
