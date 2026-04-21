@@ -27,7 +27,7 @@
 - [x] B.6 — `assemble_and_authenticate` unseals the `_account_root_envelope` with the reassembled wrapping key, signs a fresh `DeviceCertificate` for this device, upserts into the `DeviceRoster`, and drops the root. Legacy keystore path retained as fallback. Build clean.
 - [x] B.7 — `peer_verification::verify_peer_device` / `load_device_roster` helpers for gating device admission against an account's `DeviceRoster`. Wiring into shared-realm admission logic remains for a follow-up (network-layer change).
 - [x] B.8 — Welcome UX reframed: pass-story sign-in is now the secondary option; hint points users to `· Use backup` in the status bar for cross-device recovery. Legacy story-subkey cache kept as in-memory fallback for accounts that pre-date Plan B. Build clean.
-- [ ] B.9 — E2E test (`tests/account_root_recovery.rs`)
+- [x] B.9 — `tests/account_root_recovery.rs` crypto-level E2E: generate root → envelope-seal → Shamir-split → release-rewrap → reassemble → sign fresh device cert → verify against roster. 2 tests pass (`full_plan_b_recovery_cycle`, `below_threshold_cannot_unseal_envelope`). Deferred: network-layer E2E needs a DM-realm harness, same as A.8.
 - [ ] B.10 — Migration notes + /sync
 
 ### Plan C — Erasure-coded personal-data backup
