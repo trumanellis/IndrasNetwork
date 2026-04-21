@@ -8,6 +8,15 @@
 //! → {"ok":true,"change_id":"abc12345..."}
 //! ```
 //!
+//! The agent may additionally attach `evidence` — compile/test/lint
+//! outcomes from the work that produced the commit — which is carried
+//! on the inner-braid changeset and later flows into the outer DAG on
+//! promote:
+//!
+//! ```text
+//! {"cwd":"…","intent":"…","evidence":{"compiled":true,"tests_passed":["indras-sync-engine"],"lints_clean":true,"runtime_ms":1820}}
+//! ```
+//!
 //! Protocol: newline-delimited JSON, one request per connection, one
 //! response, then close. The socket lives at
 //! `{data_dir}/sync.sock` (macOS: `~/Library/Application Support/indras-network/sync.sock`).
@@ -16,7 +25,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use indras_network::IndrasNetwork;
-use indras_sync_engine::braid::{PatchManifest, RealmBraid};
+use indras_sync_engine::braid::changeset::Evidence;
+use indras_sync_engine::braid::derive_agent_id;
+use indras_sync_engine::team::LogicalAgentId;
 use indras_sync_engine::workspace::LocalWorkspaceIndex;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -28,14 +39,46 @@ use crate::vault_manager::VaultManager;
 /// Well-known socket filename inside the data directory.
 const SOCKET_FILENAME: &str = "sync.sock";
 
+/// One bound agent folder the IPC server can route commits to.
+///
+/// Lighter-weight than a full [`crate::team::WorkspaceHandle`]: the IPC
+/// server doesn't own the folder lock or watcher, it just needs the
+/// agent id + a reference to the live index.
+#[derive(Clone)]
+pub struct IpcBinding {
+    /// Logical agent this folder is bound to.
+    pub agent: LogicalAgentId,
+    /// The live working-tree index, kept current by the app's
+    /// `WorkspaceWatcher`.
+    pub index: Arc<LocalWorkspaceIndex>,
+}
+
+/// Optional evidence payload the agent can attach to a commit.
+///
+/// Mirrors the `Evidence::Agent` variant minus `signed_by` (which is
+/// filled in server-side from the device's PQ identity). All fields
+/// optional — absent fields default to conservative values (no
+/// compilation, no tests passed, no lints clean).
+#[derive(Debug, Default, Deserialize)]
+struct EvidencePayload {
+    compiled: Option<bool>,
+    tests_passed: Option<Vec<String>>,
+    lints_clean: Option<bool>,
+    runtime_ms: Option<u64>,
+}
+
 /// Incoming request from a Claude Code agent.
 #[derive(Debug, Deserialize)]
 struct SyncRequest {
     /// Absolute path to the agent's working directory. Matched against
-    /// bound folder paths to identify which `WorkspaceHandle` to use.
+    /// bound folder paths to identify which `IpcBinding` to use.
     cwd: PathBuf,
     /// Commit intent (one-line imperative description). Required.
     intent: String,
+    /// Optional verification evidence produced by the agent for this
+    /// commit. Absent fields default to "not verified".
+    #[serde(default)]
+    evidence: Option<EvidencePayload>,
 }
 
 /// Response sent back to the agent.
@@ -64,7 +107,7 @@ pub fn start_ipc_server(
     data_dir: PathBuf,
     network: Arc<IndrasNetwork>,
     vault_manager: Arc<VaultManager>,
-    indexes: Vec<Arc<LocalWorkspaceIndex>>,
+    bindings: Vec<IpcBinding>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         let sock_path = data_dir.join(SOCKET_FILENAME);
@@ -90,9 +133,9 @@ pub fn start_ipc_server(
             };
             let net = Arc::clone(&network);
             let vm = Arc::clone(&vault_manager);
-            let hs = indexes.clone();
+            let bs = bindings.clone();
             tokio::spawn(async move {
-                if let Err(e) = handle_connection(stream, &net, &vm, &hs).await {
+                if let Err(e) = handle_connection(stream, &net, &vm, &bs).await {
                     tracing::debug!(error = %e, "IPC connection error");
                 }
             });
@@ -109,7 +152,7 @@ async fn handle_connection(
     stream: tokio::net::UnixStream,
     network: &IndrasNetwork,
     vault_manager: &VaultManager,
-    indexes: &[Arc<LocalWorkspaceIndex>],
+    bindings: &[IpcBinding],
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (reader, mut writer) = stream.into_split();
     let mut lines = BufReader::new(reader).lines();
@@ -118,7 +161,7 @@ async fn handle_connection(
         None => return Ok(()),
     };
     let resp = match serde_json::from_str::<SyncRequest>(&line) {
-        Ok(req) => process_request(req, network, vault_manager, indexes).await,
+        Ok(req) => process_request(req, network, vault_manager, bindings).await,
         Err(e) => SyncResponse::fail(format!("bad request: {e}")),
     };
     let mut out = serde_json::to_vec(&resp)?;
@@ -131,7 +174,7 @@ async fn process_request(
     req: SyncRequest,
     network: &IndrasNetwork,
     vault_manager: &VaultManager,
-    indexes: &[Arc<LocalWorkspaceIndex>],
+    bindings: &[IpcBinding],
 ) -> SyncResponse {
     if req.intent.trim().is_empty() {
         return SyncResponse::fail("intent is required");
@@ -140,13 +183,13 @@ async fn process_request(
     let cwd = std::fs::canonicalize(&req.cwd)
         .unwrap_or_else(|_| req.cwd.clone());
 
-    let index = indexes.iter().find(|idx| {
-        let bound = std::fs::canonicalize(idx.root())
-            .unwrap_or_else(|_| idx.root().to_path_buf());
+    let binding = bindings.iter().find(|b| {
+        let bound = std::fs::canonicalize(b.index.root())
+            .unwrap_or_else(|_| b.index.root().to_path_buf());
         bound == cwd
     });
-    let index = match index {
-        Some(i) => i,
+    let binding = match binding {
+        Some(b) => b,
         None => {
             return SyncResponse::fail(format!(
                 "no agent bound at {}",
@@ -155,44 +198,23 @@ async fn process_request(
         }
     };
 
-    let files = index.snapshot_all().await;
-    if files.is_empty() {
-        return SyncResponse::fail("nothing to commit (empty index)");
-    }
-    let manifest = PatchManifest::new(files);
-    let manifest_for_publish = manifest.clone();
-
-    let realm = match vault_manager.realms().await.into_iter().next() {
-        Some(r) => r,
-        None => return SyncResponse::fail("no vault realm on this device"),
-    };
-
     let pq = network.node().pq_identity();
     let user_id = pq.user_id();
-    let workspace_root = index.root().to_path_buf();
+    let signed_by = derive_agent_id(&user_id, binding.agent.as_str());
+    let ev = req.evidence.unwrap_or_default();
+    let evidence = Evidence::Agent {
+        compiled: ev.compiled.unwrap_or(false),
+        tests_passed: ev.tests_passed.unwrap_or_default(),
+        lints_clean: ev.lints_clean.unwrap_or(false),
+        runtime_ms: ev.runtime_ms.unwrap_or(0),
+        signed_by,
+    };
 
-    match realm
-        .try_land(
-            req.intent,
-            manifest.into(),
-            Vec::new(),
-            workspace_root,
-            user_id,
-            pq,
-        )
+    match vault_manager
+        .land_agent_snapshot_on_first(&binding.agent, &binding.index, req.intent, evidence)
         .await
     {
-        Ok(id) => {
-            crate::team::publish_and_materialize_head(
-                vault_manager,
-                &realm,
-                id,
-                &manifest_for_publish,
-                user_id,
-            )
-            .await;
-            SyncResponse::success(id.to_string())
-        }
-        Err(e) => SyncResponse::fail(format!("{e}")),
+        Ok(id) => SyncResponse::success(id.to_string()),
+        Err(e) => SyncResponse::fail(e),
     }
 }

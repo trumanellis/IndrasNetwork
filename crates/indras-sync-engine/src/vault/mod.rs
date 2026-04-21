@@ -953,6 +953,32 @@ impl Vault {
         inner.agent_land(agent, intent, index, evidence)
     }
 
+    /// Snapshot a live [`crate::workspace::LocalWorkspaceIndex`] and land
+    /// it into the inner braid as an agent-authored changeset.
+    ///
+    /// This is the production commit path for both the Dioxus Commit
+    /// button and the Claude-Code agent IPC socket — it lifts the
+    /// agent's on-disk working tree into a [`SymlinkIndex`] and records
+    /// it via [`Vault::agent_land`]. No CRDT sync, no peer visibility,
+    /// no file materialization — the changeset is local until the user
+    /// merges and [`Vault::promote`]s.
+    pub async fn land_agent_snapshot(
+        &self,
+        agent: &crate::team::LogicalAgentId,
+        index: &crate::workspace::LocalWorkspaceIndex,
+        intent: String,
+        evidence: super::braid::changeset::Evidence,
+    ) -> super::braid::ChangeId {
+        let files = index.snapshot_all().await;
+        let sym = crate::content_addr::SymlinkIndex::from_iter(files.into_iter().map(|pf| {
+            (
+                crate::content_addr::LogicalPath::new(pf.path),
+                crate::content_addr::ContentAddr::new(pf.hash, pf.size),
+            )
+        }));
+        self.agent_land(agent, intent, sym, evidence).await
+    }
+
     /// Merge an agent's inner HEAD into the user's inner HEAD.
     ///
     /// Thin wrapper around [`AgentBraid::merge_agent`] that takes the

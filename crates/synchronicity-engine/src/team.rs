@@ -19,7 +19,7 @@ use indras_sync_engine::braid::ChangeId;
 use indras_sync_engine::team::{LogicalAgentId, Team};
 use indras_sync_engine::vault::Vault;
 use indras_sync_engine::workspace::{FolderLock, LocalWorkspaceIndex, WorkspaceWatcher};
-use indras_sync_engine::{ContentAddr, LogicalPath, SymlinkIndex};
+use indras_sync_engine::SymlinkIndex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -202,14 +202,9 @@ impl WorkspaceHandle {
         intent: String,
         evidence: Evidence,
     ) -> ChangeId {
-        let files = self.index.snapshot_all().await;
-        let sym = SymlinkIndex::from_iter(files.into_iter().map(|pf| {
-            (
-                LogicalPath::new(pf.path),
-                ContentAddr::new(pf.hash, pf.size),
-            )
-        }));
-        vault.agent_land(&self.agent, intent, sym, evidence).await
+        vault
+            .land_agent_snapshot(&self.agent, &self.index, intent, evidence)
+            .await
     }
 }
 

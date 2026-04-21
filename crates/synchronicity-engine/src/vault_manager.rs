@@ -307,6 +307,64 @@ impl VaultManager {
         out
     }
 
+    /// Land an agent's working-tree snapshot into the first vault's inner
+    /// braid. The single-vault assumption mirrors the rest of this
+    /// manager's Phase-1 surface; multi-vault routing is Phase-N.
+    ///
+    /// Returns the new inner-braid [`ChangeId`] or an error string if no
+    /// vault is registered. The caller owns the `Arc<LocalWorkspaceIndex>`
+    /// already (from the `WorkspaceHandle`), so this method borrows it
+    /// rather than snapshotting ownership.
+    pub async fn land_agent_snapshot_on_first(
+        &self,
+        agent: &indras_sync_engine::team::LogicalAgentId,
+        index: &Arc<indras_sync_engine::workspace::LocalWorkspaceIndex>,
+        intent: String,
+        evidence: indras_sync_engine::braid::changeset::Evidence,
+    ) -> Result<indras_sync_engine::braid::ChangeId, String> {
+        let vaults = self.vaults.read().await;
+        let vault = vaults
+            .values()
+            .next()
+            .ok_or_else(|| "no vault on this device".to_string())?;
+        Ok(vault
+            .land_agent_snapshot(agent, index.as_ref(), intent, evidence)
+            .await)
+    }
+
+    /// Whether a vault's *inner* braid (local-only agent DAG) contains
+    /// the given changeset id. Returns `false` if no vault is registered
+    /// for the realm. Used by Phase-3 view-model helpers to detect
+    /// un-promoted commits, and by integration tests verifying the
+    /// inner-braid routing.
+    pub async fn inner_braid_contains(
+        &self,
+        realm_id: &[u8; 32],
+        id: &indras_sync_engine::braid::ChangeId,
+    ) -> bool {
+        let vaults = self.vaults.read().await;
+        let Some(vault) = vaults.get(realm_id) else {
+            return false;
+        };
+        vault.inner_braid().read().await.dag().contains(id)
+    }
+
+    /// Whether a vault's *outer* (shared, signed) DAG contains the given
+    /// changeset id. Counterpart to [`Self::inner_braid_contains`] —
+    /// together they let callers tell where a commit currently lives in
+    /// the hierarchical braid.
+    pub async fn outer_dag_contains(
+        &self,
+        realm_id: &[u8; 32],
+        id: &indras_sync_engine::braid::ChangeId,
+    ) -> bool {
+        let vaults = self.vaults.read().await;
+        let Some(vault) = vaults.get(realm_id) else {
+            return false;
+        };
+        vault.dag().read().await.contains(id)
+    }
+
     /// Load a [`crate::state::BraidView`] snapshot for a realm's braid.
     ///
     /// Reads the vault's `BraidDag` CRDT and translates it into the

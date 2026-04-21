@@ -2,17 +2,20 @@
 //!
 //! Each row shows one bound agent's working-tree (`SyncStageView`),
 //! an intent input, and a Commit button that snapshots the agent's
-//! [`LocalWorkspaceIndex`], builds a `PatchManifest`, and calls
-//! `RealmBraid::try_land` on the target vault realm. Verification is
-//! skipped for MVP (empty `crates` list); revisit once there's a UI
-//! affordance to select verification crates per commit.
+//! [`LocalWorkspaceIndex`] and lands it on the first vault's inner
+//! braid via [`VaultManager::land_agent_snapshot_on_first`]. Commits
+//! carry a placeholder `Evidence::Agent` payload for now — once there's
+//! a UI affordance to report build/test outcomes, the evidence fields
+//! can be wired through. Materialization + broadcast happen on
+//! `Vault::promote`, not here.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use dioxus::prelude::*;
 use indras_network::IndrasNetwork;
-use indras_sync_engine::braid::{ChangeId, PatchFile, PatchManifest, RealmBraid};
+use indras_sync_engine::braid::changeset::Evidence;
+use indras_sync_engine::braid::{derive_agent_id, ChangeId, PatchFile};
 
 use indras_sync_engine::team::LogicalAgentId;
 use indras_sync_engine::workspace::LocalWorkspaceIndex;
@@ -210,11 +213,18 @@ fn CommitStatusLine(status: CommitStatus) -> Element {
 }
 
 /// Kick off the async commit pipeline for `agent`:
-/// 1. locate the bound folder + local index in `workspace_handles`,
-/// 2. snapshot the index into a `PatchManifest`,
-/// 3. resolve the target vault realm via `VaultManager::realms()`,
-/// 4. call `realm.try_land(&net, intent, manifest, vec![], ws, user_id)`,
-/// 5. record the outcome in `statuses` so the row re-renders.
+/// 1. locate the bound agent's live index in `workspace_handles`,
+/// 2. build `Evidence::Agent` signed by the device's PQ identity (no
+///    real verification data yet — Phase-1 MVP),
+/// 3. call `VaultManager::land_agent_snapshot_on_first`, which lifts
+///    the live index into a `SymlinkIndex` and lands it on the first
+///    vault's inner (local-only) braid via `Vault::agent_land`,
+/// 4. record the outcome in `statuses` so the row re-renders.
+///
+/// No peer-head publish or file materialization happens here — those
+/// flow out of `Vault::promote` once the user promotes the inner HEAD
+/// to the outer DAG. Phase-2 `sync_all` will stitch commit + promote
+/// + broadcast into one UI action.
 fn commit_for_agent(
     agent: LogicalAgentId,
     mut intents: Signal<HashMap<LogicalAgentId, String>>,
@@ -235,17 +245,16 @@ fn commit_for_agent(
 
     let net_opt = network.read().clone();
     let vm_opt = vault_manager.read().clone();
-    let (index_opt, workspace_root_opt): (Option<Arc<LocalWorkspaceIndex>>, Option<std::path::PathBuf>) = {
+    let index_opt: Option<Arc<LocalWorkspaceIndex>> = {
         let handles = workspace_handles.read();
-        let handle = handles.iter().find(|h| h.agent == agent);
-        (
-            handle.map(|h| Arc::clone(&h.index)),
-            handle.map(|h| h.index.root().to_path_buf()),
-        )
+        handles
+            .iter()
+            .find(|h| h.agent == agent)
+            .map(|h| Arc::clone(&h.index))
     };
 
-    let (net, vm, index, workspace_root) = match (net_opt, vm_opt, index_opt, workspace_root_opt) {
-        (Some(n), Some(v), Some(i), Some(w)) => (n, v, i, w),
+    let (net, vm, index) = match (net_opt, vm_opt, index_opt) {
+        (Some(n), Some(v), Some(i)) => (n, v, i),
         _ => {
             statuses.write().insert(
                 agent.clone(),
@@ -259,50 +268,27 @@ fn commit_for_agent(
     intents.write().remove(&agent);
 
     spawn(async move {
-        let files = index.snapshot_all().await;
-        let manifest = PatchManifest::new(files);
-        let manifest_for_publish = manifest.clone();
-        let realms = vm.realms().await;
-        let realm = match realms.into_iter().next() {
-            Some(r) => r,
-            None => {
-                statuses.write().insert(
-                    agent.clone(),
-                    CommitStatus::Failed("no vault realm on this device".into()),
-                );
-                return;
-            }
-        };
         let pq = net.node().pq_identity();
         let user_id = pq.user_id();
-        let result = realm
-            .try_land(
-                intent,
-                manifest.into(),
-                Vec::new(),
-                workspace_root,
-                user_id,
-                pq,
-            )
+        let evidence = Evidence::Agent {
+            compiled: false,
+            tests_passed: Vec::new(),
+            lints_clean: false,
+            runtime_ms: 0,
+            signed_by: derive_agent_id(&user_id, agent.as_str()),
+        };
+        let result = vm
+            .land_agent_snapshot_on_first(&agent, &index, intent, evidence)
             .await;
         match result {
             Ok(id) => {
                 statuses.write().insert(agent, CommitStatus::Done(id));
                 refresh += 1;
-                // Publish HEAD + materialize files to vault root.
-                crate::team::publish_and_materialize_head(
-                    vm.as_ref(),
-                    &realm,
-                    id,
-                    &manifest_for_publish,
-                    user_id,
-                )
-                .await;
             }
             Err(e) => {
                 statuses
                     .write()
-                    .insert(agent, CommitStatus::Failed(format!("{e}")));
+                    .insert(agent, CommitStatus::Failed(e));
             }
         }
     });
