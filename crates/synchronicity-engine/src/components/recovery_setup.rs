@@ -1,69 +1,24 @@
-//! Recovery Setup overlay — nominate K-of-N stewards for the local keystore.
+//! Backup-plan overlay — pick a few friends to help you recover.
 //!
-//! Phase 1 debug-grade UI. The user confirms (or re-enters) their 23-slot
-//! pass story and pastes each steward's ML-KEM-768 encapsulation key as
-//! hex (or generates a test keypair inline). The bridge re-derives the
-//! encryption subkey, splits it Shamir K-of-N, encrypts each share to
-//! the matching steward, persists a local manifest, and returns one
-//! hex-encoded encrypted share per steward for out-of-band delivery.
-//!
-//! Section 01 reuses the hero's-journey manuscript chrome from
-//! `pass_story.rs` and is collapsed by default — when the user is
-//! already authenticated their slots are pre-populated from
-//! `AppState::pass_story_slots`.
+//! Plan-A UX. No hex, no story slot fields, no crypto vocabulary.
+//! The user sees a peer list sourced from their direct-message
+//! realms, taps to invite each friend as a backup, and watches
+//! acceptance come in live. When enough friends accept, the actual
+//! share distribution fires in the background (slice A.5, still
+//! landing — for now this overlay focuses on the enrollment
+//! handshake).
 
 use std::sync::Arc;
 
 use dioxus::prelude::*;
 
-use indras_crypto::StoryTemplate;
 use indras_network::IndrasNetwork;
 
-use crate::recovery_bridge::{self, AvailableSteward, StewardInput};
+use crate::recovery_bridge::{self, OutgoingEnrollment};
 use crate::state::AppState;
+use indras_sync_engine::steward_enrollment::EnrollmentStatus;
 
-/// Per-slot placeholder hints (mirrors `pass_story::SLOT_HINTS`).
-const SLOT_HINTS: [&str; 23] = [
-    "a land or place you knew",
-    "a name you were called",
-    "a messenger or force",
-    "what they carried",
-    "a bond that held you",
-    "a shadow that followed",
-    "a gate or passage",
-    "an unknown realm",
-    "a guide who appeared",
-    "a hidden truth",
-    "something you forged",
-    "a raw material",
-    "another element",
-    "something precious, broken",
-    "an opposing force",
-    "what rose from silence",
-    "what it whispered of",
-    "what you carried home",
-    "a vast wilderness",
-    "your former self",
-    "who you became",
-    "a gift you keep",
-    "another boon you hold",
-];
-
-#[derive(Clone, Debug, Default)]
-struct StewardRow {
-    label: String,
-    ek_hex: String,
-    /// Decapsulation key captured when the user clicks "Try with a fake
-    /// friend". Shown inline on the card so they can copy it for later
-    /// practice recovery; `None` when the friend is a real peer.
-    test_decap: Option<String>,
-    /// Peer `UserId` hex when this row was added via the peer picker.
-    /// Drives in-band share delivery — empty rows fall back to the hex
-    /// copy-paste path.
-    user_id_hex: Option<String>,
-}
-
-/// Recovery Setup overlay. Opened via `state.show_recovery_setup = true`.
+/// Backup-plan overlay. Opened via `state.show_recovery_setup = true`.
 #[component]
 pub fn RecoverySetupOverlay(
     mut state: Signal<AppState>,
@@ -73,65 +28,38 @@ pub fn RecoverySetupOverlay(
         return rsx! {};
     }
 
-    // Seed from the in-session slots if available (signed-in users have these).
-    let initial_slots: Vec<String> = {
-        let stored = state.read().pass_story_slots.clone();
-        if stored.len() == 23 { stored } else { vec![String::new(); 23] }
-    };
-
-    let slots = use_signal(move || initial_slots);
-    let mut story_open = use_signal(|| false);
     let mut threshold = use_signal(|| 3u8);
-    let mut rows = use_signal(|| vec![StewardRow::default(); 3]);
-    let mut status = use_signal(|| None::<(String, bool)>); // (msg, is_error)
-    let mut busy = use_signal(|| false);
-    let mut shares_hex = use_signal(Vec::<String>::new);
-    let mut available = use_signal(Vec::<AvailableSteward>::new);
+    let mut enrollments = use_signal(Vec::<OutgoingEnrollment>::new);
+    let mut status = use_signal(|| None::<(String, bool)>);
+    let mut busy_peer = use_signal(|| None::<String>);
 
-    // Populate the peer picker and refresh held-backup count on open,
-    // re-running each time the overlay becomes visible.
+    // Refresh the enrollment list on open. CRDT sync will bring peer
+    // responses in as they arrive, but this effect only refires on
+    // re-open — good enough for Plan A; a background ticker lands
+    // with A.5.
     use_effect(move || {
         if let Some(net) = network.read().clone() {
-            let net_picker = net.clone();
             spawn(async move {
-                let list = recovery_bridge::list_available_stewards(net_picker).await;
-                available.set(list);
-            });
-            let net_holdings = net.clone();
-            spawn(async move {
-                let holdings = recovery_bridge::refresh_held_backups(net_holdings).await;
-                state.write().held_backups_count = holdings.count();
+                let list = recovery_bridge::list_outgoing_enrollments(net).await;
+                enrollments.set(list);
             });
         }
     });
 
-    let total_stewards = rows.read().len();
+    let peers = enrollments.read().clone();
+    let accepted_count = peers.iter().filter(|e| e.status.is_accepted()).count();
+    let invited_count = peers
+        .iter()
+        .filter(|e| matches!(e.status, EnrollmentStatus::Invited { .. }))
+        .count();
     let k_value = *threshold.read();
-    let filled_slots = slots.read().iter().filter(|s| !s.trim().is_empty()).count();
-    let story_complete = filled_slots == 23;
-    let story_open_now = *story_open.read();
-    let has_cached_key = recovery_bridge::has_cached_subkey();
-    // The pass story is only required when we have nothing cached. If
-    // the subkey is on disk (populated at sign-in), treat section 01
-    // as optional so the backup flow doesn't make the user retype 23
-    // words they already spoke.
-    let story_satisfied = has_cached_key || story_complete;
-
-    // The pass story is NOT a gating requirement — the bridge pulls
-    // the subkey from the on-disk cache (populated at sign-in) when
-    // the story section is left blank. Only gate on stewards + k.
-    let _ = story_satisfied;
-    let ready = !*busy.read()
-        && total_stewards >= k_value as usize
-        && k_value >= 2
-        && rows
-            .read()
-            .iter()
-            .all(|r| !r.label.trim().is_empty() && !r.ek_hex.trim().is_empty());
+    let max_threshold = peers.len().max(2) as u8;
 
     let close = move |_| {
         state.write().show_recovery_setup = false;
     };
+
+    let ready_for_quorum = accepted_count >= k_value as usize;
 
     rsx! {
         div { class: "recovery-overlay",
@@ -143,206 +71,144 @@ pub fn RecoverySetupOverlay(
                 }
 
                 div { class: "recovery-body",
-
-                    // ── Opening explainer ─────────────────────────────
                     div { class: "recovery-intro",
-                        "If you ever lose your password or your phone, your "
-                        b { "backup friends" }
-                        " can help you get back in. "
-                        "Pick a few people you trust. Each one gets a puzzle piece. "
-                        "Any few of them, working together, can help you recover."
+                        "Pick a few friends who can help you get back in if you ever lose "
+                        "your device. Each one needs to agree. You can change your mind later."
                     }
 
-                    // ── 01 · Your story (collapsible) ─────────────────
+                    // ── 01 · Pick your backup friends ─────────────────
                     section { class: "recovery-section",
-                        button {
-                            class: "recovery-disclosure",
-                            onclick: move |_| {
-                                let cur = *story_open.read();
-                                story_open.set(!cur);
-                            },
-                            span { class: "recovery-disclosure-arrow",
-                                if story_open_now { "▾" } else { "▸" }
-                            }
-                            span { class: "recovery-section-num",
-                                if has_cached_key {
-                                    "01 · Your story (optional)"
-                                } else {
-                                    "01 · Your story"
-                                }
-                            }
-                            span { class: "recovery-disclosure-meta",
-                                if has_cached_key && !story_complete {
-                                    "already saved"
-                                } else if story_complete {
-                                    "23 / 23 ✓"
-                                } else {
-                                    "{filled_slots} / 23"
-                                }
-                            }
-                        }
-
-                        if story_open_now {
-                            div { class: "recovery-section-hint",
-                                "Type the secret words from when you first made your account. "
-                                "This proves it's really you before we build the backup. "
-                                "The words stay on this device."
-                            }
-                            div { class: "recovery-manuscript",
-                                {render_story_manuscript(slots)}
-                            }
-                        }
-                    }
-
-                    // ── 02 · Backup friends ───────────────────────────
-                    section { class: "recovery-section",
-                        div { class: "recovery-section-num", "02 · Backup friends · {total_stewards}" }
+                        div { class: "recovery-section-num", "01 · Your backup friends" }
                         div { class: "recovery-section-hint",
-                            "Pick people who can each keep one piece of your backup. "
-                            "More friends is safer. You can change this later."
+                            "These are your direct-message contacts. Tap a name to "
+                            "ask them — they'll get a notification and can accept or decline."
                         }
 
-                        // Peer picker — peers known to the network who've published a backup code.
-                        if !available.read().is_empty() {
-                            div { class: "recovery-picker",
-                                div { class: "recovery-picker-label", "FROM YOUR PEERS" }
-                                div { class: "recovery-picker-list",
-                                    for (j, peer) in available.read().clone().into_iter().enumerate() {
-                                        button {
-                                            key: "{j}",
-                                            class: "recovery-picker-item",
-                                            title: "Add this peer as a backup friend",
-                                            onclick: move |_| {
-                                                let empty = rows.read().iter().position(|r| {
-                                                    r.label.trim().is_empty() && r.ek_hex.trim().is_empty()
-                                                });
-                                                let target = match empty {
-                                                    Some(i) => i,
-                                                    None => {
-                                                        let mut cur = rows.read().clone();
-                                                        cur.push(StewardRow::default());
-                                                        rows.set(cur);
-                                                        rows.read().len() - 1
+                        if peers.is_empty() {
+                            div { class: "recovery-empty",
+                                "You don't have any direct-message friends yet. "
+                                "Add a contact first, then come back here."
+                            }
+                        } else {
+                            div { class: "recovery-friend-list",
+                                for (i, peer) in peers.into_iter().enumerate() {
+                                    {
+                                        let peer_uid = peer.peer_user_id_hex.clone();
+                                        let peer_label = peer.peer_label.clone();
+                                        let badge_class = status_badge_class(&peer.status);
+                                        let badge_text = status_badge_text(&peer.status);
+                                        let letter = peer_label.chars().next().unwrap_or('?').to_string();
+                                        let can_invite = matches!(
+                                            peer.status,
+                                            EnrollmentStatus::NotInvited
+                                                | EnrollmentStatus::Declined { .. }
+                                                | EnrollmentStatus::Withdrawn
+                                        );
+                                        let can_revoke = matches!(
+                                            peer.status,
+                                            EnrollmentStatus::Invited { .. }
+                                                | EnrollmentStatus::Accepted { .. }
+                                        );
+                                        let is_busy = busy_peer.read().as_deref() == Some(peer_uid.as_str());
+
+                                        let uid_for_invite = peer_uid.clone();
+                                        let label_for_invite = peer_label.clone();
+                                        let uid_for_revoke = peer_uid.clone();
+                                        let label_for_revoke = peer_label.clone();
+
+                                        rsx! {
+                                            div {
+                                                key: "{i}",
+                                                class: "recovery-friend-row",
+                                                div { class: "recovery-friend-avatar", "{letter}" }
+                                                div { class: "recovery-friend-info",
+                                                    div { class: "recovery-friend-name", "{peer_label}" }
+                                                    div {
+                                                        class: "recovery-friend-status {badge_class}",
+                                                        "{badge_text}"
                                                     }
-                                                };
-                                                rows.write()[target].label = peer.label.clone();
-                                                rows.write()[target].ek_hex = peer.ek_hex.clone();
-                                                rows.write()[target].test_decap = None;
-                                                rows.write()[target].user_id_hex = Some(peer.user_id_hex.clone());
-                                                status.set(Some((
-                                                    format!("Added {} as a backup friend.", peer.label),
-                                                    false,
-                                                )));
-                                            },
-                                            span { class: "recovery-picker-dot" }
-                                            span { class: "recovery-picker-name", "{peer.label}" }
-                                            span { class: "recovery-picker-add", "+" }
+                                                }
+                                                div { class: "recovery-friend-actions",
+                                                    if can_invite {
+                                                        button {
+                                                            class: "se-btn-outline",
+                                                            disabled: is_busy,
+                                                            onclick: move |_| {
+                                                                let Some(net) = network.read().clone() else { return };
+                                                                let k = *threshold.read();
+                                                                let n = enrollments.read().len() as u8;
+                                                                let uid = uid_for_invite.clone();
+                                                                let label = label_for_invite.clone();
+                                                                busy_peer.set(Some(uid.clone()));
+                                                                status.set(Some((format!("Asking {label}..."), false)));
+                                                                spawn(async move {
+                                                                    let result = recovery_bridge::invite_steward(
+                                                                        net.clone(), &uid, k, n, None
+                                                                    ).await;
+                                                                    match result {
+                                                                        Ok(()) => {
+                                                                            status.set(Some((
+                                                                                format!("Asked {label}. Waiting for their reply."),
+                                                                                false,
+                                                                            )));
+                                                                            let fresh = recovery_bridge::list_outgoing_enrollments(net).await;
+                                                                            enrollments.set(fresh);
+                                                                        }
+                                                                        Err(e) => {
+                                                                            status.set(Some((e, true)));
+                                                                        }
+                                                                    }
+                                                                    busy_peer.set(None);
+                                                                });
+                                                            },
+                                                            if is_busy { "..." } else { "Ask" }
+                                                        }
+                                                    }
+                                                    if can_revoke {
+                                                        button {
+                                                            class: "se-btn-text recovery-friend-revoke",
+                                                            disabled: is_busy,
+                                                            onclick: move |_| {
+                                                                let Some(net) = network.read().clone() else { return };
+                                                                let uid = uid_for_revoke.clone();
+                                                                let label = label_for_revoke.clone();
+                                                                busy_peer.set(Some(uid.clone()));
+                                                                spawn(async move {
+                                                                    let result = recovery_bridge::revoke_invitation(net.clone(), &uid).await;
+                                                                    match result {
+                                                                        Ok(()) => {
+                                                                            status.set(Some((
+                                                                                format!("{label} removed from your backup plan."),
+                                                                                false,
+                                                                            )));
+                                                                            let fresh = recovery_bridge::list_outgoing_enrollments(net).await;
+                                                                            enrollments.set(fresh);
+                                                                        }
+                                                                        Err(e) => {
+                                                                            status.set(Some((e, true)));
+                                                                        }
+                                                                    }
+                                                                    busy_peer.set(None);
+                                                                });
+                                                            },
+                                                            "Remove"
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }
                             }
-                        }
-
-                        for (i, row) in rows.read().clone().into_iter().enumerate() {
-                            div {
-                                key: "{i}",
-                                class: "recovery-steward-card",
-                                div { class: "recovery-steward-head",
-                                    span { class: "recovery-steward-num", "FRIEND · {i + 1}" }
-                                    button {
-                                        class: "recovery-steward-x",
-                                        title: "Remove this friend",
-                                        disabled: total_stewards <= 2,
-                                        onclick: move |_| {
-                                            let mut current = rows.read().clone();
-                                            current.remove(i);
-                                            rows.set(current);
-                                        },
-                                        "✕"
-                                    }
-                                }
-                                div { class: "recovery-field",
-                                    label { class: "recovery-field-label", "THEIR NAME" }
-                                    input {
-                                        class: "recovery-input",
-                                        placeholder: "e.g. Alex",
-                                        value: "{row.label}",
-                                        oninput: move |evt| {
-                                            rows.write()[i].label = evt.value();
-                                        },
-                                    }
-                                }
-                                div { class: "recovery-field",
-                                    label { class: "recovery-field-label", "THEIR RECOVERY CODE" }
-                                    textarea {
-                                        class: "recovery-textarea recovery-mono",
-                                        rows: "2",
-                                        placeholder: "Ask them for their backup code — it's a long string of letters and numbers",
-                                        value: "{row.ek_hex}",
-                                        oninput: move |evt| {
-                                            rows.write()[i].ek_hex = evt.value();
-                                        },
-                                    }
-                                }
-                                if let Some(dk) = row.test_decap.clone() {
-                                    div { class: "recovery-field recovery-field-test",
-                                        label { class: "recovery-field-label",
-                                            "FAKE FRIEND'S SECRET · SAVE TO PRACTICE RECOVERY"
-                                        }
-                                        textarea {
-                                            class: "recovery-textarea recovery-mono recovery-test-decap",
-                                            rows: "3",
-                                            readonly: true,
-                                            value: "{dk}",
-                                        }
-                                    }
-                                }
-                                div { class: "recovery-steward-foot",
-                                    button {
-                                        class: "se-btn-text",
-                                        title: "Pretend this friend already gave you their code (for testing)",
-                                        onclick: move |_| {
-                                            let (dk, ek) = recovery_bridge::generate_test_steward_keypair();
-                                            let label = if rows.read()[i].label.trim().is_empty() {
-                                                format!("test-friend-{}", i + 1)
-                                            } else {
-                                                rows.read()[i].label.clone()
-                                            };
-                                            rows.write()[i].label = label;
-                                            rows.write()[i].ek_hex = ek;
-                                            rows.write()[i].test_decap = Some(dk);
-                                            rows.write()[i].user_id_hex = None;
-                                            status.set(Some((
-                                                format!(
-                                                    "Fake friend #{} ready. Their secret is shown on the card — copy it if you want to practice recovery later.",
-                                                    i + 1,
-                                                ),
-                                                false,
-                                            )));
-                                        },
-                                        "Try with a fake friend"
-                                    }
-                                }
-                            }
-                        }
-                        button {
-                            class: "se-btn-outline recovery-add",
-                            onclick: move |_| {
-                                let mut current = rows.read().clone();
-                                current.push(StewardRow::default());
-                                rows.set(current);
-                            },
-                            "+ Add a friend"
                         }
                     }
 
-                    // ── 03 · How many friends must help ───────────────
+                    // ── 02 · How many must help ───────────────────────
                     section { class: "recovery-section",
-                        div { class: "recovery-section-num", "03 · How many friends must help" }
+                        div { class: "recovery-section-num", "02 · How many must agree" }
                         div { class: "recovery-section-hint",
-                            "If you lose access, you'll ask your friends for help. "
-                            "This many need to cooperate before you get back in. "
-                            "Higher = safer. Lower = easier to recover."
+                            "If you ever lose your device, this many friends need to "
+                            "agree it's really you before you get back in. Higher is safer."
                         }
                         div { class: "recovery-stepper",
                             button {
@@ -354,16 +220,26 @@ pub fn RecoverySetupOverlay(
                                 },
                                 "−"
                             }
-                            span { class: "recovery-step-value", "{k_value} of {total_stewards}" }
+                            span { class: "recovery-step-value", "{k_value} of {max_threshold}" }
                             button {
                                 class: "recovery-step-btn",
-                                disabled: (k_value as usize) >= total_stewards,
+                                disabled: (k_value as usize) >= (max_threshold as usize),
                                 onclick: move |_| {
                                     let cur = *threshold.read();
-                                    if (cur as usize) < total_stewards { threshold.set(cur + 1); }
+                                    if (cur as usize) < (max_threshold as usize) { threshold.set(cur + 1); }
                                 },
                                 "+"
                             }
+                        }
+                    }
+
+                    // ── 03 · What they'll do ──────────────────────────
+                    section { class: "recovery-section",
+                        div { class: "recovery-section-num", "03 · What they'll do" }
+                        div { class: "recovery-section-hint",
+                            "If you lose your device, you'll reach out to them through "
+                            "another channel — a call, a text, in person. Once they're "
+                            "sure it's really you, they tap Approve in their app and you're back in."
                         }
                     }
 
@@ -375,144 +251,48 @@ pub fn RecoverySetupOverlay(
                         }
                     }
 
-                    // ── Output: puzzle pieces ─────────────────────────
-                    if !shares_hex.read().is_empty() {
-                        section { class: "recovery-section",
-                            div { class: "recovery-section-num", "04 · Send these to your friends" }
-                            div { class: "recovery-section-hint",
-                                "Each friend gets one piece. Send it privately — a trusted app, "
-                                "a USB stick, or in person. They'll need this piece if you ever ask "
-                                "them to help you recover."
+                    // ── Plan state summary ────────────────────────────
+                    div { class: "recovery-plan-summary",
+                        if ready_for_quorum {
+                            div { class: "recovery-plan-ready",
+                                "✓ You're covered. {accepted_count} friends have agreed "
+                                "— any {k_value} of them can help you recover."
                             }
-                            for (i, share) in shares_hex.read().clone().into_iter().enumerate() {
-                                div {
-                                    key: "{i}",
-                                    class: "recovery-share-block",
-                                    div { class: "recovery-share-label", "PIECE FOR FRIEND · {i + 1}" }
-                                    textarea {
-                                        class: "recovery-textarea recovery-mono recovery-share-output",
-                                        rows: "4",
-                                        readonly: true,
-                                        value: "{share}",
-                                    }
-                                }
+                        } else if invited_count > 0 {
+                            div { class: "recovery-plan-pending",
+                                "Waiting on {k_value - accepted_count as u8} more friends to agree. "
+                                "{accepted_count} of {k_value} so far."
+                            }
+                        } else {
+                            div { class: "recovery-plan-empty",
+                                "Ask at least {k_value} friends to cover your backup."
                             }
                         }
                     }
                 }
 
-                footer { class: "recovery-footer",
-                    button {
-                        class: "se-btn-glow",
-                        disabled: !ready,
-                        onclick: move |_| {
-                            let story_slots = slots.read().clone();
-                            let k = *threshold.read();
-                            let steward_input: Vec<StewardInput> = rows
-                                .read()
-                                .iter()
-                                .map(|r| StewardInput {
-                                    label: r.label.trim().to_string(),
-                                    ek_hex: r.ek_hex.trim().to_string(),
-                                    user_id_hex: r.user_id_hex.clone(),
-                                })
-                                .collect();
-                            let net = network.read().clone();
-
-                            busy.set(true);
-                            status.set(Some(("Making your puzzle pieces...".to_string(), false)));
-                            shares_hex.set(Vec::new());
-
-                            spawn(async move {
-                                match recovery_bridge::setup_steward_recovery(story_slots, steward_input, k, net).await {
-                                    Ok(outcome) => {
-                                        let total = outcome.shares_hex.len();
-                                        let delivered = outcome.delivered_to.len();
-                                        let msg = if delivered == 0 {
-                                            format!(
-                                                "Done. You have {} pieces — send each one to the matching friend.",
-                                                total
-                                            )
-                                        } else if delivered == total {
-                                            format!(
-                                                "Done. All {} pieces were sent to your friends automatically.",
-                                                total
-                                            )
-                                        } else {
-                                            format!(
-                                                "Done. {} of {} pieces were sent automatically; the rest are below — copy each to the matching friend.",
-                                                delivered, total
-                                            )
-                                        };
-                                        status.set(Some((msg, false)));
-                                        shares_hex.set(outcome.shares_hex);
-                                    }
-                                    Err(e) => {
-                                        status.set(Some((format!("Something went wrong: {}", e), true)));
-                                    }
-                                }
-                                busy.set(false);
-                            });
-                        },
-                        if *busy.read() { "Working..." } else { "Make my backup" }
-                    }
-                }
+                footer { class: "recovery-footer" }
             }
         }
     }
 }
 
-/// Render the 23 slots inside the hero's-journey template (manuscript style).
-fn render_story_manuscript(mut slots: Signal<Vec<String>>) -> Element {
-    let template = StoryTemplate::default_template();
-    let mut global_slot = 0usize;
+fn status_badge_class(status: &EnrollmentStatus) -> &'static str {
+    match status {
+        EnrollmentStatus::NotInvited => "recovery-badge-neutral",
+        EnrollmentStatus::Invited { .. } => "recovery-badge-pending",
+        EnrollmentStatus::Accepted { .. } => "recovery-badge-accepted",
+        EnrollmentStatus::Declined { .. } => "recovery-badge-declined",
+        EnrollmentStatus::Withdrawn => "recovery-badge-neutral",
+    }
+}
 
-    rsx! {
-        for (stage_idx, stage) in template.stages.iter().enumerate() {
-            {
-                let parts: Vec<String> = stage
-                    .template
-                    .split("`_____`")
-                    .map(|s| s.to_string())
-                    .collect();
-                let slot_count = stage.slot_count;
-                let start_slot = global_slot;
-                global_slot += slot_count;
-                let stage_name = stage.name;
-
-                rsx! {
-                    div {
-                        key: "{stage_idx}",
-                        class: "story-manuscript-stage",
-                        span { class: "story-stage-annotation", "{stage_name}" }
-                        p { class: "story-manuscript-paragraph",
-                            for (i, part) in parts.iter().enumerate() {
-                                span { class: "story-prose", "{part}" }
-                                if i < slot_count {
-                                    {
-                                        let slot_idx = start_slot + i;
-                                        let hint = SLOT_HINTS.get(slot_idx).copied().unwrap_or("...");
-                                        let current_val = slots.read().get(slot_idx).cloned().unwrap_or_default();
-                                        rsx! {
-                                            input {
-                                                class: "story-manuscript-blank",
-                                                r#type: "text",
-                                                value: "{current_val}",
-                                                placeholder: "{hint}",
-                                                oninput: move |evt| {
-                                                    if let Some(slot) = slots.write().get_mut(slot_idx) {
-                                                        *slot = evt.value();
-                                                    }
-                                                },
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+fn status_badge_text(status: &EnrollmentStatus) -> String {
+    match status {
+        EnrollmentStatus::NotInvited => "Not asked yet".to_string(),
+        EnrollmentStatus::Invited { .. } => "Asked — waiting".to_string(),
+        EnrollmentStatus::Accepted { .. } => "Agreed ✓".to_string(),
+        EnrollmentStatus::Declined { .. } => "Declined".to_string(),
+        EnrollmentStatus::Withdrawn => "Removed".to_string(),
     }
 }

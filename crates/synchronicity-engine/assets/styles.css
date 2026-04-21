@@ -5127,3 +5127,125 @@ body > * {
 
 /* ========== End Agent Roster ========== */
 
+
+/* ========== Plan-A Backup friends list ========== */
+
+.recovery-friend-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.recovery-friend-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--bd);
+  border-radius: 10px;
+  transition: border-color 0.15s ease;
+}
+
+.recovery-friend-row:hover {
+  border-color: rgba(129, 140, 248, 0.3);
+}
+
+.recovery-friend-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--indigo);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  flex: 0 0 auto;
+}
+
+.recovery-friend-info {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.recovery-friend-name {
+  font-size: 13px;
+  color: var(--t1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recovery-friend-status {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.recovery-badge-neutral  { color: var(--t3); }
+.recovery-badge-pending  { color: var(--amber, #ffb347); }
+.recovery-badge-accepted { color: var(--glow-green, #98d8aa); }
+.recovery-badge-declined { color: var(--rose, #ff6b9d); }
+
+.recovery-friend-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.recovery-friend-revoke {
+  color: var(--t3);
+  font-size: 11px;
+}
+
+.recovery-empty {
+  padding: 16px;
+  background: var(--bg);
+  border: 1px dashed var(--bd);
+  border-radius: 10px;
+  color: var(--t2);
+  font-size: 13px;
+  text-align: center;
+}
+
+.recovery-plan-summary {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.recovery-plan-ready {
+  background: rgba(152, 216, 170, 0.1);
+  border: 1px solid rgba(152, 216, 170, 0.35);
+  color: var(--t1);
+  padding: 10px 12px;
+  border-radius: 8px;
+}
+
+.recovery-plan-pending {
+  background: rgba(255, 179, 71, 0.08);
+  border: 1px solid rgba(255, 179, 71, 0.3);
+  color: var(--t1);
+  padding: 10px 12px;
+  border-radius: 8px;
+}
+
+.recovery-plan-empty {
+  background: var(--bg);
+  border: 1px dashed var(--bd);
+  color: var(--t2);
+  padding: 10px 12px;
+  border-radius: 8px;
+}
+
+/* ========== End Plan-A Backup friends list ========== */
