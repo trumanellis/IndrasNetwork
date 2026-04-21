@@ -9,8 +9,12 @@
 //! shares come back as hex strings to ship out-of-band. In-realm
 //! distribution over iroh is a follow-on.
 
+use std::sync::Arc;
+
 use indras_crypto::pq_kem::PQEncapsulationKey;
 use indras_crypto::story_template::PassStory;
+use indras_network::IndrasNetwork;
+use indras_sync_engine::peer_key_directory::PeerKeyDirectory;
 use indras_sync_engine::story_auth::StoryAuth;
 use indras_sync_engine::steward_recovery::StewardId;
 
@@ -83,4 +87,54 @@ pub fn generate_test_steward_keypair() -> (String, String) {
     let kp = PQKemKeyPair::generate();
     let (dk, ek) = kp.to_keypair_bytes();
     (hex::encode(dk.as_slice()), hex::encode(ek))
+}
+
+/// A peer whose ML-KEM-768 key is available in the network, surfaced to
+/// the Backup-plan UI as a one-click "add as friend" candidate.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AvailableSteward {
+    /// Human-facing label — currently the first few hex chars of the
+    /// peer's `UserId` until MemberId↔UserId resolution lands.
+    pub label: String,
+    /// Hex-encoded ML-KEM-768 encapsulation key.
+    pub ek_hex: String,
+}
+
+/// Enumerate peers across every realm the user belongs to that have
+/// published an ML-KEM-768 encapsulation key in the realm's peer-keys
+/// directory. Deduped by `UserId`; the caller's own entry is skipped.
+///
+/// Used by the Backup-plan overlay to surface one-click "add this
+/// friend as a steward" options instead of requiring hex paste.
+pub async fn list_available_stewards(network: Arc<IndrasNetwork>) -> Vec<AvailableSteward> {
+    use std::collections::BTreeMap;
+
+    let my_uid = network.node().pq_identity().user_id();
+    let mut found: BTreeMap<[u8; 32], PQEncapsulationKey> = BTreeMap::new();
+
+    for realm_id in network.conversation_realms() {
+        let Some(realm) = network.get_realm_by_id(&realm_id) else {
+            continue;
+        };
+        let Ok(doc) = realm.document::<PeerKeyDirectory>("peer-keys").await else {
+            continue;
+        };
+        let data = doc.read().await;
+        for (uid, ek) in data.peers_with_kem() {
+            if uid != my_uid {
+                found.entry(uid).or_insert(ek);
+            }
+        }
+    }
+
+    found
+        .into_iter()
+        .map(|(uid, ek)| {
+            let uid_hex = hex::encode(uid);
+            AvailableSteward {
+                label: format!("Peer {}", &uid_hex[..8]),
+                ek_hex: hex::encode(ek.to_bytes()),
+            }
+        })
+        .collect()
 }

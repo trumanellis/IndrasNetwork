@@ -97,7 +97,8 @@ impl Vault {
         )
         .await;
 
-        let vault = Self::setup(realm, vault_path, member_id, user_id, pq_identity, relay, blob_store).await?;
+        let pq_kem_ek = network.node().pq_kem_keypair().encapsulation_key_bytes();
+        let vault = Self::setup(realm, vault_path, member_id, user_id, pq_identity, pq_kem_ek, relay, blob_store).await?;
         Ok((vault, invite))
     }
 
@@ -134,7 +135,8 @@ impl Vault {
         )
         .await;
 
-        Self::setup(realm, vault_path, member_id, user_id, pq_identity, relay, blob_store).await
+        let pq_kem_ek = network.node().pq_kem_keypair().encapsulation_key_bytes();
+        Self::setup(realm, vault_path, member_id, user_id, pq_identity, pq_kem_ek, relay, blob_store).await
     }
 
     /// Attach vault sync to an existing realm.
@@ -158,7 +160,8 @@ impl Vault {
             realm.id(),
         )
         .await;
-        Self::setup(realm, vault_path, member_id, user_id, pq_identity, relay, blob_store).await
+        let pq_kem_ek = network.node().pq_kem_keypair().encapsulation_key_bytes();
+        Self::setup(realm, vault_path, member_id, user_id, pq_identity, pq_kem_ek, relay, blob_store).await
     }
 
     /// Common setup: wire up watcher, sync-to-disk, and relay.
@@ -171,6 +174,7 @@ impl Vault {
         member_id: MemberId,
         user_id: UserId,
         pq_identity: PQIdentity,
+        pq_kem_ek: Vec<u8>,
         relay: Option<Arc<RelayBlobSync>>,
         blob_store: Arc<BlobStore>,
     ) -> Result<Self> {
@@ -191,7 +195,10 @@ impl Vault {
         // Create the braid DAG document on the vault realm.
         let dag = realm.braid_dag().await?;
 
-        // Publish our PQ verifying key to the peer key directory.
+        // Publish our PQ verifying key and ML-KEM-768 encapsulation key to
+        // the peer key directory. The KEM key lets other peers encrypt to
+        // us — notably, a friend setting up their Backup plan needs to
+        // encrypt our share to this key.
         let key_dir = realm
             .document::<crate::peer_key_directory::PeerKeyDirectory>("peer-keys")
             .await?;
@@ -199,6 +206,7 @@ impl Vault {
         key_dir
             .update(|d| {
                 d.publish(user_id, vk_bytes);
+                d.publish_kem(user_id, pq_kem_ek);
             })
             .await?;
 

@@ -502,7 +502,7 @@ pub fn HomeVault(
             // Sync overlay
             super::sync_panel::SyncOverlay { state, network, vault_manager, workspace_handles }
             // Recovery Setup overlay
-            super::recovery_setup::RecoverySetupOverlay { state }
+            super::recovery_setup::RecoverySetupOverlay { state, network }
         }
     }
 }

@@ -12,11 +12,14 @@
 //! already authenticated their slots are pre-populated from
 //! `AppState::pass_story_slots`.
 
+use std::sync::Arc;
+
 use dioxus::prelude::*;
 
 use indras_crypto::StoryTemplate;
+use indras_network::IndrasNetwork;
 
-use crate::recovery_bridge;
+use crate::recovery_bridge::{self, AvailableSteward};
 use crate::state::AppState;
 
 /// Per-slot placeholder hints (mirrors `pass_story::SLOT_HINTS`).
@@ -58,7 +61,10 @@ struct StewardRow {
 
 /// Recovery Setup overlay. Opened via `state.show_recovery_setup = true`.
 #[component]
-pub fn RecoverySetupOverlay(mut state: Signal<AppState>) -> Element {
+pub fn RecoverySetupOverlay(
+    mut state: Signal<AppState>,
+    network: Signal<Option<Arc<IndrasNetwork>>>,
+) -> Element {
     if !state.read().show_recovery_setup {
         return rsx! {};
     }
@@ -76,6 +82,18 @@ pub fn RecoverySetupOverlay(mut state: Signal<AppState>) -> Element {
     let mut status = use_signal(|| None::<(String, bool)>); // (msg, is_error)
     let mut busy = use_signal(|| false);
     let mut shares_hex = use_signal(Vec::<String>::new);
+    let mut available = use_signal(Vec::<AvailableSteward>::new);
+
+    // Populate the peer picker on open, refreshing each time the overlay
+    // becomes visible.
+    use_effect(move || {
+        if let Some(net) = network.read().clone() {
+            spawn(async move {
+                let list = recovery_bridge::list_available_stewards(net).await;
+                available.set(list);
+            });
+        }
+    });
 
     let total_stewards = rows.read().len();
     let k_value = *threshold.read();
@@ -155,6 +173,46 @@ pub fn RecoverySetupOverlay(mut state: Signal<AppState>) -> Element {
                         div { class: "recovery-section-hint",
                             "Pick people who can each keep one piece of your backup. "
                             "More friends is safer. You can change this later."
+                        }
+
+                        // Peer picker — peers known to the network who've published a backup code.
+                        if !available.read().is_empty() {
+                            div { class: "recovery-picker",
+                                div { class: "recovery-picker-label", "FROM YOUR PEERS" }
+                                div { class: "recovery-picker-list",
+                                    for (j, peer) in available.read().clone().into_iter().enumerate() {
+                                        button {
+                                            key: "{j}",
+                                            class: "recovery-picker-item",
+                                            title: "Add this peer as a backup friend",
+                                            onclick: move |_| {
+                                                let empty = rows.read().iter().position(|r| {
+                                                    r.label.trim().is_empty() && r.ek_hex.trim().is_empty()
+                                                });
+                                                let target = match empty {
+                                                    Some(i) => i,
+                                                    None => {
+                                                        let mut cur = rows.read().clone();
+                                                        cur.push(StewardRow::default());
+                                                        rows.set(cur);
+                                                        rows.read().len() - 1
+                                                    }
+                                                };
+                                                rows.write()[target].label = peer.label.clone();
+                                                rows.write()[target].ek_hex = peer.ek_hex.clone();
+                                                rows.write()[target].test_decap = None;
+                                                status.set(Some((
+                                                    format!("Added {} as a backup friend.", peer.label),
+                                                    false,
+                                                )));
+                                            },
+                                            span { class: "recovery-picker-dot" }
+                                            span { class: "recovery-picker-name", "{peer.label}" }
+                                            span { class: "recovery-picker-add", "+" }
+                                        }
+                                    }
+                                }
+                            }
                         }
 
                         for (i, row) in rows.read().clone().into_iter().enumerate() {
