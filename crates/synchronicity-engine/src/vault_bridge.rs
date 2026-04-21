@@ -163,7 +163,9 @@ pub async fn create_account(
     ];
 
     network.set(Some(net));
-    vault_manager.set(Some(Arc::new(vm)));
+    let vm_arc = Arc::new(vm);
+    vm_arc.start_gc_loop(crate::vault_manager::DEFAULT_GC_INTERVAL);
+    vault_manager.set(Some(vm_arc));
     state.write().sync_status = SyncStatus::Synced;
 
     // Brief pause so user sees the success state
@@ -266,7 +268,9 @@ pub async fn restore_account(
     ];
 
     network.set(Some(net));
-    vault_manager.set(Some(Arc::new(vm)));
+    let vm_arc = Arc::new(vm);
+    vm_arc.start_gc_loop(crate::vault_manager::DEFAULT_GC_INTERVAL);
+    vault_manager.set(Some(vm_arc));
     state.write().sync_status = SyncStatus::Synced;
 
     tokio::time::sleep(std::time::Duration::from_millis(800)).await;

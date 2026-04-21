@@ -14,7 +14,8 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
+use std::time::Duration;
 
 use dashmap::DashMap;
 use indras_network::{IndrasNetwork, Realm};
@@ -22,7 +23,14 @@ use indras_storage::{BlobStore, BlobStoreConfig};
 use indras_sync_engine::vault::vault_file::VaultFile;
 use indras_sync_engine::vault::Vault;
 use tokio::sync::RwLock;
+use tokio::task::JoinHandle;
 use tracing::info;
+
+/// Default blob-GC interval — 15 minutes.
+///
+/// Long enough that a vault with busy writers isn't churning GC calls,
+/// short enough that abandoned blobs clear inside a normal session.
+pub const DEFAULT_GC_INTERVAL: Duration = Duration::from_secs(15 * 60);
 
 /// Step in the full sync process, reported to the UI via progress channel.
 #[derive(Debug, Clone)]
@@ -84,6 +92,10 @@ pub struct VaultManager {
     data_dir: PathBuf,
     /// Shared blob store across all vaults on this device.
     blob_store: Arc<BlobStore>,
+    /// Optional background blob-GC task. Populated by
+    /// [`Self::start_gc_loop`]; aborted by [`Self::stop_gc_loop`] or
+    /// when the manager drops.
+    gc_task: StdMutex<Option<JoinHandle<()>>>,
 }
 
 impl VaultManager {
@@ -109,6 +121,7 @@ impl VaultManager {
             name_to_realm: RwLock::new(HashMap::new()),
             data_dir,
             blob_store,
+            gc_task: StdMutex::new(None),
         })
     }
 
@@ -216,6 +229,78 @@ impl VaultManager {
     /// content is written by [`LocalWorkspaceIndex`].
     pub fn blob_store(&self) -> Arc<BlobStore> {
         Arc::clone(&self.blob_store)
+    }
+
+    /// Spawn a periodic background task that calls
+    /// [`Vault::gc_blobs`] on every attached vault every `interval`.
+    ///
+    /// The task owns a cloned `Arc<Self>`, so as long as any caller
+    /// holds an `Arc<VaultManager>` the loop stays alive. Any prior
+    /// task is aborted before the new one takes over, so calling this
+    /// more than once is safe (useful when the manager moves between
+    /// setup phases). The first gc pass fires *after* one full
+    /// `interval` tick — startup doesn't race vault attach.
+    pub fn start_gc_loop(self: &Arc<Self>, interval: Duration) {
+        let this = Arc::clone(self);
+        let handle = tokio::spawn(async move {
+            let mut tick = tokio::time::interval(interval);
+            // Skip the immediate first tick tokio::time::interval fires.
+            tick.tick().await;
+            loop {
+                tick.tick().await;
+                this.run_gc_once().await;
+            }
+        });
+        let mut slot = self
+            .gc_task
+            .lock()
+            .expect("VaultManager gc_task mutex poisoned");
+        if let Some(prev) = slot.replace(handle) {
+            prev.abort();
+        }
+    }
+
+    /// Abort the background GC task started by
+    /// [`Self::start_gc_loop`]. No-op if no task is running.
+    pub fn stop_gc_loop(&self) {
+        let handle = self
+            .gc_task
+            .lock()
+            .ok()
+            .and_then(|mut slot| slot.take());
+        if let Some(h) = handle {
+            h.abort();
+        }
+    }
+
+    /// Iterate every attached vault and run one blob-GC pass. Exposed
+    /// at crate visibility so unit tests can exercise the GC work
+    /// synchronously without spinning up the interval task.
+    pub(crate) async fn run_gc_once(&self) {
+        let realm_ids: Vec<[u8; 32]> = {
+            let vaults = self.vaults.read().await;
+            vaults.keys().copied().collect()
+        };
+        for rid in realm_ids {
+            let vaults = self.vaults.read().await;
+            let Some(vault) = vaults.get(&rid) else {
+                continue;
+            };
+            match vault.gc_blobs().await {
+                Ok(result) => tracing::debug!(
+                    realm = ?rid,
+                    deleted = result.deleted_count,
+                    retained = result.retained_count,
+                    bytes_freed = result.bytes_freed,
+                    "periodic blob GC pass"
+                ),
+                Err(e) => tracing::warn!(
+                    realm = ?rid,
+                    error = %e,
+                    "periodic blob GC pass failed"
+                ),
+            }
+        }
     }
 
     /// Sync a vault's dirty files to the braid DAG.
@@ -542,6 +627,18 @@ impl VaultManager {
             None => base,
             Some(existing) if existing == rid => base,
             Some(_) => format!("{}.{}", base, short_hex(rid)),
+        }
+    }
+}
+
+impl Drop for VaultManager {
+    fn drop(&mut self) {
+        // Abort the background GC task so it doesn't outlive the
+        // manager that owns the vaults it iterates.
+        if let Ok(mut slot) = self.gc_task.lock() {
+            if let Some(handle) = slot.take() {
+                handle.abort();
+            }
         }
     }
 }

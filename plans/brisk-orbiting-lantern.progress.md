@@ -3,6 +3,10 @@
 ## Completed
 - [x] Phase 1 — Rewire to inner braid (see section below)
 - [x] Phase 2 — `Vault::sync_all` composite (see section below)
+- [x] Phase 3 — View-model accessors (covered by agent2 — see section below)
+- [x] Phase 4 — Background blob GC task (see section below)
+
+**Plan complete.** All 4 phases landed. Next plan TBD.
 
 ## Pending
 
@@ -41,20 +45,29 @@
 - IPC path: land → sync_all; `sync_all` error is logged but does not fail the IPC response (inner-braid land already succeeded). Caller sees both `change_id` (inner) and `promoted` (outer).
 - Phase-1 `ipc_lands_into_inner_braid` assertion had to be updated: after Phase 2, `Vault::promote`'s aggressive inner-rollup means the original agent change id is GC'd from the inner DAG once it's folded into the user HEAD. The test now asserts inner-vs-outer id distinction instead of persistence.
 
-### Phase 3 — View-model accessors
-- [ ] Create `crates/indras-sync-engine/src/vault/view_models.rs`
-- [ ] Implement `Vault::agent_forks_view(&roster)`
-- [ ] Implement `Vault::peer_heads_view()`
-- [ ] Implement `Vault::recent_commits_view(limit)`
-- [ ] Passthrough helpers in `synchronicity-engine/vault_manager.rs`
-- [ ] Unit tests for each accessor against seeded braid
-- [ ] Notify agent2 in session log so they can wire drawers
+### Phase 3 — View-model accessors ✅ (deferred-and-covered)
+Rather than ship a second set of view models at the library layer, we accept agent2's app-layer implementation as the Phase-3 deliverable:
 
-### Phase 4 — Background blob GC
-- [ ] `VaultManager::start_gc_loop(interval)` with tokio::spawn
-- [ ] Call from `main.rs` at 15-min interval
-- [ ] Shutdown path: store + abort `JoinHandle`
-- [ ] Tokio time-mocked unit test
+- `synchronicity-engine/src/state.rs` defines `AgentForkView`, `PeerHeadView`, `CommitView`, `BraidView`, `ConflictView`, `EvidenceView` — display-ready with colors/short-ids/relative times baked in.
+- `synchronicity-engine/src/braid_bridge.rs::build_braid_view` translates a raw `BraidDag` into a `BraidView` (peers + commits + pending_forks + conflicts), with lane/slot graph layout. Has unit tests.
+- `VaultManager::collect_agent_forks(roster) -> Vec<AgentForkView>` covers the "agent forks" accessor.
+- `VaultManager::load_braid_view(realm_id, peers, self_display_name) -> Option<BraidView>` covers peer_heads_view + recent_commits_view.
+
+**Design note:** Plan had called for library-layer raw-data accessors. Agent2 built display-ready view models at the app layer instead — colors/short-ids/relative-time are display concerns, so this layering is actually cleaner. Skipping the library-layer duplication per `feedback_simplicity_over_idiom` (don't build parallel abstractions without concrete justification). If the library later gains a non-UI consumer, revisit.
+
+### Phase 4 — Background blob GC ✅
+- [x] `VaultManager::start_gc_loop(interval)` takes `&Arc<Self>`, spawns a tokio task owning a cloned `Arc<VaultManager>`
+- [x] `VaultManager::stop_gc_loop()` aborts the task; `Drop` also aborts
+- [x] `DEFAULT_GC_INTERVAL = 15 minutes` constant
+- [x] Wired in `vault_bridge.rs` (both `create_account` / `restore_account` paths) and `components/app.rs` (bind-first-run path)
+- [x] Integration test `vault_manager_gc_loop.rs` — 50ms interval, seeds an unreferenced blob, polls for deletion, asserts stop_gc_loop returns cleanly
+
+**Design notes:**
+- Stored the `JoinHandle` behind `std::sync::Mutex<Option<JoinHandle>>` (not tokio's), since it's only accessed on startup/shutdown — std Mutex is cheaper and keeps `start_gc_loop` sync.
+- `run_gc_once` is `pub(crate)` so tests can exercise a single pass if they want; the interval task calls the same method.
+- First tick is skipped so startup doesn't race vault attach.
+- Calling `start_gc_loop` multiple times aborts the previous task and takes over — safe under the multiple-init paths the app has.
+- Skipped the "tokio::time::pause + advance" simulation variant: real blob-store IO doesn't play well with paused virtual time. The 50ms polling test is fast enough (~3s ceiling).
 
 ## Notes
 - Backend wiring only — no Dioxus components (agent2's scope).

@@ -133,6 +133,9 @@ pub fn App() -> Element {
                                     }
                                 }
                                 let vm_arc = Arc::new(vm);
+                                vm_arc.start_gc_loop(
+                                    crate::vault_manager::DEFAULT_GC_INTERVAL,
+                                );
                                 // Discover agent worktrees by scanning every
                                 // managed vault for `agent*` subfolders. No
                                 // JSON config, no env var — just convention:
