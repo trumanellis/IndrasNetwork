@@ -166,6 +166,14 @@ pub async fn create_account(
     crate::profile_bridge::ensure_profile_artifacts(&net).await;
     let _homepage = crate::profile_server::start_homepage_server(&net, &data_dir).await;
 
+    // Bootstrap the account root + first device certificate. The
+    // root's sk lingers in the pending-root cache until the first
+    // steward split distributes it; the vk is published immediately
+    // via the DeviceRoster doc so peers can verify this device.
+    if let Err(e) = bootstrap_account_root(&net, &data_dir, &display_name).await {
+        tracing::warn!("Couldn't bootstrap account root: {e}");
+    }
+
     state.write().loading_stages = vec![
         LoadingStage::Done("Identity created".into()),
         LoadingStage::Done("Network connected".into()),
@@ -337,4 +345,59 @@ fn derive_encryption_subkey_for_restore(
     let subkeys = expand_subkeys(&master).ok()?;
     let arr: [u8; 32] = subkeys.encryption.as_slice().try_into().ok()?;
     Some(arr)
+}
+
+/// Generate a fresh `AccountRoot`, sign an initial
+/// `DeviceCertificate` for this device's PQ identity, publish the
+/// resulting `DeviceRoster` into the home realm, and stash the
+/// root's signing-key bytes in the pending-root cache for the
+/// first steward split to consume.
+///
+/// Idempotent-ish: if the pending-root cache already has an entry
+/// we leave it alone (account creation was already bootstrapped
+/// — probably a retry after a transient home-realm write failure).
+async fn bootstrap_account_root(
+    network: &Arc<IndrasNetwork>,
+    data_dir: &std::path::Path,
+    display_name: &str,
+) -> Result<(), String> {
+    use indras_crypto::account_root::{AccountRoot, AccountRootRef};
+    use indras_crypto::device_cert::DeviceCertificate;
+    use indras_sync_engine::account_root_cache;
+    use indras_sync_engine::device_roster::{DeviceRoster, DEVICE_ROSTER_DOC_KEY};
+
+    if account_root_cache::has_pending_root(data_dir) {
+        return Ok(());
+    }
+
+    let root = AccountRoot::generate();
+    let device_vk = network.node().pq_identity().verifying_key_bytes();
+    let device_name = if display_name.trim().is_empty() {
+        "This device".to_string()
+    } else {
+        format!("{}'s device", display_name.trim())
+    };
+    let now = chrono::Utc::now().timestamp_millis();
+    let cert = DeviceCertificate::sign(device_vk, device_name, now, &root);
+
+    let roster = DeviceRoster {
+        account_root_ref: Some(AccountRootRef::from_root(&root)),
+        devices: vec![cert],
+    };
+
+    let home = network
+        .home_realm()
+        .await
+        .map_err(|e| format!("home realm unavailable: {e}"))?;
+    let doc = home
+        .document::<DeviceRoster>(DEVICE_ROSTER_DOC_KEY)
+        .await
+        .map_err(|e| format!("open device roster: {e}"))?;
+    doc.update(move |d| *d = roster)
+        .await
+        .map_err(|e| format!("publish device roster: {e}"))?;
+
+    account_root_cache::save_pending_root(data_dir, &root)
+        .map_err(|e| format!("cache pending root: {e}"))?;
+    Ok(())
 }

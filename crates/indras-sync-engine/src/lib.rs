@@ -45,6 +45,7 @@ pub mod share_delivery;
 pub mod steward_enrollment;
 pub mod recovery_protocol;
 pub mod device_roster;
+pub mod account_root_cache;
 pub mod rehearsal;
 pub mod bioregion_catalog;
 pub mod profile_identity;
