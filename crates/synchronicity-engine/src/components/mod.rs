@@ -22,6 +22,7 @@ mod relay_settings;
 mod profile_modal;
 mod peer_profile_popup;
 mod recovery_setup;
+mod recovery_use;
 mod sync_panel;
 mod sync_stage_view;
 mod topbar;

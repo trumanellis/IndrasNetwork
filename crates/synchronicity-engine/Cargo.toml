@@ -19,6 +19,7 @@ indras-crypto = { path = "../indras-crypto" }
 indras-genesis = { path = "../indras-genesis" }
 indras-storage = { path = "../indras-storage" }
 indras-sync-engine = { path = "../indras-sync-engine" }
+indras-node = { path = "../indras-node" }
 indras-homepage = { path = "../indras-homepage" }
 indras-artifacts = { path = "../indras-artifacts" }
 indras-ui = { path = "../indras-ui" }

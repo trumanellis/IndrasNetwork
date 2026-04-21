@@ -8081,6 +8081,7 @@ dependencies = [
  "indras-homepage",
  "indras-logging",
  "indras-network",
+ "indras-node",
  "indras-relay",
  "indras-storage",
  "indras-sync-engine",

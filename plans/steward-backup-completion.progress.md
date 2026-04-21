@@ -19,14 +19,15 @@
 - [ ] Manual verify in running app (deferred — needs two-peer live session)
 - [x] `/sync` with commit: "feat: resolve DM peer display names in backup picker"
 
-### Slice 3 — Recovery-side UI (Use-my-backup overlay)
-- [ ] Draft `components/recovery_use.rs` — parallel to `recovery_setup.rs`
-- [ ] Extend `recovery_bridge.rs` with `use_steward_recovery` async fn
-- [ ] Add `· Use backup` link in `components/status_bar.rs`
-- [ ] Mount in `components/home_vault.rs`
-- [ ] `.recovery-use-*` styles in `assets/styles.css`
-- [ ] Manual verify full setup → collect → paste → re-auth loop
-- [ ] `/sync` with commit: "feat: recovery-side overlay — use backup shares to re-authenticate"
+### Slice 3 — Recovery-side UI (Use-my-backup overlay) ✓ 2026-04-21
+- [x] Draft `components/recovery_use.rs` — parallel to `recovery_setup.rs`
+- [x] Extend `recovery_bridge.rs` with `use_steward_recovery` + `RecoveryContribution`
+- [x] Add `· Use backup` link in `components/status_bar.rs`
+- [x] Mount in `components/home_vault.rs` (also add `show_recovery_use` to `AppState`)
+- [x] Reuse existing `.recovery-*` styles — no new CSS needed
+- [x] Add `indras-node` dep to `synchronicity-engine/Cargo.toml` (needed for `StoryKeystore::authenticate`)
+- [ ] Manual verify full setup → collect → paste → re-auth loop (deferred — needs running app)
+- [x] `/sync` with commit: "feat: recovery-side overlay — use backup shares to re-authenticate"
 
 ### Slice 4 — In-band share delivery over iroh
 - [ ] Confirm wire-protocol shape with user before building

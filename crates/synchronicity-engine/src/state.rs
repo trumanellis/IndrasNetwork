@@ -422,6 +422,8 @@ pub struct AppState {
     pub show_sync: bool,
     /// Whether the steward-recovery setup overlay is open.
     pub show_recovery_setup: bool,
+    /// Whether the "use my backup" recovery overlay is open.
+    pub show_recovery_use: bool,
     /// Currently-open peer profile popup, keyed by (peer member id, DM realm id).
     /// `None` = popup closed.
     pub profile_popup_target: Option<([u8; 32], RealmId)>,
@@ -476,6 +478,7 @@ impl AppState {
             show_profile: false,
             show_sync: false,
             show_recovery_setup: false,
+            show_recovery_use: false,
             profile_popup_target: None,
             peer_liveness: None,
             relay_config: RelayConfig::load(),

@@ -1,22 +1,29 @@
-//! Bridge for the Recovery Setup overlay.
+//! Bridge for the Recovery Setup and Recovery Use overlays.
 //!
-//! Re-derives the encryption subkey from the user's pass story and
-//! produces a K-of-N steward recovery split via
+//! **Backup side** (`setup_steward_recovery`): re-derives the
+//! encryption subkey from the user's pass story and produces a K-of-N
+//! steward recovery split via
 //! [`indras_sync_engine::story_auth::StoryAuth::prepare_steward_recovery`].
 //!
-//! This is debug-grade Phase 1 plumbing — the user pastes each
-//! steward's ML-KEM-768 encapsulation key as hex, and the encrypted
-//! shares come back as hex strings to ship out-of-band. In-realm
-//! distribution over iroh is a follow-on.
+//! **Recovery side** (`use_steward_recovery`): collects K encrypted
+//! shares plus their matching steward keypairs, decrypts each,
+//! reassembles the subkey, and re-authenticates the local
+//! `StoryKeystore` to prove the recovered identity unlocks the at-rest
+//! PQ keys.
+//!
+//! This is debug-grade Phase 1 plumbing — the user pastes hex in and
+//! hex out. In-realm share distribution over iroh is a follow-on.
 
 use std::sync::Arc;
 
-use indras_crypto::pq_kem::PQEncapsulationKey;
+use indras_crypto::pq_kem::{PQEncapsulationKey, PQKemKeyPair};
+use indras_crypto::steward_share::EncryptedStewardShare;
 use indras_crypto::story_template::PassStory;
 use indras_network::IndrasNetwork;
+use indras_node::StoryKeystore;
 use indras_sync_engine::peer_key_directory::PeerKeyDirectory;
 use indras_sync_engine::story_auth::StoryAuth;
-use indras_sync_engine::steward_recovery::StewardId;
+use indras_sync_engine::steward_recovery::{self, StewardId};
 
 /// Prepare a steward recovery split.
 ///
@@ -177,4 +184,97 @@ pub async fn list_available_stewards(network: Arc<IndrasNetwork>) -> Vec<Availab
             }
         })
         .collect()
+}
+
+/// One steward's contribution to recovery, in the raw hex form the
+/// debug UI collects. For Phase 1, the overlay decrypts on the user's
+/// behalf using supplied keypairs; in-band delivery of pre-decrypted
+/// shares lands with Slice 4.
+#[derive(Clone, Debug, Default)]
+pub struct RecoveryContribution {
+    /// Hex-encoded `EncryptedStewardShare`.
+    pub share_hex: String,
+    /// Hex-encoded steward decapsulation key.
+    pub decap_key_hex: String,
+    /// Hex-encoded steward encapsulation key. Needed alongside
+    /// `decap_key_hex` to reconstruct the `PQKemKeyPair` for decryption.
+    pub encap_key_hex: String,
+}
+
+/// Rebuild the keystore encryption subkey from K contributions and
+/// re-authenticate the local `StoryKeystore`, proving the recovered
+/// identity can unlock the at-rest PQ keys. Returns the K used on
+/// success for the UI's confirmation string.
+///
+/// Errors surface as human-readable strings — the overlay renders them
+/// directly. Debug-grade: the caller does not need to paste the
+/// verification token because it already lives on disk at
+/// `<data_dir>/story.token`, left behind from account creation.
+pub async fn use_steward_recovery(
+    contributions: Vec<RecoveryContribution>,
+    threshold: u8,
+) -> Result<u8, String> {
+    if threshold < 2 {
+        return Err(format!("Threshold must be at least 2 (got {})", threshold));
+    }
+    if contributions.len() < threshold as usize {
+        return Err(format!(
+            "Need at least {} pieces; got {}",
+            threshold,
+            contributions.len()
+        ));
+    }
+
+    let data_dir = crate::state::default_data_dir();
+
+    tokio::task::spawn_blocking(move || -> Result<u8, String> {
+        let mut shares = Vec::with_capacity(contributions.len());
+        for (idx, c) in contributions.iter().enumerate() {
+            let slot = idx + 1;
+            let share_bytes = hex::decode(c.share_hex.trim())
+                .map_err(|e| format!("Piece {}: hex decode failed — {}", slot, e))?;
+            let encrypted = EncryptedStewardShare::from_bytes(&share_bytes)
+                .map_err(|e| format!("Piece {}: malformed share — {}", slot, e))?;
+            let dk_bytes = hex::decode(c.decap_key_hex.trim())
+                .map_err(|e| format!("Piece {}: friend-secret hex decode failed — {}", slot, e))?;
+            let ek_bytes = hex::decode(c.encap_key_hex.trim())
+                .map_err(|e| format!("Piece {}: friend-code hex decode failed — {}", slot, e))?;
+            let kp = PQKemKeyPair::from_keypair_bytes(&dk_bytes, &ek_bytes)
+                .map_err(|e| format!("Piece {}: key pair rebuild failed — {}", slot, e))?;
+            let share = encrypted
+                .decrypt(&kp)
+                .map_err(|e| format!("Piece {}: decrypt failed — {}", slot, e))?;
+            shares.push(share);
+        }
+
+        let subkey = steward_recovery::recover_encryption_subkey(&shares, threshold)
+            .map_err(|e| format!("Couldn't reassemble the backup: {}", e))?;
+
+        let token_path = data_dir.join("story.token");
+        let token_bytes = std::fs::read(&token_path)
+            .map_err(|e| format!("No keystore on this device ({}): {}", token_path.display(), e))?;
+        if token_bytes.len() != 32 {
+            return Err(format!(
+                "Keystore token is the wrong size (got {}, want 32)",
+                token_bytes.len()
+            ));
+        }
+        let mut token = [0u8; 32];
+        token.copy_from_slice(&token_bytes);
+
+        let mut keystore = StoryKeystore::new(&data_dir);
+        if !keystore.is_initialized() {
+            return Err("No keystore to recover on this device".to_string());
+        }
+        keystore
+            .authenticate(&subkey, token)
+            .map_err(|e| format!("Recovered key did not unlock the keystore: {}", e))?;
+        keystore
+            .load_or_generate_pq_identity()
+            .map_err(|e| format!("Couldn't load the recovered identity: {}", e))?;
+
+        Ok(threshold)
+    })
+    .await
+    .map_err(|e| format!("task join error: {}", e))?
 }
