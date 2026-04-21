@@ -7,7 +7,7 @@
 
 ### Plan A — Invitation/release UX
 
-- [ ] A.1 — invitation CRDT types + module (`steward_enrollment.rs` + unit tests)
+- [x] A.1 — invitation CRDT types + module (`steward_enrollment.rs` + unit tests) — 5/5 pass
 - [ ] A.2 — enrollment bridge (`invite_steward`, `respond_to_invitation`, list fns)
 - [ ] A.3 — Backup-plan overlay rewrite (peer list with statuses; delete hex flows)
 - [ ] A.4 — Steward inbox overlay (`components/steward_inbox.rs`; status-bar badge)
