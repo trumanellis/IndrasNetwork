@@ -25,6 +25,10 @@ use indras_sync_engine::peer_key_directory::PeerKeyDirectory;
 use indras_sync_engine::share_delivery::{
     share_delivery_doc_key, HeldBackup, ShareDelivery, StewardHoldings,
 };
+use indras_sync_engine::steward_enrollment::{
+    invite_doc_key, response_doc_key, EnrollmentStatus, StewardInvitation, StewardResponse,
+    DEFAULT_RESPONSIBILITY,
+};
 use indras_sync_engine::steward_recovery::{self, StewardId};
 
 /// Filename of the encryption-subkey cache. Kept next to the PQ
@@ -597,4 +601,392 @@ pub async fn refresh_held_backups(network: Arc<IndrasNetwork>) -> StewardHolding
 pub fn load_held_backups() -> StewardHoldings {
     let data_dir = crate::state::default_data_dir();
     StewardHoldings::load(&data_dir).unwrap_or_default()
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Steward enrollment — invitation / response handshake (A.2)
+// ──────────────────────────────────────────────────────────────────
+
+/// Sender-side view of one peer's enrollment state. Drives the
+/// per-row badge in the Backup-plan overlay.
+#[derive(Debug, Clone)]
+pub struct OutgoingEnrollment {
+    /// The peer's `UserId` as hex.
+    pub peer_user_id_hex: String,
+    /// Peer display name resolved through the DM profile mirror,
+    /// falling back to `Peer {hex8}` when unresolvable.
+    pub peer_label: String,
+    /// Plain-language badge state for the UI.
+    pub status: EnrollmentStatus,
+    /// Peer's ML-KEM-768 encapsulation key as hex, *if* the peer has
+    /// accepted and supplied one. Empty otherwise. The Backup-plan
+    /// overlay uses this on quorum to wrap the per-steward share.
+    pub accepted_kem_ek_hex: String,
+}
+
+/// Steward-side view of one pending invitation from a DM peer.
+#[derive(Debug, Clone)]
+pub struct IncomingInvitation {
+    /// Sender's `UserId` hex. Used as the reply routing key.
+    pub from_user_id_hex: String,
+    /// Sender's display name at invitation time.
+    pub from_display_name: String,
+    /// Plain-language responsibility copy to render verbatim in the
+    /// approve/decline dialog.
+    pub responsibility_text: String,
+    /// K-of-N parameters as the sender chose them.
+    pub threshold_k: u8,
+    pub total_n: u8,
+    /// Wall-clock millis when the invitation was issued.
+    pub issued_at_millis: i64,
+    /// `true` once the steward has responded (whether accept or
+    /// decline). Keeps the inbox de-duped.
+    pub already_responded: bool,
+    /// Last-response `accepted` flag. Meaningful only when
+    /// `already_responded` is true. Drives "you're a backup friend
+    /// for X" vs "you declined" views.
+    pub last_response_accepted: bool,
+}
+
+/// Publish a steward invitation to the DM peer identified by
+/// `peer_user_id_hex`. Fails when the peer isn't a current DM peer
+/// with a known KEM key. Re-invitation bumps the timestamp so
+/// last-writer-wins merge supersedes any prior state.
+pub async fn invite_steward(
+    network: Arc<IndrasNetwork>,
+    peer_user_id_hex: &str,
+    threshold_k: u8,
+    total_n: u8,
+    responsibility_text: Option<String>,
+) -> Result<(), String> {
+    let peer_uid = decode_user_id(peer_user_id_hex)
+        .ok_or_else(|| "Invalid peer id".to_string())?;
+    let realm_id = dm_realm_for_uid(&network, &peer_uid).await.ok_or_else(|| {
+        "That friend isn't a direct-message peer yet — add them as a contact first.".to_string()
+    })?;
+    let realm = network
+        .get_realm_by_id(&realm_id)
+        .ok_or_else(|| "Couldn't open the direct-message realm.".to_string())?;
+    let key = invite_doc_key(&network.node().pq_identity().user_id());
+    let doc = realm
+        .document::<StewardInvitation>(&key)
+        .await
+        .map_err(|e| format!("Couldn't open invitation doc: {}", e))?;
+
+    let my_uid = network.node().pq_identity().user_id();
+    let my_name = network.display_name().unwrap_or_default();
+    let payload = StewardInvitation {
+        from_user_id: my_uid,
+        from_display_name: my_name,
+        responsibility_text: responsibility_text
+            .unwrap_or_else(|| DEFAULT_RESPONSIBILITY.to_string()),
+        threshold_k,
+        total_n,
+        issued_at_millis: chrono::Utc::now().timestamp_millis(),
+        withdrawn: false,
+    };
+    doc.update(move |d| *d = payload)
+        .await
+        .map_err(|e| format!("Couldn't publish invitation: {}", e))?;
+    Ok(())
+}
+
+/// Mark a previously-issued invitation as withdrawn so the steward's
+/// UI shows it vanishing and any prior acceptance is superseded for
+/// quorum purposes.
+pub async fn revoke_invitation(
+    network: Arc<IndrasNetwork>,
+    peer_user_id_hex: &str,
+) -> Result<(), String> {
+    let peer_uid = decode_user_id(peer_user_id_hex)
+        .ok_or_else(|| "Invalid peer id".to_string())?;
+    let realm_id = dm_realm_for_uid(&network, &peer_uid)
+        .await
+        .ok_or_else(|| "That friend isn't a direct-message peer.".to_string())?;
+    let realm = network
+        .get_realm_by_id(&realm_id)
+        .ok_or_else(|| "Couldn't open the direct-message realm.".to_string())?;
+    let key = invite_doc_key(&network.node().pq_identity().user_id());
+    let doc = realm
+        .document::<StewardInvitation>(&key)
+        .await
+        .map_err(|e| format!("Couldn't open invitation doc: {}", e))?;
+
+    let my_uid = network.node().pq_identity().user_id();
+    let my_name = network.display_name().unwrap_or_default();
+    let payload = StewardInvitation {
+        from_user_id: my_uid,
+        from_display_name: my_name,
+        responsibility_text: String::new(),
+        threshold_k: 0,
+        total_n: 0,
+        issued_at_millis: chrono::Utc::now().timestamp_millis(),
+        withdrawn: true,
+    };
+    doc.update(move |d| *d = payload)
+        .await
+        .map_err(|e| format!("Couldn't withdraw invitation: {}", e))?;
+    Ok(())
+}
+
+/// Walk every DM realm the user belongs to and report the current
+/// enrollment state for each non-self peer that has a KEM key on
+/// file. Used by the Backup-plan overlay to render the peer list
+/// with per-row status badges.
+pub async fn list_outgoing_enrollments(
+    network: Arc<IndrasNetwork>,
+) -> Vec<OutgoingEnrollment> {
+    let my_uid = network.node().pq_identity().user_id();
+    let my_invite_key = invite_doc_key(&my_uid);
+    let my_response_key = response_doc_key(&my_uid);
+
+    let mut out = Vec::new();
+    for realm_id in network.conversation_realms() {
+        if network.dm_peer_for_realm(&realm_id).is_none() {
+            continue;
+        }
+        let Some(realm) = network.get_realm_by_id(&realm_id) else {
+            continue;
+        };
+
+        // Resolve peer label via profile mirror (DM-only path).
+        let dm_peer_name = match network.dm_peer_for_realm(&realm_id) {
+            Some(mid) => {
+                let realm_bytes = *realm_id.as_bytes();
+                crate::profile_bridge::load_peer_profile_from_dm(&network, mid, realm_bytes)
+                    .await
+                    .and_then(|p| {
+                        let t = p.display_name.trim();
+                        if t.is_empty() { None } else { Some(t.to_string()) }
+                    })
+            }
+            None => None,
+        };
+
+        let Ok(key_dir) = realm.document::<PeerKeyDirectory>("peer-keys").await else {
+            continue;
+        };
+        let peer_uids: Vec<[u8; 32]> = {
+            let data = key_dir.read().await;
+            data.peers_with_kem()
+                .into_iter()
+                .map(|(uid, _)| uid)
+                .filter(|uid| *uid != my_uid)
+                .collect()
+        };
+        if peer_uids.is_empty() {
+            continue;
+        }
+
+        // Invitation we've written in this realm (keyed by our UID).
+        let invite_doc = realm
+            .document::<StewardInvitation>(&my_invite_key)
+            .await
+            .ok();
+        let invitation = match invite_doc.as_ref() {
+            Some(d) => {
+                let snap = d.read().await.clone();
+                if snap.issued_at_millis == 0 {
+                    None
+                } else {
+                    Some(snap)
+                }
+            }
+            None => None,
+        };
+
+        // Peer's response (keyed by our UID too — steward writes under
+        // the sender's UID).
+        let response_doc = realm
+            .document::<StewardResponse>(&my_response_key)
+            .await
+            .ok();
+        let response = match response_doc.as_ref() {
+            Some(d) => {
+                let snap = d.read().await.clone();
+                if snap.responded_at_millis == 0 {
+                    None
+                } else {
+                    Some(snap)
+                }
+            }
+            None => None,
+        };
+
+        let status = EnrollmentStatus::derive(invitation.as_ref(), response.as_ref());
+        let accepted_kem_ek_hex = match &response {
+            Some(r) if r.accepted && !r.kem_ek_bytes.is_empty() => hex::encode(&r.kem_ek_bytes),
+            _ => String::new(),
+        };
+
+        for uid in peer_uids {
+            let uid_hex = hex::encode(uid);
+            let peer_label = dm_peer_name
+                .clone()
+                .unwrap_or_else(|| format!("Peer {}", &uid_hex[..8]));
+            out.push(OutgoingEnrollment {
+                peer_user_id_hex: uid_hex,
+                peer_label,
+                status: status.clone(),
+                accepted_kem_ek_hex: accepted_kem_ek_hex.clone(),
+            });
+        }
+    }
+    out
+}
+
+/// Walk every DM realm and collect invitations *received* from each
+/// peer — the input to the Steward inbox overlay. Every entry
+/// corresponds to one peer's `_steward_invite:{peer_uid}` doc.
+pub async fn list_incoming_invitations(
+    network: Arc<IndrasNetwork>,
+) -> Vec<IncomingInvitation> {
+    let my_uid = network.node().pq_identity().user_id();
+
+    let mut out = Vec::new();
+    for realm_id in network.conversation_realms() {
+        if network.dm_peer_for_realm(&realm_id).is_none() {
+            continue;
+        }
+        let Some(realm) = network.get_realm_by_id(&realm_id) else {
+            continue;
+        };
+
+        let Ok(key_dir) = realm.document::<PeerKeyDirectory>("peer-keys").await else {
+            continue;
+        };
+        let peer_uids: Vec<[u8; 32]> = {
+            let data = key_dir.read().await;
+            data.peers_with_kem()
+                .into_iter()
+                .map(|(uid, _)| uid)
+                .filter(|uid| *uid != my_uid)
+                .collect()
+        };
+
+        for peer_uid in peer_uids {
+            let invite_key = invite_doc_key(&peer_uid);
+            let response_key = response_doc_key(&peer_uid);
+
+            let invite_snap = match realm.document::<StewardInvitation>(&invite_key).await {
+                Ok(d) => {
+                    let s = d.read().await.clone();
+                    if s.issued_at_millis == 0 || s.withdrawn {
+                        continue;
+                    }
+                    s
+                }
+                Err(_) => continue,
+            };
+
+            let (already_responded, last_response_accepted) = match realm
+                .document::<StewardResponse>(&response_key)
+                .await
+            {
+                Ok(d) => {
+                    let s = d.read().await.clone();
+                    if s.responded_at_millis == 0
+                        || s.responded_at_millis < invite_snap.issued_at_millis
+                    {
+                        (false, false)
+                    } else {
+                        (true, s.accepted)
+                    }
+                }
+                Err(_) => (false, false),
+            };
+
+            out.push(IncomingInvitation {
+                from_user_id_hex: hex::encode(peer_uid),
+                from_display_name: invite_snap.from_display_name,
+                responsibility_text: invite_snap.responsibility_text,
+                threshold_k: invite_snap.threshold_k,
+                total_n: invite_snap.total_n,
+                issued_at_millis: invite_snap.issued_at_millis,
+                already_responded,
+                last_response_accepted,
+            });
+        }
+    }
+    out
+}
+
+/// Steward-side: reply to an invitation. On accept, publish the
+/// current device's fresh ML-KEM encapsulation key so the sender
+/// can wrap a share for this device without needing to hit the
+/// peer-key directory separately.
+pub async fn respond_to_invitation(
+    network: Arc<IndrasNetwork>,
+    from_user_id_hex: &str,
+    accept: bool,
+) -> Result<(), String> {
+    let from_uid = decode_user_id(from_user_id_hex)
+        .ok_or_else(|| "Invalid sender id".to_string())?;
+    let realm_id = dm_realm_for_uid(&network, &from_uid)
+        .await
+        .ok_or_else(|| "That sender isn't a direct-message peer.".to_string())?;
+    let realm = network
+        .get_realm_by_id(&realm_id)
+        .ok_or_else(|| "Couldn't open the direct-message realm.".to_string())?;
+
+    let key = response_doc_key(&from_uid);
+    let doc = realm
+        .document::<StewardResponse>(&key)
+        .await
+        .map_err(|e| format!("Couldn't open response doc: {}", e))?;
+
+    let my_uid = network.node().pq_identity().user_id();
+    let my_kem_ek = network.node().pq_kem_keypair().encapsulation_key_bytes();
+    let my_vk = network.node().pq_identity().verifying_key_bytes();
+    let payload = StewardResponse {
+        steward_user_id: my_uid,
+        accepted: accept,
+        responded_at_millis: chrono::Utc::now().timestamp_millis(),
+        kem_ek_bytes: if accept { my_kem_ek } else { Vec::new() },
+        dsa_vk_bytes: my_vk,
+    };
+    doc.update(move |d| *d = payload)
+        .await
+        .map_err(|e| format!("Couldn't publish response: {}", e))?;
+    Ok(())
+}
+
+fn decode_user_id(hex_input: &str) -> Option<[u8; 32]> {
+    let bytes = hex::decode(hex_input.trim()).ok()?;
+    if bytes.len() != 32 {
+        return None;
+    }
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&bytes);
+    Some(out)
+}
+
+/// Find the DM `RealmId` we share with the peer identified by
+/// `target_uid`, if one exists and has the target's KEM entry. This
+/// is a narrower view of `dm_realm_map` for a single lookup.
+async fn dm_realm_for_uid(
+    network: &Arc<IndrasNetwork>,
+    target_uid: &[u8; 32],
+) -> Option<indras_network::RealmId> {
+    for realm_id in network.conversation_realms() {
+        if network.dm_peer_for_realm(&realm_id).is_none() {
+            continue;
+        }
+        let Some(realm) = network.get_realm_by_id(&realm_id) else {
+            continue;
+        };
+        let Ok(doc) = realm.document::<PeerKeyDirectory>("peer-keys").await else {
+            continue;
+        };
+        let hit = {
+            let data = doc.read().await;
+            data.peers_with_kem()
+                .into_iter()
+                .any(|(uid, _)| uid == *target_uid)
+        };
+        if hit {
+            return Some(realm_id);
+        }
+    }
+    None
 }
