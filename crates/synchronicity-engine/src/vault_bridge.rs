@@ -97,24 +97,53 @@ pub async fn create_account(
 ) {
     let data_dir = default_data_dir();
     let display_name = state.read().display_name.clone();
+    let slots = state.read().pass_story_slots.clone();
 
-    // Stage 1: Create identity (plaintext keystore — pass story encryption deferred)
+    // Stage 1: Create identity. If the user entered their pass story
+    // during the creation flow, we bind the keystore to it so the
+    // encryption subkey can be split for backups. Empty slots fall
+    // back to the plaintext keystore for compat with tests/headless.
     state.write().loading_stages = vec![
         LoadingStage::InProgress("Creating identity...".into()),
     ];
 
-    let net = match IndrasNetwork::builder()
-        .data_dir(&data_dir)
-        .display_name(&display_name)
-        .build()
-        .await
+    let story: Option<PassStory> = if slots.len() == 23
+        && slots.iter().all(|s| !s.trim().is_empty())
     {
+        let slot_refs: Vec<&str> = slots.iter().map(|s| s.as_str()).collect();
+        let slot_arr: [&str; 23] = slot_refs.try_into().unwrap();
+        match PassStory::from_raw(&slot_arr) {
+            Ok(s) => Some(s),
+            Err(e) => {
+                state.write().error = Some(format!("Pass story error: {e}"));
+                return;
+            }
+        }
+    } else {
+        None
+    };
+
+    let mut builder = IndrasNetwork::builder()
+        .data_dir(&data_dir)
+        .display_name(&display_name);
+    if let Some(ref s) = story {
+        builder = builder.pass_story(s.clone());
+    }
+    let net = match builder.build().await {
         Ok(n) => n,
         Err(e) => {
             state.write().error = Some(format!("Identity creation failed: {e}"));
             return;
         }
     };
+
+    // Cache the story-derived encryption subkey so the Backup-plan
+    // overlay can skip the story section on future visits.
+    if let Some(ref s) = story {
+        if let Some(subkey) = derive_encryption_subkey_for_restore(&data_dir, s) {
+            let _ = crate::recovery_bridge::save_subkey_cache(&data_dir, &subkey);
+        }
+    }
 
     state.write().loading_stages = vec![
         LoadingStage::Done("Identity created".into()),

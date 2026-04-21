@@ -117,8 +117,11 @@ pub fn RecoverySetupOverlay(
     // words they already spoke.
     let story_satisfied = has_cached_key || story_complete;
 
+    // The pass story is NOT a gating requirement — the bridge pulls
+    // the subkey from the on-disk cache (populated at sign-in) when
+    // the story section is left blank. Only gate on stewards + k.
+    let _ = story_satisfied;
     let ready = !*busy.read()
-        && story_satisfied
         && total_stewards >= k_value as usize
         && k_value >= 2
         && rows
@@ -399,11 +402,6 @@ pub fn RecoverySetupOverlay(
                 }
 
                 footer { class: "recovery-footer",
-                    if !story_satisfied {
-                        span { class: "recovery-footer-hint",
-                            "Open Your story above and fill it in to continue"
-                        }
-                    }
                     button {
                         class: "se-btn-glow",
                         disabled: !ready,
