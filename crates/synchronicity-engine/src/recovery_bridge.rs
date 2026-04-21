@@ -61,9 +61,16 @@ pub fn has_cached_subkey() -> bool {
 
 /// Re-derive the encryption subkey from a pass story, verifying the
 /// result against the keystore's on-disk token so a mistyped story
-/// can't produce garbage shares. Returns `None` when the keystore
-/// isn't initialized, the derivation fails, or the story doesn't
-/// match the stored token.
+/// can't produce garbage shares.
+///
+/// For initialized keystores (the normal case) we check the derived
+/// token matches the stored one and bail if it doesn't.
+///
+/// For uninitialized keystores — Phase-1 accounts that were created
+/// before the story-binding fix landed — we bootstrap: generate a
+/// fresh salt, derive, and persist salt+token so future backup
+/// setups can verify. Existing plaintext PQ keys are left untouched;
+/// we only write the story token/salt.
 fn derive_subkey_from_story(
     data_dir: &std::path::Path,
     story: &PassStory,
@@ -72,18 +79,43 @@ fn derive_subkey_from_story(
     use indras_node::StoryKeystore;
 
     let keystore = StoryKeystore::new(data_dir);
-    if !keystore.is_initialized() {
-        return None;
-    }
-    let salt = keystore.load_story_salt().ok()?;
     let canonical = story.canonical().ok()?;
+
+    if keystore.is_initialized() {
+        let salt = keystore.load_story_salt().ok()?;
+        let master = derive_master_key(&canonical, &salt).ok()?;
+        let token = story_verification_token(&master);
+        if !keystore.verify_token(&token).ok()? {
+            return None;
+        }
+        let subkeys = expand_subkeys(&master).ok()?;
+        return subkeys.encryption.as_slice().try_into().ok();
+    }
+
+    // Bootstrap path — build a salt from a per-device marker + the
+    // current timestamp. The salt file is what makes the derivation
+    // reproducible, so stability comes from writing it once here.
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    let mut salt = Vec::with_capacity(16);
+    salt.extend_from_slice(b"indras-p1");
+    salt.extend_from_slice(&timestamp.to_le_bytes());
+
     let master = derive_master_key(&canonical, &salt).ok()?;
     let token = story_verification_token(&master);
-    if !keystore.verify_token(&token).ok()? {
-        return None;
-    }
     let subkeys = expand_subkeys(&master).ok()?;
-    subkeys.encryption.as_slice().try_into().ok()
+    let arr: [u8; 32] = subkeys.encryption.as_slice().try_into().ok()?;
+
+    // Persist the salt + token only (leave existing plaintext PQ
+    // keys alone). Uses low-level file writes so we don't kick off
+    // re-encryption of keys that were generated without the subkey.
+    let _ = std::fs::write(data_dir.join("story.salt"), &salt);
+    let _ = std::fs::write(data_dir.join("story.token"), token);
+    drop(keystore);
+
+    Some(arr)
 }
 
 /// One backup-plan row as handed down from the Backup-plan overlay.
