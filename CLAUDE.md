@@ -70,6 +70,22 @@ This repo uses **syncgit** — a peer-to-peer VCS where each git worktree is an 
 - Check peer state with `syncgit status` before starting non-trivial work so you don't duplicate a sibling's effort.
 - Your peer identity is the worktree directory name; treat sibling worktrees as independent collaborators, not as backups.
 
+## Plan files
+
+Each worktree is an independent peer with its own plans. **Never follow or write plan files under `~/.claude/plans/`** — those belong to other peers or are from a different context.
+
+Store this worktree's plans, progress logs, and session logs in `./plans/` at the worktree root:
+
+```
+./plans/<slug>.md            # plan
+./plans/<slug>.progress.md   # living state
+./plans/<slug>.sessions.md   # append-only session log
+```
+
+When resuming work (e.g. via `plan-driver`), read `./plans/` — not `~/.claude/plans/`. If no plan exists here, the worktree has no active plan: ask the user rather than inheriting a sibling peer's plan.
+
+`./plans/` is versioned with the worktree so `/sync` propagates plan state alongside code.
+
 ## Graphify
 
 The shared knowledge graph lives at `../graphify-out/` (the parent repo root), not inside this worktree. When the user runs `/graphify explore`, `/graphify query`, `/graphify path`, or `/graphify explain`, read `../graphify-out/graph.json` and `../graphify-out/GRAPH_REPORT.md` from there. Do not rebuild a local copy.
