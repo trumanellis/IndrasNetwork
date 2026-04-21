@@ -1240,8 +1240,65 @@ pub async fn assemble_and_authenticate(
     let subkey = steward_recovery::recover_encryption_subkey(&shamir_shares, threshold_k)
         .map_err(|e| format!("Couldn't reassemble the backup: {}", e))?;
 
-    // Re-auth the on-disk keystore (same path as the old hex-paste
-    // recovery flow).
+    // Plan-B path: if the account published an AccountRoot envelope
+    // into the home realm, the reassembled subkey is the wrapping
+    // key. Unseal the root, stamp a fresh DeviceCertificate for this
+    // device, and publish it into the DeviceRoster. The root is
+    // dropped immediately after signing.
+    if let Ok(home) = network.home_realm().await {
+        if let Ok(env_doc) = home
+            .document::<account_root_envelope::AccountRootEnvelope>(
+                account_root_envelope::ACCOUNT_ROOT_ENVELOPE_DOC_KEY,
+            )
+            .await
+        {
+            let env = env_doc.read().await.clone();
+            if env.version > 0 && !env.encrypted_sk.is_empty() {
+                match account_root_envelope::unseal_account_root(&env, &subkey) {
+                    Ok(root) => {
+                        let device_vk = network.node().pq_identity().verifying_key_bytes();
+                        let device_name = network
+                            .display_name()
+                            .filter(|n| !n.trim().is_empty())
+                            .map(|n| format!("{}'s recovered device", n.trim()))
+                            .unwrap_or_else(|| "Recovered device".to_string());
+                        let now = chrono::Utc::now().timestamp_millis();
+                        let cert = indras_crypto::device_cert::DeviceCertificate::sign(
+                            device_vk, device_name, now, &root,
+                        );
+                        drop(root);
+
+                        let roster_doc = home
+                            .document::<indras_sync_engine::device_roster::DeviceRoster>(
+                                indras_sync_engine::device_roster::DEVICE_ROSTER_DOC_KEY,
+                            )
+                            .await
+                            .map_err(|e| format!("Open device roster: {}", e))?;
+                        let cert_clone = cert.clone();
+                        roster_doc
+                            .update(move |r| r.upsert(cert_clone))
+                            .await
+                            .map_err(|e| format!("Publish device roster: {}", e))?;
+
+                        // Successfully signed and published the new
+                        // device cert. No keystore re-auth needed —
+                        // identity is now rooted in the roster, not
+                        // the encrypted-at-rest PQ keys.
+                        return Ok(());
+                    }
+                    Err(_) => {
+                        // Envelope is present but the reassembled key
+                        // doesn't unseal it. Fall through to the
+                        // legacy story-keystore path — might still
+                        // work for hybrid accounts.
+                    }
+                }
+            }
+        }
+    }
+
+    // Legacy path (pre-B.4 accounts): the subkey is the keystore
+    // encryption key. Re-auth against the stored token.
     let token_path = data_dir.join("story.token");
     let token_bytes = std::fs::read(&token_path)
         .map_err(|e| format!("No keystore on this device ({}): {}", token_path.display(), e))?;

@@ -24,7 +24,7 @@
 - [x] B.3 — `DeviceRoster` CRDT doc (`indras-sync-engine/src/device_roster.rs`) with per-device upsert + device_is_trusted — 4/4 tests pass
 - [x] B.4 — Account creation generates `AccountRoot`, signs first `DeviceCertificate`, publishes `DeviceRoster` in home realm, caches pending root sk for B.5 split (`account_root_cache` + `bootstrap_account_root` helper in vault_bridge) — 1 cache test passes
 - [x] B.5 — `finalize_steward_split` seals the pending root under a fresh 32-byte wrapping key, publishes `_account_root_envelope` in home realm, Shamir-splits the wrapping key across stewards, and clears the pending cache once quorum lands. Legacy story-subkey path retained as fallback. 3 envelope tests pass.
-- [ ] B.6 — Recovery assembly on new device signs fresh device cert
+- [x] B.6 — `assemble_and_authenticate` unseals the `_account_root_envelope` with the reassembled wrapping key, signs a fresh `DeviceCertificate` for this device, upserts into the `DeviceRoster`, and drops the root. Legacy keystore path retained as fallback. Build clean.
 - [ ] B.7 — Peer verification of new device certs against roster
 - [ ] B.8 — Pass-story deprecation; strip `story.subkey` cache
 - [ ] B.9 — E2E test (`tests/account_root_recovery.rs`)
