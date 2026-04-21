@@ -25,7 +25,7 @@
 - [x] B.4 — Account creation generates `AccountRoot`, signs first `DeviceCertificate`, publishes `DeviceRoster` in home realm, caches pending root sk for B.5 split (`account_root_cache` + `bootstrap_account_root` helper in vault_bridge) — 1 cache test passes
 - [x] B.5 — `finalize_steward_split` seals the pending root under a fresh 32-byte wrapping key, publishes `_account_root_envelope` in home realm, Shamir-splits the wrapping key across stewards, and clears the pending cache once quorum lands. Legacy story-subkey path retained as fallback. 3 envelope tests pass.
 - [x] B.6 — `assemble_and_authenticate` unseals the `_account_root_envelope` with the reassembled wrapping key, signs a fresh `DeviceCertificate` for this device, upserts into the `DeviceRoster`, and drops the root. Legacy keystore path retained as fallback. Build clean.
-- [ ] B.7 — Peer verification of new device certs against roster
+- [x] B.7 — `peer_verification::verify_peer_device` / `load_device_roster` helpers for gating device admission against an account's `DeviceRoster`. Wiring into shared-realm admission logic remains for a follow-up (network-layer change).
 - [ ] B.8 — Pass-story deprecation; strip `story.subkey` cache
 - [ ] B.9 — E2E test (`tests/account_root_recovery.rs`)
 - [ ] B.10 — Migration notes + /sync
