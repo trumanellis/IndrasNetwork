@@ -5304,3 +5304,8 @@ body > * {
 }
 
 /* ========== End Plan-A Steward inbox ========== */
+
+.recovery-friend-row-selected {
+  border-color: var(--indigo);
+  background: rgba(129, 140, 248, 0.08);
+}

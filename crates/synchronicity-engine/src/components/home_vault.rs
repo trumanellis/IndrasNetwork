@@ -622,7 +622,7 @@ pub fn HomeVault(
             // Recovery Setup overlay
             super::recovery_setup::RecoverySetupOverlay { state, network }
             // Recovery Use overlay
-            super::recovery_use::RecoveryUseOverlay { state }
+            super::recovery_use::RecoveryUseOverlay { state, network }
             // Steward inbox overlay
             super::steward_inbox::StewardInboxOverlay { state, network }
         }

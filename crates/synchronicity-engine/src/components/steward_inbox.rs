@@ -16,7 +16,7 @@ use dioxus::prelude::*;
 
 use indras_network::IndrasNetwork;
 
-use crate::recovery_bridge::{self, IncomingInvitation};
+use crate::recovery_bridge::{self, IncomingInvitation, IncomingRecoveryRequest};
 use crate::state::AppState;
 
 /// Steward inbox. Opened via `state.show_steward_inbox = true`.
@@ -30,16 +30,22 @@ pub fn StewardInboxOverlay(
     }
 
     let mut invitations = use_signal(Vec::<IncomingInvitation>::new);
+    let mut recovery_requests = use_signal(Vec::<IncomingRecoveryRequest>::new);
     let mut status = use_signal(|| None::<(String, bool)>);
     let mut busy_sender = use_signal(|| None::<String>);
 
     use_effect(move || {
         if let Some(net) = network.read().clone() {
+            let net_inv = net.clone();
+            let net_req = net.clone();
             spawn(async move {
-                let list = recovery_bridge::list_incoming_invitations(net).await;
-                let pending = list.iter().filter(|i| !i.already_responded).count();
-                state.write().steward_inbox_pending = pending;
-                invitations.set(list);
+                let inv_list = recovery_bridge::list_incoming_invitations(net_inv).await;
+                let req_list = recovery_bridge::list_incoming_recovery_requests(net_req).await;
+                let pending_invitations = inv_list.iter().filter(|i| !i.already_responded).count();
+                let pending_requests = req_list.iter().filter(|r| !r.already_released).count();
+                state.write().steward_inbox_pending = pending_invitations + pending_requests;
+                invitations.set(inv_list);
+                recovery_requests.set(req_list);
             });
         }
     });
@@ -219,13 +225,97 @@ pub fn StewardInboxOverlay(
                         }
                     }
 
-                    // ── Recovery requests (A.6 placeholder) ───────────
-                    // section { class: "recovery-section",
-                    //     div { class: "recovery-section-num",
-                    //         "03 · Friends asking for help recovering"
-                    //     }
-                    //     Renders once slice A.6 (recovery request protocol) lands.
-                    // }
+                    // ── Recovery requests ─────────────────────────────
+                    section { class: "recovery-section",
+                        div { class: "recovery-section-num",
+                            "03 · Friends asking for help recovering"
+                        }
+                        {
+                            let reqs = recovery_requests.read().clone();
+                            let pending_reqs: Vec<IncomingRecoveryRequest> =
+                                reqs.into_iter().filter(|r| !r.already_released).collect();
+                            if pending_reqs.is_empty() {
+                                rsx! {
+                                    div { class: "recovery-empty",
+                                        "No friends are asking for help right now."
+                                    }
+                                }
+                            } else {
+                                rsx! {
+                                    div { class: "recovery-friend-list",
+                                        for (i, req) in pending_reqs.into_iter().enumerate() {
+                                            {
+                                                let requester_uid = req.new_device_uid_hex.clone();
+                                                let source_uid = req.dm_peer_uid_hex.clone();
+                                                let from_name = if req.new_device_display_name.trim().is_empty() {
+                                                    format!("Peer {}", &req.new_device_uid_hex[..8])
+                                                } else {
+                                                    req.new_device_display_name.clone()
+                                                };
+                                                let letter = from_name.chars().next().unwrap_or('?').to_string();
+                                                let is_busy = busy_sender.read().as_deref() == Some(requester_uid.as_str());
+                                                let uid_for_approve = requester_uid.clone();
+                                                let src_for_approve = source_uid.clone();
+                                                let name_for_approve = from_name.clone();
+
+                                                rsx! {
+                                                    div {
+                                                        key: "{i}",
+                                                        class: "steward-invite-card",
+                                                        div { class: "steward-invite-head",
+                                                            div { class: "recovery-friend-avatar", "{letter}" }
+                                                            div { class: "steward-invite-heading",
+                                                                div { class: "recovery-friend-name", "{from_name}" }
+                                                                div { class: "steward-invite-meta",
+                                                                    "is asking you to release their backup piece"
+                                                                }
+                                                            }
+                                                        }
+                                                        div { class: "steward-invite-body",
+                                                            "Before you approve, make sure it's really them — "
+                                                            "call, video-chat, or see them in person. Tap Approve "
+                                                            "only once you're sure."
+                                                        }
+                                                        div { class: "steward-invite-actions",
+                                                            button {
+                                                                class: "se-btn-glow",
+                                                                disabled: is_busy,
+                                                                onclick: move |_| {
+                                                                    let Some(net) = network.read().clone() else { return };
+                                                                    let uid = uid_for_approve.clone();
+                                                                    let src = src_for_approve.clone();
+                                                                    let label = name_for_approve.clone();
+                                                                    busy_sender.set(Some(uid.clone()));
+                                                                    spawn(async move {
+                                                                        let res = recovery_bridge::approve_recovery_request(
+                                                                            net.clone(), &uid, &src
+                                                                        ).await;
+                                                                        match res {
+                                                                            Ok(()) => {
+                                                                                status.set(Some((
+                                                                                    format!("You released your backup piece for {label}."),
+                                                                                    false,
+                                                                                )));
+                                                                                let fresh = recovery_bridge::list_incoming_recovery_requests(net).await;
+                                                                                recovery_requests.set(fresh);
+                                                                            }
+                                                                            Err(e) => status.set(Some((e, true))),
+                                                                        }
+                                                                        busy_sender.set(None);
+                                                                    });
+                                                                },
+                                                                if is_busy { "..." } else { "Approve" }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                     if let Some((ref s, is_err)) = *status.read() {
                         div {

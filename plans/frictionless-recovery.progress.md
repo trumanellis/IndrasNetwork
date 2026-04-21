@@ -13,7 +13,7 @@
 - [x] A.4 — Steward inbox overlay (`components/steward_inbox.rs`; status-bar `· Requests` link + badge) — builds clean
 - [x] A.5 — Share distribution on quorum (`finalize_steward_split` + overlay auto-trigger by accepted-set signature) — builds clean
 - [x] A.6 — Recovery request + release protocol (`recovery_protocol.rs` + bridge fns: `initiate_recovery`, `withdraw_recovery_request`, `list_incoming_recovery_requests`, `approve_recovery_request`, `poll_recovery_releases`, `assemble_and_authenticate`) — 3 unit tests pass
-- [ ] A.7 — Recovery overlay rewrite (delete hex textareas; peer-ask UI)
+- [x] A.7 — Recovery overlay rewrite + steward-inbox recovery-request section (Plan-A uses same-device auto-match for source account; true new-device lands with Plan B's AccountRoot)
 - [ ] A.8 — E2E tests (`steward_invitation_flow.rs`, `steward_recovery_flow.rs`)
 - [ ] A.9 — Deprecations + /sync (drop `use_steward_recovery`, `generate_test_steward_keypair`, `RecoveryContribution`)
 
