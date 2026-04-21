@@ -584,7 +584,7 @@ pub fn HomeVault(
             }
             div { class: "home-vault-main",
                 super::vault_columns::VaultColumns { state, network, vault_manager, peers: peers, workspace_handles }
-                super::braid_drawer::BraidDrawer { state }
+                super::braid_drawer::BraidDrawer { state, vault_manager, workspace_handles }
             }
             super::status_bar::StatusBar { state }
             super::file_modal::FileModal { state, vault_manager }

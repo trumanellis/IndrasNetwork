@@ -5,21 +5,60 @@
 //! Opens when [`crate::state::AppState::braid_drawer_open`] is `true`.
 //! Data comes from [`crate::state::BraidView`] — pre-computed by a bridge
 //! task so the drawer renders synchronously.
+//!
+//! When `braid_drawer_focus` is [`crate::state::BraidFocus::AgentReview`], the
+//! drawer renders an agent review panel instead of the braid graph.
+
+use std::sync::Arc;
 
 use dioxus::prelude::*;
 
 use super::braid_graph::{BraidGraph, BraidGraphCfg};
 use crate::state::{
-    AppState, CommitView, ConflictView, EvidenceView, PeerHeadView,
+    AppState, BraidFocus, CommitView, ConflictView, EvidenceView, PeerHeadView,
 };
+use crate::team::WorkspaceHandle;
+use crate::vault_manager::VaultManager;
 
 /// Right-docked braid panel. Closed unless `state.braid_drawer_open`.
 #[component]
-pub fn BraidDrawer(mut state: Signal<AppState>) -> Element {
+pub fn BraidDrawer(
+    mut state: Signal<AppState>,
+    vault_manager: Signal<Option<Arc<VaultManager>>>,
+    workspace_handles: Signal<Vec<WorkspaceHandle>>,
+) -> Element {
     if !state.read().braid_drawer_open {
         return rsx! {};
     }
 
+    // ── Agent Review branch ──────────────────────────────────────────────────
+    // Check this before the BraidView path so AgentReview renders even when
+    // no braid_view is cached.
+    if let Some(BraidFocus::AgentReview { agent }) =
+        state.read().braid_drawer_focus.clone()
+    {
+        let fork = state
+            .read()
+            .agent_forks
+            .iter()
+            .find(|f| indras_sync_engine::team::LogicalAgentId::new(&f.name) == agent)
+            .cloned();
+
+        return rsx! {
+            aside { class: "braid-drawer",
+                DrawerHeader { state, title_name: Some(agent.as_str().to_string()) }
+                AgentReviewBody {
+                    state,
+                    vault_manager,
+                    workspace_handles,
+                    agent_name: agent.as_str().to_string(),
+                    fork,
+                }
+            }
+        };
+    }
+
+    // ── Normal braid view branch ─────────────────────────────────────────────
     let Some(view) = state.read().braid_view.clone() else {
         return rsx! {
             aside { class: "braid-drawer",
@@ -63,6 +102,144 @@ pub fn BraidDrawer(mut state: Signal<AppState>) -> Element {
         }
     }
 }
+
+// ── Agent Review Panel ────────────────────────────────────────────────────────
+
+/// Agent review body — shows uncommitted changeset cards for an agent with
+/// `[discard]` and `[merge HEAD]` actions.
+#[component]
+fn AgentReviewBody(
+    mut state: Signal<AppState>,
+    vault_manager: Signal<Option<Arc<VaultManager>>>,
+    workspace_handles: Signal<Vec<WorkspaceHandle>>,
+    agent_name: String,
+    fork: Option<crate::state::AgentForkView>,
+) -> Element {
+    rsx! {
+        div { class: "braid-drawer-body agent-review-body",
+            if let Some(ref fork) = fork {
+                // Changeset summary card
+                div { class: "agent-review-card",
+                    div {
+                        class: "agent-review-card-dot {fork.color_class}",
+                        style: "background:{fork.color_hex}",
+                    }
+                    div { class: "agent-review-card-info",
+                        div { class: "agent-review-card-name", "{fork.name}" }
+                        {
+                            let plural = if fork.change_count == 1 { "" } else { "s" };
+                            let meta = format!("{} changeset{} · {}", fork.change_count, plural, fork.head_short_hex);
+                            rsx! { div { class: "agent-review-card-meta", "{meta}" } }
+                        }
+                    }
+                }
+            } else {
+                div { class: "braid-drawer-empty",
+                    "No uncommitted changes for this agent."
+                }
+            }
+
+            // Action buttons — always visible so user can dismiss even with no fork
+            div { class: "agent-review-actions",
+                button {
+                    class: "agent-review-btn agent-review-btn--discard",
+                    title: "Discard this agent's uncommitted changes (removes from review queue)",
+                    onclick: {
+                        let agent_name_d = agent_name.clone();
+                        move |_| {
+                            discard_agent_fork(&mut state, &agent_name_d);
+                        }
+                    },
+                    "discard"
+                }
+                button {
+                    class: "agent-review-btn agent-review-btn--merge",
+                    title: "Merge agent HEAD into the inner braid",
+                    onclick: {
+                        let agent_name_m = agent_name.clone();
+                        move |_| {
+                            merge_agent_head(
+                                &mut state,
+                                &workspace_handles,
+                                &vault_manager,
+                                &agent_name_m,
+                            );
+                        }
+                    },
+                    "merge HEAD"
+                }
+            }
+        }
+    }
+}
+
+/// Remove the agent's fork entry from `AppState::agent_forks` and close the
+/// drawer. The agent's on-disk files are untouched; the row returns to `Idle`.
+fn discard_agent_fork(state: &mut Signal<AppState>, agent_name: &str) {
+    let mut w = state.write();
+    w.agent_forks.retain(|f| f.name != agent_name);
+    w.braid_drawer_open = false;
+    w.braid_drawer_focus = None;
+}
+
+/// Land the agent's working tree snapshot into the inner braid and close the
+/// drawer. Uses the same `land_agent_snapshot_on_first` path as the `[land]`
+/// pill on the agent row.
+fn merge_agent_head(
+    state: &mut Signal<AppState>,
+    workspace_handles: &Signal<Vec<WorkspaceHandle>>,
+    vault_manager: &Signal<Option<Arc<VaultManager>>>,
+    agent_name: &str,
+) {
+    use indras_sync_engine::team::LogicalAgentId;
+
+    let agent_id = LogicalAgentId::new(agent_name);
+    let vm_opt = vault_manager.read().clone();
+    let handle = workspace_handles
+        .read()
+        .iter()
+        .find(|h| h.agent == agent_id)
+        .map(|h| (h.agent.clone(), Arc::clone(&h.index)));
+
+    // Close the drawer immediately for snappy UX; the async land runs in background
+    {
+        let mut w = state.write();
+        w.braid_drawer_open = false;
+        w.braid_drawer_focus = None;
+        // Clear fork from the queue — it will reappear if land fails
+        w.agent_forks.retain(|f| f.name != agent_name);
+    }
+
+    let agent_id_c = agent_id.clone();
+    spawn(async move {
+        let Some(vm) = vm_opt else { return };
+        let Some((_aid, index)) = handle else { return };
+
+        let intent = format!("agent merge HEAD: {}", agent_id_c.as_str());
+        let signed_by: indras_sync_engine::vault::vault_file::UserId = {
+            let mut arr = [0u8; 32];
+            let b = agent_id_c.as_str().as_bytes();
+            let n = b.len().min(32);
+            arr[..n].copy_from_slice(&b[..n]);
+            arr
+        };
+        let evidence = indras_sync_engine::braid::changeset::Evidence::Agent {
+            compiled: false,
+            tests_passed: vec![],
+            lints_clean: false,
+            runtime_ms: 0,
+            signed_by,
+        };
+        if let Err(e) = vm
+            .land_agent_snapshot_on_first(&agent_id_c, &index, intent, evidence)
+            .await
+        {
+            tracing::warn!(agent = %agent_id_c.as_str(), error = %e, "merge_agent_head failed");
+        }
+    });
+}
+
+// ── Shared helpers ─────────────────────────────────────────────────────────────
 
 /// Placeholder shown when the realm's DAG has no changesets yet — typical
 /// for a freshly-created DM or group where nobody has called sync. The
@@ -259,4 +436,3 @@ fn EvidenceBadge(evidence: EvidenceView) -> Element {
         }
     }
 }
-
