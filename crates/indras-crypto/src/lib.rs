@@ -61,6 +61,7 @@ pub mod shamir;
 pub mod steward_share;
 pub mod account_root;
 pub mod device_cert;
+pub mod erasure;
 pub mod story_template;
 pub mod word_frequencies;
 

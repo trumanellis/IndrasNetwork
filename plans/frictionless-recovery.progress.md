@@ -32,7 +32,7 @@
 
 ### Plan C — Erasure-coded personal-data backup
 
-- [ ] C.1 — Reed-Solomon primitive (`indras-crypto/src/erasure.rs`)
+- [x] C.1 — Reed-Solomon primitive (`indras-crypto/src/erasure.rs`) with `encode` / `decode` + padding-aware original-length tracking — 6 tests pass
 - [ ] C.2 — Backup-peer selection + config (`backup_peers.rs`)
 - [ ] C.3 — `FileShard` CRDT (`indras-sync-engine/src/file_shard.rs`)
 - [ ] C.4 — Publish-on-save hook
