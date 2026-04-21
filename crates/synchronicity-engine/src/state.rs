@@ -1,8 +1,11 @@
 //! Application state types for The Synchronicity Engine.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
+
+use indras_sync_engine::team::LogicalAgentId;
+use serde::{Deserialize, Serialize};
 
 use crate::config::RelayConfig;
 use crate::heartbeat::PeerLiveness;
@@ -337,6 +340,75 @@ pub struct ConflictView {
     pub theirs_peer: String,
 }
 
+/// Runtime liveness of an agent as observed by hook events.
+///
+/// Transitions:
+/// - `Idle` → `Thinking` on any hook event from the agent.
+/// - `Thinking` → `Idle` when the `Stop` event arrives.
+/// - `Thinking` → `Crashed` if no hook event arrives for > 10 minutes
+///   (stall detection in the polling loop).
+///
+/// Stored in [`AppState::agent_status`] keyed by [`LogicalAgentId`].
+/// Must be serde-compatible so it can flow through `save_world_view`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentRuntimeStatus {
+    /// Agent is connected but not actively processing.
+    #[default]
+    Idle,
+    /// Agent is actively processing (hook events still arriving).
+    Thinking,
+    /// Agent appears stuck — no hook event for > 10 minutes.
+    Crashed,
+}
+
+/// Derived row state for one agent in the Agent Roster UI.
+///
+/// Computed synchronously from the four inputs by [`agent_row_state`].
+/// Drives which CSS modifier class and action pills are rendered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentRowState {
+    /// Agent folder is locked by another process; retry pill shown.
+    Blocked,
+    /// Agent is connected but idle; no action pills.
+    Idle,
+    /// Agent has active hook events; spinner shown.
+    Thinking,
+    /// Agent has uncommitted changes; \[land\] pill shown.
+    HasChanges,
+    /// Agent has an inner-braid fork ready to review; \[review\] pill shown.
+    ForkReady,
+}
+
+/// Derive the row display state from the four observable inputs.
+///
+/// Priority order (highest first):
+/// 1. `Blocked` — handle not present (folder lock failed); overrides all.
+/// 2. `ForkReady` — inner fork exists; overrides `HasChanges`.
+/// 3. `HasChanges` — uncommitted changes but no fork yet.
+/// 4. `Thinking` — runtime says agent is active.
+/// 5. `Idle` — default.
+pub fn agent_row_state(
+    handle_present: bool,
+    runtime: AgentRuntimeStatus,
+    uncommitted_change_count: usize,
+    has_inner_fork: bool,
+) -> AgentRowState {
+    if !handle_present {
+        return AgentRowState::Blocked;
+    }
+    if has_inner_fork {
+        return AgentRowState::ForkReady;
+    }
+    if uncommitted_change_count > 0 {
+        return AgentRowState::HasChanges;
+    }
+    if runtime == AgentRuntimeStatus::Thinking {
+        return AgentRowState::Thinking;
+    }
+    AgentRowState::Idle
+}
+
 /// One diverged agent whose local HEAD hasn't been merged into the user's
 /// inner HEAD yet. Rendered as a row in the Private column's Agent Lane.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -353,6 +425,9 @@ pub struct AgentForkView {
     pub color_class: &'static str,
     /// Hex color matching `color_class`, for inline SVG stops.
     pub color_hex: &'static str,
+    /// Live runtime status of the agent, derived from hook events and
+    /// fs-recency heuristics.
+    pub runtime_status: AgentRuntimeStatus,
 }
 
 /// Pre-computed snapshot of a braid for the drawer/graph to render.
@@ -445,6 +520,17 @@ pub struct AppState {
     /// cleared when the final step fires). Used to paint an "aurora" on
     /// the owning column while work is in motion.
     pub syncing_realm: Option<RealmId>,
+    /// Live runtime status for each hosted agent, updated by the IPC hook
+    /// handler when `indras-agent-hook` fires lifecycle events.
+    ///
+    /// Keyed by full [`LogicalAgentId`] (e.g. `"agent-foo"`).
+    /// Serde-compatible (no `Instant`) so it can flow into `save_world_view`.
+    pub agent_status: HashMap<LogicalAgentId, AgentRuntimeStatus>,
+    /// Millisecond timestamp (since epoch) of the last hook event received
+    /// for each agent. Used by the stall-detection loop: if
+    /// `runtime == Thinking` and `now - last_activity > 10 * 60 * 1000`,
+    /// transition the agent to `Crashed`.
+    pub agent_last_activity_millis: HashMap<LogicalAgentId, u64>,
 }
 
 impl AppState {
@@ -487,6 +573,8 @@ impl AppState {
             braid_view: None,
             agent_forks: Vec::new(),
             syncing_realm: None,
+            agent_status: HashMap::new(),
+            agent_last_activity_millis: HashMap::new(),
         }
     }
 }
@@ -553,5 +641,61 @@ pub fn format_relative_time(ms: i64) -> String {
         format!("{}h ago", diff_secs / 3600)
     } else {
         format!("{}d ago", diff_secs / 86400)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn blocked_overrides_everything() {
+        assert_eq!(
+            agent_row_state(false, AgentRuntimeStatus::Thinking, 99, true),
+            AgentRowState::Blocked
+        );
+    }
+
+    #[test]
+    fn fork_ready_overrides_has_changes() {
+        assert_eq!(
+            agent_row_state(true, AgentRuntimeStatus::Idle, 5, true),
+            AgentRowState::ForkReady
+        );
+    }
+
+    #[test]
+    fn has_changes_when_uncommitted_work() {
+        assert_eq!(
+            agent_row_state(true, AgentRuntimeStatus::Idle, 3, false),
+            AgentRowState::HasChanges
+        );
+    }
+
+    #[test]
+    fn thinking_when_runtime_active() {
+        assert_eq!(
+            agent_row_state(true, AgentRuntimeStatus::Thinking, 0, false),
+            AgentRowState::Thinking
+        );
+    }
+
+    #[test]
+    fn idle_is_default() {
+        assert_eq!(
+            agent_row_state(true, AgentRuntimeStatus::Idle, 0, false),
+            AgentRowState::Idle
+        );
+    }
+
+    #[test]
+    fn crashed_agent_with_handle_shows_idle_not_blocked() {
+        // Crashed is a runtime status, not a BindError — handle is present.
+        // Row shows Idle (Crashed doesn't affect agent_row_state directly;
+        // the UI renders the crashed indicator via runtime_status separately).
+        assert_eq!(
+            agent_row_state(true, AgentRuntimeStatus::Crashed, 0, false),
+            AgentRowState::Idle
+        );
     }
 }

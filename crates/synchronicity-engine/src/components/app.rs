@@ -24,6 +24,23 @@ pub fn App() -> Element {
     let mut workspace_handles: Signal<Vec<crate::team::WorkspaceHandle>> =
         use_signal(Vec::new);
 
+    // Channel for agent hook events: IPC server → HomeVault polling loop.
+    // Tx (Clone) is captured directly into the spawn closure that calls
+    // start_ipc_server.  Rx is wrapped in Arc<Mutex> and stored in a Signal
+    // so HomeVault can read it each tick without consuming it.
+    type HookRxShared = Arc<tokio::sync::Mutex<
+        tokio::sync::mpsc::UnboundedReceiver<crate::ipc::AgentStatusMessage>,
+    >>;
+    let (hook_tx_init, hook_rx_init) =
+        tokio::sync::mpsc::unbounded_channel::<crate::ipc::AgentStatusMessage>();
+    let hook_rx_shared: HookRxShared = Arc::new(tokio::sync::Mutex::new(hook_rx_init));
+    // Wrap in Arc so the signal value is Clone.
+    let hook_rx_signal: Signal<HookRxShared> = use_signal(|| Arc::clone(&hook_rx_shared));
+    // Sender is Clone; store in a signal so the spawn closure below can
+    // clone it each time it needs to pass to start_ipc_server.
+    let hook_tx_signal: Signal<tokio::sync::mpsc::UnboundedSender<crate::ipc::AgentStatusMessage>> =
+        use_signal(|| hook_tx_init);
+
     // One-shot guard: only attempt network load once for returning users.
     let mut network_loaded = use_signal(|| false);
 
@@ -157,6 +174,7 @@ pub fn App() -> Element {
                                         net,
                                         Arc::clone(&vm_arc),
                                         ipc_bindings,
+                                        hook_tx_signal.read().clone(),
                                     );
                                 }
                                 workspace_handles.set(handles);
@@ -225,7 +243,12 @@ pub fn App() -> Element {
                 AppStep::Creating | AppStep::Restoring => {
                     rsx! { super::loading::Loading { state, network, vault_manager } }
                 },
-                AppStep::HomeVault => rsx! { super::home_vault::HomeVault { state, network, vault_manager, workspace_handles } },
+                AppStep::HomeVault => rsx! {
+                    super::home_vault::HomeVault {
+                        state, network, vault_manager, workspace_handles,
+                        hook_rx: hook_rx_signal,
+                    }
+                },
             }
         }
     }

@@ -301,6 +301,10 @@ impl VaultManager {
                     head_short_hex,
                     color_class,
                     color_hex,
+                    // Runtime status is populated by the polling loop in
+                    // home_vault.rs after it drains IPC hook events. Default
+                    // to Idle here so the struct is always valid.
+                    runtime_status: crate::state::AgentRuntimeStatus::default(),
                 });
             }
         }

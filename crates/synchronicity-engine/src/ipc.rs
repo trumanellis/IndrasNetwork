@@ -181,11 +181,16 @@ impl SyncResponse {
 /// Start the IPC server. Returns a `JoinHandle` that runs for the app's
 /// lifetime; drop or abort to shut down. Removes any stale socket file
 /// before binding.
+///
+/// `hook_tx` receives every [`AgentStatusMessage`] parsed from the socket.
+/// The caller (polling loop in `home_vault.rs`) drains the channel each
+/// tick and applies status transitions to `AppState`.
 pub fn start_ipc_server(
     data_dir: PathBuf,
     network: Arc<IndrasNetwork>,
     vault_manager: Arc<VaultManager>,
     bindings: Vec<IpcBinding>,
+    hook_tx: tokio::sync::mpsc::UnboundedSender<AgentStatusMessage>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         let sock_path = data_dir.join(SOCKET_FILENAME);
@@ -212,8 +217,9 @@ pub fn start_ipc_server(
             let net = Arc::clone(&network);
             let vm = Arc::clone(&vault_manager);
             let bs = bindings.clone();
+            let tx = hook_tx.clone();
             tokio::spawn(async move {
-                if let Err(e) = handle_connection(stream, &net, &vm, &bs).await {
+                if let Err(e) = handle_connection(stream, &net, &vm, &bs, tx).await {
                     tracing::debug!(error = %e, "IPC connection error");
                 }
             });
@@ -231,6 +237,7 @@ async fn handle_connection(
     network: &IndrasNetwork,
     vault_manager: &VaultManager,
     bindings: &[IpcBinding],
+    hook_tx: tokio::sync::mpsc::UnboundedSender<AgentStatusMessage>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (reader, mut writer) = stream.into_split();
     let mut lines = BufReader::new(reader).lines();
@@ -254,10 +261,14 @@ async fn handle_connection(
     };
 
     if val.get("kind").and_then(|k| k.as_str()) == Some("agent_status") {
-        // Hook status event — handle and close without writing a response.
-        // (Claude Code hooks do not read the response.)
+        // Hook status event — forward to the polling loop and close without
+        // writing a response (Claude Code hooks do not read back).
         match serde_json::from_value::<AgentStatusMessage>(val) {
-            Ok(msg) => handle_agent_status(msg),
+            Ok(msg) => {
+                // Ignore send errors: the polling loop may have exited on
+                // app shutdown, which is fine.
+                let _ = hook_tx.send(msg);
+            }
             Err(e) => tracing::debug!(error = %e, "malformed agent_status message"),
         }
         return Ok(());
@@ -274,22 +285,7 @@ async fn handle_connection(
     Ok(())
 }
 
-/// Handle an incoming agent hook-status event.
-///
-/// Updates `AppState::agent_status` and `AppState::agent_last_activity_millis`
-/// (fields added in Cluster 3). Until those fields exist this function logs
-/// the event at debug level so the hook binary can connect and the wiring is
-/// exercised end-to-end without panics.
-fn handle_agent_status(msg: AgentStatusMessage) {
-    tracing::debug!(
-        agent = %msg.agent,
-        event = ?msg.hook_event,
-        "agent hook event received (AppState wiring pending Cluster 3)"
-    );
-    // Cluster 3 will replace this stub with:
-    //   state.write().agent_status.insert(agent_id, AgentRuntimeStatus::Thinking);
-    //   state.write().agent_last_activity_millis.insert(agent_id, now_millis());
-}
+
 
 async fn process_request(
     req: SyncRequest,

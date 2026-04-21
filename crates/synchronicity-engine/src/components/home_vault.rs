@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use dioxus::prelude::*;
 use indras_network::IndrasNetwork;
 
-use crate::state::{AppState, PeerDisplayInfo, MEMBER_IDENTITY_CLASSES};
+use crate::state::{AgentRuntimeStatus, AppState, PeerDisplayInfo, MEMBER_IDENTITY_CLASSES};
 use crate::vault_bridge::scan_vault;
 use crate::vault_manager::VaultManager;
 
@@ -64,6 +64,10 @@ pub fn HomeVault(
     network: Signal<Option<Arc<IndrasNetwork>>>,
     vault_manager: Signal<Option<Arc<VaultManager>>>,
     workspace_handles: Signal<Vec<crate::team::WorkspaceHandle>>,
+    /// Receiving end of the agent-hook event channel (from IPC server).
+    /// Drained each polling tick; updates `AppState::agent_status` and
+    /// `AppState::agent_last_activity_millis`.
+    hook_rx: Signal<Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<crate::ipc::AgentStatusMessage>>>>  ,
 ) -> Element {
     let mut peers = use_signal(Vec::<PeerDisplayInfo>::new);
     let mut contact_invite_open = use_signal(|| false);
@@ -319,6 +323,108 @@ pub fn HomeVault(
                 }
                 state.write().realms = realm_views;
 
+                // ── Agent runtime status: drain hook events ──────────────
+                // Pull all pending hook events off the channel and apply
+                // state transitions. The sender lives in the IPC server task.
+                {
+                    let rx_arc = hook_rx.read().clone();
+                    let mut rx = rx_arc.lock().await;
+                    while let Ok(msg) = rx.try_recv() {
+                        let agent_id = indras_sync_engine::team::LogicalAgentId::new(&msg.agent);
+                        let now_ms = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_millis() as u64)
+                            .unwrap_or(0);
+                        let new_status = match &msg.hook_event {
+                            crate::ipc::AgentHookEvent::Stop => AgentRuntimeStatus::Idle,
+                            _ => AgentRuntimeStatus::Thinking,
+                        };
+                        state.write().agent_status.insert(agent_id.clone(), new_status);
+                        state.write().agent_last_activity_millis.insert(agent_id, now_ms);
+                    }
+                }
+
+                // ── Stall detection: Thinking → Crashed after 10 min ─────
+                {
+                    let now_ms = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_millis() as u64)
+                        .unwrap_or(0);
+                    const STALL_MS: u64 = 10 * 60 * 1000;
+                    let stalled: Vec<indras_sync_engine::team::LogicalAgentId> = state
+                        .read()
+                        .agent_status
+                        .iter()
+                        .filter_map(|(id, status)| {
+                            if *status == AgentRuntimeStatus::Thinking {
+                                let last = state
+                                    .read()
+                                    .agent_last_activity_millis
+                                    .get(id)
+                                    .copied()
+                                    .unwrap_or(0);
+                                if now_ms.saturating_sub(last) > STALL_MS {
+                                    return Some(id.clone());
+                                }
+                            }
+                            None
+                        })
+                        .collect();
+                    for id in stalled {
+                        state.write().agent_status.insert(id, AgentRuntimeStatus::Crashed);
+                    }
+                }
+
+                // ── Fs-recency fallback: no hook but folder mtime within 10s ─
+                // If an agent has no hook events but its working-tree folder
+                // was modified recently (via OS mtime), treat it as Thinking
+                // so the UI stays responsive even without hook wiring.
+                {
+                    let now_ms = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_millis() as u64)
+                        .unwrap_or(0);
+                    const RECENCY_MS: u64 = 10_000;
+                    // Snapshot the folder paths to avoid holding the handles
+                    // lock across the async metadata call.
+                    let agent_folders: Vec<(indras_sync_engine::team::LogicalAgentId, std::path::PathBuf)> =
+                        workspace_handles
+                            .read()
+                            .iter()
+                            .map(|h| (h.agent.clone(), h.index.root().to_path_buf()))
+                            .collect();
+                    for (agent_id, folder) in agent_folders {
+                        let current = state
+                            .read()
+                            .agent_status
+                            .get(&agent_id)
+                            .copied()
+                            .unwrap_or(AgentRuntimeStatus::Idle);
+                        // Only apply fs-recency if not already Thinking/Crashed.
+                        if current == AgentRuntimeStatus::Idle {
+                            let folder_mtime_ms = tokio::fs::metadata(&folder)
+                                .await
+                                .ok()
+                                .and_then(|m| m.modified().ok())
+                                .and_then(|t| {
+                                    t.duration_since(std::time::UNIX_EPOCH)
+                                        .ok()
+                                        .map(|d| d.as_millis() as u64)
+                                })
+                                .unwrap_or(0);
+                            if folder_mtime_ms > 0
+                                && now_ms.saturating_sub(folder_mtime_ms) < RECENCY_MS
+                            {
+                                state
+                                    .write()
+                                    .agent_status
+                                    .insert(agent_id, AgentRuntimeStatus::Thinking);
+                            }
+                        }
+                    }
+                }
+
+                // ── Agent fork refresh ────────────────────────────────────
                 // Refresh Agent Lane forks across every attached vault's
                 // inner braid. The roster is the set of agents actually
                 // hosted on this device (via `workspace_handles`).
@@ -328,7 +434,18 @@ pub fn HomeVault(
                         .iter()
                         .map(|h| h.agent.clone())
                         .collect();
-                    let next_forks = vm.collect_agent_forks(&roster).await;
+                    let mut next_forks = vm.collect_agent_forks(&roster).await;
+                    // Populate runtime_status from AppState for each fork row.
+                    for fork in next_forks.iter_mut() {
+                        let agent_id =
+                            indras_sync_engine::team::LogicalAgentId::new(&fork.name);
+                        fork.runtime_status = state
+                            .read()
+                            .agent_status
+                            .get(&agent_id)
+                            .copied()
+                            .unwrap_or_default();
+                    }
                     if state.read().agent_forks != next_forks {
                         state.write().agent_forks = next_forks;
                     }
