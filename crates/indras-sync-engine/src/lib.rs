@@ -48,6 +48,7 @@ pub mod device_roster;
 pub mod account_root_cache;
 pub mod account_root_envelope;
 pub mod peer_verification;
+pub mod backup_peers;
 pub mod rehearsal;
 pub mod bioregion_catalog;
 pub mod profile_identity;
