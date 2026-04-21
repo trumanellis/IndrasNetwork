@@ -93,8 +93,8 @@ pub fn generate_test_steward_keypair() -> (String, String) {
 /// the Backup-plan UI as a one-click "add as friend" candidate.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AvailableSteward {
-    /// Human-facing label — currently the first few hex chars of the
-    /// peer's `UserId` until MemberId↔UserId resolution lands.
+    /// Human-facing label — the peer's mirrored display name if we
+    /// could resolve it from a DM realm, otherwise `Peer {uid_hex[..8]}`.
     pub label: String,
     /// Hex-encoded ML-KEM-768 encapsulation key.
     pub ek_hex: String,
@@ -104,13 +104,18 @@ pub struct AvailableSteward {
 /// published an ML-KEM-768 encapsulation key in the realm's peer-keys
 /// directory. Deduped by `UserId`; the caller's own entry is skipped.
 ///
-/// Used by the Backup-plan overlay to surface one-click "add this
-/// friend as a steward" options instead of requiring hex paste.
+/// For DM realms, the single non-self peer's display name is looked up
+/// via the profile mirror (`load_peer_profile_from_dm`) and used as the
+/// label. In shared realms there is no 1:1 MemberId↔UserId mapping on
+/// disk, so peers only visible through shared realms fall back to the
+/// hex-prefix label until a proper directory lands.
 pub async fn list_available_stewards(network: Arc<IndrasNetwork>) -> Vec<AvailableSteward> {
     use std::collections::BTreeMap;
 
     let my_uid = network.node().pq_identity().user_id();
-    let mut found: BTreeMap<[u8; 32], PQEncapsulationKey> = BTreeMap::new();
+    // uid -> (ek, optional resolved display name). First non-empty
+    // name wins; ek from the first realm that publishes it wins.
+    let mut found: BTreeMap<[u8; 32], (PQEncapsulationKey, Option<String>)> = BTreeMap::new();
 
     for realm_id in network.conversation_realms() {
         let Some(realm) = network.get_realm_by_id(&realm_id) else {
@@ -119,20 +124,55 @@ pub async fn list_available_stewards(network: Arc<IndrasNetwork>) -> Vec<Availab
         let Ok(doc) = realm.document::<PeerKeyDirectory>("peer-keys").await else {
             continue;
         };
-        let data = doc.read().await;
-        for (uid, ek) in data.peers_with_kem() {
-            if uid != my_uid {
-                found.entry(uid).or_insert(ek);
+        let peers: Vec<([u8; 32], PQEncapsulationKey)> = {
+            let data = doc.read().await;
+            data.peers_with_kem()
+                .into_iter()
+                .filter(|(uid, _)| *uid != my_uid)
+                .collect()
+        };
+        if peers.is_empty() {
+            continue;
+        }
+
+        // DM realms have exactly one non-self member, so whatever peers
+        // publish KEM keys in this realm's directory map to that one
+        // MemberId. Shared realms return None here and fall through to
+        // the hex fallback.
+        let dm_name = match network.dm_peer_for_realm(&realm_id) {
+            Some(mid) => {
+                let realm_bytes = *realm_id.as_bytes();
+                crate::profile_bridge::load_peer_profile_from_dm(&network, mid, realm_bytes)
+                    .await
+                    .and_then(|p| {
+                        let t = p.display_name.trim();
+                        if t.is_empty() { None } else { Some(t.to_string()) }
+                    })
             }
+            None => None,
+        };
+
+        for (uid, ek) in peers {
+            found
+                .entry(uid)
+                .and_modify(|(_, n)| {
+                    if n.is_none() {
+                        *n = dm_name.clone();
+                    }
+                })
+                .or_insert_with(|| (ek.clone(), dm_name.clone()));
         }
     }
 
     found
         .into_iter()
-        .map(|(uid, ek)| {
-            let uid_hex = hex::encode(uid);
+        .map(|(uid, (ek, name))| {
+            let label = name.unwrap_or_else(|| {
+                let uid_hex = hex::encode(uid);
+                format!("Peer {}", &uid_hex[..8])
+            });
             AvailableSteward {
-                label: format!("Peer {}", &uid_hex[..8]),
+                label,
                 ek_hex: hex::encode(ek.to_bytes()),
             }
         })

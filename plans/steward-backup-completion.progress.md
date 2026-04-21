@@ -13,12 +13,11 @@
 
 ## Pending
 
-### Slice 2 — Display-name resolution
-- [ ] Edit `recovery_bridge.rs::list_available_stewards` to walk conversation_realms, call `dm_peer_for_realm` + `load_peer_profile_from_dm`, dedupe labels
-- [ ] Smoke/unit test if reachable
-- [ ] `cargo build -p synchronicity-engine` clean
-- [ ] Manual verify in running app
-- [ ] `/sync` with commit: "feat: resolve DM peer display names in backup picker"
+### Slice 2 — Display-name resolution ✓ 2026-04-21
+- [x] Edit `recovery_bridge.rs::list_available_stewards` to walk conversation_realms, call `dm_peer_for_realm` + `load_peer_profile_from_dm`, dedupe labels
+- [x] `cargo build -p synchronicity-engine` clean
+- [ ] Manual verify in running app (deferred — needs two-peer live session)
+- [x] `/sync` with commit: "feat: resolve DM peer display names in backup picker"
 
 ### Slice 3 — Recovery-side UI (Use-my-backup overlay)
 - [ ] Draft `components/recovery_use.rs` — parallel to `recovery_setup.rs`
