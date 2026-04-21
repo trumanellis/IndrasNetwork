@@ -11,7 +11,7 @@
 - [x] A.2 — enrollment bridge (`invite_steward`, `revoke_invitation`, `list_outgoing_enrollments`, `list_incoming_invitations`, `respond_to_invitation`) — builds clean
 - [x] A.3 — Backup-plan overlay rewrite (peer list with per-row status badges; delete hex / story / fake-friend flows) — builds clean, styles added
 - [x] A.4 — Steward inbox overlay (`components/steward_inbox.rs`; status-bar `· Requests` link + badge) — builds clean
-- [ ] A.5 — Share distribution on quorum (`finalize_steward_split`)
+- [x] A.5 — Share distribution on quorum (`finalize_steward_split` + overlay auto-trigger by accepted-set signature) — builds clean
 - [ ] A.6 — Recovery request + release protocol (`recovery_protocol.rs`; bridge fns)
 - [ ] A.7 — Recovery overlay rewrite (delete hex textareas; peer-ask UI)
 - [ ] A.8 — E2E tests (`steward_invitation_flow.rs`, `steward_recovery_flow.rs`)

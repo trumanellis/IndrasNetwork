@@ -14,7 +14,7 @@ use dioxus::prelude::*;
 
 use indras_network::IndrasNetwork;
 
-use crate::recovery_bridge::{self, OutgoingEnrollment};
+use crate::recovery_bridge::{self, AcceptedSteward, OutgoingEnrollment};
 use crate::state::AppState;
 use indras_sync_engine::steward_enrollment::EnrollmentStatus;
 
@@ -32,6 +32,9 @@ pub fn RecoverySetupOverlay(
     let mut enrollments = use_signal(Vec::<OutgoingEnrollment>::new);
     let mut status = use_signal(|| None::<(String, bool)>);
     let mut busy_peer = use_signal(|| None::<String>);
+    // Fingerprint of the last accepted-set we finalized a split for.
+    // Prevents re-splitting on every CRDT tick when nothing changed.
+    let mut last_finalized_sig = use_signal(String::new);
 
     // Refresh the enrollment list on open. CRDT sync will bring peer
     // responses in as they arrive, but this effect only refires on
@@ -60,6 +63,50 @@ pub fn RecoverySetupOverlay(
     };
 
     let ready_for_quorum = accepted_count >= k_value as usize;
+
+    // Auto-finalize the split whenever the accepted set reaches (or
+    // grows past) K. Fingerprint = K + sorted accepted UIDs + each
+    // peer's current kem_ek. Re-split only when that set actually
+    // changes so we don't destroy still-valid steward shares on
+    // every CRDT tick.
+    let accepted_peers: Vec<AcceptedSteward> = peers
+        .iter()
+        .filter(|e| e.status.is_accepted() && !e.accepted_kem_ek_hex.is_empty())
+        .map(|e| AcceptedSteward {
+            peer_user_id_hex: e.peer_user_id_hex.clone(),
+            peer_label: e.peer_label.clone(),
+            accepted_kem_ek_hex: e.accepted_kem_ek_hex.clone(),
+        })
+        .collect();
+
+    if ready_for_quorum && accepted_peers.len() >= k_value as usize {
+        let mut sig_inputs: Vec<String> = accepted_peers
+            .iter()
+            .map(|a| format!("{}:{}", a.peer_user_id_hex, a.accepted_kem_ek_hex))
+            .collect();
+        sig_inputs.sort();
+        let sig = format!("{}|{}", k_value, sig_inputs.join(","));
+        if *last_finalized_sig.read() != sig {
+            if let Some(net) = network.read().clone() {
+                let accepted_clone = accepted_peers.clone();
+                let sig_clone = sig.clone();
+                spawn(async move {
+                    match recovery_bridge::finalize_steward_split(net, accepted_clone, k_value).await {
+                        Ok(n) => {
+                            status.set(Some((
+                                format!("Backup ready. Sent pieces to {n} friends."),
+                                false,
+                            )));
+                            last_finalized_sig.set(sig_clone);
+                        }
+                        Err(e) => {
+                            status.set(Some((e, true)));
+                        }
+                    }
+                });
+            }
+        }
+    }
 
     rsx! {
         div { class: "recovery-overlay",

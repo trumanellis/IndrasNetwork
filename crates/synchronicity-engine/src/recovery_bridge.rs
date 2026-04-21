@@ -990,3 +990,120 @@ async fn dm_realm_for_uid(
     }
     None
 }
+
+// ──────────────────────────────────────────────────────────────────
+// Quorum-driven share distribution (A.5)
+// ──────────────────────────────────────────────────────────────────
+
+/// One accepted steward's info needed to produce an encrypted share.
+#[derive(Clone, Debug)]
+pub struct AcceptedSteward {
+    pub peer_user_id_hex: String,
+    pub peer_label: String,
+    pub accepted_kem_ek_hex: String,
+}
+
+/// Split the cached encryption subkey into K-of-N shares and publish
+/// one to each accepted steward's DM realm. Called automatically by
+/// the Backup-plan overlay whenever the accepted-peer set reaches or
+/// exceeds K. Re-running supersedes earlier splits via last-writer-
+/// wins on the `_steward_share:*` doc.
+///
+/// Returns the number of stewards that received a share this run.
+/// Stewards whose DM realm isn't resolvable at call time are skipped
+/// silently — they'll pick up the next re-issue.
+pub async fn finalize_steward_split(
+    network: Arc<IndrasNetwork>,
+    accepted: Vec<AcceptedSteward>,
+    threshold_k: u8,
+) -> Result<usize, String> {
+    if threshold_k < 2 {
+        return Err("Need at least 2 friends to agree.".to_string());
+    }
+    if accepted.len() < threshold_k as usize {
+        return Err(format!(
+            "Only {} friends accepted — need {}.",
+            accepted.len(),
+            threshold_k
+        ));
+    }
+
+    let data_dir = crate::state::default_data_dir();
+    let subkey = load_subkey_cache(&data_dir).ok_or_else(|| {
+        "Your backup key isn't cached on this device yet. Sign out and sign back in with your story once."
+            .to_string()
+    })?;
+
+    // Build stewards + per-steward UIDs for routing.
+    let mut stewards = Vec::with_capacity(accepted.len());
+    let mut uids = Vec::with_capacity(accepted.len());
+    for acc in &accepted {
+        let ek_bytes = hex::decode(acc.accepted_kem_ek_hex.trim()).map_err(|e| {
+            format!("Steward `{}`: backup-code hex decode failed — {}", acc.peer_label, e)
+        })?;
+        let ek = PQEncapsulationKey::from_bytes(&ek_bytes).map_err(|e| {
+            format!("Steward `{}`: invalid backup key — {}", acc.peer_label, e)
+        })?;
+        let uid = decode_user_id(&acc.peer_user_id_hex)
+            .ok_or_else(|| format!("Steward `{}`: invalid user id", acc.peer_label))?;
+        stewards.push((StewardId::new(acc.peer_label.as_bytes().to_vec()), ek));
+        uids.push(uid);
+    }
+
+    // Split + persist the manifest. `prepare_recovery` is pure CPU
+    // work so spawn-blocking keeps the UI async runtime happy.
+    let (prepared, data_dir_owned) = {
+        let data_dir_owned = data_dir.clone();
+        let stewards_owned = stewards.clone();
+        let prepared = tokio::task::spawn_blocking(move || -> Result<_, String> {
+            let p = steward_recovery::prepare_recovery(
+                &subkey,
+                &stewards_owned,
+                threshold_k,
+                chrono::Utc::now().timestamp_millis() as u64,
+            )
+            .map_err(|e| format!("{}", e))?;
+            steward_recovery::save_manifest(&data_dir_owned, &p.manifest)
+                .map_err(|e| format!("{}", e))?;
+            Ok(p)
+        })
+        .await
+        .map_err(|e| format!("task join error: {}", e))??;
+        (prepared, data_dir)
+    };
+    let _ = data_dir_owned; // silence unused when all code-paths drop it early
+
+    // Publish each share to the matching DM realm. Failures per peer
+    // are swallowed so a single unreachable steward doesn't block the
+    // whole split.
+    let my_uid = network.node().pq_identity().user_id();
+    let now = chrono::Utc::now().timestamp_millis();
+    let key = share_delivery_doc_key(&my_uid);
+    let mut delivered = 0usize;
+    for (idx, enc_share) in prepared.encrypted_shares.iter().enumerate() {
+        let Some(realm_id) = dm_realm_for_uid(&network, &uids[idx]).await else {
+            continue;
+        };
+        let Some(realm) = network.get_realm_by_id(&realm_id) else {
+            continue;
+        };
+        let Ok(doc) = realm.document::<ShareDelivery>(&key).await else {
+            continue;
+        };
+        let bytes = match enc_share.to_bytes() {
+            Ok(b) => b,
+            Err(_) => continue,
+        };
+        let payload = ShareDelivery {
+            encrypted_share: bytes,
+            sender_user_id: my_uid,
+            created_at_millis: now,
+            label: accepted[idx].peer_label.clone(),
+        };
+        if doc.update(move |d| *d = payload).await.is_ok() {
+            delivered += 1;
+        }
+    }
+
+    Ok(delivered)
+}
