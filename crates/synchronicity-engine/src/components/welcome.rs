@@ -53,13 +53,15 @@ pub fn Welcome(mut state: Signal<AppState>) -> Element {
                 button {
                     class: "se-btn-outline",
                     onclick: move |_| state.write().step = AppStep::RestoreStory,
-                    "Sign In"
+                    "Sign in with a pass story"
                 }
             }
 
             p {
                 class: "welcome-hint",
-                "Already have an account on another device? Sign in with your story."
+                "Lost your device? Create a new account first, then pick "
+                b { "Use backup" }
+                " from the status bar — your backup friends will help you back in."
             }
         }
     }

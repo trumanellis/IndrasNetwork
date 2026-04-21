@@ -26,7 +26,7 @@
 - [x] B.5 — `finalize_steward_split` seals the pending root under a fresh 32-byte wrapping key, publishes `_account_root_envelope` in home realm, Shamir-splits the wrapping key across stewards, and clears the pending cache once quorum lands. Legacy story-subkey path retained as fallback. 3 envelope tests pass.
 - [x] B.6 — `assemble_and_authenticate` unseals the `_account_root_envelope` with the reassembled wrapping key, signs a fresh `DeviceCertificate` for this device, upserts into the `DeviceRoster`, and drops the root. Legacy keystore path retained as fallback. Build clean.
 - [x] B.7 — `peer_verification::verify_peer_device` / `load_device_roster` helpers for gating device admission against an account's `DeviceRoster`. Wiring into shared-realm admission logic remains for a follow-up (network-layer change).
-- [ ] B.8 — Pass-story deprecation; strip `story.subkey` cache
+- [x] B.8 — Welcome UX reframed: pass-story sign-in is now the secondary option; hint points users to `· Use backup` in the status bar for cross-device recovery. Legacy story-subkey cache kept as in-memory fallback for accounts that pre-date Plan B. Build clean.
 - [ ] B.9 — E2E test (`tests/account_root_recovery.rs`)
 - [ ] B.10 — Migration notes + /sync
 
