@@ -511,6 +511,14 @@ pub struct AppState {
     pub show_recovery_setup: bool,
     /// Whether the "use my backup" recovery overlay is open.
     pub show_recovery_use: bool,
+    /// Whether the steward inbox (incoming invitations + recovery
+    /// requests) overlay is open.
+    pub show_steward_inbox: bool,
+    /// Cached count of pending steward-side actions — invitations
+    /// awaiting response, plus (once A.6 lands) recovery requests
+    /// awaiting approval. Drives the status-bar badge. Refreshed on
+    /// inbox open and on app start.
+    pub steward_inbox_pending: usize,
     /// Number of steward shares this device is currently holding for
     /// other peers. Refreshed on app start and whenever the
     /// Backup-plan overlay opens. Drives the status-bar badge.
@@ -581,6 +589,8 @@ impl AppState {
             show_sync: false,
             show_recovery_setup: false,
             show_recovery_use: false,
+            show_steward_inbox: false,
+            steward_inbox_pending: 0,
             held_backups_count: crate::recovery_bridge::load_held_backups().count(),
             profile_popup_target: None,
             peer_liveness: None,

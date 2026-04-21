@@ -62,6 +62,20 @@ pub fn StatusBar(mut state: Signal<AppState>) -> Element {
                 title: "Use the pieces your friends gave you to recover access",
                 " · Use backup"
             }
+            span {
+                class: "status-left muted status-relay-link",
+                onclick: move |_| {
+                    let cur = state.read().show_steward_inbox;
+                    state.write().show_steward_inbox = !cur;
+                },
+                title: "Requests from friends asking you to be their backup",
+                " · Requests"
+                if state.read().steward_inbox_pending > 0 {
+                    span { class: "status-inbox-badge",
+                        " · {state.read().steward_inbox_pending} waiting"
+                    }
+                }
+            }
             span { class: "status-center muted", "Last sync: {last_sync}" }
             span { class: "status-right muted", "{file_count} file(s) · {size_label}" }
         }

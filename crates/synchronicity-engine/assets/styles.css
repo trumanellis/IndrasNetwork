@@ -5249,3 +5249,58 @@ body > * {
 }
 
 /* ========== End Plan-A Backup friends list ========== */
+
+/* ========== Plan-A Steward inbox ========== */
+
+.status-inbox-badge {
+  color: var(--amber, #ffb347);
+  font-variant-numeric: tabular-nums;
+}
+
+.steward-invite-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  background: var(--bg);
+  border: 1px solid var(--bd);
+  border-radius: 12px;
+}
+
+.steward-invite-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.steward-invite-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.steward-invite-meta {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--t3);
+  text-transform: uppercase;
+}
+
+.steward-invite-body {
+  color: var(--t1);
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 2px 0;
+}
+
+.steward-invite-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* ========== End Plan-A Steward inbox ========== */

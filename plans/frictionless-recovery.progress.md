@@ -10,7 +10,7 @@
 - [x] A.1 — invitation CRDT types + module (`steward_enrollment.rs` + unit tests) — 5/5 pass
 - [x] A.2 — enrollment bridge (`invite_steward`, `revoke_invitation`, `list_outgoing_enrollments`, `list_incoming_invitations`, `respond_to_invitation`) — builds clean
 - [x] A.3 — Backup-plan overlay rewrite (peer list with per-row status badges; delete hex / story / fake-friend flows) — builds clean, styles added
-- [ ] A.4 — Steward inbox overlay (`components/steward_inbox.rs`; status-bar badge)
+- [x] A.4 — Steward inbox overlay (`components/steward_inbox.rs`; status-bar `· Requests` link + badge) — builds clean
 - [ ] A.5 — Share distribution on quorum (`finalize_steward_split`)
 - [ ] A.6 — Recovery request + release protocol (`recovery_protocol.rs`; bridge fns)
 - [ ] A.7 — Recovery overlay rewrite (delete hex textareas; peer-ask UI)
