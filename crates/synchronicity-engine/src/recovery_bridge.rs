@@ -1,23 +1,31 @@
-//! Bridge for the Recovery Setup and Recovery Use overlays.
+//! Bridge for the Plan-A steward enrollment + recovery flows.
 //!
-//! **Backup side** (`setup_steward_recovery`): re-derives the
-//! encryption subkey from the user's pass story (or loads it from the
-//! on-disk cache populated at sign-in) and produces a K-of-N steward
-//! recovery split via [`indras_sync_engine::steward_recovery`].
+//! **Setup side**: the Backup-plan overlay calls `invite_steward`
+//! per peer, then `finalize_steward_split` when the accepted set
+//! reaches the quorum K. The split is performed against the cached
+//! encryption subkey (populated at sign-in) so the user never
+//! retypes their story for a backup.
 //!
-//! **Recovery side** (`use_steward_recovery`): collects K encrypted
-//! shares plus their matching steward keypairs, decrypts each,
-//! reassembles the subkey, and re-authenticates the local
-//! `StoryKeystore` to prove the recovered identity unlocks the at-rest
-//! PQ keys.
+//! **Steward side**: the inbox overlay calls `list_incoming_*` and
+//! `respond_to_invitation` / `approve_recovery_request`. On
+//! approval, the steward decrypts their held share with their own
+//! KEM keypair, re-wraps it to the recovering device's fresh KEM
+//! ek, and publishes a `ShareRelease` doc in the same DM realm.
 //!
-//! This is debug-grade Phase 1 plumbing — the user pastes hex in and
-//! hex out. In-realm share distribution over iroh is a follow-on.
+//! **Recovery side**: the Recovery overlay calls `initiate_recovery`
+//! on the selected stewards, polls `_share_release:*` docs via
+//! `poll_recovery_releases`, and once K land calls
+//! `assemble_and_authenticate` to rebuild the subkey and re-unlock
+//! the on-disk keystore.
+//!
+//! All share material stays wrapped inside CRDT docs that live in
+//! DM realms — the user never sees hex. The crypto primitives (ML-
+//! KEM-768 + Shamir) are unchanged from Phase 1; Plan A reshapes
+//! the UX, Plan B will reshape the *identity* being protected.
 
 use std::sync::Arc;
 
-use indras_crypto::pq_kem::{PQEncapsulationKey, PQKemKeyPair};
-use indras_crypto::steward_share::EncryptedStewardShare;
+use indras_crypto::pq_kem::PQEncapsulationKey;
 use indras_crypto::story_template::PassStory;
 use indras_network::IndrasNetwork;
 use indras_node::StoryKeystore;
@@ -122,233 +130,6 @@ fn derive_subkey_from_story(
     Some(arr)
 }
 
-/// One backup-plan row as handed down from the Backup-plan overlay.
-///
-/// `user_id_hex` is `Some` only for rows created via the peer picker —
-/// those are candidates for in-band delivery because we already know
-/// which DM realm reaches that peer. Manual hex-paste rows have `None`
-/// and always fall through to the hex copy-paste path.
-#[derive(Clone, Debug, Default)]
-pub struct StewardInput {
-    pub label: String,
-    pub ek_hex: String,
-    pub user_id_hex: Option<String>,
-}
-
-/// Summary of `setup_steward_recovery` for the UI.
-///
-/// `shares_hex` is the hex fallback every steward sees today. `delivered_to`
-/// names the stewards whose shares were also published into a DM realm
-/// over iroh (no hex copy-paste needed for those).
-#[derive(Clone, Debug, Default)]
-pub struct SetupOutcome {
-    pub shares_hex: Vec<String>,
-    pub delivered_to: Vec<String>,
-}
-
-/// Prepare a steward recovery split.
-///
-/// `story_slots` may be empty — when it is, the bridge falls back to
-/// the cached encryption subkey on disk (populated at sign-in). This
-/// lets returning users set up a backup without re-entering the
-/// 23-word story. Passing a full 23-slot story re-derives fresh and
-/// also refreshes the cache. For each input steward we encrypt a
-/// share; when `network` is `Some` and the row carries a
-/// `user_id_hex` for a peer we share a DM realm with, we also
-/// publish the share as a CRDT doc inside that realm. Manifest is
-/// persisted either way.
-pub async fn setup_steward_recovery(
-    story_slots: Vec<String>,
-    stewards_input: Vec<StewardInput>,
-    k: u8,
-    network: Option<Arc<IndrasNetwork>>,
-) -> Result<SetupOutcome, String> {
-    let data_dir = crate::state::default_data_dir();
-
-    // Normalize the story input: either fully populated (23 non-empty
-    // slots) or fully empty (fall back to cached subkey). Anything in
-    // between is a user error.
-    let any_filled = story_slots.iter().any(|s| !s.trim().is_empty());
-    let all_filled = story_slots.len() == 23
-        && story_slots.iter().all(|s| !s.trim().is_empty());
-    let story: Option<PassStory> = if all_filled {
-        let slots: [String; 23] = story_slots
-            .try_into()
-            .map_err(|_: Vec<_>| "Failed to coerce 23 slots into array".to_string())?;
-        Some(PassStory::from_normalized(slots).map_err(|e| format!("{}", e))?)
-    } else if !any_filled {
-        None
-    } else {
-        return Err("Pass story must be either fully filled or left empty.".to_string());
-    };
-
-    let mut stewards: Vec<(StewardId, PQEncapsulationKey)> =
-        Vec::with_capacity(stewards_input.len());
-    let mut routing: Vec<Option<[u8; 32]>> = Vec::with_capacity(stewards_input.len());
-    let mut labels: Vec<String> = Vec::with_capacity(stewards_input.len());
-    for input in &stewards_input {
-        let label_trimmed = input.label.trim();
-        if label_trimmed.is_empty() {
-            return Err("Every steward needs a label".to_string());
-        }
-        let ek_bytes = hex::decode(input.ek_hex.trim())
-            .map_err(|e| format!("Steward `{}`: invalid hex — {}", label_trimmed, e))?;
-        let ek = PQEncapsulationKey::from_bytes(&ek_bytes)
-            .map_err(|e| format!("Steward `{}`: invalid KEM key — {}", label_trimmed, e))?;
-        stewards.push((StewardId::new(label_trimmed.as_bytes().to_vec()), ek));
-        labels.push(label_trimmed.to_string());
-
-        let uid = input
-            .user_id_hex
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(|hex_uid| {
-                let bytes = hex::decode(hex_uid).map_err(|e| {
-                    format!("Steward `{}`: invalid user_id hex — {}", label_trimmed, e)
-                })?;
-                if bytes.len() != 32 {
-                    return Err(format!(
-                        "Steward `{}`: user_id must be 32 bytes, got {}",
-                        label_trimmed,
-                        bytes.len()
-                    ));
-                }
-                let mut out = [0u8; 32];
-                out.copy_from_slice(&bytes);
-                Ok::<_, String>(out)
-            })
-            .transpose()?;
-        routing.push(uid);
-    }
-
-    let subkey = if let Some(story) = story {
-        let data_dir_owned = data_dir.clone();
-        tokio::task::spawn_blocking(move || derive_subkey_from_story(&data_dir_owned, &story))
-            .await
-            .map_err(|e| format!("task join error: {}", e))?
-            .ok_or_else(|| {
-                "Couldn't derive the backup key from that story — it may not match the keystore"
-                    .to_string()
-            })?
-    } else {
-        load_subkey_cache(&data_dir).ok_or_else(|| {
-            "We don't have your secret story cached. Open section 01 and paste the words one time."
-                .to_string()
-        })?
-    };
-
-    // Always refresh the cache so subsequent setups can skip the story.
-    let _ = save_subkey_cache(&data_dir, &subkey);
-
-    let prepared = {
-        let stewards = stewards.clone();
-        let data_dir = data_dir.clone();
-        tokio::task::spawn_blocking(move || -> Result<_, String> {
-            let prepared = steward_recovery::prepare_recovery(&subkey, &stewards, k, 1)
-                .map_err(|e| format!("{}", e))?;
-            steward_recovery::save_manifest(&data_dir, &prepared.manifest)
-                .map_err(|e| format!("{}", e))?;
-            Ok(prepared)
-        })
-        .await
-        .map_err(|e| format!("task join error: {}", e))??
-    };
-
-    let mut shares_hex = Vec::with_capacity(prepared.encrypted_shares.len());
-    let mut share_bytes: Vec<Vec<u8>> = Vec::with_capacity(prepared.encrypted_shares.len());
-    for enc in &prepared.encrypted_shares {
-        let bytes = enc
-            .to_bytes()
-            .map_err(|e| format!("serialize share: {}", e))?;
-        shares_hex.push(hex::encode(&bytes));
-        share_bytes.push(bytes);
-    }
-
-    // In-band delivery: for each row whose caller provided a UserId,
-    // publish the encrypted share into the sender↔steward DM realm.
-    // Failures here are recorded in `delivered_to` absence, not as
-    // hard errors — the hex fallback still lets the user ship out of
-    // band.
-    let mut delivered_to: Vec<String> = Vec::new();
-    if let Some(net) = network {
-        let my_uid = net.node().pq_identity().user_id();
-        let now = chrono::Utc::now().timestamp_millis();
-        let uid_to_realm = dm_realm_map(&net).await;
-        for (idx, maybe_uid) in routing.iter().enumerate() {
-            let Some(target_uid) = maybe_uid else { continue };
-            let Some(realm_id) = uid_to_realm.get(target_uid) else { continue };
-            let Some(realm) = net.get_realm_by_id(realm_id) else { continue };
-            let key = share_delivery_doc_key(&my_uid);
-            let doc = match realm.document::<ShareDelivery>(&key).await {
-                Ok(d) => d,
-                Err(_) => continue,
-            };
-            let payload = ShareDelivery {
-                encrypted_share: share_bytes[idx].clone(),
-                sender_user_id: my_uid,
-                created_at_millis: now,
-                label: labels[idx].clone(),
-            };
-            if doc.update(move |d| *d = payload).await.is_ok() {
-                delivered_to.push(labels[idx].clone());
-            }
-        }
-    }
-
-    Ok(SetupOutcome {
-        shares_hex,
-        delivered_to,
-    })
-}
-
-/// Build a `UserId` → `RealmId` map covering every DM realm the user
-/// currently belongs to. Returns empty if the network has no DM realms
-/// or their peer-keys directory has not synced yet.
-async fn dm_realm_map(
-    network: &Arc<IndrasNetwork>,
-) -> std::collections::BTreeMap<[u8; 32], indras_network::RealmId> {
-    use std::collections::BTreeMap;
-
-    let my_uid = network.node().pq_identity().user_id();
-    let mut map = BTreeMap::new();
-
-    for realm_id in network.conversation_realms() {
-        if network.dm_peer_for_realm(&realm_id).is_none() {
-            continue;
-        }
-        let Some(realm) = network.get_realm_by_id(&realm_id) else {
-            continue;
-        };
-        let Ok(doc) = realm.document::<PeerKeyDirectory>("peer-keys").await else {
-            continue;
-        };
-        let data = doc.read().await;
-        for (uid, _ek) in data.peers_with_kem() {
-            if uid != my_uid {
-                // In a DM realm there's exactly one non-self peer, so
-                // first-writer wins here is correct.
-                map.entry(uid).or_insert(realm_id);
-            }
-        }
-    }
-
-    map
-}
-
-/// Generate a fresh ML-KEM-768 keypair for testing the steward flow.
-///
-/// Returns `(decapsulation_key_hex, encapsulation_key_hex)` so the
-/// caller can simulate a steward by pasting the encapsulation key into
-/// the Recovery Setup overlay and keeping the decapsulation key for
-/// later "release" of their share.
-pub fn generate_test_steward_keypair() -> (String, String) {
-    use indras_crypto::pq_kem::PQKemKeyPair;
-    let kp = PQKemKeyPair::generate();
-    let (dk, ek) = kp.to_keypair_bytes();
-    (hex::encode(dk.as_slice()), hex::encode(ek))
-}
-
 /// A peer whose ML-KEM-768 key is available in the network, surfaced to
 /// the Backup-plan UI as a one-click "add as friend" candidate.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -439,99 +220,6 @@ pub async fn list_available_stewards(network: Arc<IndrasNetwork>) -> Vec<Availab
             }
         })
         .collect()
-}
-
-/// One steward's contribution to recovery, in the raw hex form the
-/// debug UI collects. For Phase 1, the overlay decrypts on the user's
-/// behalf using supplied keypairs; in-band delivery of pre-decrypted
-/// shares lands with Slice 4.
-#[derive(Clone, Debug, Default)]
-pub struct RecoveryContribution {
-    /// Hex-encoded `EncryptedStewardShare`.
-    pub share_hex: String,
-    /// Hex-encoded steward decapsulation key.
-    pub decap_key_hex: String,
-    /// Hex-encoded steward encapsulation key. Needed alongside
-    /// `decap_key_hex` to reconstruct the `PQKemKeyPair` for decryption.
-    pub encap_key_hex: String,
-}
-
-/// Rebuild the keystore encryption subkey from K contributions and
-/// re-authenticate the local `StoryKeystore`, proving the recovered
-/// identity can unlock the at-rest PQ keys. Returns the K used on
-/// success for the UI's confirmation string.
-///
-/// Errors surface as human-readable strings — the overlay renders them
-/// directly. Debug-grade: the caller does not need to paste the
-/// verification token because it already lives on disk at
-/// `<data_dir>/story.token`, left behind from account creation.
-pub async fn use_steward_recovery(
-    contributions: Vec<RecoveryContribution>,
-    threshold: u8,
-) -> Result<u8, String> {
-    if threshold < 2 {
-        return Err(format!("Threshold must be at least 2 (got {})", threshold));
-    }
-    if contributions.len() < threshold as usize {
-        return Err(format!(
-            "Need at least {} pieces; got {}",
-            threshold,
-            contributions.len()
-        ));
-    }
-
-    let data_dir = crate::state::default_data_dir();
-
-    tokio::task::spawn_blocking(move || -> Result<u8, String> {
-        let mut shares = Vec::with_capacity(contributions.len());
-        for (idx, c) in contributions.iter().enumerate() {
-            let slot = idx + 1;
-            let share_bytes = hex::decode(c.share_hex.trim())
-                .map_err(|e| format!("Piece {}: hex decode failed — {}", slot, e))?;
-            let encrypted = EncryptedStewardShare::from_bytes(&share_bytes)
-                .map_err(|e| format!("Piece {}: malformed share — {}", slot, e))?;
-            let dk_bytes = hex::decode(c.decap_key_hex.trim())
-                .map_err(|e| format!("Piece {}: friend-secret hex decode failed — {}", slot, e))?;
-            let ek_bytes = hex::decode(c.encap_key_hex.trim())
-                .map_err(|e| format!("Piece {}: friend-code hex decode failed — {}", slot, e))?;
-            let kp = PQKemKeyPair::from_keypair_bytes(&dk_bytes, &ek_bytes)
-                .map_err(|e| format!("Piece {}: key pair rebuild failed — {}", slot, e))?;
-            let share = encrypted
-                .decrypt(&kp)
-                .map_err(|e| format!("Piece {}: decrypt failed — {}", slot, e))?;
-            shares.push(share);
-        }
-
-        let subkey = steward_recovery::recover_encryption_subkey(&shares, threshold)
-            .map_err(|e| format!("Couldn't reassemble the backup: {}", e))?;
-
-        let token_path = data_dir.join("story.token");
-        let token_bytes = std::fs::read(&token_path)
-            .map_err(|e| format!("No keystore on this device ({}): {}", token_path.display(), e))?;
-        if token_bytes.len() != 32 {
-            return Err(format!(
-                "Keystore token is the wrong size (got {}, want 32)",
-                token_bytes.len()
-            ));
-        }
-        let mut token = [0u8; 32];
-        token.copy_from_slice(&token_bytes);
-
-        let mut keystore = StoryKeystore::new(&data_dir);
-        if !keystore.is_initialized() {
-            return Err("No keystore to recover on this device".to_string());
-        }
-        keystore
-            .authenticate(&subkey, token)
-            .map_err(|e| format!("Recovered key did not unlock the keystore: {}", e))?;
-        keystore
-            .load_or_generate_pq_identity()
-            .map_err(|e| format!("Couldn't load the recovered identity: {}", e))?;
-
-        Ok(threshold)
-    })
-    .await
-    .map_err(|e| format!("task join error: {}", e))?
 }
 
 /// Walk every DM realm, probe each non-self peer's share-delivery doc,

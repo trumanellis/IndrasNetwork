@@ -14,8 +14,8 @@
 - [x] A.5 — Share distribution on quorum (`finalize_steward_split` + overlay auto-trigger by accepted-set signature) — builds clean
 - [x] A.6 — Recovery request + release protocol (`recovery_protocol.rs` + bridge fns: `initiate_recovery`, `withdraw_recovery_request`, `list_incoming_recovery_requests`, `approve_recovery_request`, `poll_recovery_releases`, `assemble_and_authenticate`) — 3 unit tests pass
 - [x] A.7 — Recovery overlay rewrite + steward-inbox recovery-request section (Plan-A uses same-device auto-match for source account; true new-device lands with Plan B's AccountRoot)
-- [ ] A.8 — E2E tests (`steward_invitation_flow.rs`, `steward_recovery_flow.rs`)
-- [ ] A.9 — Deprecations + /sync (drop `use_steward_recovery`, `generate_test_steward_keypair`, `RecoveryContribution`)
+- [~] A.8 — E2E tests **deferred**. Unit coverage landed per module (`steward_enrollment` 5/5, `recovery_protocol` 3/3, `share_delivery` 3/3). Multi-peer DM-realm E2E needs a `DirectConnect`-based test harness that doesn't exist yet in `indras-network/tests/`; follow-up slice will build that harness and port the `steward_invitation_flow` / `steward_recovery_flow` scenarios onto it.
+- [x] A.9 — Deprecations + /sync — dropped `setup_steward_recovery`, `StewardInput`, `SetupOutcome`, `dm_realm_map`, `generate_test_steward_keypair`, `RecoveryContribution`, `use_steward_recovery`. Module docstring rewritten around the new flow. Build clean; `indras-sync-engine --lib` 314/314.
 
 ### Plan B — AccountRoot + DeviceCertificates
 
