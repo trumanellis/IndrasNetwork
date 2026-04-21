@@ -34,7 +34,7 @@
 
 - [x] C.1 — Reed-Solomon primitive (`indras-crypto/src/erasure.rs`) with `encode` / `decode` + padding-aware original-length tracking — 6 tests pass
 - [x] C.2 — Backup-peer role CRDT + selection (`backup_peers.rs`) with `BackupPeerAssignment` doc schema, `select_top` ranking (online > alphabetical), and plain-language responsibility copy — 4 tests pass
-- [ ] C.3 — `FileShard` CRDT (`indras-sync-engine/src/file_shard.rs`)
+- [x] C.3 — `FileShard` CRDT (`file_shard.rs`) + `prepare_file_shards` / `reconstruct_file` helpers. Two-layer encryption: per-file ChaCha20-Poly1305 key, itself wrapped under the AccountRoot wrapping key W. Erasure-coded ciphertext travels in one doc per peer. 6 tests pass.
 - [ ] C.4 — Publish-on-save hook
 - [ ] C.5 — Recovery-time re-pull
 - [ ] C.6 — Shared-realm re-join (emergent from B.7; verify)
