@@ -20,7 +20,7 @@
 ### Plan B — AccountRoot + DeviceCertificates
 
 - [x] B.1 — `AccountRoot` primitive (`indras-crypto/src/account_root.rs`) + `AccountRootRef` — 5/5 tests pass
-- [ ] B.2 — `DeviceCertificate` (`indras-crypto/src/device_cert.rs`)
+- [x] B.2 — `DeviceCertificate` (`indras-crypto/src/device_cert.rs`) with sign / verify / revoke + domain-separated canonical message — 5/5 tests pass
 - [ ] B.3 — `DeviceRoster` CRDT doc (`indras-sync-engine/src/device_roster.rs`)
 - [ ] B.4 — Account creation flow regenerates root; onboarding prompts steward setup
 - [ ] B.5 — Root splitting at steward acceptance (replaces pass-story subkey)
