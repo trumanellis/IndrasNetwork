@@ -2,6 +2,7 @@
 
 ## Completed
 - [x] Phase 1 — Rewire to inner braid (see section below)
+- [x] Phase 2 — `Vault::sync_all` composite (see section below)
 
 ## Pending
 
@@ -21,12 +22,24 @@
 - [x] `cargo test -p synchronicity-engine` — all pass (24 tests across 6 suites)
 - [x] `cargo test -p indras-sync-engine --test sync_panel_commit` — passes
 
-### Phase 2 — `Vault::sync_all` composite
-- [ ] Create `crates/indras-sync-engine/src/vault/sync_all.rs` with `SyncAllReport` + impl
-- [ ] Re-export from `vault/mod.rs`
-- [ ] Rewire IPC + sync_panel to call `sync_all` after `land_to_inner_braid`
-- [ ] Integration test: `crates/indras-sync-engine/tests/vault_sync_all.rs`
-- [ ] Run `cargo test -p indras-sync-engine` + `cargo test -p synchronicity-engine` — all pass
+### Phase 2 — `Vault::sync_all` composite ✅
+- [x] Create `crates/indras-sync-engine/src/vault/sync_all.rs` with `SyncAllReport` + impl
+- [x] Re-export `SyncAllReport` from `vault/mod.rs`
+- [x] Integration test: `crates/indras-sync-engine/tests/vault_sync_all.rs` — 2 agents land, sync_all merges/promotes/materializes, second sync_all is a no-op
+- [x] `VaultManager::sync_all_on_first(intent, roster)` passthrough
+- [x] Extend IPC `SyncResponse` with `promoted` and `peer_merges` fields
+- [x] IPC handler calls `sync_all_on_first` after `land_agent_snapshot_on_first`
+- [x] `sync_panel::commit_for_agent` builds roster from `workspace_handles`, calls `sync_all_on_first` after the inner-braid land
+- [x] Updated `ipc_lands_into_inner_braid` test — renamed `ipc_commit_lands_inner_promotes_and_materializes`, now asserts both inner & outer ids appear, files materialize to vault root
+- [x] `cargo test -p indras-sync-engine` — 345 tests pass
+- [x] `cargo test -p synchronicity-engine` — 24 tests pass
+
+**Design notes:**
+- `sync_all(intent, roster)` takes the roster as a param — matches `agent_forks` / `merge_all_agents` conventions.
+- `needs_promote` checks `head_index` equality (not `change_id`), so a re-sync with no new work is a no-op promote.
+- Materialization is a private `materialize_user_outer_head` method on `Vault`; blob-load failures are logged, not propagated — the sync still counts as landed.
+- IPC path: land → sync_all; `sync_all` error is logged but does not fail the IPC response (inner-braid land already succeeded). Caller sees both `change_id` (inner) and `promoted` (outer).
+- Phase-1 `ipc_lands_into_inner_braid` assertion had to be updated: after Phase 2, `Vault::promote`'s aggressive inner-rollup means the original agent change id is GC'd from the inner DAG once it's folded into the user HEAD. The test now asserts inner-vs-outer id distinction instead of persistence.
 
 ### Phase 3 — View-model accessors
 - [ ] Create `crates/indras-sync-engine/src/vault/view_models.rs`

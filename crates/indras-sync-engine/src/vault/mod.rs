@@ -6,11 +6,14 @@
 //! tracks the current checkout on this device.
 
 pub mod relay_sync;
+pub mod sync_all;
 pub mod sync_to_disk;
 pub mod trust;
 pub mod vault_document;
 pub mod vault_file;
 pub mod watcher;
+
+pub use sync_all::SyncAllReport;
 
 use crate::braid::agent_braid::AgentBraid;
 use crate::braid::dag::BraidDag;

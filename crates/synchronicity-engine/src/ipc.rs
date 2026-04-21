@@ -133,21 +133,48 @@ struct SyncRequest {
 }
 
 /// Response sent back to the agent.
+///
+/// `change_id` is the inner-braid commit id. `promoted` is the outer-DAG
+/// changeset id produced by the subsequent `sync_all` — present only
+/// when the commit actually advanced the outer HEAD. `peer_merges` is
+/// the count of trusted peer forks absorbed during the same sync, so
+/// the agent can tell from one round-trip whether its work is now
+/// visible to the network.
 #[derive(Debug, Serialize)]
 struct SyncResponse {
     ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     change_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    promoted: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    peer_merges: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
 
 impl SyncResponse {
-    fn success(change_id: String) -> Self {
-        Self { ok: true, change_id: Some(change_id), error: None }
+    fn success(
+        change_id: String,
+        promoted: Option<String>,
+        peer_merges: usize,
+    ) -> Self {
+        Self {
+            ok: true,
+            change_id: Some(change_id),
+            promoted,
+            peer_merges: Some(peer_merges),
+            error: None,
+        }
     }
     fn fail(reason: impl Into<String>) -> Self {
-        Self { ok: false, change_id: None, error: Some(reason.into()) }
+        Self {
+            ok: false,
+            change_id: None,
+            promoted: None,
+            peer_merges: None,
+            error: Some(reason.into()),
+        }
     }
 }
 
@@ -304,11 +331,38 @@ async fn process_request(
         signed_by,
     };
 
-    match vault_manager
-        .land_agent_snapshot_on_first(&binding.agent, &binding.index, req.intent, evidence)
+    let change_id = match vault_manager
+        .land_agent_snapshot_on_first(
+            &binding.agent,
+            &binding.index,
+            req.intent.clone(),
+            evidence,
+        )
         .await
     {
-        Ok(id) => SyncResponse::success(id.to_string()),
-        Err(e) => SyncResponse::fail(e),
-    }
+        Ok(id) => id,
+        Err(e) => return SyncResponse::fail(e),
+    };
+
+    // Every IPC commit is a full /sync-equivalent: merge agent forks,
+    // promote if the inner HEAD advanced beyond the outer HEAD, pull
+    // trusted peers, and materialize. The roster is every currently
+    // bound agent on this device.
+    let roster: Vec<LogicalAgentId> =
+        bindings.iter().map(|b| b.agent.clone()).collect();
+    let (promoted, peer_merges) = match vault_manager
+        .sync_all_on_first(req.intent, &roster)
+        .await
+    {
+        Ok(report) => (
+            report.promoted.map(|id| id.to_string()),
+            report.peer_merges.len(),
+        ),
+        Err(e) => {
+            tracing::warn!(error = %e, "sync_all after land failed; returning land-only result");
+            (None, 0)
+        }
+    };
+
+    SyncResponse::success(change_id.to_string(), promoted, peer_merges)
 }

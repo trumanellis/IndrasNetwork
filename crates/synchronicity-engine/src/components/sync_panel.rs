@@ -213,18 +213,23 @@ fn CommitStatusLine(status: CommitStatus) -> Element {
 }
 
 /// Kick off the async commit pipeline for `agent`:
-/// 1. locate the bound agent's live index in `workspace_handles`,
-/// 2. build `Evidence::Agent` signed by the device's PQ identity (no
-///    real verification data yet — Phase-1 MVP),
+/// 1. locate the bound agent's live index and the full agent roster in
+///    `workspace_handles`,
+/// 2. build `Evidence::Agent` signed by the device's PQ identity,
 /// 3. call `VaultManager::land_agent_snapshot_on_first`, which lifts
 ///    the live index into a `SymlinkIndex` and lands it on the first
 ///    vault's inner (local-only) braid via `Vault::agent_land`,
-/// 4. record the outcome in `statuses` so the row re-renders.
+/// 4. call `VaultManager::sync_all_on_first` to merge any other
+///    diverged agent forks, promote the inner HEAD to the outer DAG,
+///    auto-merge trusted peers, and materialize the resulting outer
+///    HEAD to the vault root on disk,
+/// 5. record the inner-braid `ChangeId` in `statuses` so the row
+///    re-renders.
 ///
-/// No peer-head publish or file materialization happens here — those
-/// flow out of `Vault::promote` once the user promotes the inner HEAD
-/// to the outer DAG. Phase-2 `sync_all` will stitch commit + promote
-/// + broadcast into one UI action.
+/// A failed `sync_all` is logged but does NOT roll back the landed
+/// inner-braid commit — the user can retry promote later. Agents'
+/// evidence payloads are not yet surfaced through this UI; they stay
+/// at the placeholder (no compile/test/lint claim).
 fn commit_for_agent(
     agent: LogicalAgentId,
     mut intents: Signal<HashMap<LogicalAgentId, String>>,
@@ -245,12 +250,14 @@ fn commit_for_agent(
 
     let net_opt = network.read().clone();
     let vm_opt = vault_manager.read().clone();
-    let index_opt: Option<Arc<LocalWorkspaceIndex>> = {
+    let (index_opt, roster): (Option<Arc<LocalWorkspaceIndex>>, Vec<LogicalAgentId>) = {
         let handles = workspace_handles.read();
-        handles
+        let idx = handles
             .iter()
             .find(|h| h.agent == agent)
-            .map(|h| Arc::clone(&h.index))
+            .map(|h| Arc::clone(&h.index));
+        let roster = handles.iter().map(|h| h.agent.clone()).collect();
+        (idx, roster)
     };
 
     let (net, vm, index) = match (net_opt, vm_opt, index_opt) {
@@ -277,20 +284,24 @@ fn commit_for_agent(
             runtime_ms: 0,
             signed_by: derive_agent_id(&user_id, agent.as_str()),
         };
-        let result = vm
-            .land_agent_snapshot_on_first(&agent, &index, intent, evidence)
+        let landed = vm
+            .land_agent_snapshot_on_first(&agent, &index, intent.clone(), evidence)
             .await;
-        match result {
-            Ok(id) => {
-                statuses.write().insert(agent, CommitStatus::Done(id));
-                refresh += 1;
-            }
+        let change_id = match landed {
+            Ok(id) => id,
             Err(e) => {
-                statuses
-                    .write()
-                    .insert(agent, CommitStatus::Failed(e));
+                statuses.write().insert(agent, CommitStatus::Failed(e));
+                return;
             }
+        };
+        // Full /sync-equivalent: merge agent forks, promote, auto-merge
+        // trusted peers, materialize to the vault root. Any error here
+        // is logged but doesn't roll back the landed inner-braid commit.
+        if let Err(e) = vm.sync_all_on_first(intent, &roster).await {
+            tracing::warn!(error = %e, "sync_all after land failed");
         }
+        statuses.write().insert(agent, CommitStatus::Done(change_id));
+        refresh += 1;
     });
 }
 

@@ -332,6 +332,31 @@ impl VaultManager {
             .await)
     }
 
+    /// Run the full braid sync pipeline on the first registered vault.
+    ///
+    /// Merges every agent in `roster` whose inner HEAD diverges, then
+    /// promotes the user's inner HEAD (if it differs from the outer
+    /// HEAD), auto-merges trusted peers, and materializes the resulting
+    /// outer HEAD to disk. Returns the per-step summary.
+    ///
+    /// Single-vault assumption matches the rest of the manager's
+    /// Phase-1 surface.
+    pub async fn sync_all_on_first(
+        &self,
+        intent: String,
+        roster: &[indras_sync_engine::team::LogicalAgentId],
+    ) -> Result<indras_sync_engine::vault::SyncAllReport, String> {
+        let vaults = self.vaults.read().await;
+        let vault = vaults
+            .values()
+            .next()
+            .ok_or_else(|| "no vault on this device".to_string())?;
+        vault
+            .sync_all(intent, roster)
+            .await
+            .map_err(|e| format!("{e}"))
+    }
+
     /// Whether a vault's *inner* braid (local-only agent DAG) contains
     /// the given changeset id. Returns `false` if no vault is registered
     /// for the realm. Used by Phase-3 view-model helpers to detect

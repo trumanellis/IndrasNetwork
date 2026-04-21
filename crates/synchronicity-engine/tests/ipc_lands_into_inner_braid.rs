@@ -1,14 +1,22 @@
-//! Phase-1 regression guard for `brisk-orbiting-lantern`.
+//! Phase-1 + Phase-2 regression guard for `brisk-orbiting-lantern`.
 //!
 //! Before the rewire, the IPC commit path called `realm.try_land`, which
-//! landed changesets directly on the outer (shared) DAG. After the rewire
-//! the same request must route through `Vault::agent_land`, so the
-//! changeset appears on the *inner* (local-only) braid and is absent
-//! from the outer DAG until the user explicitly promotes.
+//! landed changesets directly on the outer (shared) DAG with no agent
+//! attribution or auto-sync. The Phase-2 IPC path now does the full
+//! braid pipeline in one round-trip:
 //!
-//! This test exercises the real unix-socket surface end-to-end — a
-//! protocol regression here would silently leak uncommitted agent work
-//! to peers, so the assertion is worth the spin-up cost.
+//! 1. Land the agent's working-tree snapshot on the inner (local-only)
+//!    braid via `Vault::agent_land`.
+//! 2. Merge every diverged agent into the user's inner HEAD.
+//! 3. Promote the user's inner HEAD to a signed outer changeset.
+//! 4. Auto-merge trusted peer forks.
+//! 5. Materialize the resulting outer HEAD to the vault root on disk.
+//!
+//! This test exercises the real unix-socket surface end-to-end and
+//! asserts: the IPC response carries both the inner `change_id` and
+//! the outer `promoted` id, the outer DAG holds the promoted changeset
+//! (not the raw inner-braid id), and the file appears on disk under
+//! the vault root.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -43,7 +51,7 @@ async fn build_network(name: &str, data_dir: &Path) -> Arc<IndrasNetwork> {
 }
 
 #[tokio::test]
-async fn ipc_commit_lands_on_inner_braid_only() {
+async fn ipc_commit_lands_inner_promotes_and_materializes() {
     let tmp_data = TempDir::new().unwrap();
     let tmp_agent = TempDir::new().unwrap();
 
@@ -132,20 +140,40 @@ async fn ipc_commit_lands_on_inner_braid_only() {
     );
     let change_id_hex = resp["change_id"].as_str().expect("change_id string").to_string();
     let change_id = parse_change_id(&change_id_hex);
+    let promoted_hex = resp["promoted"]
+        .as_str()
+        .expect("promoted id should be present after sync_all")
+        .to_string();
+    let promoted_id = parse_change_id(&promoted_hex);
+    assert_ne!(
+        change_id_hex, promoted_hex,
+        "inner-braid and outer-DAG changeset ids must differ"
+    );
 
     // `VaultManager::ensure_vault` builds its own `Vault::attach` instance —
     // the test's local `vault` handle shares the `Realm` but not the
-    // inner-braid state that the IPC commit landed on. Query the
-    // manager's vault for the ground truth.
+    // inner-braid or outer-DAG state the IPC commit landed on. Query
+    // the manager's vault for the ground truth.
     let realm_id = *vault.realm().id().as_bytes();
     assert!(
-        vm_arc.inner_braid_contains(&realm_id, &change_id).await,
-        "inner-braid DAG missing committed change {change_id_hex}"
+        vm_arc.outer_dag_contains(&realm_id, &promoted_id).await,
+        "outer DAG missing promoted change {promoted_hex}"
     );
     assert!(
         !vm_arc.outer_dag_contains(&realm_id, &change_id).await,
-        "IPC commit leaked onto outer DAG: {change_id_hex}"
+        "inner-braid change id leaked onto outer DAG: {change_id_hex}"
     );
+
+    // And the agent's file must materialize under the manager-owned
+    // vault root (not `vault_dir` — that's the test-owned `Vault::create`
+    // path, which never sees IPC commits).
+    let vault_root = vm_arc
+        .vault_path(&realm_id)
+        .expect("manager vault path should be registered");
+    let materialized = tokio::fs::read(vault_root.join("notes.md"))
+        .await
+        .expect("notes.md should be materialized at the vault root");
+    assert_eq!(materialized, b"agent thoughts");
 
     net.stop().await.ok();
 }
