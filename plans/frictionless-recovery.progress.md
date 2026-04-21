@@ -19,7 +19,7 @@
 
 ### Plan B — AccountRoot + DeviceCertificates
 
-- [ ] B.1 — `AccountRoot` primitive (`indras-crypto/src/account_root.rs`)
+- [x] B.1 — `AccountRoot` primitive (`indras-crypto/src/account_root.rs`) + `AccountRootRef` — 5/5 tests pass
 - [ ] B.2 — `DeviceCertificate` (`indras-crypto/src/device_cert.rs`)
 - [ ] B.3 — `DeviceRoster` CRDT doc (`indras-sync-engine/src/device_roster.rs`)
 - [ ] B.4 — Account creation flow regenerates root; onboarding prompts steward setup
