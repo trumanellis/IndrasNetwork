@@ -4,9 +4,17 @@
 //! view toggle is purely visual for now (Loom view isn't built yet);
 //! clicking Loom sets a local mode so the visual state feels real.
 
+use std::sync::LazyLock;
+
+use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
 use dioxus::prelude::*;
 
 use crate::state::{AppState, SyncStatus};
+
+const LOGO_PNG: &[u8] = include_bytes!("../../../../assets/Logo_black.png");
+
+static LOGO_DATA_URL: LazyLock<String> =
+    LazyLock::new(|| format!("data:image/png;base64,{}", B64.encode(LOGO_PNG)));
 
 /// Visual view mode — Dashboard is the 4-column layout; Loom is a
 /// future full-viewport braid. Only Dashboard renders content today.
@@ -50,7 +58,10 @@ pub fn Topbar(mut state: Signal<AppState>, display_name: String) -> Element {
 
     rsx! {
         div { class: "topbar",
-            span { class: "brand", "Synchronicity Engine" }
+            span { class: "brand",
+                img { class: "brand-logo", src: "{&*LOGO_DATA_URL}", alt: "" }
+                "Synchronicity Engine"
+            }
             div { class: "breadcrumb",
                 span { "vaults" }
                 span { class: "crumb-sep", "/" }

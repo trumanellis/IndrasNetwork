@@ -4310,6 +4310,9 @@ body > * {
   min-height: 46px;
 }
 .brand {
+  display: inline-flex;
+  align-items: center;
+  align-self: stretch;
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
   font-weight: 500;
@@ -4321,13 +4324,13 @@ body > * {
   background-clip: text;
   white-space: nowrap;
 }
-.brand::before {
-  content: "●";
-  -webkit-text-fill-color: var(--indigo);
-  color: var(--indigo);
-  margin-right: 8px;
-  font-size: 8px;
-  vertical-align: 2px;
+.brand-logo {
+  height: 100%;
+  width: auto;
+  margin: 0 8px 0 0;
+  padding: 0;
+  object-fit: contain;
+  display: block;
 }
 .breadcrumb {
   font-family: 'JetBrains Mono', monospace;
