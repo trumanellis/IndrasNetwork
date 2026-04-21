@@ -208,6 +208,107 @@ impl WorkspaceHandle {
     }
 }
 
+/// Runtime-binding error surface for [`runtime_bind`].
+///
+/// Distinguishes recoverable UI-surfaceable causes from generic io noise
+/// so the Agent Roster can render a targeted message (e.g. "folder
+/// already held by another syncengine") and a one-click retry.
+#[derive(Debug)]
+pub enum BindError {
+    /// Another process (or another binding) already owns the folder's
+    /// advisory lock. Typically means a stale syncengine is still
+    /// mirroring it, or the folder was bound earlier in this run.
+    LockHeld,
+    /// The target folder does not exist on disk. `runtime_bind` does not
+    /// create the folder itself — the caller is responsible for
+    /// materializing it before binding (so first-run creation and
+    /// rehydration remain separate concerns).
+    FolderMissing,
+    /// [`WorkspaceWatcher::start`] returned an error (e.g. notify backend
+    /// failed to subscribe). The string is the underlying error's
+    /// `Display`.
+    WatcherFailed(String),
+    /// The path is unbindable for a reason other than lock contention —
+    /// e.g. it points at a file, a symlink loop, or is outside the
+    /// allowed vault root.
+    PathCollision,
+}
+
+impl std::fmt::Display for BindError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BindError::LockHeld => write!(f, "folder lock is held by another process"),
+            BindError::FolderMissing => write!(f, "folder does not exist"),
+            BindError::WatcherFailed(e) => write!(f, "workspace watcher failed to start: {e}"),
+            BindError::PathCollision => write!(f, "path is not a bindable directory"),
+        }
+    }
+}
+
+impl std::error::Error for BindError {}
+
+/// Acquire the folder lock, populate an initial index, and start a
+/// [`WorkspaceWatcher`] for a single agent binding at runtime.
+///
+/// This mirrors the per-binding logic inside
+/// [`spawn_workspace_watchers`] but (a) returns the handle to the caller
+/// instead of pushing into a batch, and (b) surfaces failures via
+/// [`BindError`] instead of logging-and-skipping, so interactive
+/// creation/retry in the Agent Roster can show an actionable error.
+///
+/// The caller is responsible for ensuring `folder` exists on disk before
+/// calling this function; a missing folder yields
+/// [`BindError::FolderMissing`].
+pub async fn runtime_bind(
+    agent: LogicalAgentId,
+    folder: PathBuf,
+    blob_store: Arc<BlobStore>,
+) -> Result<WorkspaceHandle, BindError> {
+    // Existence + type check up front so we can return a specific error
+    // instead of letting FolderLock::acquire auto-create the directory.
+    match tokio::fs::metadata(&folder).await {
+        Ok(m) if m.is_dir() => {}
+        Ok(_) => return Err(BindError::PathCollision),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(BindError::FolderMissing);
+        }
+        Err(_) => return Err(BindError::PathCollision),
+    }
+
+    let lock = match FolderLock::acquire(&folder) {
+        Ok(l) => l,
+        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+            return Err(BindError::LockHeld);
+        }
+        Err(_) => return Err(BindError::PathCollision),
+    };
+
+    let index = Arc::new(LocalWorkspaceIndex::new(
+        folder.clone(),
+        Arc::clone(&blob_store),
+    ));
+    if let Err(e) = index.initial_scan().await {
+        tracing::warn!(
+            folder = %folder.display(),
+            error = %e,
+            "runtime_bind: initial scan failed; proceeding with empty index"
+        );
+    }
+
+    match WorkspaceWatcher::start(Arc::clone(&index)) {
+        Ok(watcher) => Ok(WorkspaceHandle {
+            agent,
+            lock,
+            watcher,
+            index,
+        }),
+        Err(e) => {
+            drop(lock);
+            Err(BindError::WatcherFailed(e.to_string()))
+        }
+    }
+}
+
 /// For each binding in `registry`, acquire a folder lock, populate an
 /// initial index of the folder's current content, and start an
 /// [`WorkspaceWatcher`]. Returns one [`WorkspaceHandle`] per successfully
@@ -380,4 +481,74 @@ mod tests {
         assert!(!reg.membership_for(&team).is_participating());
     }
 
+    async fn test_blob_store(tmp: &tempfile::TempDir) -> Arc<BlobStore> {
+        let cfg = indras_storage::BlobStoreConfig {
+            base_dir: tmp.path().join("blobs"),
+            ..Default::default()
+        };
+        Arc::new(BlobStore::new(cfg).await.expect("blob store init"))
+    }
+
+    #[tokio::test]
+    async fn runtime_bind_reports_folder_missing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let missing = tmp.path().join("does-not-exist");
+        let blob_store = test_blob_store(&tmp).await;
+        match runtime_bind(agent("agent-ghost"), missing, blob_store).await {
+            Err(BindError::FolderMissing) => {}
+            Err(e) => panic!("expected FolderMissing, got {e:?}"),
+            Ok(_) => panic!("expected FolderMissing, got Ok(handle)"),
+        }
+    }
+
+    #[tokio::test]
+    async fn runtime_bind_succeeds_on_fresh_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let folder = tmp.path().join("agent-fresh");
+        std::fs::create_dir_all(&folder).unwrap();
+        let blob_store = test_blob_store(&tmp).await;
+        let handle = match runtime_bind(agent("agent-fresh"), folder.clone(), blob_store).await {
+            Ok(h) => h,
+            Err(e) => panic!("bind should succeed on a fresh empty folder, got {e:?}"),
+        };
+        assert_eq!(handle.agent.as_str(), "agent-fresh");
+        drop(handle);
+    }
+
+    #[tokio::test]
+    async fn runtime_bind_reports_lock_held() {
+        let tmp = tempfile::tempdir().unwrap();
+        let folder = tmp.path().join("agent-contested");
+        std::fs::create_dir_all(&folder).unwrap();
+        let blob_store = test_blob_store(&tmp).await;
+        let first = match runtime_bind(
+            agent("agent-contested"),
+            folder.clone(),
+            Arc::clone(&blob_store),
+        )
+        .await
+        {
+            Ok(h) => h,
+            Err(e) => panic!("first bind should succeed, got {e:?}"),
+        };
+        match runtime_bind(agent("agent-contested"), folder.clone(), blob_store).await {
+            Err(BindError::LockHeld) => {}
+            Err(e) => panic!("expected LockHeld, got {e:?}"),
+            Ok(_) => panic!("second bind should fail while first holds lock"),
+        }
+        drop(first);
+    }
+
+    #[tokio::test]
+    async fn runtime_bind_rejects_non_directory_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file_path = tmp.path().join("not-a-dir.txt");
+        std::fs::write(&file_path, b"hello").unwrap();
+        let blob_store = test_blob_store(&tmp).await;
+        match runtime_bind(agent("agent-collision"), file_path, blob_store).await {
+            Err(BindError::PathCollision) => {}
+            Err(e) => panic!("expected PathCollision, got {e:?}"),
+            Ok(_) => panic!("expected PathCollision for a file path, got Ok(handle)"),
+        }
+    }
 }
