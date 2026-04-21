@@ -43,3 +43,21 @@ Completed slices:
 Security posture: root sk is on disk in `account_root.pending` only between account creation and first successful split; after that it's gone locally and only exists as Shamir shares distributed to stewards. Envelope ciphertext in home realm + wrapping key held by stewards is the durable storage.
 
 Next: Slice C.1 — Reed-Solomon primitive for personal-data backup.
+
+## 2026-04-21 — Plan C landed (primitives + deferrals)
+Completed slices:
+- **C.1** `228a3aea` — `indras-crypto::erasure` Reed-Solomon over GF(2^8) with padding-aware original-length tracking (6 tests).
+- **C.2** `db856df9` — `BackupPeer` role CRDT + `select_top` (online > alphabetical) ranking (4 tests).
+- **C.3** `6a8926c4` — `FileShard` CRDT + `prepare_file_shards` / `reconstruct_file` with two-layer encryption (per-file ChaCha20 key under an account wrapping-key envelope) (6 tests).
+- **C.7** `_crypto-level E2E_` — multi-file publish + parity-budget loss + wrong-W rejection. 3 tests pass.
+- **C.8** — `articles/recovery-architecture.md` (end-to-end architectural doc stitching A + B + C together).
+
+Deferred within Plan C:
+- **C.4 / C.5 / C.6** — publish-on-save, recovery-time re-pull, and shared-realm re-join. All require integration with `vault_manager` / `vault/sync_all.rs` / the peer-admission path, which Plan/CLAUDE.md reserves for agent1. Primitives are ready (`prepare_file_shards` / `reconstruct_file` / `peer_verification::verify_peer_device`); wiring belongs in a coordinated cross-agent slice.
+
+Plan complete at the primitive + doc level. Vault-integration follow-ups tracked in `articles/recovery-architecture.md` under "Deferred / follow-up".
+
+Final state — test totals:
+- `cargo test -p indras-crypto` — 150/150 (added account_root 5, device_cert 5, erasure 6).
+- `cargo test -p indras-sync-engine --lib` — 331/331 (added steward_enrollment 5, recovery_protocol 3, share_delivery 3, device_roster 4, account_root_cache 1, account_root_envelope 3, peer_verification 1, backup_peers 4, file_shard 6).
+- Crypto-level E2Es: `steward_recovery_e2e` 3/3, `account_root_recovery` 2/2, `data_recovery_flow` 3/3.
