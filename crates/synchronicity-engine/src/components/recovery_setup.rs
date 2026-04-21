@@ -110,9 +110,15 @@ pub fn RecoverySetupOverlay(
     let filled_slots = slots.read().iter().filter(|s| !s.trim().is_empty()).count();
     let story_complete = filled_slots == 23;
     let story_open_now = *story_open.read();
+    let has_cached_key = recovery_bridge::has_cached_subkey();
+    // The pass story is only required when we have nothing cached. If
+    // the subkey is on disk (populated at sign-in), treat section 01
+    // as optional so the backup flow doesn't make the user retype 23
+    // words they already spoke.
+    let story_satisfied = has_cached_key || story_complete;
 
     let ready = !*busy.read()
-        && story_complete
+        && story_satisfied
         && total_stewards >= k_value as usize
         && k_value >= 2
         && rows
@@ -155,9 +161,17 @@ pub fn RecoverySetupOverlay(
                             span { class: "recovery-disclosure-arrow",
                                 if story_open_now { "▾" } else { "▸" }
                             }
-                            span { class: "recovery-section-num", "01 · Your story" }
+                            span { class: "recovery-section-num",
+                                if has_cached_key {
+                                    "01 · Your story (optional)"
+                                } else {
+                                    "01 · Your story"
+                                }
+                            }
                             span { class: "recovery-disclosure-meta",
-                                if story_complete {
+                                if has_cached_key && !story_complete {
+                                    "already saved"
+                                } else if story_complete {
                                     "23 / 23 ✓"
                                 } else {
                                     "{filled_slots} / 23"
@@ -385,7 +399,7 @@ pub fn RecoverySetupOverlay(
                 }
 
                 footer { class: "recovery-footer",
-                    if !story_complete {
+                    if !story_satisfied {
                         span { class: "recovery-footer-hint",
                             "Open Your story above and fill it in to continue"
                         }

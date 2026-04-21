@@ -1,9 +1,9 @@
 //! Bridge for the Recovery Setup and Recovery Use overlays.
 //!
 //! **Backup side** (`setup_steward_recovery`): re-derives the
-//! encryption subkey from the user's pass story and produces a K-of-N
-//! steward recovery split via
-//! [`indras_sync_engine::story_auth::StoryAuth::prepare_steward_recovery`].
+//! encryption subkey from the user's pass story (or loads it from the
+//! on-disk cache populated at sign-in) and produces a K-of-N steward
+//! recovery split via [`indras_sync_engine::steward_recovery`].
 //!
 //! **Recovery side** (`use_steward_recovery`): collects K encrypted
 //! shares plus their matching steward keypairs, decrypts each,
@@ -25,8 +25,66 @@ use indras_sync_engine::peer_key_directory::PeerKeyDirectory;
 use indras_sync_engine::share_delivery::{
     share_delivery_doc_key, HeldBackup, ShareDelivery, StewardHoldings,
 };
-use indras_sync_engine::story_auth::StoryAuth;
 use indras_sync_engine::steward_recovery::{self, StewardId};
+
+/// Filename of the encryption-subkey cache. Kept next to the PQ
+/// signing key (which is already plaintext at rest in this dev tier),
+/// so the on-disk exposure is comparable.
+const SUBKEY_CACHE_FILENAME: &str = "story.subkey";
+
+/// Persist the 32-byte story-derived encryption subkey so returning
+/// users can set up a backup without re-entering their pass story.
+pub fn save_subkey_cache(data_dir: &std::path::Path, subkey: &[u8; 32]) -> std::io::Result<()> {
+    std::fs::write(data_dir.join(SUBKEY_CACHE_FILENAME), subkey)
+}
+
+/// Load the cached subkey, or `None` if it has not been written yet.
+pub fn load_subkey_cache(data_dir: &std::path::Path) -> Option<[u8; 32]> {
+    let bytes = std::fs::read(data_dir.join(SUBKEY_CACHE_FILENAME)).ok()?;
+    if bytes.len() != 32 {
+        return None;
+    }
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&bytes);
+    Some(out)
+}
+
+/// Delete the cached subkey. Called when the user signs out.
+pub fn clear_subkey_cache(data_dir: &std::path::Path) {
+    let _ = std::fs::remove_file(data_dir.join(SUBKEY_CACHE_FILENAME));
+}
+
+/// Convenience: is a subkey cached for the default data dir?
+pub fn has_cached_subkey() -> bool {
+    load_subkey_cache(&crate::state::default_data_dir()).is_some()
+}
+
+/// Re-derive the encryption subkey from a pass story, verifying the
+/// result against the keystore's on-disk token so a mistyped story
+/// can't produce garbage shares. Returns `None` when the keystore
+/// isn't initialized, the derivation fails, or the story doesn't
+/// match the stored token.
+fn derive_subkey_from_story(
+    data_dir: &std::path::Path,
+    story: &PassStory,
+) -> Option<[u8; 32]> {
+    use indras_crypto::pass_story::{derive_master_key, expand_subkeys, story_verification_token};
+    use indras_node::StoryKeystore;
+
+    let keystore = StoryKeystore::new(data_dir);
+    if !keystore.is_initialized() {
+        return None;
+    }
+    let salt = keystore.load_story_salt().ok()?;
+    let canonical = story.canonical().ok()?;
+    let master = derive_master_key(&canonical, &salt).ok()?;
+    let token = story_verification_token(&master);
+    if !keystore.verify_token(&token).ok()? {
+        return None;
+    }
+    let subkeys = expand_subkeys(&master).ok()?;
+    subkeys.encryption.as_slice().try_into().ok()
+}
 
 /// One backup-plan row as handed down from the Backup-plan overlay.
 ///
@@ -54,11 +112,15 @@ pub struct SetupOutcome {
 
 /// Prepare a steward recovery split.
 ///
-/// `story_slots` are the user's 23 pass-story slots (one entry per
-/// slot, exactly 23). For each input steward we encrypt a share; when
-/// `network` is `Some` and the row carries a `user_id_hex` for a peer
-/// we share a DM realm with, we also publish the share as a CRDT doc
-/// inside that realm. Manifest is persisted either way.
+/// `story_slots` may be empty — when it is, the bridge falls back to
+/// the cached encryption subkey on disk (populated at sign-in). This
+/// lets returning users set up a backup without re-entering the
+/// 23-word story. Passing a full 23-slot story re-derives fresh and
+/// also refreshes the cache. For each input steward we encrypt a
+/// share; when `network` is `Some` and the row carries a
+/// `user_id_hex` for a peer we share a DM realm with, we also
+/// publish the share as a CRDT doc inside that realm. Manifest is
+/// persisted either way.
 pub async fn setup_steward_recovery(
     story_slots: Vec<String>,
     stewards_input: Vec<StewardInput>,
@@ -67,19 +129,22 @@ pub async fn setup_steward_recovery(
 ) -> Result<SetupOutcome, String> {
     let data_dir = crate::state::default_data_dir();
 
-    if story_slots.len() != 23 {
-        return Err(format!(
-            "Pass story must have exactly 23 slots (got {})",
-            story_slots.len()
-        ));
-    }
-    if let Some(empty_idx) = story_slots.iter().position(|s| s.trim().is_empty()) {
-        return Err(format!("Pass story slot {} is empty", empty_idx + 1));
-    }
-    let slots: [String; 23] = story_slots
-        .try_into()
-        .map_err(|_: Vec<_>| "Failed to coerce 23 slots into array".to_string())?;
-    let story = PassStory::from_normalized(slots).map_err(|e| format!("{}", e))?;
+    // Normalize the story input: either fully populated (23 non-empty
+    // slots) or fully empty (fall back to cached subkey). Anything in
+    // between is a user error.
+    let any_filled = story_slots.iter().any(|s| !s.trim().is_empty());
+    let all_filled = story_slots.len() == 23
+        && story_slots.iter().all(|s| !s.trim().is_empty());
+    let story: Option<PassStory> = if all_filled {
+        let slots: [String; 23] = story_slots
+            .try_into()
+            .map_err(|_: Vec<_>| "Failed to coerce 23 slots into array".to_string())?;
+        Some(PassStory::from_normalized(slots).map_err(|e| format!("{}", e))?)
+    } else if !any_filled {
+        None
+    } else {
+        return Err("Pass story must be either fully filled or left empty.".to_string());
+    };
 
     let mut stewards: Vec<(StewardId, PQEncapsulationKey)> =
         Vec::with_capacity(stewards_input.len());
@@ -121,16 +186,37 @@ pub async fn setup_steward_recovery(
         routing.push(uid);
     }
 
+    let subkey = if let Some(story) = story {
+        let data_dir_owned = data_dir.clone();
+        tokio::task::spawn_blocking(move || derive_subkey_from_story(&data_dir_owned, &story))
+            .await
+            .map_err(|e| format!("task join error: {}", e))?
+            .ok_or_else(|| {
+                "Couldn't derive the backup key from that story — it may not match the keystore"
+                    .to_string()
+            })?
+    } else {
+        load_subkey_cache(&data_dir).ok_or_else(|| {
+            "We don't have your secret story cached. Open section 01 and paste the words one time."
+                .to_string()
+        })?
+    };
+
+    // Always refresh the cache so subsequent setups can skip the story.
+    let _ = save_subkey_cache(&data_dir, &subkey);
+
     let prepared = {
-        let story = story.clone();
         let stewards = stewards.clone();
         let data_dir = data_dir.clone();
-        tokio::task::spawn_blocking(move || {
-            StoryAuth::prepare_steward_recovery(&data_dir, &story, &stewards, k, 1)
+        tokio::task::spawn_blocking(move || -> Result<_, String> {
+            let prepared = steward_recovery::prepare_recovery(&subkey, &stewards, k, 1)
+                .map_err(|e| format!("{}", e))?;
+            steward_recovery::save_manifest(&data_dir, &prepared.manifest)
+                .map_err(|e| format!("{}", e))?;
+            Ok(prepared)
         })
         .await
-        .map_err(|e| format!("task join error: {}", e))?
-        .map_err(|e| format!("{}", e))?
+        .map_err(|e| format!("task join error: {}", e))??
     };
 
     let mut shares_hex = Vec::with_capacity(prepared.encrypted_shares.len());

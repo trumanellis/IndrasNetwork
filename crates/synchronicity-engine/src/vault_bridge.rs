@@ -207,7 +207,7 @@ pub async fn restore_account(
 
     let net = match IndrasNetwork::builder()
         .data_dir(&data_dir)
-        .pass_story(story)
+        .pass_story(story.clone())
         .build()
         .await
     {
@@ -217,6 +217,13 @@ pub async fn restore_account(
             return;
         }
     };
+
+    // Cache the story-derived encryption subkey so the Backup-plan
+    // overlay can skip the story section on future visits. Best-effort;
+    // a failure here does not block sign-in.
+    if let Some(subkey) = derive_encryption_subkey_for_restore(&data_dir, &story) {
+        let _ = crate::recovery_bridge::save_subkey_cache(&data_dir, &subkey);
+    }
 
     state.write().loading_stages = vec![
         LoadingStage::Done("Identity derived".into()),
@@ -276,4 +283,29 @@ pub async fn restore_account(
     tokio::time::sleep(std::time::Duration::from_millis(800)).await;
 
     state.write().step = AppStep::HomeVault;
+}
+
+/// Re-derive the 32-byte encryption subkey for a signed-in user so
+/// the Backup-plan overlay can split it without re-asking for the
+/// pass story. Returns `None` when the keystore isn't story-backed
+/// yet (e.g. a fresh `create_account` flow that never ran the story
+/// path). Caller persists the result via
+/// `recovery_bridge::save_subkey_cache`.
+fn derive_encryption_subkey_for_restore(
+    data_dir: &std::path::Path,
+    story: &PassStory,
+) -> Option<[u8; 32]> {
+    use indras_crypto::pass_story::{derive_master_key, expand_subkeys};
+    use indras_node::StoryKeystore;
+
+    let keystore = StoryKeystore::new(data_dir);
+    if !keystore.is_initialized() {
+        return None;
+    }
+    let salt = keystore.load_story_salt().ok()?;
+    let canonical = story.canonical().ok()?;
+    let master = derive_master_key(&canonical, &salt).ok()?;
+    let subkeys = expand_subkeys(&master).ok()?;
+    let arr: [u8; 32] = subkeys.encryption.as_slice().try_into().ok()?;
+    Some(arr)
 }
