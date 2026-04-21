@@ -30,7 +30,8 @@ fn make_changeset(author: UserId, parents: Vec<ChangeId>, intent: &str, ts: i64)
         author,
         parents,
         intent.into(),
-        patch(),
+        patch().into(),
+        None,
         evidence(author),
         ts,
     )

@@ -162,7 +162,7 @@ async fn pending_forks_and_merge() {
         indras_sync_engine::ContentAddr::new(fake_hash, b_content.len() as u64),
     )]);
     let evidence_b = indras_sync_engine::Evidence::human(peer_b, Some("B sync".into()));
-    let cs_b = indras_sync_engine::braid::Changeset::with_index(
+    let cs_b = indras_sync_engine::braid::Changeset::new_unsigned(
         peer_b,
         vec![],
         "B: add from_b.md".into(),

@@ -181,7 +181,12 @@ async fn human_sync_propagates_and_manual_merge_materializes() {
     // B can see what files differ.
     let diff = vault_b.diff_fork(*fork_peer).await;
     assert_eq!(diff.len(), 1);
-    assert_eq!(diff[0].path, "greeting.md");
+    let changed_path = diff
+        .iter()
+        .next()
+        .map(|(path, _)| path.0.as_str())
+        .expect("one delta entry");
+    assert_eq!(changed_path, "greeting.md");
 
     // B explicitly merges A's changes.
     let merge_id = vault_b

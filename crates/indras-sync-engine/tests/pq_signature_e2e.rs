@@ -72,7 +72,7 @@ async fn pq_signature_round_trip() {
         .realm()
         .try_land(
             "feat: quantum-safe function".into(),
-            manifest,
+            manifest.into(),
             Vec::new(),
             tmp_agent.path().to_path_buf(),
             user_id,

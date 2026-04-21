@@ -168,7 +168,7 @@ async fn peer_b_verifies_peer_a_signature() {
         .realm()
         .try_land(
             "feat: quantum-safe function".into(),
-            manifest,
+            manifest.into(),
             Vec::new(),
             tmp_a_agent.path().to_path_buf(),
             user_a,
