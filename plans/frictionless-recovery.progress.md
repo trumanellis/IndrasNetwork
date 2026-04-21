@@ -1,0 +1,49 @@
+# Progress: Frictionless Recovery
+
+## Completed
+- [x] Plan drafted 2026-04-21
+
+## Pending
+
+### Plan A — Invitation/release UX
+
+- [ ] A.1 — invitation CRDT types + module (`steward_enrollment.rs` + unit tests)
+- [ ] A.2 — enrollment bridge (`invite_steward`, `respond_to_invitation`, list fns)
+- [ ] A.3 — Backup-plan overlay rewrite (peer list with statuses; delete hex flows)
+- [ ] A.4 — Steward inbox overlay (`components/steward_inbox.rs`; status-bar badge)
+- [ ] A.5 — Share distribution on quorum (`finalize_steward_split`)
+- [ ] A.6 — Recovery request + release protocol (`recovery_protocol.rs`; bridge fns)
+- [ ] A.7 — Recovery overlay rewrite (delete hex textareas; peer-ask UI)
+- [ ] A.8 — E2E tests (`steward_invitation_flow.rs`, `steward_recovery_flow.rs`)
+- [ ] A.9 — Deprecations + /sync (drop `use_steward_recovery`, `generate_test_steward_keypair`, `RecoveryContribution`)
+
+### Plan B — AccountRoot + DeviceCertificates
+
+- [ ] B.1 — `AccountRoot` primitive (`indras-crypto/src/account_root.rs`)
+- [ ] B.2 — `DeviceCertificate` (`indras-crypto/src/device_cert.rs`)
+- [ ] B.3 — `DeviceRoster` CRDT doc (`indras-sync-engine/src/device_roster.rs`)
+- [ ] B.4 — Account creation flow regenerates root; onboarding prompts steward setup
+- [ ] B.5 — Root splitting at steward acceptance (replaces pass-story subkey)
+- [ ] B.6 — Recovery assembly on new device signs fresh device cert
+- [ ] B.7 — Peer verification of new device certs against roster
+- [ ] B.8 — Pass-story deprecation; strip `story.subkey` cache
+- [ ] B.9 — E2E test (`tests/account_root_recovery.rs`)
+- [ ] B.10 — Migration notes + /sync
+
+### Plan C — Erasure-coded personal-data backup
+
+- [ ] C.1 — Reed-Solomon primitive (`indras-crypto/src/erasure.rs`)
+- [ ] C.2 — Backup-peer selection + config (`backup_peers.rs`)
+- [ ] C.3 — `FileShard` CRDT (`indras-sync-engine/src/file_shard.rs`)
+- [ ] C.4 — Publish-on-save hook
+- [ ] C.5 — Recovery-time re-pull
+- [ ] C.6 — Shared-realm re-join (emergent from B.7; verify)
+- [ ] C.7 — E2E test (`tests/data_recovery_flow.rs`)
+- [ ] C.8 — Polish, docs, /sync
+
+## Notes
+- Agent3 worktree, branch `agent3`. Sibling peers: agent1 (braid backend), agent2 (braid UI). Hands off their lanes.
+- Use `/sync`, not manual git. Stash unrelated dirty state before rebase.
+- Scoped `cargo test -p <crate>` only.
+- Plain-language UI copy, no crypto-algorithm names.
+- Each slice ends in a `/sync` commit + progress.md tick + sessions.md entry.
