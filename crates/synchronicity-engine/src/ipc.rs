@@ -1,5 +1,7 @@
 //! Unix-socket IPC server for Claude Code agent integration.
 //!
+//! ## Commit requests
+//!
 //! The Sync socket lets a Claude Code agent running in a bound
 //! worktree trigger a commit without touching the Dioxus UI:
 //!
@@ -16,6 +18,18 @@
 //! ```text
 //! {"cwd":"…","intent":"…","evidence":{"compiled":true,"tests_passed":["indras-sync-engine"],"lints_clean":true,"runtime_ms":1820}}
 //! ```
+//!
+//! ## Hook status events
+//!
+//! The `indras-agent-hook` binary sends lifecycle events on the same socket:
+//!
+//! ```text
+//! {"kind":"agent_status","agent":"agent-foo","event":"PreToolUse","tool":"Read"}
+//! ```
+//!
+//! These are handled by [`handle_agent_status`] and update
+//! `AppState::agent_status` / `AppState::agent_last_activity_millis`
+//! (fields added in Cluster 3; this cluster stubs to `tracing::debug!`).
 //!
 //! Protocol: newline-delimited JSON, one request per connection, one
 //! response, then close. The socket lives at
@@ -52,6 +66,43 @@ pub struct IpcBinding {
     /// `WorkspaceWatcher`.
     pub index: Arc<LocalWorkspaceIndex>,
 }
+
+/// Lifecycle event variants emitted by the `indras-agent-hook` binary.
+///
+/// Matches the `--event` flag values Claude Code passes to the hook command.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(tag = "event", rename_all = "PascalCase")]
+pub enum AgentHookEvent {
+    /// The user submitted a new prompt to the agent.
+    UserPromptSubmit,
+    /// The agent is about to invoke a tool.
+    PreToolUse {
+        /// Name of the tool being invoked (e.g. `"Read"`, `"Edit"`).
+        tool: String,
+    },
+    /// A tool invocation just completed successfully.
+    PostToolUse {
+        /// Name of the tool that completed.
+        tool: String,
+    },
+    /// The agent session has ended (all turns complete or user stopped).
+    Stop,
+}
+
+/// Incoming agent-status message from the `indras-agent-hook` binary.
+///
+/// Sent on the same unix socket as [`SyncRequest`]; distinguished by the
+/// `"kind":"agent_status"` field. The handler updates `AppState` runtime
+/// status fields (wired in Cluster 3; stubbed to a debug log until then).
+#[derive(Debug, Deserialize)]
+pub struct AgentStatusMessage {
+    /// Full logical agent id (e.g. `"agent-foo"`).
+    pub agent: String,
+    /// Which lifecycle event fired.
+    #[serde(flatten)]
+    pub hook_event: AgentHookEvent,
+}
+
 
 /// Optional evidence payload the agent can attach to a commit.
 ///
@@ -160,7 +211,33 @@ async fn handle_connection(
         Some(l) => l,
         None => return Ok(()),
     };
-    let resp = match serde_json::from_str::<SyncRequest>(&line) {
+
+    // Dispatch on the optional `"kind"` field.
+    // - `"kind":"agent_status"` → hook status event (no response expected).
+    // - anything else (including no `kind`) → sync/commit request.
+    let val: serde_json::Value = match serde_json::from_str(&line) {
+        Ok(v) => v,
+        Err(e) => {
+            let resp = SyncResponse::fail(format!("bad JSON: {e}"));
+            let mut out = serde_json::to_vec(&resp)?;
+            out.push(b'\n');
+            writer.write_all(&out).await?;
+            return Ok(());
+        }
+    };
+
+    if val.get("kind").and_then(|k| k.as_str()) == Some("agent_status") {
+        // Hook status event — handle and close without writing a response.
+        // (Claude Code hooks do not read the response.)
+        match serde_json::from_value::<AgentStatusMessage>(val) {
+            Ok(msg) => handle_agent_status(msg),
+            Err(e) => tracing::debug!(error = %e, "malformed agent_status message"),
+        }
+        return Ok(());
+    }
+
+    // Sync/commit request path.
+    let resp = match serde_json::from_value::<SyncRequest>(val) {
         Ok(req) => process_request(req, network, vault_manager, bindings).await,
         Err(e) => SyncResponse::fail(format!("bad request: {e}")),
     };
@@ -168,6 +245,23 @@ async fn handle_connection(
     out.push(b'\n');
     writer.write_all(&out).await?;
     Ok(())
+}
+
+/// Handle an incoming agent hook-status event.
+///
+/// Updates `AppState::agent_status` and `AppState::agent_last_activity_millis`
+/// (fields added in Cluster 3). Until those fields exist this function logs
+/// the event at debug level so the hook binary can connect and the wiring is
+/// exercised end-to-end without panics.
+fn handle_agent_status(msg: AgentStatusMessage) {
+    tracing::debug!(
+        agent = %msg.agent,
+        event = ?msg.hook_event,
+        "agent hook event received (AppState wiring pending Cluster 3)"
+    );
+    // Cluster 3 will replace this stub with:
+    //   state.write().agent_status.insert(agent_id, AgentRuntimeStatus::Thinking);
+    //   state.write().agent_last_activity_millis.insert(agent_id, now_millis());
 }
 
 async fn process_request(

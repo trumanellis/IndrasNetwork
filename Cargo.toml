@@ -34,6 +34,7 @@ members = [
     "crates/indras-homepage",
     "crates/indras-relay",
     "crates/synchronicity-engine",
+    "crates/indras-agent-hook",
 ]
 
 [workspace.package]

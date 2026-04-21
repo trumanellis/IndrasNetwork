@@ -1,0 +1,13 @@
+[package]
+name = "indras-agent-hook"
+version.workspace = true
+edition.workspace = true
+description = "Tiny hook binary: relays Claude Code lifecycle events to the Synchronicity Engine IPC socket."
+
+[[bin]]
+name = "indras-agent-hook"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

@@ -6,6 +6,7 @@
 //! automatically sync across devices via the peer-to-peer network.
 
 pub mod admin_client;
+pub mod agent_hooks;
 pub mod braid_bridge;
 pub mod components;
 pub mod config;

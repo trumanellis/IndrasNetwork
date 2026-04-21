@@ -3694,6 +3694,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "indras-agent-hook"
+version = "1.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "indras-artifacts"
 version = "1.0.0"
 dependencies = [
