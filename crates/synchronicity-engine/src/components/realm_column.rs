@@ -12,7 +12,9 @@ use dioxus::prelude::*;
 use indras_network::IndrasNetwork;
 
 use crate::state::{AppState, BraidFocus, ContextMenu, DragPayload, ModalFile, PeerDisplayInfo, RealmCategory};
+use crate::team::WorkspaceHandle;
 use crate::vault_manager::VaultManager;
+use super::agent_lane::AgentRoster;
 use super::braid_sparkline::BraidSparkline;
 use super::file_item::FileItem;
 
@@ -53,6 +55,7 @@ pub fn RealmColumn(
     network: Signal<Option<Arc<IndrasNetwork>>>,
     vault_manager: Signal<Option<Arc<VaultManager>>>,
     peers: Signal<Vec<PeerDisplayInfo>>,
+    workspace_handles: Signal<Vec<WorkspaceHandle>>,
     category: RealmCategory,
     label: &'static str,
 ) -> Element {
@@ -100,6 +103,21 @@ pub fn RealmColumn(
                         }
                     },
                     "+"
+                }
+            }
+            // Agent Roster — scoped to this column's first realm vault.
+            // If the category has no realms yet, use zero-bytes (no agents shown).
+            {
+                let roster_realm: crate::state::RealmId = realms.first()
+                    .map(|r| r.id)
+                    .unwrap_or([0u8; 32]);
+                rsx! {
+                    AgentRoster {
+                        state,
+                        workspace_handles,
+                        vault_manager,
+                        vault_realm: roster_realm,
+                    }
                 }
             }
             div { class: "vault-column-body",

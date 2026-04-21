@@ -93,11 +93,13 @@ async fn ipc_commit_returns_change_id() {
 
     // Start the IPC server with this agent's index + logical id.
     let agent = LogicalAgentId::new("agent-ipc");
+    let (hook_tx, _hook_rx) = tokio::sync::mpsc::unbounded_channel();
     let _server = ipc::start_ipc_server(
         tmp_data.path().to_path_buf(),
         Arc::clone(&net),
         Arc::clone(&vm_arc),
         vec![IpcBinding { agent: agent.clone(), index: Arc::clone(&index) }],
+        hook_tx,
     );
     tokio::time::sleep(Duration::from_millis(100)).await;
 

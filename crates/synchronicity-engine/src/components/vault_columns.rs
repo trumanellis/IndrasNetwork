@@ -17,13 +17,14 @@ pub fn VaultColumns(
     network: Signal<Option<Arc<IndrasNetwork>>>,
     vault_manager: Signal<Option<Arc<VaultManager>>>,
     peers: Signal<Vec<PeerDisplayInfo>>,
+    workspace_handles: Signal<Vec<crate::team::WorkspaceHandle>>,
 ) -> Element {
     rsx! {
         div { class: "vault-columns",
-            PrivateColumn { state }
-            RealmColumn { state, network, vault_manager, peers, category: RealmCategory::Dm, label: "CONNECTIONS" }
-            RealmColumn { state, network, vault_manager, peers, category: RealmCategory::Group, label: "GROUPS" }
-            RealmColumn { state, network, vault_manager, peers, category: RealmCategory::World, label: "WORLD" }
+            PrivateColumn { state, vault_manager, workspace_handles }
+            RealmColumn { state, network, vault_manager, peers, workspace_handles, category: RealmCategory::Dm, label: "CONNECTIONS" }
+            RealmColumn { state, network, vault_manager, peers, workspace_handles, category: RealmCategory::Group, label: "GROUPS" }
+            RealmColumn { state, network, vault_manager, peers, workspace_handles, category: RealmCategory::World, label: "WORLD" }
         }
     }
 }

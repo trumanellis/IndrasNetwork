@@ -102,11 +102,13 @@ async fn ipc_commit_lands_inner_promotes_and_materializes() {
     }
 
     let agent = LogicalAgentId::new("agent-inner");
+    let (hook_tx, _hook_rx) = tokio::sync::mpsc::unbounded_channel();
     let _server = ipc::start_ipc_server(
         tmp_data.path().to_path_buf(),
         Arc::clone(&net),
         Arc::clone(&vm_arc),
         vec![IpcBinding { agent: agent.clone(), index: Arc::clone(&index) }],
+        hook_tx,
     );
     tokio::time::sleep(Duration::from_millis(100)).await;
 

@@ -241,14 +241,26 @@ pub enum BraidFocus {
         /// File path within that realm.
         path: String,
     },
+    /// Show the changeset review panel for a specific agent's inner-braid fork.
+    ///
+    /// Added in Cluster 5; the drawer renders changeset cards from the agent's
+    /// `AgentForkView` with `[discard]` and `[merge HEAD]` buttons.
+    AgentReview {
+        /// The agent whose fork is being reviewed.
+        agent: LogicalAgentId,
+    },
 }
 
 impl BraidFocus {
-    /// The realm id being focused (either side of the enum).
-    pub fn realm_id(&self) -> &RealmId {
+    /// The realm id being focused, if applicable.
+    ///
+    /// Returns `None` for [`BraidFocus::AgentReview`] since agent review is
+    /// not scoped to a specific realm — it follows the agent's inner braid.
+    pub fn realm_id(&self) -> Option<&RealmId> {
         match self {
-            BraidFocus::Realm(r) => r,
-            BraidFocus::File { realm, .. } => realm,
+            BraidFocus::Realm(r) => Some(r),
+            BraidFocus::File { realm, .. } => Some(realm),
+            BraidFocus::AgentReview { .. } => None,
         }
     }
 }

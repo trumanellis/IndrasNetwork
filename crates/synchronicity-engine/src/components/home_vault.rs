@@ -456,7 +456,8 @@ pub fn HomeVault(
                 // become visible without requiring a click.
                 let drawer_focus = state.read().braid_drawer_focus.clone();
                 if let Some(focus) = drawer_focus {
-                    let realm_id = *focus.realm_id();
+                    // AgentReview focus has no realm_id; skip braid refresh.
+                    let Some(realm_id) = focus.realm_id().copied() else { continue };
                     if let Some(vm) = vault_manager.read().clone() {
                         let peers_snap = peers.read().clone();
                         let self_name = state.read().display_name.clone();
@@ -582,7 +583,7 @@ pub fn HomeVault(
                 on_add_contact: move |_| { state.write().show_contact_invite = true; }
             }
             div { class: "home-vault-main",
-                super::vault_columns::VaultColumns { state, network, vault_manager, peers: peers }
+                super::vault_columns::VaultColumns { state, network, vault_manager, peers: peers, workspace_handles }
                 super::braid_drawer::BraidDrawer { state }
             }
             super::status_bar::StatusBar { state }

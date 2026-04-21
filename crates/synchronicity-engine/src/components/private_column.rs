@@ -1,14 +1,22 @@
 //! Private column — the user's personal vault files.
 
+use std::sync::Arc;
+
 use dioxus::prelude::*;
 
 use crate::state::{AppState, ContextMenu, DragPayload, ModalFile};
-use super::agent_lane::AgentLane;
+use crate::team::WorkspaceHandle;
+use crate::vault_manager::VaultManager;
+use super::agent_lane::AgentRoster;
 use super::file_item::FileItem;
 
 /// Column 1: private vault files with "+ New" button.
 #[component]
-pub fn PrivateColumn(mut state: Signal<AppState>) -> Element {
+pub fn PrivateColumn(
+    mut state: Signal<AppState>,
+    vault_manager: Signal<Option<Arc<VaultManager>>>,
+    workspace_handles: Signal<Vec<WorkspaceHandle>>,
+) -> Element {
     let files = state.read().private_files.clone();
     let selected = state.read().selection.selected_file.clone();
     let is_private_selected = state.read().selection.selected_realm.is_none();
@@ -68,7 +76,13 @@ pub fn PrivateColumn(mut state: Signal<AppState>) -> Element {
                     "+"
                 }
             }
-            AgentLane { state }
+            AgentRoster {
+                state,
+                workspace_handles,
+                vault_manager,
+                // Private vault: zero-byte realm id scopes to home vault
+                vault_realm: [0u8; 32],
+            }
             div { class: "vault-column-body",
                 if files.is_empty() {
                     div { class: "column-empty",

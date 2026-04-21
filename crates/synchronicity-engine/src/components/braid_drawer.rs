@@ -90,7 +90,7 @@ fn NoBraidYet() -> Element {
 fn drawer_title_for_focus(state: &Signal<AppState>) -> Option<String> {
     let st = state.read();
     let focus = st.braid_drawer_focus.as_ref()?;
-    let realm_id = focus.realm_id();
+    let realm_id = focus.realm_id()?;
     st.realms.iter().find(|r| &r.id == realm_id).map(|r| r.display_name.clone())
 }
 
