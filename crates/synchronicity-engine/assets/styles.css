@@ -4436,3 +4436,114 @@ body > * {
    new topbar replaces it entirely. */
 .home-vault-main { flex: 1; min-height: 0; }
 
+/* ── Agent Lane (Private column) ─────────────────────────────────── */
+/* Rendered only when AgentBraid has diverged heads. Port of
+   design/braid-prototype.html .agent-* rules. */
+.agent-lane {
+  border-top: 1px solid var(--bd);
+  border-bottom: 1px solid var(--bd);
+  background: rgba(129, 140, 248, 0.035);
+  padding: 10px 16px 8px;
+}
+.agent-lane-title {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--t3, #a1a1aa);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.agent-lane-title::before {
+  content: "";
+  width: 4px; height: 4px;
+  background: #818cf8;
+  border-radius: 50%;
+  box-shadow: 0 0 6px #818cf8;
+  animation: agent-pulse 2s infinite;
+}
+@keyframes agent-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.45; transform: scale(1.25); }
+}
+.agent-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  font-size: 12px;
+  color: var(--t2, #d4d4d8);
+}
+.agent-strand {
+  flex: 1;
+  min-width: 0;
+  display: block;
+  line-height: 0;
+}
+.agent-strand svg { display: block; width: 100%; }
+.agent-name {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--tx, #fafafa);
+  letter-spacing: 0.04em;
+  min-width: 68px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agent-meta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  color: var(--t3, #a1a1aa);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.agent-merge {
+  background: transparent;
+  border: 1px solid var(--bd);
+  border-radius: 100px;
+  color: #818cf8;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  cursor: pointer;
+  transition: all 140ms ease;
+}
+.agent-merge:hover {
+  border-color: #818cf8;
+  background: rgba(129, 140, 248, 0.08);
+}
+
+/* ── Ambient sync aurora ─────────────────────────────────────────── */
+/* Applied to a realm-entry while that realm is mid-sync. A soft
+   top-edge indigo sweep pulses across the row so the user sees where
+   work is actively moving without having to open any drawer. */
+.realm-entry.aurora-active {
+  position: relative;
+}
+.realm-entry.aurora-active::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    rgba(129, 140, 248, 0) 0%,
+    rgba(129, 140, 248, 0.85) 50%,
+    rgba(129, 140, 248, 0) 100%
+  );
+  background-size: 200% 100%;
+  animation: aurora-sweep 1.8s linear infinite;
+  pointer-events: none;
+}
+@keyframes aurora-sweep {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+

@@ -28,6 +28,7 @@ mod topbar;
 mod braid_graph;
 mod braid_sparkline;
 mod braid_drawer;
+mod agent_lane;
 
 pub use app::App;
 pub use sync_panel::{SyncOverlay, SyncPanel, SyncPanelRow};

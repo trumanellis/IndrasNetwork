@@ -3,6 +3,7 @@
 use dioxus::prelude::*;
 
 use crate::state::{AppState, ContextMenu, DragPayload, ModalFile};
+use super::agent_lane::AgentLane;
 use super::file_item::FileItem;
 
 /// Column 1: private vault files with "+ New" button.
@@ -67,6 +68,7 @@ pub fn PrivateColumn(mut state: Signal<AppState>) -> Element {
                     "+"
                 }
             }
+            AgentLane { state }
             div { class: "vault-column-body",
                 if files.is_empty() {
                     div { class: "column-empty",

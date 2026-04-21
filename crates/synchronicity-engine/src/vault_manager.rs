@@ -246,6 +246,67 @@ impl VaultManager {
         vaults.values().next().map(|v| v.user_id())
     }
 
+    /// Collect diverged agents across every attached vault's inner braid.
+    ///
+    /// For each vault, calls
+    /// [`AgentBraid::agent_forks`](indras_sync_engine::braid::AgentBraid::agent_forks)
+    /// with the supplied `roster`, then counts the number of changesets on
+    /// each agent's branch that aren't reachable from the user's inner HEAD
+    /// — the "N changes ahead" figure rendered on the Agent Lane strip.
+    ///
+    /// Pure read path: does not mutate any vault state.
+    pub async fn collect_agent_forks(
+        &self,
+        roster: &[indras_sync_engine::team::LogicalAgentId],
+    ) -> Vec<crate::state::AgentForkView> {
+        if roster.is_empty() {
+            return Vec::new();
+        }
+        let vaults = self.vaults.read().await;
+        let mut out: Vec<crate::state::AgentForkView> = Vec::new();
+        for (realm_id, vault) in vaults.iter() {
+            let inner = vault.inner_braid().read().await;
+            let dag = inner.dag();
+            let user_ancestors = inner
+                .user_head()
+                .map(|ps| {
+                    let mut a = dag.ancestors(&ps.head);
+                    a.insert(ps.head);
+                    a
+                })
+                .unwrap_or_default();
+
+            for (agent, ps) in inner.agent_forks(roster) {
+                // Count commits reachable from the agent HEAD (inclusive)
+                // that are NOT reachable from the user HEAD.
+                let mut reachable = dag.ancestors(&ps.head);
+                reachable.insert(ps.head);
+                let change_count = reachable.difference(&user_ancestors).count();
+
+                let agent_id = inner.agent_user_id(&agent);
+                let color_class = crate::state::member_class_for(&agent_id);
+                let color_hex = crate::state::member_hex_for(&agent_id);
+                let head_short_hex: String = ps
+                    .head
+                    .as_bytes()
+                    .iter()
+                    .take(4)
+                    .map(|b| format!("{b:02x}"))
+                    .collect();
+
+                out.push(crate::state::AgentForkView {
+                    name: agent.as_str().to_string(),
+                    realm_id: *realm_id,
+                    change_count,
+                    head_short_hex,
+                    color_class,
+                    color_hex,
+                });
+            }
+        }
+        out
+    }
+
     /// Load a [`crate::state::BraidView`] snapshot for a realm's braid.
     ///
     /// Reads the vault's `BraidDag` CRDT and translates it into the

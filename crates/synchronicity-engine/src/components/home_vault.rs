@@ -319,6 +319,21 @@ pub fn HomeVault(
                 }
                 state.write().realms = realm_views;
 
+                // Refresh Agent Lane forks across every attached vault's
+                // inner braid. The roster is the set of agents actually
+                // hosted on this device (via `workspace_handles`).
+                if let Some(vm) = vault_manager.read().clone() {
+                    let roster: Vec<indras_sync_engine::team::LogicalAgentId> = workspace_handles
+                        .read()
+                        .iter()
+                        .map(|h| h.agent.clone())
+                        .collect();
+                    let next_forks = vm.collect_agent_forks(&roster).await;
+                    if state.read().agent_forks != next_forks {
+                        state.write().agent_forks = next_forks;
+                    }
+                }
+
                 // Keep the Braid Drawer fresh: if it's focused on a realm,
                 // re-pull that realm's BraidView so new commits from peers
                 // become visible without requiring a click.

@@ -337,6 +337,24 @@ pub struct ConflictView {
     pub theirs_peer: String,
 }
 
+/// One diverged agent whose local HEAD hasn't been merged into the user's
+/// inner HEAD yet. Rendered as a row in the Private column's Agent Lane.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentForkView {
+    /// Logical agent name (e.g. "researcher", "coder").
+    pub name: String,
+    /// Realm whose inner braid this agent is forking in.
+    pub realm_id: RealmId,
+    /// Number of changesets on the agent's branch ahead of the user's HEAD.
+    pub change_count: usize,
+    /// 8-char hex of the agent's HEAD `ChangeId` for tooltip.
+    pub head_short_hex: String,
+    /// Member-identity CSS class used to tint the agent strand.
+    pub color_class: &'static str,
+    /// Hex color matching `color_class`, for inline SVG stops.
+    pub color_hex: &'static str,
+}
+
 /// Pre-computed snapshot of a braid for the drawer/graph to render.
 ///
 /// Built by a bridge task from a `Vault`'s `BraidDag`, then stored in
@@ -418,6 +436,13 @@ pub struct AppState {
     pub braid_drawer_focus: Option<BraidFocus>,
     /// Cached braid snapshot for the focused realm.
     pub braid_view: Option<BraidView>,
+    /// Diverged agents, across every attached vault's inner braid. Drives
+    /// the Agent Lane strip in the Private column — hidden when empty.
+    pub agent_forks: Vec<AgentForkView>,
+    /// Realm whose sync is currently in flight (set by the sync handler,
+    /// cleared when the final step fires). Used to paint an "aurora" on
+    /// the owning column while work is in motion.
+    pub syncing_realm: Option<RealmId>,
 }
 
 impl AppState {
@@ -457,6 +482,8 @@ impl AppState {
             braid_drawer_open: false,
             braid_drawer_focus: None,
             braid_view: None,
+            agent_forks: Vec::new(),
+            syncing_realm: None,
         }
     }
 }

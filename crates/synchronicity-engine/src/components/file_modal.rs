@@ -187,6 +187,9 @@ pub fn FileModal(
                                                         }
                                                     }
                                                 };
+                                                // Light the aurora on the owning column for the
+                                                // duration of the sync.
+                                                state.write().syncing_realm = Some(rid);
                                                 let (tx, mut rx) = tokio::sync::mpsc::channel::<SyncStep>(16);
 
                                                 // Spawn the sync and drain progress in parallel.
@@ -206,6 +209,10 @@ pub fn FileModal(
                                                     Ok(Ok(_)) => {} // Done step already sent
                                                     Ok(Err(e)) => sync_step.set(Some(SyncStep::Failed(e))),
                                                     Err(e) => sync_step.set(Some(SyncStep::Failed(format!("{e}")))),
+                                                }
+                                                // Clear the aurora.
+                                                if state.read().syncing_realm == Some(rid) {
+                                                    state.write().syncing_realm = None;
                                                 }
                                             });
                                         },

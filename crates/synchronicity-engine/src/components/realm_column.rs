@@ -64,6 +64,7 @@ pub fn RealmColumn(
     let selected_realm = state.read().selection.selected_realm;
     let selected_file = state.read().selection.selected_file.clone();
     let drop_target = state.read().drop_target_realm;
+    let syncing_realm = state.read().syncing_realm;
 
     let add_title = match category {
         RealmCategory::Dm => "Add Contact",
@@ -124,11 +125,14 @@ pub fn RealmColumn(
                             let is_expanded = expanded.contains(&id);
                             let is_selected = selected_realm == Some(id);
                             let is_drop_target = drop_target == Some(id);
+                            let is_aurora = syncing_realm == Some(id);
                             let chevron_class = if is_expanded { "realm-chevron expanded" } else { "realm-chevron" };
-                            let entry_class = match (is_selected, is_drop_target) {
-                                (_, true) => "realm-entry drop-target",
-                                (true, false) => "realm-entry selected",
-                                (false, false) => "realm-entry",
+                            let entry_class = match (is_selected, is_drop_target, is_aurora) {
+                                (_, true, _) => "realm-entry drop-target".to_string(),
+                                (true, false, true) => "realm-entry selected aurora-active".to_string(),
+                                (true, false, false) => "realm-entry selected".to_string(),
+                                (false, false, true) => "realm-entry aurora-active".to_string(),
+                                (false, false, false) => "realm-entry".to_string(),
                             };
                             let files_class = if is_expanded { "realm-files expanded" } else { "realm-files" };
 
