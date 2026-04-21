@@ -1107,3 +1107,452 @@ pub async fn finalize_steward_split(
 
     Ok(delivered)
 }
+
+// ──────────────────────────────────────────────────────────────────
+// Recovery request + release protocol (A.6)
+// ──────────────────────────────────────────────────────────────────
+
+/// Steward-side view of an incoming recovery request.
+#[derive(Debug, Clone)]
+pub struct IncomingRecoveryRequest {
+    /// New device's `UserId` as hex.
+    pub new_device_uid_hex: String,
+    /// Display name the new device presented.
+    pub new_device_display_name: String,
+    /// `UserId` of the DM peer we share this realm with. In a DM
+    /// realm the new device's UID equals this — same value, just
+    /// echoed through two paths for UI convenience.
+    pub dm_peer_uid_hex: String,
+    /// Wall-clock millis when the request was issued.
+    pub issued_at_millis: i64,
+    /// `true` if this steward already responded with a release.
+    pub already_released: bool,
+}
+
+/// New-device view of progress collecting releases.
+#[derive(Debug, Clone, Default)]
+pub struct RecoveryProgress {
+    /// Hex-encoded steward UIDs that have released a share.
+    pub released_by: Vec<String>,
+    /// Hex-encoded source-account UIDs claimed across the released
+    /// shares. Normal recovery has exactly one; more than one
+    /// indicates stewards are releasing for different accounts.
+    pub source_accounts: Vec<String>,
+}
+
+impl RecoveryProgress {
+    /// Count of stewards who've released so far.
+    pub fn count(&self) -> usize {
+        self.released_by.len()
+    }
+}
+
+/// Publish a recovery request into the DM realm shared with each
+/// selected steward. The request carries the new device's display
+/// name and fresh KEM ek so the steward can re-wrap their share
+/// directly.
+pub async fn initiate_recovery(
+    network: Arc<IndrasNetwork>,
+    selected_steward_uids_hex: Vec<String>,
+) -> Result<usize, String> {
+    let my_uid = network.node().pq_identity().user_id();
+    let my_kem_ek = network.node().pq_kem_keypair().encapsulation_key_bytes();
+    let my_vk = network.node().pq_identity().verifying_key_bytes();
+    let my_name = network.display_name().unwrap_or_default();
+    let key = recovery_protocol_key_request(&my_uid);
+    let now = chrono::Utc::now().timestamp_millis();
+
+    let mut published = 0usize;
+    for steward_hex in selected_steward_uids_hex {
+        let Some(steward_uid) = decode_user_id(&steward_hex) else {
+            continue;
+        };
+        let Some(realm_id) = dm_realm_for_uid(&network, &steward_uid).await else {
+            continue;
+        };
+        let Some(realm) = network.get_realm_by_id(&realm_id) else {
+            continue;
+        };
+        let Ok(doc) = realm
+            .document::<indras_sync_engine::recovery_protocol::RecoveryRequest>(&key)
+            .await
+        else {
+            continue;
+        };
+        let payload = indras_sync_engine::recovery_protocol::RecoveryRequest {
+            new_device_uid: my_uid,
+            new_device_display_name: my_name.clone(),
+            new_device_kem_ek: my_kem_ek.clone(),
+            new_device_vk: my_vk.clone(),
+            issued_at_millis: now,
+            withdrawn: false,
+        };
+        if doc.update(move |d| *d = payload).await.is_ok() {
+            published += 1;
+        }
+    }
+
+    if published == 0 {
+        return Err(
+            "None of the friends you selected are reachable as direct-message peers."
+                .to_string(),
+        );
+    }
+    Ok(published)
+}
+
+/// Withdraw the current recovery request so stewards stop surfacing
+/// it. Best-effort across every DM realm the request was pushed to.
+pub async fn withdraw_recovery_request(network: Arc<IndrasNetwork>) -> Result<(), String> {
+    let my_uid = network.node().pq_identity().user_id();
+    let key = recovery_protocol_key_request(&my_uid);
+    let now = chrono::Utc::now().timestamp_millis();
+
+    for realm_id in network.conversation_realms() {
+        if network.dm_peer_for_realm(&realm_id).is_none() {
+            continue;
+        }
+        let Some(realm) = network.get_realm_by_id(&realm_id) else {
+            continue;
+        };
+        let Ok(doc) = realm
+            .document::<indras_sync_engine::recovery_protocol::RecoveryRequest>(&key)
+            .await
+        else {
+            continue;
+        };
+        let payload = indras_sync_engine::recovery_protocol::RecoveryRequest {
+            new_device_uid: my_uid,
+            new_device_display_name: String::new(),
+            new_device_kem_ek: Vec::new(),
+            new_device_vk: Vec::new(),
+            issued_at_millis: now,
+            withdrawn: true,
+        };
+        let _ = doc.update(move |d| *d = payload).await;
+    }
+    Ok(())
+}
+
+/// Steward-side: walk DM realms and collect live recovery requests.
+pub async fn list_incoming_recovery_requests(
+    network: Arc<IndrasNetwork>,
+) -> Vec<IncomingRecoveryRequest> {
+    let my_uid = network.node().pq_identity().user_id();
+    let mut out = Vec::new();
+
+    for realm_id in network.conversation_realms() {
+        if network.dm_peer_for_realm(&realm_id).is_none() {
+            continue;
+        }
+        let Some(realm) = network.get_realm_by_id(&realm_id) else {
+            continue;
+        };
+        let Ok(key_dir) = realm.document::<PeerKeyDirectory>("peer-keys").await else {
+            continue;
+        };
+        let peer_uids: Vec<[u8; 32]> = {
+            let data = key_dir.read().await;
+            data.peers_with_kem()
+                .into_iter()
+                .map(|(uid, _)| uid)
+                .filter(|uid| *uid != my_uid)
+                .collect()
+        };
+
+        for peer_uid in peer_uids {
+            let req_key = recovery_protocol_key_request(&peer_uid);
+            let rel_key = recovery_protocol_key_release(&peer_uid);
+
+            let req_snap = match realm
+                .document::<indras_sync_engine::recovery_protocol::RecoveryRequest>(&req_key)
+                .await
+            {
+                Ok(d) => {
+                    let s = d.read().await.clone();
+                    if s.issued_at_millis == 0 || s.withdrawn {
+                        continue;
+                    }
+                    s
+                }
+                Err(_) => continue,
+            };
+
+            let already_released = match realm
+                .document::<indras_sync_engine::recovery_protocol::ShareRelease>(&rel_key)
+                .await
+            {
+                Ok(d) => {
+                    let s = d.read().await.clone();
+                    s.approved_at_millis >= req_snap.issued_at_millis
+                        && !s.encrypted_share_bytes.is_empty()
+                }
+                Err(_) => false,
+            };
+
+            out.push(IncomingRecoveryRequest {
+                new_device_uid_hex: hex::encode(peer_uid),
+                new_device_display_name: req_snap.new_device_display_name,
+                dm_peer_uid_hex: hex::encode(peer_uid),
+                issued_at_millis: req_snap.issued_at_millis,
+                already_released,
+            });
+        }
+    }
+    out
+}
+
+/// Steward-side: approve a recovery request.
+///
+/// Loads this steward's held share for `source_account_uid_hex`,
+/// decrypts with the steward's own KEM keypair, re-encrypts to the
+/// new device's KEM ek, and publishes a `ShareRelease` doc into the
+/// DM realm shared with the new device.
+pub async fn approve_recovery_request(
+    network: Arc<IndrasNetwork>,
+    requester_uid_hex: &str,
+    source_account_uid_hex: &str,
+) -> Result<(), String> {
+    let requester_uid = decode_user_id(requester_uid_hex)
+        .ok_or_else(|| "Invalid requester id".to_string())?;
+    let source_uid = decode_user_id(source_account_uid_hex)
+        .ok_or_else(|| "Invalid source-account id".to_string())?;
+
+    // 1. Locate the held share (published by the source account into
+    //    the DM realm this steward shares with them).
+    let source_realm_id = dm_realm_for_uid(&network, &source_uid)
+        .await
+        .ok_or_else(|| "Source-account friend isn't a direct-message peer.".to_string())?;
+    let source_realm = network
+        .get_realm_by_id(&source_realm_id)
+        .ok_or_else(|| "Couldn't open source-account realm.".to_string())?;
+    let share_key = share_delivery_doc_key(&source_uid);
+    let share_delivery = {
+        let doc = source_realm
+            .document::<ShareDelivery>(&share_key)
+            .await
+            .map_err(|e| format!("Couldn't open share doc: {}", e))?;
+        doc.read().await.clone()
+    };
+    if share_delivery.created_at_millis == 0 || share_delivery.encrypted_share.is_empty() {
+        return Err("You don't have a backup piece from that friend.".to_string());
+    }
+
+    // 2. Decrypt with this steward's own KEM keypair.
+    let encrypted = indras_crypto::steward_share::EncryptedStewardShare::from_bytes(
+        &share_delivery.encrypted_share,
+    )
+    .map_err(|e| format!("Couldn't read the backup piece: {}", e))?;
+    let my_kp = {
+        let dk = network.node().pq_kem_keypair().decapsulation_key_bytes();
+        let ek = network.node().pq_kem_keypair().encapsulation_key_bytes();
+        indras_crypto::pq_kem::PQKemKeyPair::from_keypair_bytes(dk.as_slice(), &ek)
+            .map_err(|e| format!("Couldn't rebuild KEM keypair: {}", e))?
+    };
+    let share = encrypted
+        .decrypt(&my_kp)
+        .map_err(|e| format!("Couldn't decrypt the backup piece: {}", e))?;
+    let threshold = encrypted.threshold;
+    let secret_version = encrypted.secret_version;
+
+    // 3. Re-wrap against the new device's KEM ek (pulled from the
+    //    request doc in the requester's DM realm).
+    let req_realm_id = dm_realm_for_uid(&network, &requester_uid)
+        .await
+        .ok_or_else(|| "That requester isn't a direct-message peer.".to_string())?;
+    let req_realm = network
+        .get_realm_by_id(&req_realm_id)
+        .ok_or_else(|| "Couldn't open requester realm.".to_string())?;
+    let req_key = recovery_protocol_key_request(&requester_uid);
+    let request_snap = {
+        let doc = req_realm
+            .document::<indras_sync_engine::recovery_protocol::RecoveryRequest>(&req_key)
+            .await
+            .map_err(|e| format!("Couldn't open request doc: {}", e))?;
+        doc.read().await.clone()
+    };
+    if request_snap.issued_at_millis == 0 || request_snap.withdrawn {
+        return Err("That recovery request isn't active anymore.".to_string());
+    }
+    let new_device_ek =
+        indras_crypto::pq_kem::PQEncapsulationKey::from_bytes(&request_snap.new_device_kem_ek)
+            .map_err(|e| format!("New device's backup key is malformed: {}", e))?;
+    let new_encrypted = indras_crypto::steward_share::encrypt_share_for_steward(
+        &share,
+        threshold,
+        secret_version,
+        &new_device_ek,
+    )
+    .map_err(|e| format!("Couldn't seal the piece for the new device: {}", e))?;
+    let new_bytes = new_encrypted
+        .to_bytes()
+        .map_err(|e| format!("Couldn't serialize sealed piece: {}", e))?;
+
+    // 4. Publish `_share_release:{requester_uid}` into the requester
+    //    realm.
+    let rel_key = recovery_protocol_key_release(&requester_uid);
+    let rel_doc = req_realm
+        .document::<indras_sync_engine::recovery_protocol::ShareRelease>(&rel_key)
+        .await
+        .map_err(|e| format!("Couldn't open release doc: {}", e))?;
+    let payload = indras_sync_engine::recovery_protocol::ShareRelease {
+        steward_uid: network.node().pq_identity().user_id(),
+        source_account_uid: source_uid,
+        encrypted_share_bytes: new_bytes,
+        approved_at_millis: chrono::Utc::now().timestamp_millis(),
+    };
+    rel_doc
+        .update(move |d| *d = payload)
+        .await
+        .map_err(|e| format!("Couldn't publish release: {}", e))?;
+
+    Ok(())
+}
+
+/// New-device side: walk every DM realm and collect `_share_release`
+/// entries keyed by our own UID.
+pub async fn poll_recovery_releases(network: Arc<IndrasNetwork>) -> RecoveryProgress {
+    use std::collections::BTreeSet;
+    let my_uid = network.node().pq_identity().user_id();
+    let key = recovery_protocol_key_release(&my_uid);
+    let mut released_by = BTreeSet::new();
+    let mut source_accounts = BTreeSet::new();
+
+    for realm_id in network.conversation_realms() {
+        if network.dm_peer_for_realm(&realm_id).is_none() {
+            continue;
+        }
+        let Some(realm) = network.get_realm_by_id(&realm_id) else {
+            continue;
+        };
+        let Ok(doc) = realm
+            .document::<indras_sync_engine::recovery_protocol::ShareRelease>(&key)
+            .await
+        else {
+            continue;
+        };
+        let snap = doc.read().await.clone();
+        if snap.approved_at_millis == 0 || snap.encrypted_share_bytes.is_empty() {
+            continue;
+        }
+        released_by.insert(hex::encode(snap.steward_uid));
+        source_accounts.insert(hex::encode(snap.source_account_uid));
+    }
+
+    RecoveryProgress {
+        released_by: released_by.into_iter().collect(),
+        source_accounts: source_accounts.into_iter().collect(),
+    }
+}
+
+/// New-device side: once `poll_recovery_releases` shows K releases,
+/// decrypt each with the new device's own KEM keypair, recombine
+/// the subkey, and re-auth the local keystore. On success the
+/// subkey is also cached so future setups don't require story
+/// re-entry.
+pub async fn assemble_and_authenticate(
+    network: Arc<IndrasNetwork>,
+    threshold_k: u8,
+) -> Result<(), String> {
+    if threshold_k < 2 {
+        return Err("Need at least 2 pieces.".to_string());
+    }
+
+    let my_uid = network.node().pq_identity().user_id();
+    let key = recovery_protocol_key_release(&my_uid);
+
+    // Collect EncryptedStewardShare payloads from every DM realm.
+    let mut encrypted_shares = Vec::new();
+    for realm_id in network.conversation_realms() {
+        if network.dm_peer_for_realm(&realm_id).is_none() {
+            continue;
+        }
+        let Some(realm) = network.get_realm_by_id(&realm_id) else {
+            continue;
+        };
+        let Ok(doc) = realm
+            .document::<indras_sync_engine::recovery_protocol::ShareRelease>(&key)
+            .await
+        else {
+            continue;
+        };
+        let snap = doc.read().await.clone();
+        if snap.approved_at_millis == 0 || snap.encrypted_share_bytes.is_empty() {
+            continue;
+        }
+        encrypted_shares.push(snap.encrypted_share_bytes);
+    }
+
+    if encrypted_shares.len() < threshold_k as usize {
+        return Err(format!(
+            "Only {} friends have released a piece — need {}.",
+            encrypted_shares.len(),
+            threshold_k
+        ));
+    }
+
+    let my_kp = {
+        let dk = network.node().pq_kem_keypair().decapsulation_key_bytes();
+        let ek = network.node().pq_kem_keypair().encapsulation_key_bytes();
+        indras_crypto::pq_kem::PQKemKeyPair::from_keypair_bytes(dk.as_slice(), &ek)
+            .map_err(|e| format!("Couldn't rebuild KEM keypair: {}", e))?
+    };
+
+    let mut shamir_shares = Vec::with_capacity(encrypted_shares.len());
+    for bytes in &encrypted_shares {
+        let encrypted = indras_crypto::steward_share::EncryptedStewardShare::from_bytes(bytes)
+            .map_err(|e| format!("Couldn't read a piece: {}", e))?;
+        let share = encrypted
+            .decrypt(&my_kp)
+            .map_err(|e| format!("Couldn't decrypt a piece: {}", e))?;
+        shamir_shares.push(share);
+    }
+
+    let data_dir = crate::state::default_data_dir();
+    let subkey = steward_recovery::recover_encryption_subkey(&shamir_shares, threshold_k)
+        .map_err(|e| format!("Couldn't reassemble the backup: {}", e))?;
+
+    // Re-auth the on-disk keystore (same path as the old hex-paste
+    // recovery flow).
+    let token_path = data_dir.join("story.token");
+    let token_bytes = std::fs::read(&token_path)
+        .map_err(|e| format!("No keystore on this device ({}): {}", token_path.display(), e))?;
+    if token_bytes.len() != 32 {
+        return Err(format!(
+            "Keystore token is the wrong size (got {}, want 32)",
+            token_bytes.len()
+        ));
+    }
+    let mut token = [0u8; 32];
+    token.copy_from_slice(&token_bytes);
+
+    let data_dir_owned = data_dir.clone();
+    tokio::task::spawn_blocking(move || -> Result<(), String> {
+        let mut keystore = StoryKeystore::new(&data_dir_owned);
+        if !keystore.is_initialized() {
+            return Err("No keystore to recover on this device".to_string());
+        }
+        keystore
+            .authenticate(&subkey, token)
+            .map_err(|e| format!("Recovered key did not unlock the keystore: {}", e))?;
+        keystore
+            .load_or_generate_pq_identity()
+            .map_err(|e| format!("Couldn't load the recovered identity: {}", e))?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("task join error: {}", e))??;
+
+    // Cache the subkey so this device can re-split without the story.
+    let _ = save_subkey_cache(&data_dir, &subkey);
+
+    Ok(())
+}
+
+fn recovery_protocol_key_request(uid: &[u8; 32]) -> String {
+    indras_sync_engine::recovery_protocol::recovery_request_doc_key(uid)
+}
+
+fn recovery_protocol_key_release(uid: &[u8; 32]) -> String {
+    indras_sync_engine::recovery_protocol::share_release_doc_key(uid)
+}

@@ -43,6 +43,7 @@ pub mod story_auth;
 pub mod steward_recovery;
 pub mod share_delivery;
 pub mod steward_enrollment;
+pub mod recovery_protocol;
 pub mod rehearsal;
 pub mod bioregion_catalog;
 pub mod profile_identity;
