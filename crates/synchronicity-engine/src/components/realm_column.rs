@@ -106,17 +106,20 @@ pub fn RealmColumn(
                 }
             }
             // Agent Roster — scoped to this column's first realm vault.
-            // If the category has no realms yet, use zero-bytes (no agents shown).
+            // Omitted entirely when the category has no realms; passing
+            // [0u8; 32] here would collide with the private-column sentinel
+            // and replicate the home-vault roster into every empty column.
             {
-                let roster_realm: crate::state::RealmId = realms.first()
-                    .map(|r| r.id)
-                    .unwrap_or([0u8; 32]);
+                let roster_realm: Option<crate::state::RealmId> =
+                    realms.first().map(|r| r.id);
                 rsx! {
-                    AgentRoster {
-                        state,
-                        workspace_handles,
-                        vault_manager,
-                        vault_realm: roster_realm,
+                    if let Some(rid) = roster_realm {
+                        AgentRoster {
+                            state,
+                            workspace_handles,
+                            vault_manager,
+                            vault_realm: rid,
+                        }
                     }
                 }
             }

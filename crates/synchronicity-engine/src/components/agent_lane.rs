@@ -91,24 +91,31 @@ pub fn AgentRoster(
     let mut task_prompt = use_signal(String::new);
 
     // ── Resolve vault path for this roster's realm ──────────────────────────
-    let vault_path = {
+    // The private column passes the zero-bytes sentinel; the home vault is
+    // registered under its real realm id, so `vault_path(&[0;32])` would
+    // return None. Use the path stashed on AppState in that case.
+    let vault_path: Option<std::path::PathBuf> = if vault_realm == [0u8; 32] {
+        let vp = state.read().vault_path.clone();
+        if vp.as_os_str().is_empty() { None } else { Some(vp) }
+    } else {
         let vm = vault_manager.read().clone();
         vm.and_then(|v| v.vault_path(&vault_realm))
     };
 
     // ── Filter handles to this vault ────────────────────────────────────────
-    // Agent folder must be a child of the vault path, or we're in private
-    // mode (vault_path is None, meaning the roster renders all handles that
-    // don't belong to any realm vault — i.e. the home-vault agents).
-    let handles: Vec<LogicalAgentId> = workspace_handles
-        .read()
-        .iter()
-        .filter(|h| match &vault_path {
-            Some(vp) => h.index.root().starts_with(vp),
-            None => true,
-        })
-        .map(|h| h.agent.clone())
-        .collect();
+    // Agents are shown only when their folder is inside this roster's vault
+    // path. If we couldn't resolve a path (realm not vault-backed yet), show
+    // no agents — never fall through to "show all", which would replicate
+    // every agent across every column.
+    let handles: Vec<LogicalAgentId> = match &vault_path {
+        Some(vp) => workspace_handles
+            .read()
+            .iter()
+            .filter(|h| h.index.root().starts_with(vp))
+            .map(|h| h.agent.clone())
+            .collect(),
+        None => Vec::new(),
+    };
 
     // ── Socket path (for hook template) ─────────────────────────────────────
     let socket_path = crate::ipc::socket_path(&crate::state::default_data_dir());
@@ -136,11 +143,13 @@ pub fn AgentRoster(
             // ── Creation form ────────────────────────────────────────────────
             if *show_create.read() {
                 div { class: "agent-roster-create-form",
-                    input {
-                        class: "agent-roster-create-input",
-                        placeholder: "name (e.g. coder)",
-                        value: "{create_name.read()}",
-                        oninput: move |e| create_name.set(e.value()),
+                    div { class: "agent-roster-create-input-wrap",
+                        span { class: "agent-roster-create-prefix", "agent-" }
+                        input {
+                            class: "agent-roster-create-input",
+                            placeholder: "name",
+                            value: "{create_name.read()}",
+                            oninput: move |e| create_name.set(e.value()),
                         onkeydown: {
                             let vault_path_kd = vault_path.clone();
                             let socket_path_kd = socket_path.clone();
@@ -160,6 +169,7 @@ pub fn AgentRoster(
                                 }
                             }
                         },
+                        }
                     }
                     div { class: "agent-roster-color-dots",
                         for (i, cls) in IDENTITY_COLORS.iter().enumerate() {
@@ -216,7 +226,7 @@ pub fn AgentRoster(
             for agent_id in handles {
                 {
                     let agent_id = agent_id.clone();
-                    let display_name = strip_agent_prefix(agent_id.as_str());
+                    let display_name = agent_id.as_str().to_string();
 
                     // Derive row state from AppState
                     let runtime = state
@@ -260,6 +270,7 @@ pub fn AgentRoster(
                     let agent_id_for_land = agent_id.clone();
                     let agent_id_for_retry = agent_id.clone();
                     let agent_id_for_review = agent_id.clone();
+                    let agent_id_for_delete = agent_id.clone();
 
                     rsx! {
                         div {
@@ -388,6 +399,19 @@ pub fn AgentRoster(
                                     },
                                     _ => rsx! {},
                                 }
+                            }
+
+                            // Delete button — always visible, right-edge
+                            button {
+                                class: "agent-row-delete",
+                                title: "Remove agent",
+                                onclick: move |_| {
+                                    remove_agent(
+                                        &mut workspace_handles,
+                                        &agent_id_for_delete,
+                                    );
+                                },
+                                "×"
                             }
                         }
                     }

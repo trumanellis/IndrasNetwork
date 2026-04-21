@@ -4625,3 +4625,505 @@ body > * {
   100% { background-position: -100% 0; }
 }
 
+/* ========== Agent Roster (clusters 4 + 5) ========== */
+
+/* ── Keyframes ─────────────────────────────────────────────────────── */
+@keyframes agent-thinking-drift {
+  from { stroke-dashoffset: 0; }
+  to   { stroke-dashoffset: -40; }
+}
+
+/* ── Cluster 4 · Roster container & header ─────────────────────────── */
+
+.agent-roster {
+  /* Compact sub-panel; recedes when empty */
+  background: transparent;
+  border-bottom: 1px solid var(--bd2);
+  padding: 8px 12px 6px;
+}
+
+.agent-roster-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.agent-roster-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--t3);      /* Muted Zinc #52525b */
+}
+
+.agent-roster-add-pill {
+  /* Tagged Badge treatment */
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid rgba(129, 140, 248, 0.3);
+  background: rgba(129, 140, 248, 0.06);
+  color: var(--indigo);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border-radius: 100px;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: background 120ms ease;
+  line-height: 1.4;
+}
+.agent-roster-add-pill:hover {
+  background: rgba(129, 140, 248, 0.12);
+}
+
+.agent-roster-empty {
+  /* Whisper-quiet zero-state */
+  color: var(--dim);     /* Ghost Zinc #3f3f46 */
+  font-family: var(--body);
+  font-size: 12px;
+  font-weight: 400;
+  padding: 8px 0 6px;
+  line-height: 1.4;
+}
+
+/* ── Inline creation form ───────────────────────────────────────────── */
+
+.agent-roster-create-form {
+  background: var(--card);
+  border: 1px solid var(--bd);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.agent-roster-create-input-wrap {
+  display: flex;
+  align-items: stretch;
+  background: var(--bg);
+  border: 1px solid var(--bd);
+  border-radius: 8px;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.agent-roster-create-input-wrap:focus-within {
+  border-color: var(--indigo);
+  box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.15);
+}
+.agent-roster-create-prefix {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 0 0 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--t3);
+  user-select: none;
+  letter-spacing: 0.02em;
+}
+.agent-roster-create-input {
+  background: transparent;
+  border: none;
+  padding: 10px 12px 10px 2px;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--tx);
+  outline: none;
+  flex: 1;
+  min-width: 0;
+  letter-spacing: 0.02em;
+}
+.agent-roster-create-input::placeholder {
+  color: var(--dim);
+}
+
+.agent-roster-color-dots {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
+}
+
+.agent-roster-color-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity 120ms ease, box-shadow 120ms ease;
+  flex-shrink: 0;
+  border: 1px solid transparent;
+}
+.agent-roster-color-dot:hover {
+  opacity: 1;
+}
+.agent-roster-color-dot--selected {
+  opacity: 1;
+  /* ring uses the dot's own color passed via inline style — approximated
+     with a white inner ring at low opacity since the color is dynamic */
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25);
+}
+.agent-roster-color-dot.identity-love  { background: #ff6b9d; }
+.agent-roster-color-dot.identity-joy   { background: #ffd93d; }
+.agent-roster-color-dot.identity-peace { background: #6bcfff; }
+.agent-roster-color-dot.identity-grace { background: #b19cd9; }
+.agent-roster-color-dot.identity-hope  { background: #98d8aa; }
+.agent-roster-color-dot.identity-faith { background: #ffb347; }
+
+.agent-roster-create-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--indigo);
+  color: var(--indigo);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: background 120ms ease;
+  align-self: flex-start;
+}
+.agent-roster-create-btn:hover {
+  background: rgba(129, 140, 248, 0.08);
+}
+
+.agent-roster-error {
+  color: var(--danger);
+  font-family: var(--body);
+  font-size: 12px;
+  font-weight: 400;
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+/* ── Agent row — base & states ──────────────────────────────────────── */
+
+/* Override the legacy .agent-row from the agent-lane component.
+   These rules are later in the cascade and win for roster-hosted rows. */
+.agent-roster .agent-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--bd2);
+  font-size: 13px;
+  color: var(--tx);
+  cursor: default;
+  transition: background 120ms ease;
+}
+.agent-roster .agent-row:last-child {
+  border-bottom: none;
+}
+.agent-roster .agent-row:hover {
+  background: var(--surface);   /* Hover Surface #1c1c20 */
+  margin: 0 -12px;
+  padding-left: 12px;
+  padding-right: 12px;
+}
+
+/* Idle — subdued */
+.agent-roster .agent-row--idle .agent-strand svg path {
+  stroke-opacity: 0.15;
+}
+.agent-roster .agent-row--idle .agent-row-badge {
+  color: var(--dim);
+}
+
+/* Thinking — animated strand */
+.agent-roster .agent-row--thinking .agent-strand svg path {
+  animation: agent-thinking-drift 2s linear infinite;
+}
+.agent-roster .agent-row--thinking .agent-row-badge {
+  color: var(--t2);   /* Soft Gray */
+}
+
+/* Has changes — prominent */
+.agent-roster .agent-row--has-changes .agent-strand svg path {
+  stroke-opacity: 1;
+}
+.agent-roster .agent-row--has-changes .agent-row-badge {
+  color: var(--tx);
+  font-weight: 500;
+}
+
+/* Fork ready — Indigo ambient glow */
+.agent-roster .agent-row--fork-ready {
+  box-shadow: inset 0 0 0 1px rgba(129, 140, 248, 0.15);
+}
+.agent-roster .agent-row--fork-ready .agent-strand svg path {
+  stroke-opacity: 1;
+}
+.agent-roster .agent-row--fork-ready .agent-row-badge {
+  color: var(--indigo);
+}
+
+/* Blocked — amber strand + dashed */
+.agent-roster .agent-row--blocked .agent-strand svg path {
+  stroke: #fbbf24 !important;
+  stroke-dasharray: 4 6;
+}
+.agent-roster .agent-row--blocked .agent-row-badge {
+  color: var(--glow-amber);   /* Warning Amber #fbbf24 */
+}
+
+/* ── Agent row sub-elements ─────────────────────────────────────────── */
+
+.agent-row-name {
+  font-family: var(--body);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--tx);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-row-badge {
+  /* subtitle feel — lowercase mono, not a shouting label */
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0.04em;
+  color: var(--t3);
+  white-space: nowrap;
+}
+.agent-row-badge--crashed {
+  color: var(--danger);
+}
+
+.agent-row-task-input {
+  background: var(--bg);
+  border: 1px solid var(--bd);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-family: var(--body);
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--tx);
+  outline: none;
+  flex: 1;
+  transition: border-color 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
+}
+.agent-row-task-input::placeholder {
+  color: var(--t3);
+}
+.agent-row-task-input:focus {
+  border-color: var(--indigo);
+  box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.15);
+}
+
+.agent-row-pills {
+  display: flex;
+  flex-direction: row;
+  gap: 6px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.agent-row-delete {
+  background: transparent;
+  border: none;
+  color: var(--dim);
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 6px;
+  cursor: pointer;
+  border-radius: 4px;
+  flex-shrink: 0;
+  transition: color 120ms ease, background 120ms ease;
+  font-family: var(--body);
+}
+.agent-row-delete:hover {
+  color: var(--danger);
+  background: rgba(248, 113, 113, 0.08);
+}
+/* When there are no pills, the delete button takes over the right edge. */
+.agent-row-pills:empty + .agent-row-delete {
+  margin-left: auto;
+}
+
+.agent-pill {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-radius: 100px;
+  border: 1px solid var(--bd);
+  padding: 3px 8px;
+  cursor: pointer;
+  background: transparent;
+  transition: background 120ms ease;
+  white-space: nowrap;
+}
+
+/* Land — Emerald outline */
+.agent-pill--land {
+  border-color: #34d399;
+  color: #34d399;
+}
+.agent-pill--land:hover {
+  background: rgba(52, 211, 153, 0.06);
+}
+
+/* Review — Indigo outline */
+.agent-pill--review {
+  border-color: var(--indigo);
+  color: var(--indigo);
+}
+.agent-pill--review:hover {
+  background: rgba(129, 140, 248, 0.08);
+}
+
+/* Retry — Amber outline */
+.agent-pill--retry {
+  border-color: #fbbf24;
+  color: #fbbf24;
+}
+.agent-pill--retry:hover {
+  background: rgba(251, 191, 36, 0.06);
+}
+
+/* ── Context menu ───────────────────────────────────────────────────── */
+
+.agent-context-menu {
+  position: absolute;
+  background: var(--card);
+  border: 1px solid var(--bd);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  z-index: 9000;
+  min-width: 140px;
+}
+
+.agent-context-menu-item {
+  padding: 6px 12px;
+  font-family: var(--body);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--tx);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 100ms ease;
+}
+.agent-context-menu-item:hover {
+  background: var(--surface);
+}
+
+.agent-context-menu-item--danger {
+  color: var(--tx);   /* stays Pure Light by default */
+}
+.agent-context-menu-item--danger:hover {
+  color: var(--danger);
+  background: var(--surface);
+}
+
+/* ── Cluster 5 · Agent Review drawer panel ──────────────────────────── */
+
+.agent-review-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+}
+
+.agent-review-card {
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  background: var(--bg2);    /* Dark Surface #111114 */
+  border: 1px solid var(--bd);
+  border-radius: var(--radius);  /* 12px */
+  padding: 16px;
+}
+
+.agent-review-card-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 3px;  /* align to cap-height of name */
+}
+
+.agent-review-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.agent-review-card-name {
+  font-family: var(--body);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--tx);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-review-card-meta {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0.02em;
+  color: var(--t3);
+}
+
+.agent-review-actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.agent-review-btn {
+  font-family: var(--body);
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 8px;
+  padding: 8px 16px;
+  cursor: pointer;
+  border: none;
+  transition: background 120ms ease, filter 120ms ease;
+}
+
+/* Discard — outline Muted Zinc */
+.agent-review-btn--discard {
+  background: transparent;
+  border: 1px solid var(--t3);
+  color: var(--t3);
+}
+.agent-review-btn--discard:hover {
+  background: rgba(82, 82, 91, 0.08);
+}
+
+/* Merge — Emerald fill (success = act of service) */
+.agent-review-btn--merge {
+  background: #34d399;
+  color: var(--bg);    /* Deep Void — dark text on light accent */
+  border: none;
+}
+.agent-review-btn--merge:hover {
+  filter: brightness(1.1);
+}
+
+/* ========== End Agent Roster ========== */
+
