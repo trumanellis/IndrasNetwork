@@ -499,6 +499,10 @@ pub struct AppState {
     pub show_recovery_setup: bool,
     /// Whether the "use my backup" recovery overlay is open.
     pub show_recovery_use: bool,
+    /// Number of steward shares this device is currently holding for
+    /// other peers. Refreshed on app start and whenever the
+    /// Backup-plan overlay opens. Drives the status-bar badge.
+    pub held_backups_count: usize,
     /// Currently-open peer profile popup, keyed by (peer member id, DM realm id).
     /// `None` = popup closed.
     pub profile_popup_target: Option<([u8; 32], RealmId)>,
@@ -565,6 +569,7 @@ impl AppState {
             show_sync: false,
             show_recovery_setup: false,
             show_recovery_use: false,
+            held_backups_count: crate::recovery_bridge::load_held_backups().count(),
             profile_popup_target: None,
             peer_liveness: None,
             relay_config: RelayConfig::load(),

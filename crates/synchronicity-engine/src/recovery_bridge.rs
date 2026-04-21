@@ -22,20 +22,49 @@ use indras_crypto::story_template::PassStory;
 use indras_network::IndrasNetwork;
 use indras_node::StoryKeystore;
 use indras_sync_engine::peer_key_directory::PeerKeyDirectory;
+use indras_sync_engine::share_delivery::{
+    share_delivery_doc_key, HeldBackup, ShareDelivery, StewardHoldings,
+};
 use indras_sync_engine::story_auth::StoryAuth;
 use indras_sync_engine::steward_recovery::{self, StewardId};
+
+/// One backup-plan row as handed down from the Backup-plan overlay.
+///
+/// `user_id_hex` is `Some` only for rows created via the peer picker —
+/// those are candidates for in-band delivery because we already know
+/// which DM realm reaches that peer. Manual hex-paste rows have `None`
+/// and always fall through to the hex copy-paste path.
+#[derive(Clone, Debug, Default)]
+pub struct StewardInput {
+    pub label: String,
+    pub ek_hex: String,
+    pub user_id_hex: Option<String>,
+}
+
+/// Summary of `setup_steward_recovery` for the UI.
+///
+/// `shares_hex` is the hex fallback every steward sees today. `delivered_to`
+/// names the stewards whose shares were also published into a DM realm
+/// over iroh (no hex copy-paste needed for those).
+#[derive(Clone, Debug, Default)]
+pub struct SetupOutcome {
+    pub shares_hex: Vec<String>,
+    pub delivered_to: Vec<String>,
+}
 
 /// Prepare a steward recovery split.
 ///
 /// `story_slots` are the user's 23 pass-story slots (one entry per
-/// slot, exactly 23). `stewards` is `(label, hex_ek)` pairs. On success
-/// the manifest is persisted and one hex-encoded
-/// `EncryptedStewardShare` is returned per steward in input order.
+/// slot, exactly 23). For each input steward we encrypt a share; when
+/// `network` is `Some` and the row carries a `user_id_hex` for a peer
+/// we share a DM realm with, we also publish the share as a CRDT doc
+/// inside that realm. Manifest is persisted either way.
 pub async fn setup_steward_recovery(
     story_slots: Vec<String>,
-    stewards_input: Vec<(String, String)>,
+    stewards_input: Vec<StewardInput>,
     k: u8,
-) -> Result<Vec<String>, String> {
+    network: Option<Arc<IndrasNetwork>>,
+) -> Result<SetupOutcome, String> {
     let data_dir = crate::state::default_data_dir();
 
     if story_slots.len() != 23 {
@@ -54,33 +83,135 @@ pub async fn setup_steward_recovery(
 
     let mut stewards: Vec<(StewardId, PQEncapsulationKey)> =
         Vec::with_capacity(stewards_input.len());
-    for (label, hex_ek) in stewards_input {
-        let label_trimmed = label.trim();
+    let mut routing: Vec<Option<[u8; 32]>> = Vec::with_capacity(stewards_input.len());
+    let mut labels: Vec<String> = Vec::with_capacity(stewards_input.len());
+    for input in &stewards_input {
+        let label_trimmed = input.label.trim();
         if label_trimmed.is_empty() {
             return Err("Every steward needs a label".to_string());
         }
-        let ek_bytes = hex::decode(hex_ek.trim())
+        let ek_bytes = hex::decode(input.ek_hex.trim())
             .map_err(|e| format!("Steward `{}`: invalid hex — {}", label_trimmed, e))?;
         let ek = PQEncapsulationKey::from_bytes(&ek_bytes)
             .map_err(|e| format!("Steward `{}`: invalid KEM key — {}", label_trimmed, e))?;
         stewards.push((StewardId::new(label_trimmed.as_bytes().to_vec()), ek));
+        labels.push(label_trimmed.to_string());
+
+        let uid = input
+            .user_id_hex
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|hex_uid| {
+                let bytes = hex::decode(hex_uid).map_err(|e| {
+                    format!("Steward `{}`: invalid user_id hex — {}", label_trimmed, e)
+                })?;
+                if bytes.len() != 32 {
+                    return Err(format!(
+                        "Steward `{}`: user_id must be 32 bytes, got {}",
+                        label_trimmed,
+                        bytes.len()
+                    ));
+                }
+                let mut out = [0u8; 32];
+                out.copy_from_slice(&bytes);
+                Ok::<_, String>(out)
+            })
+            .transpose()?;
+        routing.push(uid);
     }
 
-    let prepared = tokio::task::spawn_blocking(move || {
-        StoryAuth::prepare_steward_recovery(&data_dir, &story, &stewards, k, 1)
-    })
-    .await
-    .map_err(|e| format!("task join error: {}", e))?
-    .map_err(|e| format!("{}", e))?;
+    let prepared = {
+        let story = story.clone();
+        let stewards = stewards.clone();
+        let data_dir = data_dir.clone();
+        tokio::task::spawn_blocking(move || {
+            StoryAuth::prepare_steward_recovery(&data_dir, &story, &stewards, k, 1)
+        })
+        .await
+        .map_err(|e| format!("task join error: {}", e))?
+        .map_err(|e| format!("{}", e))?
+    };
 
     let mut shares_hex = Vec::with_capacity(prepared.encrypted_shares.len());
+    let mut share_bytes: Vec<Vec<u8>> = Vec::with_capacity(prepared.encrypted_shares.len());
     for enc in &prepared.encrypted_shares {
         let bytes = enc
             .to_bytes()
             .map_err(|e| format!("serialize share: {}", e))?;
-        shares_hex.push(hex::encode(bytes));
+        shares_hex.push(hex::encode(&bytes));
+        share_bytes.push(bytes);
     }
-    Ok(shares_hex)
+
+    // In-band delivery: for each row whose caller provided a UserId,
+    // publish the encrypted share into the sender↔steward DM realm.
+    // Failures here are recorded in `delivered_to` absence, not as
+    // hard errors — the hex fallback still lets the user ship out of
+    // band.
+    let mut delivered_to: Vec<String> = Vec::new();
+    if let Some(net) = network {
+        let my_uid = net.node().pq_identity().user_id();
+        let now = chrono::Utc::now().timestamp_millis();
+        let uid_to_realm = dm_realm_map(&net).await;
+        for (idx, maybe_uid) in routing.iter().enumerate() {
+            let Some(target_uid) = maybe_uid else { continue };
+            let Some(realm_id) = uid_to_realm.get(target_uid) else { continue };
+            let Some(realm) = net.get_realm_by_id(realm_id) else { continue };
+            let key = share_delivery_doc_key(&my_uid);
+            let doc = match realm.document::<ShareDelivery>(&key).await {
+                Ok(d) => d,
+                Err(_) => continue,
+            };
+            let payload = ShareDelivery {
+                encrypted_share: share_bytes[idx].clone(),
+                sender_user_id: my_uid,
+                created_at_millis: now,
+                label: labels[idx].clone(),
+            };
+            if doc.update(move |d| *d = payload).await.is_ok() {
+                delivered_to.push(labels[idx].clone());
+            }
+        }
+    }
+
+    Ok(SetupOutcome {
+        shares_hex,
+        delivered_to,
+    })
+}
+
+/// Build a `UserId` → `RealmId` map covering every DM realm the user
+/// currently belongs to. Returns empty if the network has no DM realms
+/// or their peer-keys directory has not synced yet.
+async fn dm_realm_map(
+    network: &Arc<IndrasNetwork>,
+) -> std::collections::BTreeMap<[u8; 32], indras_network::RealmId> {
+    use std::collections::BTreeMap;
+
+    let my_uid = network.node().pq_identity().user_id();
+    let mut map = BTreeMap::new();
+
+    for realm_id in network.conversation_realms() {
+        if network.dm_peer_for_realm(&realm_id).is_none() {
+            continue;
+        }
+        let Some(realm) = network.get_realm_by_id(&realm_id) else {
+            continue;
+        };
+        let Ok(doc) = realm.document::<PeerKeyDirectory>("peer-keys").await else {
+            continue;
+        };
+        let data = doc.read().await;
+        for (uid, _ek) in data.peers_with_kem() {
+            if uid != my_uid {
+                // In a DM realm there's exactly one non-self peer, so
+                // first-writer wins here is correct.
+                map.entry(uid).or_insert(realm_id);
+            }
+        }
+    }
+
+    map
 }
 
 /// Generate a fresh ML-KEM-768 keypair for testing the steward flow.
@@ -105,6 +236,9 @@ pub struct AvailableSteward {
     pub label: String,
     /// Hex-encoded ML-KEM-768 encapsulation key.
     pub ek_hex: String,
+    /// Hex-encoded `UserId` for the peer — used to route in-band share
+    /// delivery into the correct DM realm.
+    pub user_id_hex: String,
 }
 
 /// Enumerate peers across every realm the user belongs to that have
@@ -174,13 +308,12 @@ pub async fn list_available_stewards(network: Arc<IndrasNetwork>) -> Vec<Availab
     found
         .into_iter()
         .map(|(uid, (ek, name))| {
-            let label = name.unwrap_or_else(|| {
-                let uid_hex = hex::encode(uid);
-                format!("Peer {}", &uid_hex[..8])
-            });
+            let uid_hex = hex::encode(uid);
+            let label = name.unwrap_or_else(|| format!("Peer {}", &uid_hex[..8]));
             AvailableSteward {
                 label,
                 ek_hex: hex::encode(ek.to_bytes()),
+                user_id_hex: uid_hex,
             }
         })
         .collect()
@@ -277,4 +410,73 @@ pub async fn use_steward_recovery(
     })
     .await
     .map_err(|e| format!("task join error: {}", e))?
+}
+
+/// Walk every DM realm, probe each non-self peer's share-delivery doc,
+/// materialize any hits into `<data_dir>/steward_holdings.json`, and
+/// return the refreshed cache.
+///
+/// Safe to call at any time from the UI — idempotent, read-mostly,
+/// writes the file only when content changes.
+pub async fn refresh_held_backups(network: Arc<IndrasNetwork>) -> StewardHoldings {
+    let data_dir = crate::state::default_data_dir();
+    let my_uid = network.node().pq_identity().user_id();
+    let mut holdings = StewardHoldings::default();
+
+    for realm_id in network.conversation_realms() {
+        if network.dm_peer_for_realm(&realm_id).is_none() {
+            continue;
+        }
+        let Some(realm) = network.get_realm_by_id(&realm_id) else {
+            continue;
+        };
+        let candidate_uids: Vec<[u8; 32]> = match realm
+            .document::<PeerKeyDirectory>("peer-keys")
+            .await
+        {
+            Ok(doc) => doc
+                .read()
+                .await
+                .peers_with_kem()
+                .into_iter()
+                .map(|(uid, _)| uid)
+                .filter(|uid| *uid != my_uid)
+                .collect(),
+            Err(_) => continue,
+        };
+
+        for sender_uid in candidate_uids {
+            let key = share_delivery_doc_key(&sender_uid);
+            let Ok(doc) = realm.document::<ShareDelivery>(&key).await else {
+                continue;
+            };
+            let snap = doc.read().await.clone();
+            // Skip the zero/default state produced by opening a doc
+            // that was never written.
+            if snap.created_at_millis == 0 || snap.encrypted_share.is_empty() {
+                continue;
+            }
+            let sender_hex = hex::encode(sender_uid);
+            holdings.by_sender.insert(
+                sender_hex.clone(),
+                HeldBackup {
+                    sender_user_id_hex: sender_hex,
+                    label: snap.label.clone(),
+                    created_at_millis: snap.created_at_millis,
+                },
+            );
+        }
+    }
+
+    // Best-effort persistence — failure doesn't affect the return.
+    let _ = holdings.save(&data_dir);
+    holdings
+}
+
+/// Load the previously-persisted holdings cache, or an empty cache if
+/// the file doesn't exist. Cheap; safe to call during app startup to
+/// seed the status-bar badge before the first network scan completes.
+pub fn load_held_backups() -> StewardHoldings {
+    let data_dir = crate::state::default_data_dir();
+    StewardHoldings::load(&data_dir).unwrap_or_default()
 }

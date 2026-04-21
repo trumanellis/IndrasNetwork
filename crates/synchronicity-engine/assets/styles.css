@@ -2609,6 +2609,11 @@ body > * {
   color: var(--glow-green);
 }
 
+.status-held-badge {
+  color: var(--glow-green);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ── Relay admin config panel ──────────────────────────────────────────────── */
 
 .relay-panel-divider {

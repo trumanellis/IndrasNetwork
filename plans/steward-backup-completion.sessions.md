@@ -28,3 +28,22 @@
   - No new CSS; reused existing `.recovery-*`.
 - Manual two-peer UX verify for both slices still pending — needs a running app.
 - Next: Slice 4 — confirm wire protocol with user, then build in-band share delivery.
+
+## 2026-04-21 — slice 4 landed
+- Protocol confirmed with user: DM-realm piggyback, `_steward_share:{sender_uid_hex}` key, one share per sender (re-splits overwrite), status-bar badge for stewards, DM-only (home-realm reconnect carries shared-realm rejoin).
+- New module `indras-sync-engine/src/share_delivery.rs`:
+  - `ShareDelivery` CRDT doc (encrypted_share bytes, sender_user_id, created_at_millis, label) with last-writer-wins merge on timestamp.
+  - `share_delivery_doc_key(sender_uid)` → `_steward_share:{hex}`.
+  - `StewardHoldings` wrapper (BTreeMap by sender hex) persists to `<data_dir>/steward_holdings.json`.
+  - 3 unit tests covering key stability, merge ordering, on-disk roundtrip.
+- Sender side (`recovery_bridge::setup_steward_recovery`):
+  - Switched input from `Vec<(label, ek)>` to `Vec<StewardInput>` with optional `user_id_hex` — picker-sourced rows carry the peer UID; manual-paste rows stay `None`.
+  - Return type → `SetupOutcome { shares_hex, delivered_to }`. In-band delivery is best-effort (failures don't bubble up; hex fallback always surfaces).
+  - `dm_realm_map` helper walks `conversation_realms` + peer-keys docs to build UID→RealmId.
+- Receiver side (`recovery_bridge::refresh_held_backups`): probes each DM realm's non-self UIDs for the share-delivery doc; non-default hits are materialized into `StewardHoldings` and persisted.
+- `AppState.held_backups_count` seeded from disk in `AppState::new` via `recovery_bridge::load_held_backups`; refreshed whenever the Backup-plan overlay opens. Status bar shows `· Backup plan · holding N for friends` when non-zero.
+- `AvailableSteward` extended with `user_id_hex`; picker click-handler in `recovery_setup.rs` stores the UID on the `StewardRow` so the setup call can route in-band. "Try with a fake friend" clears `user_id_hex` so the fake stays manual-only.
+- Build clean for both crates. `cargo test -p indras-sync-engine --lib` → 306/306; `--test steward_recovery_e2e` → 3/3.
+- **Deferred** within Slice 4:
+  - `tests/in_band_share_delivery.rs` two-peer iroh E2E — covered pattern exists in `pq_signature_multi_peer.rs`; follow-up item.
+  - Recovery-side auto-populate from DM-realm docs — design-gated: a broken-device user can't join DM realms without identity, so stewards still need to send shares out-of-band on recovery. In-band helps the *setup* side today; Phase 2 cross-device identity unlocks recovery-side auto-pull.

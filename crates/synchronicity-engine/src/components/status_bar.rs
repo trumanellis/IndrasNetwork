@@ -41,8 +41,17 @@ pub fn StatusBar(mut state: Signal<AppState>) -> Element {
                     let cur = state.read().show_recovery_setup;
                     state.write().show_recovery_setup = !cur;
                 },
-                title: "Set up backup friends who can help you recover if you lose access",
+                title: if state.read().held_backups_count > 0 {
+                    "You're holding backup pieces for other friends — click to manage your own backup"
+                } else {
+                    "Set up backup friends who can help you recover if you lose access"
+                },
                 " · Backup plan"
+                if state.read().held_backups_count > 0 {
+                    span { class: "status-held-badge",
+                        " · holding {state.read().held_backups_count} for friends"
+                    }
+                }
             }
             span {
                 class: "status-left muted status-relay-link",

@@ -19,7 +19,7 @@ use dioxus::prelude::*;
 use indras_crypto::StoryTemplate;
 use indras_network::IndrasNetwork;
 
-use crate::recovery_bridge::{self, AvailableSteward};
+use crate::recovery_bridge::{self, AvailableSteward, StewardInput};
 use crate::state::AppState;
 
 /// Per-slot placeholder hints (mirrors `pass_story::SLOT_HINTS`).
@@ -57,6 +57,10 @@ struct StewardRow {
     /// friend". Shown inline on the card so they can copy it for later
     /// practice recovery; `None` when the friend is a real peer.
     test_decap: Option<String>,
+    /// Peer `UserId` hex when this row was added via the peer picker.
+    /// Drives in-band share delivery — empty rows fall back to the hex
+    /// copy-paste path.
+    user_id_hex: Option<String>,
 }
 
 /// Recovery Setup overlay. Opened via `state.show_recovery_setup = true`.
@@ -84,13 +88,19 @@ pub fn RecoverySetupOverlay(
     let mut shares_hex = use_signal(Vec::<String>::new);
     let mut available = use_signal(Vec::<AvailableSteward>::new);
 
-    // Populate the peer picker on open, refreshing each time the overlay
-    // becomes visible.
+    // Populate the peer picker and refresh held-backup count on open,
+    // re-running each time the overlay becomes visible.
     use_effect(move || {
         if let Some(net) = network.read().clone() {
+            let net_picker = net.clone();
             spawn(async move {
-                let list = recovery_bridge::list_available_stewards(net).await;
+                let list = recovery_bridge::list_available_stewards(net_picker).await;
                 available.set(list);
+            });
+            let net_holdings = net.clone();
+            spawn(async move {
+                let holdings = recovery_bridge::refresh_held_backups(net_holdings).await;
+                state.write().held_backups_count = holdings.count();
             });
         }
     });
@@ -201,6 +211,7 @@ pub fn RecoverySetupOverlay(
                                                 rows.write()[target].label = peer.label.clone();
                                                 rows.write()[target].ek_hex = peer.ek_hex.clone();
                                                 rows.write()[target].test_decap = None;
+                                                rows.write()[target].user_id_hex = Some(peer.user_id_hex.clone());
                                                 status.set(Some((
                                                     format!("Added {} as a backup friend.", peer.label),
                                                     false,
@@ -283,6 +294,7 @@ pub fn RecoverySetupOverlay(
                                             rows.write()[i].label = label;
                                             rows.write()[i].ek_hex = ek;
                                             rows.write()[i].test_decap = Some(dk);
+                                            rows.write()[i].user_id_hex = None;
                                             status.set(Some((
                                                 format!(
                                                     "Fake friend #{} ready. Their secret is shown on the card — copy it if you want to practice recovery later.",
@@ -384,27 +396,44 @@ pub fn RecoverySetupOverlay(
                         onclick: move |_| {
                             let story_slots = slots.read().clone();
                             let k = *threshold.read();
-                            let steward_input: Vec<(String, String)> = rows
+                            let steward_input: Vec<StewardInput> = rows
                                 .read()
                                 .iter()
-                                .map(|r| (r.label.trim().to_string(), r.ek_hex.trim().to_string()))
+                                .map(|r| StewardInput {
+                                    label: r.label.trim().to_string(),
+                                    ek_hex: r.ek_hex.trim().to_string(),
+                                    user_id_hex: r.user_id_hex.clone(),
+                                })
                                 .collect();
+                            let net = network.read().clone();
 
                             busy.set(true);
                             status.set(Some(("Making your puzzle pieces...".to_string(), false)));
                             shares_hex.set(Vec::new());
 
                             spawn(async move {
-                                match recovery_bridge::setup_steward_recovery(story_slots, steward_input, k).await {
-                                    Ok(shares) => {
-                                        status.set(Some((
+                                match recovery_bridge::setup_steward_recovery(story_slots, steward_input, k, net).await {
+                                    Ok(outcome) => {
+                                        let total = outcome.shares_hex.len();
+                                        let delivered = outcome.delivered_to.len();
+                                        let msg = if delivered == 0 {
                                             format!(
                                                 "Done. You have {} pieces — send each one to the matching friend.",
-                                                shares.len()
-                                            ),
-                                            false,
-                                        )));
-                                        shares_hex.set(shares);
+                                                total
+                                            )
+                                        } else if delivered == total {
+                                            format!(
+                                                "Done. All {} pieces were sent to your friends automatically.",
+                                                total
+                                            )
+                                        } else {
+                                            format!(
+                                                "Done. {} of {} pieces were sent automatically; the rest are below — copy each to the matching friend.",
+                                                delivered, total
+                                            )
+                                        };
+                                        status.set(Some((msg, false)));
+                                        shares_hex.set(outcome.shares_hex);
                                     }
                                     Err(e) => {
                                         status.set(Some((format!("Something went wrong: {}", e), true)));
