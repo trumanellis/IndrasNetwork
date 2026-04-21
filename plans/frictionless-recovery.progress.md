@@ -23,7 +23,7 @@
 - [x] B.2 — `DeviceCertificate` (`indras-crypto/src/device_cert.rs`) with sign / verify / revoke + domain-separated canonical message — 5/5 tests pass
 - [x] B.3 — `DeviceRoster` CRDT doc (`indras-sync-engine/src/device_roster.rs`) with per-device upsert + device_is_trusted — 4/4 tests pass
 - [x] B.4 — Account creation generates `AccountRoot`, signs first `DeviceCertificate`, publishes `DeviceRoster` in home realm, caches pending root sk for B.5 split (`account_root_cache` + `bootstrap_account_root` helper in vault_bridge) — 1 cache test passes
-- [ ] B.5 — Root splitting at steward acceptance (replaces pass-story subkey)
+- [x] B.5 — `finalize_steward_split` seals the pending root under a fresh 32-byte wrapping key, publishes `_account_root_envelope` in home realm, Shamir-splits the wrapping key across stewards, and clears the pending cache once quorum lands. Legacy story-subkey path retained as fallback. 3 envelope tests pass.
 - [ ] B.6 — Recovery assembly on new device signs fresh device cert
 - [ ] B.7 — Peer verification of new device certs against roster
 - [ ] B.8 — Pass-story deprecation; strip `story.subkey` cache

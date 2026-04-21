@@ -30,6 +30,8 @@ use indras_crypto::story_template::PassStory;
 use indras_network::IndrasNetwork;
 use indras_node::StoryKeystore;
 use indras_sync_engine::peer_key_directory::PeerKeyDirectory;
+use indras_sync_engine::account_root_cache;
+use indras_sync_engine::account_root_envelope;
 use indras_sync_engine::share_delivery::{
     share_delivery_doc_key, HeldBackup, ShareDelivery, StewardHoldings,
 };
@@ -717,10 +719,41 @@ pub async fn finalize_steward_split(
     }
 
     let data_dir = crate::state::default_data_dir();
-    let subkey = load_subkey_cache(&data_dir).ok_or_else(|| {
-        "Your backup key isn't cached on this device yet. Sign out and sign back in with your story once."
-            .to_string()
-    })?;
+
+    // Prefer the Plan-B pending AccountRoot: seal it under a fresh
+    // 32-byte wrapping key, publish the envelope to the home realm,
+    // and Shamir-split the wrapping key instead of the legacy
+    // story-derived subkey. Falls back to the subkey cache for
+    // accounts created before B.4.
+    let subkey: [u8; 32] = match account_root_cache::load_pending_root(&data_dir) {
+        Some(root) => {
+            use rand::RngCore;
+            let mut wrapping_key = [0u8; 32];
+            rand::thread_rng().fill_bytes(&mut wrapping_key);
+            let version = chrono::Utc::now().timestamp_millis() as u64;
+            let envelope = account_root_envelope::seal_account_root(&root, &wrapping_key, version)
+                .map_err(|e| format!("Seal root: {e}"))?;
+            let home = network
+                .home_realm()
+                .await
+                .map_err(|e| format!("home realm unavailable: {e}"))?;
+            let env_doc = home
+                .document::<account_root_envelope::AccountRootEnvelope>(
+                    account_root_envelope::ACCOUNT_ROOT_ENVELOPE_DOC_KEY,
+                )
+                .await
+                .map_err(|e| format!("open envelope doc: {e}"))?;
+            env_doc
+                .update(move |d| *d = envelope)
+                .await
+                .map_err(|e| format!("publish envelope: {e}"))?;
+            wrapping_key
+        }
+        None => load_subkey_cache(&data_dir).ok_or_else(|| {
+            "No backup key on this device yet. Sign in with your story once to cache it."
+                .to_string()
+        })?,
+    };
 
     // Build stewards + per-steward UIDs for routing.
     let mut stewards = Vec::with_capacity(accepted.len());
@@ -791,6 +824,13 @@ pub async fn finalize_steward_split(
         if doc.update(move |d| *d = payload).await.is_ok() {
             delivered += 1;
         }
+    }
+
+    // Once the quorum has received their share we can drop the
+    // pending root cache — stewards now collectively hold the
+    // wrapping key that unseals the envelope.
+    if delivered >= threshold_k as usize {
+        account_root_cache::clear_pending_root(&data_dir_owned);
     }
 
     Ok(delivered)
