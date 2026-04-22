@@ -183,7 +183,7 @@ fn discard_agent_fork(state: &mut Signal<AppState>, agent_name: &str) {
 }
 
 /// Land the agent's working tree snapshot into the inner braid and close the
-/// drawer. Uses the same `land_agent_snapshot_on_first` path as the `[land]`
+/// drawer. Uses the same `land_agent_snapshot` path as the `[land]`
 /// pill on the agent row.
 fn merge_agent_head(
     state: &mut Signal<AppState>,
@@ -231,7 +231,7 @@ fn merge_agent_head(
             signed_by,
         };
         if let Err(e) = vm
-            .land_agent_snapshot_on_first(&agent_id_c, &index, intent, evidence)
+            .land_agent_snapshot(None, &agent_id_c, &index, intent, evidence)
             .await
         {
             tracing::warn!(agent = %agent_id_c.as_str(), error = %e, "merge_agent_head failed");

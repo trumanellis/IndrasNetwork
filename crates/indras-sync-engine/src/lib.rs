@@ -88,6 +88,9 @@ pub mod content_addr;
 // Braided VCS submodule (rides on top of the vault)
 pub mod braid;
 
+// Project snapshot/materialize primitives
+pub mod project;
+
 // Peer key directory (PQ verifying keys for signature verification)
 pub mod peer_key_directory;
 

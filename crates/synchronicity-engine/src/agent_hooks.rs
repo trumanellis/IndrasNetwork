@@ -49,6 +49,13 @@ pub fn resolve_hook_binary() -> Option<PathBuf> {
 /// `settings.json` — the template is always regenerated from the live
 /// socket and binary paths.
 ///
+/// `agent_sandbox_root` is the absolute path the cooperative sandbox check
+/// in [`indras-agent-hook`](../indras_agent_hook/index.html) will use to
+/// reject `PreToolUse` file operations whose resolved target escapes this
+/// folder. Typically the agent's own working-tree folder, but any
+/// directory prefix is accepted (the check is a canonical-path prefix
+/// match).
+///
 /// # Hook events wired
 ///
 /// | Hook name        | `--event` value    | When Claude fires it           |
@@ -61,6 +68,7 @@ pub fn write_settings_template(
     agent_folder: &Path,
     socket_path: &Path,
     hook_binary_path: &Path,
+    agent_sandbox_root: &Path,
 ) -> std::io::Result<()> {
     let claude_dir = agent_folder.join(".claude");
     std::fs::create_dir_all(&claude_dir)?;
@@ -71,12 +79,17 @@ pub fn write_settings_template(
     // launched by Claude Code from an arbitrary cwd.
     let hook = hook_binary_path.to_string_lossy();
     let sock = socket_path.to_string_lossy();
+    let sandbox = agent_sandbox_root.to_string_lossy();
 
     let hook_command = |event: &str, tool_flag: &str| -> String {
         if tool_flag.is_empty() {
-            format!("{hook} --event {event} --agent {{agent_id}} --socket {sock}")
+            format!(
+                "{hook} --event {event} --agent {{agent_id}} --socket {sock} --sandbox-root {sandbox}"
+            )
         } else {
-            format!("{hook} --event {event} {tool_flag} --agent {{agent_id}} --socket {sock}")
+            format!(
+                "{hook} --event {event} {tool_flag} --agent {{agent_id}} --socket {sock} --sandbox-root {sandbox}"
+            )
         }
     };
 
@@ -128,8 +141,9 @@ mod tests {
 
         let socket = PathBuf::from("/tmp/sync.sock");
         let hook_bin = PathBuf::from("/usr/local/bin/indras-agent-hook");
+        let sandbox = agent_folder.clone();
 
-        write_settings_template(&agent_folder, &socket, &hook_bin)
+        write_settings_template(&agent_folder, &socket, &hook_bin, &sandbox)
             .expect("write_settings_template should succeed");
 
         let settings_path = agent_folder.join(".claude/settings.json");
@@ -146,6 +160,14 @@ mod tests {
         let pre = val["hooks"]["PreToolUse"][0]["command"].as_str().unwrap();
         assert!(pre.contains("/tmp/sync.sock"), "socket path missing from command: {pre}");
         assert!(pre.contains("indras-agent-hook"), "binary path missing from command: {pre}");
+        assert!(
+            pre.contains("--sandbox-root"),
+            "sandbox-root flag missing from command: {pre}"
+        );
+        assert!(
+            pre.contains(&*sandbox.to_string_lossy()),
+            "sandbox path missing from command: {pre}"
+        );
     }
 
     #[test]
@@ -159,6 +181,7 @@ mod tests {
             &agent_folder,
             &PathBuf::from("/tmp/sync.sock"),
             &PathBuf::from("/bin/hook"),
+            &agent_folder,
         )
         .unwrap();
 

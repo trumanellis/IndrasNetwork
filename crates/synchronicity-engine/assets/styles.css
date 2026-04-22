@@ -840,6 +840,181 @@ body > * {
   color: var(--dim);
 }
 
+/* -- Nested Project rows inside an expanded realm accordion -- */
+.project-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px 6px 32px;
+  cursor: pointer;
+  font-family: var(--body);
+  font-size: 12px;
+  color: var(--t2);
+  border-left: 3px solid transparent;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.project-row:hover {
+  background: var(--surface);
+  color: var(--tx);
+}
+.project-row.selected {
+  background: var(--surface);
+  color: var(--tx);
+  border-left-color: var(--indigo);
+}
+.project-row-bullet {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--dim);
+  flex: 0 0 14px;
+  text-align: center;
+}
+.project-row-name {
+  flex: 1 1 auto;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agent-pip {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  background: rgba(122, 109, 222, 0.18);
+  color: var(--t1);
+  border: 1px solid rgba(122, 109, 222, 0.45);
+  margin-left: 2px;
+}
+.project-row--add {
+  color: var(--dim);
+  font-style: italic;
+}
+.project-row--add:hover {
+  color: var(--t1);
+}
+
+/* -- Projects section — primary content panel inside each vault column -- */
+.projects-section {
+  border-bottom: 1px solid var(--bd2);
+  padding: 8px 12px 6px;
+}
+
+.projects-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.projects-section-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--t3);
+  flex: 1 1 auto;
+}
+
+.projects-section-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid rgba(129, 140, 248, 0.3);
+  background: rgba(129, 140, 248, 0.06);
+  color: var(--indigo);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border-radius: 100px;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: background 120ms ease;
+  line-height: 1.4;
+}
+.projects-section-add-btn:hover {
+  background: rgba(129, 140, 248, 0.12);
+}
+
+/* AgentRoster nested under selected project — slight indent to show hierarchy */
+.projects-section-agents {
+  margin-left: 8px;
+  border-left: 2px solid var(--bd2);
+  padding-left: 4px;
+}
+.projects-section-agents .agent-roster {
+  border-bottom: none;
+  padding: 4px 8px 4px;
+}
+.projects-section-agents .agent-roster-label {
+  font-size: 9px;
+  color: var(--dim);
+}
+
+/* Project accordion children — indented block beneath a selected project row */
+.project-children {
+  margin-left: 10px;
+  border-left: 2px solid var(--bd2);
+  padding-left: 4px;
+  margin-bottom: 4px;
+}
+.project-children .agent-roster {
+  border-bottom: none;
+  padding: 4px 8px 4px;
+}
+.project-children .agent-roster-label {
+  font-size: 9px;
+  color: var(--dim);
+}
+
+/* FILES sub-section header inside project-children */
+.project-children-section {
+  padding: 2px 0 0;
+}
+.project-children-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 8px 2px 6px;
+}
+.project-children-section-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  color: var(--dim);
+  text-transform: uppercase;
+}
+.project-children-add-btn {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--dim);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.project-children-add-btn:hover {
+  background: rgba(129, 140, 248, 0.12);
+  color: var(--t1);
+}
+.project-children-empty {
+  font-size: 10px;
+  color: var(--dim);
+  padding: 2px 8px 4px;
+  font-style: italic;
+}
+
 /* Connection avatar — small clickable dot inside the realm row */
 .realm-entry-avatar {
   width: 22px;

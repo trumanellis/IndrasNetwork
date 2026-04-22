@@ -18,6 +18,7 @@ mod status_bar;
 mod peer_bar;
 mod contact_invite;
 mod create_realm;
+mod create_project;
 mod relay_settings;
 mod profile_modal;
 mod peer_profile_popup;

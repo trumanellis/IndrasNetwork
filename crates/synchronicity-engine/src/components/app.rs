@@ -107,6 +107,11 @@ pub fn App() -> Element {
                                 // it appears in vm.realms() and can be the
                                 // commit target for team operations.
                                 if let Some(net_ref) = network.read().as_ref() {
+                                    // Cache the network handle so the vault
+                                    // manager can open the per-realm
+                                    // `Document<ProjectRegistry>` from any
+                                    // call site.
+                                    vm.set_network(Arc::clone(net_ref)).await;
                                     match net_ref.home_realm().await {
                                         Ok(home) => {
                                             let home_id = home.id();
@@ -124,6 +129,12 @@ pub fn App() -> Element {
                                                         "failed to register home vault with VaultManager"
                                                     );
                                                 }
+                                                // Open the home realm's
+                                                // `_projects` document so
+                                                // cached projects load at
+                                                // startup and multi-device
+                                                // sync takes effect.
+                                                vm.subscribe_to_registry(&[0u8; 32]).await;
                                             }
                                         }
                                         Err(e) => tracing::error!(

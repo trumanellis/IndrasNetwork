@@ -4,8 +4,10 @@
 //! # Architecture
 //!
 //! `AgentRoster` is mounted once per vault column (private + each realm) with
-//! a `vault_realm` prop that scopes which agents it shows. Agents are filtered
-//! from `workspace_handles` by the folder being inside the vault's path.
+//! a `project_id` prop that directly identifies the Project whose agents are
+//! shown. Agents are filtered from `workspace_handles` by the folder being
+//! inside the project's path. The mount site is responsible for resolving
+//! `default_project` before passing the id down.
 //!
 //! # Row states
 //!
@@ -67,15 +69,21 @@ const IDENTITY_COLORS: &[&str] = MEMBER_IDENTITY_CLASSES;
 
 /// Agent Roster component — always rendered, even when empty.
 ///
-/// Scoped to `vault_realm`: only agents whose folder lives inside the vault
-/// path for that realm are shown.
+/// Scoped to `project_id`: only agents whose folder lives inside the project
+/// path for that id are shown. Pass `[0u8; 32]` for the private vault (no
+/// Project concept — agents live directly under the home vault path).
+/// The mount site is responsible for resolving `default_project` and passing
+/// the resulting id here; `AgentRoster` treats `project_id` as opaque.
 #[component]
 pub fn AgentRoster(
     mut state: Signal<AppState>,
     workspace_handles: Signal<Vec<WorkspaceHandle>>,
     vault_manager: Signal<Option<Arc<VaultManager>>>,
-    /// The realm this roster is scoped to (zero bytes = private vault).
-    vault_realm: RealmId,
+    /// Project id this roster is scoped to.  `[0u8; 32]` = private vault.
+    project_id: RealmId,
+    /// Parent realm that owns the project (ignored when `project_id` is the
+    /// private sentinel so the private column can omit it via `[0u8; 32]`).
+    parent_realm: RealmId,
 ) -> Element {
     // ── Local UI state ──────────────────────────────────────────────────────
     let mut show_create = use_signal(|| false);
@@ -90,28 +98,41 @@ pub fn AgentRoster(
     let mut tasking_agent: Signal<Option<LogicalAgentId>> = use_signal(|| None);
     let mut task_prompt = use_signal(String::new);
 
-    // ── Resolve vault path for this roster's realm ──────────────────────────
-    // The private column passes the zero-bytes sentinel; the home vault is
-    // registered under its real realm id, so `vault_path(&[0;32])` would
-    // return None. Use the path stashed on AppState in that case.
-    let vault_path: Option<std::path::PathBuf> = if vault_realm == [0u8; 32] {
+    // ── Resolve vault path for the private-vault sentinel ───────────────────
+    // The private column passes [0u8;32] as project_id; agents live directly
+    // under the home vault path (no Project sub-directory). For realm-backed
+    // columns the vault path is only needed as a fallback for submit_create.
+    let vault_path: Option<std::path::PathBuf> = if project_id == [0u8; 32] {
         let vp = state.read().vault_path.clone();
         if vp.as_os_str().is_empty() { None } else { Some(vp) }
     } else {
         let vm = vault_manager.read().clone();
-        vm.and_then(|v| v.vault_path(&vault_realm))
+        vm.and_then(|v| v.vault_path(&parent_realm))
     };
 
-    // ── Filter handles to this vault ────────────────────────────────────────
-    // Agents are shown only when their folder is inside this roster's vault
-    // path. If we couldn't resolve a path (realm not vault-backed yet), show
+    // ── Resolve the roster's filter root ────────────────────────────────────
+    // Private vault (sentinel) keeps the home vault path — no Project layer.
+    // Every other column received an explicit project_id from the mount site,
+    // so just resolve project_path directly. Fall back to vault_path if the
+    // path isn't available yet (rare: vault not yet attached).
+    let filter_root: Option<std::path::PathBuf> = if project_id == [0u8; 32] {
+        vault_path.clone()
+    } else {
+        let vm = vault_manager.read().clone();
+        vm.and_then(|v| v.project_path(&parent_realm, &project_id))
+            .or_else(|| vault_path.clone())
+    };
+
+    // ── Filter handles to this roster ───────────────────────────────────────
+    // Agents are shown only when their folder is inside this roster's filter
+    // root. If we couldn't resolve a path (realm not vault-backed yet), show
     // no agents — never fall through to "show all", which would replicate
     // every agent across every column.
-    let handles: Vec<LogicalAgentId> = match &vault_path {
-        Some(vp) => workspace_handles
+    let handles: Vec<LogicalAgentId> = match &filter_root {
+        Some(root) => workspace_handles
             .read()
             .iter()
-            .filter(|h| h.index.root().starts_with(vp))
+            .filter(|h| h.index.root().starts_with(root))
             .map(|h| h.agent.clone())
             .collect(),
         None => Vec::new(),
@@ -159,6 +180,9 @@ pub fn AgentRoster(
                                     submit_create(
                                         &mut state,
                                         &mut workspace_handles,
+                                        &vault_manager,
+                                        project_id,
+                                        parent_realm,
                                         &vault_path_kd,
                                         &socket_path_kd,
                                         &hook_binary_kd,
@@ -200,6 +224,9 @@ pub fn AgentRoster(
                                 submit_create(
                                     &mut state,
                                     &mut workspace_handles,
+                                    &vault_manager,
+                                    project_id,
+                                    parent_realm,
                                     &vault_path_btn,
                                     &socket_path_btn,
                                     &hook_binary_btn,
@@ -215,11 +242,6 @@ pub fn AgentRoster(
                         div { class: "agent-roster-error", "{err}" }
                     }
                 }
-            }
-
-            // ── Empty state ──────────────────────────────────────────────────
-            if handles.is_empty() {
-                div { class: "agent-roster-empty", "·  no agents yet" }
             }
 
             // ── Agent rows ───────────────────────────────────────────────────
@@ -246,7 +268,7 @@ pub fn AgentRoster(
                         .iter()
                         .find(|f| {
                             LogicalAgentId::new(&f.name) == agent_id
-                                && f.realm_id == vault_realm
+                                && f.realm_id == parent_realm
                         })
                         .cloned();
                     let uncommitted = fork.as_ref().map(|f| f.change_count).unwrap_or(0);
@@ -450,12 +472,6 @@ pub fn AgentRoster(
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-/// Strip the `agent-` prefix for display. Returns the name unchanged if it
-/// doesn't start with the prefix.
-fn strip_agent_prefix(name: &str) -> &str {
-    name.strip_prefix("agent-").unwrap_or(name)
-}
-
 /// Resolve the on-disk folder for an agent by scanning workspace_handles.
 fn resolve_agent_folder(
     workspace_handles: &Signal<Vec<WorkspaceHandle>>,
@@ -492,14 +508,26 @@ fn validate_and_prefix(short_name: &str) -> Result<String, String> {
     Ok(format!("agent-{name}"))
 }
 
-/// Synchronously submit the creation form.
+/// Submit the agent-creation form.
 ///
-/// Prepends `agent-` to the name, creates the folder inside the vault path
-/// (or data-dir if no vault), calls [`crate::team::runtime_bind`] via a
-/// `spawn`, and writes the hook settings template on success.
+/// For the **private home vault** (`project_id == [0u8; 32]`) the agent
+/// folder is `{vault_path}/agent-{name}/` — unchanged from Phase 1, because
+/// the home vault has no Project concept. For every other column the folder is
+/// `{project_path}/agents/agent-{name}/` where `project_path` is resolved
+/// directly from the `project_id` the caller already resolved before mounting
+/// `AgentRoster`. The sandbox root baked into `.claude/settings.json` matches
+/// that agent folder.
+///
+/// Validation and the resulting `LogicalAgentId` run synchronously so the
+/// form can error immediately; folder creation and `runtime_bind` happen inside
+/// a spawned async task.
+#[allow(clippy::too_many_arguments)]
 fn submit_create(
     state: &mut Signal<AppState>,
     workspace_handles: &mut Signal<Vec<WorkspaceHandle>>,
+    vault_manager: &Signal<Option<Arc<VaultManager>>>,
+    project_id: RealmId,
+    parent_realm: RealmId,
     vault_path: &Option<std::path::PathBuf>,
     socket_path: &std::path::Path,
     hook_binary: &std::path::Path,
@@ -515,51 +543,75 @@ fn submit_create(
         }
     };
 
-    // Agent folder lives inside the vault path (or data-dir fallback)
-    let base = vault_path
-        .clone()
-        .unwrap_or_else(|| crate::state::default_data_dir().join("vaults").join("home"));
-    let agent_folder = base.join(&full_name);
-
-    // Create the directory now (synchronous, small FS op)
-    if let Err(e) = std::fs::create_dir_all(&agent_folder) {
-        create_error.set(Some(format!("Failed to create folder: {e}")));
-        return;
-    }
-
-    // Write hook settings template (non-fatal if missing binary)
-    if let Err(e) = crate::agent_hooks::write_settings_template(
-        &agent_folder,
-        socket_path,
-        hook_binary,
-    ) {
-        tracing::warn!(error = %e, "write_settings_template failed (non-fatal)");
-    }
-
-    // Bind asynchronously; update workspace_handles on success
     let agent_id = LogicalAgentId::new(&full_name);
-    let folder_clone = agent_folder.clone();
+    let vm_opt = vault_manager.read().clone();
+    let vault_path_opt = vault_path.clone();
+    let socket_path = socket_path.to_path_buf();
+    let hook_binary = hook_binary.to_path_buf();
+    let full_name_spawn = full_name.clone();
     let mut handles_w = workspace_handles.clone();
     let mut err_sig = create_error.clone();
-
-    // Get blob_store from vault_manager (not available here directly) —
-    // use the data-dir shared blob store path as fallback.
-    // Since VaultManager is not passed directly, we spawn with a fresh
-    // BlobStore matching the same shared-blobs path as VaultManager::new uses.
     let data_dir = crate::state::default_data_dir();
+
     spawn(async move {
-        let blob_cfg = indras_storage::BlobStoreConfig {
-            base_dir: data_dir.join("shared-blobs"),
-            ..Default::default()
-        };
-        let blob_store = match indras_storage::BlobStore::new(blob_cfg).await {
-            Ok(b) => Arc::new(b),
-            Err(e) => {
-                err_sig.set(Some(format!("blob store error: {e}")));
+        // Resolve the agent folder. Private vault (zero-byte project_id)
+        // keeps the Phase-1 layout so the home column doesn't require a
+        // Project. Every other column uses the project_id directly — no
+        // further async resolution needed.
+        let agent_folder = if project_id == [0u8; 32] {
+            let base = vault_path_opt
+                .clone()
+                .unwrap_or_else(|| data_dir.join("vaults").join("home"));
+            base.join(&full_name_spawn)
+        } else {
+            let Some(vm) = vm_opt.as_ref() else {
+                err_sig.set(Some("vault manager not ready".into()));
                 return;
+            };
+            let Some(project_root) = vm.project_path(&parent_realm, &project_id) else {
+                err_sig.set(Some("project path not resolvable".into()));
+                return;
+            };
+            project_root.join("agents").join(&full_name_spawn)
+        };
+
+        // Create the directory now; this also ensures `agents/` exists.
+        if let Err(e) = tokio::fs::create_dir_all(&agent_folder).await {
+            err_sig.set(Some(format!("Failed to create folder: {e}")));
+            return;
+        }
+
+        // Write hook settings template (non-fatal if missing binary).
+        // The sandbox root *is* the agent folder — each agent is gated to
+        // its own subtree, not the whole Project.
+        if let Err(e) = crate::agent_hooks::write_settings_template(
+            &agent_folder,
+            &socket_path,
+            &hook_binary,
+            &agent_folder,
+        ) {
+            tracing::warn!(error = %e, "write_settings_template failed (non-fatal)");
+        }
+
+        // Bind the workspace. Prefer the shared VaultManager blob store so
+        // we don't open a second handle to `shared-blobs/`.
+        let blob_store = if let Some(vm) = vm_opt.as_ref() {
+            vm.blob_store()
+        } else {
+            let blob_cfg = indras_storage::BlobStoreConfig {
+                base_dir: data_dir.join("shared-blobs"),
+                ..Default::default()
+            };
+            match indras_storage::BlobStore::new(blob_cfg).await {
+                Ok(b) => Arc::new(b),
+                Err(e) => {
+                    err_sig.set(Some(format!("blob store error: {e}")));
+                    return;
+                }
             }
         };
-        match crate::team::runtime_bind(agent_id, folder_clone, blob_store).await {
+
+        match crate::team::runtime_bind(agent_id, agent_folder, blob_store).await {
             Ok(handle) => {
                 handles_w.write().push(handle);
             }
@@ -588,7 +640,7 @@ fn land_agent(
     let vm_opt = vault_manager.read().clone();
     let handle_root = resolve_agent_folder(workspace_handles, agent_id);
     let agent_id = agent_id.clone();
-    let mut state_w = state.clone();
+    let state_w = state.clone();
     let handles = workspace_handles.read().iter()
         .find(|h| h.agent == agent_id)
         .map(|h| (h.agent.clone(), Arc::clone(&h.index)))
@@ -615,7 +667,7 @@ fn land_agent(
             signed_by,
         };
         if let Err(e) = vm
-            .land_agent_snapshot_on_first(&agent_id, &index, intent, evidence)
+            .land_agent_snapshot(None, &agent_id, &index, intent, evidence)
             .await
         {
             tracing::warn!(error = %e, "land_agent failed");

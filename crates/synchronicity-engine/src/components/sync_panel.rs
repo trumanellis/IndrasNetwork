@@ -3,7 +3,7 @@
 //! Each row shows one bound agent's working-tree (`SyncStageView`),
 //! an intent input, and a Commit button that snapshots the agent's
 //! [`LocalWorkspaceIndex`] and lands it on the first vault's inner
-//! braid via [`VaultManager::land_agent_snapshot_on_first`]. Commits
+//! braid via [`VaultManager::land_agent_snapshot`]. Commits
 //! carry a placeholder `Evidence::Agent` payload for now — once there's
 //! a UI affordance to report build/test outcomes, the evidence fields
 //! can be wired through. Materialization + broadcast happen on
@@ -216,9 +216,9 @@ fn CommitStatusLine(status: CommitStatus) -> Element {
 /// 1. locate the bound agent's live index and the full agent roster in
 ///    `workspace_handles`,
 /// 2. build `Evidence::Agent` signed by the device's PQ identity,
-/// 3. call `VaultManager::land_agent_snapshot_on_first`, which lifts
-///    the live index into a `SymlinkIndex` and lands it on the first
-///    vault's inner (local-only) braid via `Vault::agent_land`,
+/// 3. call `VaultManager::land_agent_snapshot` (with `realm_id = None`),
+///    which lifts the live index into a `SymlinkIndex` and lands it on
+///    the first vault's inner (local-only) braid via `Vault::agent_land`,
 /// 4. call `VaultManager::sync_all_on_first` to merge any other
 ///    diverged agent forks, promote the inner HEAD to the outer DAG,
 ///    auto-merge trusted peers, and materialize the resulting outer
@@ -275,6 +275,13 @@ fn commit_for_agent(
     intents.write().remove(&agent);
 
     spawn(async move {
+        // Pre-stage: snapshot every registered Project folder so that any
+        // on-disk edits are captured as new manifest blobs before the
+        // agent's working-tree commit lands on the braid.
+        if let Err(e) = vm.snapshot_all_projects().await {
+            tracing::warn!(error = %e, "snapshot_all_projects before commit failed");
+        }
+
         let pq = net.node().pq_identity();
         let user_id = pq.user_id();
         let evidence = Evidence::Agent {
@@ -285,7 +292,7 @@ fn commit_for_agent(
             signed_by: derive_agent_id(&user_id, agent.as_str()),
         };
         let landed = vm
-            .land_agent_snapshot_on_first(&agent, &index, intent.clone(), evidence)
+            .land_agent_snapshot(None, &agent, &index, intent.clone(), evidence)
             .await;
         let change_id = match landed {
             Ok(id) => id,

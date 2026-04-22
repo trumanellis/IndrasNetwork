@@ -13,9 +13,25 @@ use crate::state::{AgentRuntimeStatus, AppState, PeerDisplayInfo, MEMBER_IDENTIT
 use crate::vault_bridge::scan_vault;
 use crate::vault_manager::VaultManager;
 
-/// Rescan the private vault and update state only if files changed.
-fn rescan_private(state: &mut Signal<AppState>, vault_path: &std::path::Path) {
-    let files = scan_vault(vault_path);
+/// Rescan the private vault (or selected project folder) and update state only if files changed.
+///
+/// When `vault_manager` is provided and a project is selected, scans the project's
+/// subfolder instead of the realm root, so the file list reflects project-scoped files.
+fn rescan_private(
+    state: &mut Signal<AppState>,
+    vault_path: &std::path::Path,
+    vault_manager: Option<&Arc<VaultManager>>,
+) {
+    const PRIVATE_REALM: [u8; 32] = [0u8; 32];
+    let scan_path: std::path::PathBuf = state
+        .read()
+        .selection
+        .selected_project
+        .and_then(|pid| {
+            vault_manager?.project_path(&PRIVATE_REALM, &pid)
+        })
+        .unwrap_or_else(|| vault_path.to_path_buf());
+    let files = scan_vault(&scan_path);
 
     let current_names: Vec<String> = state.read().private_files.iter().map(|f| f.name.clone()).collect();
     let new_names: Vec<&str> = files.iter().map(|f| f.name.as_str()).collect();
@@ -77,33 +93,75 @@ pub fn HomeVault(
     // Initial scan + filesystem watcher for private vault
     use_effect(move || {
         let vault_path = state.read().vault_path.clone();
+        let vm_snap = vault_manager.read().clone();
 
-        rescan_private(&mut state, &vault_path);
+        rescan_private(&mut state, &vault_path, vm_snap.as_ref());
 
-        let watch_path = vault_path.clone();
         spawn(async move {
             use notify::{Watcher, RecursiveMode, Config};
 
-            let changed = Arc::new(AtomicBool::new(false));
-            let changed_writer = changed.clone();
+            // Helper: compute the directory we should watch/scan right now.
+            // Follows selected_project when one is active.
+            let current_watch_path = |state: &Signal<AppState>,
+                                      vm: Option<&Arc<VaultManager>>,
+                                      vault_path: &std::path::Path|
+             -> std::path::PathBuf {
+                const PRIVATE_REALM: [u8; 32] = [0u8; 32];
+                state
+                    .read()
+                    .selection
+                    .selected_project
+                    .and_then(|pid| vm?.project_path(&PRIVATE_REALM, &pid))
+                    .unwrap_or_else(|| vault_path.to_path_buf())
+            };
 
-            let _watcher = notify::RecommendedWatcher::new(
+            let changed = Arc::new(AtomicBool::new(false));
+            let mut watched_path = {
+                let vm_snap = vault_manager.read().clone();
+                current_watch_path(&state, vm_snap.as_ref(), &vault_path)
+            };
+
+            // Build the initial watcher.
+            let changed_writer = changed.clone();
+            let mut _watcher = notify::RecommendedWatcher::new(
                 move |_res: Result<notify::Event, notify::Error>| {
                     changed_writer.store(true, Ordering::Relaxed);
                 },
                 Config::default(),
             ).ok().and_then(|mut w| {
-                w.watch(&watch_path, RecursiveMode::NonRecursive).ok()?;
-                tracing::info!("Watching vault: {}", watch_path.display());
+                w.watch(&watched_path, RecursiveMode::NonRecursive).ok()?;
+                tracing::info!("Watching vault: {}", watched_path.display());
                 Some(w)
             });
 
             loop {
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+                // Re-target watcher when selected project changes.
+                let vm_snap = vault_manager.read().clone();
+                let target = current_watch_path(&state, vm_snap.as_ref(), &vault_path);
+                if target != watched_path {
+                    watched_path = target.clone();
+                    let changed_writer2 = changed.clone();
+                    _watcher = notify::RecommendedWatcher::new(
+                        move |_res: Result<notify::Event, notify::Error>| {
+                            changed_writer2.store(true, Ordering::Relaxed);
+                        },
+                        Config::default(),
+                    ).ok().and_then(|mut w| {
+                        w.watch(&watched_path, RecursiveMode::NonRecursive).ok()?;
+                        tracing::info!("Rewatching vault: {}", watched_path.display());
+                        Some(w)
+                    });
+                    // Immediately rescan after switching directories.
+                    rescan_private(&mut state, &target, vm_snap.as_ref());
+                }
+
                 if changed.swap(false, Ordering::Relaxed) {
                     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                     changed.store(false, Ordering::Relaxed);
-                    rescan_private(&mut state, &vault_path);
+                    let vm_snap = vault_manager.read().clone();
+                    rescan_private(&mut state, &target, vm_snap.as_ref());
                 }
             }
         });
@@ -612,6 +670,25 @@ pub fn HomeVault(
                 kind: super::create_realm::CreateRealmKind::World,
                 peers: Vec::new(),
                 is_open: create_public_open,
+            }
+            // Create project overlay — open when `show_create_project_for` is
+            // Some(parent_realm). On close: dismiss the overlay; if a project
+            // was created, expand the parent realm and auto-select the new
+            // project so the roster remounts against it.
+            if let Some(parent_for_overlay) = state.read().show_create_project_for {
+                super::create_project::CreateProjectOverlay {
+                    vault_manager: vault_manager,
+                    parent_realm: parent_for_overlay,
+                    on_close: move |new_id: Option<[u8; 32]>| {
+                        let mut w = state.write();
+                        w.show_create_project_for = None;
+                        if let Some(pid) = new_id {
+                            w.selection.expanded_realms.insert(parent_for_overlay);
+                            w.selection.selected_realm = Some(parent_for_overlay);
+                            w.selection.selected_project = Some(pid);
+                        }
+                    },
+                }
             }
             // Relay settings overlay
             super::relay_settings::RelaySettingsOverlay { state, network }

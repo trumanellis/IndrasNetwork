@@ -94,6 +94,16 @@ pub enum RealmCategory {
     Group,
     /// World/discoverable realm.
     World,
+    /// A Project realm nested inside a parent Realm.
+    ///
+    /// Projects live under a parent realm's vault directory and have their
+    /// own working-tree materialized from a `PatchManifest`. For Phase 2A
+    /// they render the same as a [`RealmCategory::Group`] in the column UI —
+    /// dedicated project columns/nesting are deferred to a later phase.
+    Project {
+        /// The parent realm that owns this project.
+        parent: RealmId,
+    },
 }
 
 /// A 32-byte realm identifier.
@@ -184,6 +194,10 @@ pub struct VaultSelection {
     pub expanded_realms: HashSet<RealmId>,
     /// The currently selected realm (None = private vault).
     pub selected_realm: Option<RealmId>,
+    /// The currently selected Project realm id (None = resolve via
+    /// `default_project` for the selected realm). Drives which Project the
+    /// Agent Roster is scoped to.
+    pub selected_project: Option<RealmId>,
     /// The currently selected file path within the selected realm.
     pub selected_file: Option<String>,
     /// Which column currently has keyboard focus (0=Private, 1=DM, 2=Group, 3=World).
@@ -199,6 +213,7 @@ impl Default for VaultSelection {
         Self {
             expanded_realms: HashSet::new(),
             selected_realm: None,
+            selected_project: None,
             selected_file: None,
             focused_column: 0,
             sort_field: SortField::Date,
@@ -497,6 +512,9 @@ pub struct AppState {
     pub show_create_group: bool,
     /// Whether the create public vault overlay is open.
     pub show_create_public: bool,
+    /// If `Some(parent_realm_id)`, the create-project overlay is open for the
+    /// given parent realm. `None` = overlay closed.
+    pub show_create_project_for: Option<RealmId>,
     /// Active drag-to-share payload (None when not dragging).
     pub drag_payload: Option<DragPayload>,
     /// Realm ID currently being hovered as a drop target (for CSS highlighting).
@@ -590,6 +608,7 @@ impl AppState {
             show_contact_invite: false,
             show_create_group: false,
             show_create_public: false,
+            show_create_project_for: None,
             drag_payload: None,
             drop_target_realm: None,
             show_relay_settings: false,

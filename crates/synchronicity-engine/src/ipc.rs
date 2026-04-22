@@ -328,7 +328,8 @@ async fn process_request(
     };
 
     let change_id = match vault_manager
-        .land_agent_snapshot_on_first(
+        .land_agent_snapshot(
+            None,
             &binding.agent,
             &binding.index,
             req.intent.clone(),
