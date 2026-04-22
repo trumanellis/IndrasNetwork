@@ -1341,3 +1341,232 @@ fn recovery_protocol_key_request(uid: &[u8; 32]) -> String {
 fn recovery_protocol_key_release(uid: &[u8; 32]) -> String {
     indras_sync_engine::recovery_protocol::share_release_doc_key(uid)
 }
+
+// ──────────────────────────────────────────────────────────────────
+// Backup-Peer role management (Plan C user-facing)
+// ──────────────────────────────────────────────────────────────────
+
+/// Sender-side view of one peer's Backup-Peer assignment.
+#[derive(Debug, Clone)]
+pub struct OutgoingBackupPeer {
+    pub peer_user_id_hex: String,
+    pub peer_label: String,
+    /// `true` when the sender has a currently-active assignment.
+    pub active: bool,
+    /// Wall-clock millis of the latest assignment.
+    pub assigned_at_millis: i64,
+}
+
+/// Steward-side view of an incoming Backup-Peer role assignment.
+#[derive(Debug, Clone)]
+pub struct IncomingBackupRole {
+    pub from_user_id_hex: String,
+    pub from_display_name: String,
+    pub responsibility_text: String,
+    pub assigned_at_millis: i64,
+    pub retired: bool,
+}
+
+/// Assign a DM peer as a Backup Peer — the account's file-shard
+/// pipeline (Plan C C.4) will publish encrypted pieces into this
+/// peer's DM realm.
+pub async fn invite_backup_peer(
+    network: Arc<IndrasNetwork>,
+    peer_user_id_hex: &str,
+) -> Result<(), String> {
+    use indras_sync_engine::backup_peers::{
+        backup_role_doc_key, BackupPeerAssignment, DEFAULT_BACKUP_RESPONSIBILITY,
+    };
+
+    let peer_uid = decode_user_id(peer_user_id_hex)
+        .ok_or_else(|| "Invalid peer id".to_string())?;
+    let realm_id = dm_realm_for_uid(&network, &peer_uid)
+        .await
+        .ok_or_else(|| "That friend isn't a direct-message peer yet.".to_string())?;
+    let realm = network
+        .get_realm_by_id(&realm_id)
+        .ok_or_else(|| "Couldn't open the direct-message realm.".to_string())?;
+    let my_uid = network.node().pq_identity().user_id();
+    let my_name = network.display_name().unwrap_or_default();
+    let key = backup_role_doc_key(&my_uid);
+    let doc = realm
+        .document::<BackupPeerAssignment>(&key)
+        .await
+        .map_err(|e| format!("Open backup-role doc: {e}"))?;
+
+    let payload = BackupPeerAssignment {
+        requester_user_id: my_uid,
+        requester_display_name: my_name,
+        responsibility_text: DEFAULT_BACKUP_RESPONSIBILITY.to_string(),
+        shard_capacity_estimate: 0,
+        assigned_at_millis: chrono::Utc::now().timestamp_millis(),
+        retired: false,
+    };
+    doc.update(move |d| *d = payload)
+        .await
+        .map_err(|e| format!("Publish backup role: {e}"))?;
+    Ok(())
+}
+
+/// Mark a Backup Peer assignment as retired; the peer's UI should
+/// stop surfacing the role and the sender's save hook should skip
+/// them on future shards.
+pub async fn retire_backup_peer(
+    network: Arc<IndrasNetwork>,
+    peer_user_id_hex: &str,
+) -> Result<(), String> {
+    use indras_sync_engine::backup_peers::{backup_role_doc_key, BackupPeerAssignment};
+
+    let peer_uid = decode_user_id(peer_user_id_hex)
+        .ok_or_else(|| "Invalid peer id".to_string())?;
+    let realm_id = dm_realm_for_uid(&network, &peer_uid)
+        .await
+        .ok_or_else(|| "That friend isn't a direct-message peer.".to_string())?;
+    let realm = network
+        .get_realm_by_id(&realm_id)
+        .ok_or_else(|| "Couldn't open the direct-message realm.".to_string())?;
+    let my_uid = network.node().pq_identity().user_id();
+    let my_name = network.display_name().unwrap_or_default();
+    let key = backup_role_doc_key(&my_uid);
+    let doc = realm
+        .document::<BackupPeerAssignment>(&key)
+        .await
+        .map_err(|e| format!("Open backup-role doc: {e}"))?;
+
+    let payload = BackupPeerAssignment {
+        requester_user_id: my_uid,
+        requester_display_name: my_name,
+        responsibility_text: String::new(),
+        shard_capacity_estimate: 0,
+        assigned_at_millis: chrono::Utc::now().timestamp_millis(),
+        retired: true,
+    };
+    doc.update(move |d| *d = payload)
+        .await
+        .map_err(|e| format!("Retire backup role: {e}"))?;
+    Ok(())
+}
+
+/// Enumerate every DM peer and the current state of their
+/// Backup-Peer assignment (if any). Drives the Backup-plan
+/// overlay's "People who hold copies of your files" list.
+pub async fn list_outgoing_backup_peers(
+    network: Arc<IndrasNetwork>,
+) -> Vec<OutgoingBackupPeer> {
+    use indras_sync_engine::backup_peers::{backup_role_doc_key, BackupPeerAssignment};
+
+    let my_uid = network.node().pq_identity().user_id();
+    let key = backup_role_doc_key(&my_uid);
+
+    let mut out = Vec::new();
+    for realm_id in network.conversation_realms() {
+        if network.dm_peer_for_realm(&realm_id).is_none() {
+            continue;
+        }
+        let Some(realm) = network.get_realm_by_id(&realm_id) else {
+            continue;
+        };
+
+        // Resolve peer label via profile mirror.
+        let peer_name = match network.dm_peer_for_realm(&realm_id) {
+            Some(mid) => {
+                let realm_bytes = *realm_id.as_bytes();
+                crate::profile_bridge::load_peer_profile_from_dm(&network, mid, realm_bytes)
+                    .await
+                    .and_then(|p| {
+                        let t = p.display_name.trim();
+                        if t.is_empty() { None } else { Some(t.to_string()) }
+                    })
+            }
+            None => None,
+        };
+
+        let Ok(key_dir) = realm.document::<PeerKeyDirectory>("peer-keys").await else {
+            continue;
+        };
+        let peer_uids: Vec<[u8; 32]> = {
+            let data = key_dir.read().await;
+            data.peers_with_kem()
+                .into_iter()
+                .map(|(uid, _)| uid)
+                .filter(|uid| *uid != my_uid)
+                .collect()
+        };
+        if peer_uids.is_empty() {
+            continue;
+        }
+
+        let snapshot = match realm.document::<BackupPeerAssignment>(&key).await {
+            Ok(d) => Some(d.read().await.clone()),
+            Err(_) => None,
+        };
+        let (active, assigned_at_millis) = match snapshot {
+            Some(s) if s.assigned_at_millis > 0 => (!s.retired, s.assigned_at_millis),
+            _ => (false, 0),
+        };
+
+        for uid in peer_uids {
+            let uid_hex = hex::encode(uid);
+            let label = peer_name
+                .clone()
+                .unwrap_or_else(|| format!("Peer {}", &uid_hex[..8]));
+            out.push(OutgoingBackupPeer {
+                peer_user_id_hex: uid_hex,
+                peer_label: label,
+                active,
+                assigned_at_millis,
+            });
+        }
+    }
+    out
+}
+
+/// Walk every DM realm and collect Backup-Peer assignments we've
+/// received from our peers. Informational for the steward inbox.
+pub async fn list_incoming_backup_roles(
+    network: Arc<IndrasNetwork>,
+) -> Vec<IncomingBackupRole> {
+    use indras_sync_engine::backup_peers::{backup_role_doc_key, BackupPeerAssignment};
+
+    let my_uid = network.node().pq_identity().user_id();
+    let mut out = Vec::new();
+
+    for realm_id in network.conversation_realms() {
+        if network.dm_peer_for_realm(&realm_id).is_none() {
+            continue;
+        }
+        let Some(realm) = network.get_realm_by_id(&realm_id) else {
+            continue;
+        };
+        let Ok(key_dir) = realm.document::<PeerKeyDirectory>("peer-keys").await else {
+            continue;
+        };
+        let peer_uids: Vec<[u8; 32]> = {
+            let data = key_dir.read().await;
+            data.peers_with_kem()
+                .into_iter()
+                .map(|(uid, _)| uid)
+                .filter(|uid| *uid != my_uid)
+                .collect()
+        };
+
+        for peer_uid in peer_uids {
+            let key = backup_role_doc_key(&peer_uid);
+            let Ok(doc) = realm.document::<BackupPeerAssignment>(&key).await else {
+                continue;
+            };
+            let snap = doc.read().await.clone();
+            if snap.assigned_at_millis == 0 {
+                continue;
+            }
+            out.push(IncomingBackupRole {
+                from_user_id_hex: hex::encode(peer_uid),
+                from_display_name: snap.requester_display_name,
+                responsibility_text: snap.responsibility_text,
+                assigned_at_millis: snap.assigned_at_millis,
+                retired: snap.retired,
+            });
+        }
+    }
+    out
+}
