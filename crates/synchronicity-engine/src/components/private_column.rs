@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use dioxus::prelude::*;
 
-use crate::state::{AppState, ContextMenu, DragPayload, ModalFile, RealmId};
+use crate::state::{agent_class_for, AppState, ContextMenu, DragPayload, ModalFile, RealmId};
 use crate::team::WorkspaceHandle;
 use crate::vault_manager::VaultManager;
 use super::agent_lane::AgentRoster;
@@ -123,7 +123,7 @@ pub fn PrivateColumn(
                         // Mini agent-pip strip — letters of agents living under
                         // this project's folder. Always visible so users can see
                         // who's in each project at a glance, like the peer bar.
-                        let agent_letters: Vec<(String, String)> = vault_manager
+                        let agent_letters: Vec<(String, String, &'static str)> = vault_manager
                             .read()
                             .as_ref()
                             .and_then(|vm| vm.project_path(&PRIVATE_REALM, &pid))
@@ -140,7 +140,8 @@ pub fn PrivateColumn(
                                             .unwrap_or('?')
                                             .to_uppercase()
                                             .to_string();
-                                        (name, letter)
+                                        let color = agent_class_for(&name);
+                                        (name, letter, color)
                                     })
                                     .collect()
                             })
@@ -153,12 +154,13 @@ pub fn PrivateColumn(
                                 },
                                 span { class: "project-row-bullet", "\u{2937}" }
                                 span { class: "project-row-name", "{pname}" }
-                                for (i, (name, letter)) in agent_letters.iter().enumerate() {
+                                for (i, (name, letter, color)) in agent_letters.iter().enumerate() {
                                     {
                                         let key = format!("{}-{}", name, i);
+                                        let cls = format!("agent-pip {}", color);
                                         rsx! {
                                             span {
-                                                class: "agent-pip",
+                                                class: "{cls}",
                                                 key: "{key}",
                                                 title: "{name}",
                                                 "{letter}"

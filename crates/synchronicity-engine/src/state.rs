@@ -139,6 +139,14 @@ pub fn member_class_for(id: &[u8; 32]) -> &'static str {
     MEMBER_IDENTITY_CLASSES[(id[0] as usize) % MEMBER_IDENTITY_CLASSES.len()]
 }
 
+/// Deterministic identity class for an agent name (rotates by sum of name
+/// bytes). Lets every column display agents in the same color without any
+/// per-agent metadata being persisted.
+pub fn agent_class_for(name: &str) -> &'static str {
+    let sum: usize = name.bytes().map(|b| b as usize).sum();
+    MEMBER_IDENTITY_CLASSES[sum % MEMBER_IDENTITY_CLASSES.len()]
+}
+
 /// Hex color for a member-identity class (mirrors styles.css `.identity-*`).
 pub fn member_hex_for(id: &[u8; 32]) -> &'static str {
     match member_class_for(id) {

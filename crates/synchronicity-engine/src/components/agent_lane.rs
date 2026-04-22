@@ -58,14 +58,11 @@ use dioxus::prelude::*;
 use indras_sync_engine::team::LogicalAgentId;
 
 use crate::state::{
-    AgentRuntimeStatus, AgentRowState, AppState, BraidFocus, RealmId, agent_row_state,
-    MEMBER_IDENTITY_CLASSES,
+    agent_class_for, agent_row_state, AgentRowState, AgentRuntimeStatus, AppState, BraidFocus,
+    RealmId,
 };
 use crate::team::WorkspaceHandle;
 use crate::vault_manager::VaultManager;
-
-/// Identity color choices offered in the creation form (CSS classes).
-const IDENTITY_COLORS: &[&str] = MEMBER_IDENTITY_CLASSES;
 
 /// Agent Roster component — always rendered, even when empty.
 ///
@@ -88,7 +85,6 @@ pub fn AgentRoster(
     // ── Local UI state ──────────────────────────────────────────────────────
     let mut show_create = use_signal(|| false);
     let mut create_name = use_signal(String::new);
-    let mut create_color_idx = use_signal(|| 0usize);
     let mut create_error: Signal<Option<String>> = use_signal(|| None);
 
     // Context-menu: (agent_id, x, y) or None
@@ -149,7 +145,7 @@ pub fn AgentRoster(
             div { class: "agent-roster-header",
                 span { class: "agent-roster-label", "agents" }
                 button {
-                    class: "agent-roster-add-pill",
+                    class: "agent-roster-add-icon",
                     title: "Add a new agent to this vault",
                     onclick: move |_| {
                         let cur = *show_create.read();
@@ -157,7 +153,7 @@ pub fn AgentRoster(
                         create_error.set(None);
                         create_name.set(String::new());
                     },
-                    "+ agent"
+                    "+"
                 }
             }
 
@@ -193,25 +189,6 @@ pub fn AgentRoster(
                                 }
                             }
                         },
-                        }
-                    }
-                    div { class: "agent-roster-color-dots",
-                        for (i, cls) in IDENTITY_COLORS.iter().enumerate() {
-                            {
-                                let i = i;
-                                let dot_class = if i == *create_color_idx.read() {
-                                    format!("agent-roster-color-dot {cls} agent-roster-color-dot--selected")
-                                } else {
-                                    format!("agent-roster-color-dot {cls}")
-                                };
-                                rsx! {
-                                    button {
-                                        class: "{dot_class}",
-                                        onclick: move |_| create_color_idx.set(i),
-                                        " "
-                                    }
-                                }
-                            }
                         }
                     }
                     button {
@@ -275,16 +252,15 @@ pub fn AgentRoster(
                     let has_fork = fork.is_some() && uncommitted > 0;
                     let row_state = agent_row_state(handle_present, runtime, uncommitted, has_fork);
 
-                    let row_class = format!(
-                        "agent-row {}",
-                        match row_state {
-                            AgentRowState::Idle => "agent-row--idle",
-                            AgentRowState::Thinking => "agent-row--thinking",
-                            AgentRowState::HasChanges => "agent-row--has-changes",
-                            AgentRowState::ForkReady => "agent-row--fork-ready",
-                            AgentRowState::Blocked => "agent-row--blocked",
-                        }
-                    );
+                    let state_modifier = match row_state {
+                        AgentRowState::Idle => "agent-row--idle",
+                        AgentRowState::Thinking => "agent-row--thinking",
+                        AgentRowState::HasChanges => "agent-row--has-changes",
+                        AgentRowState::ForkReady => "agent-row--fork-ready",
+                        AgentRowState::Blocked => "agent-row--blocked",
+                    };
+                    let identity_class = agent_class_for(&display_name);
+                    let row_class = format!("agent-row {state_modifier} {identity_class}");
 
                     let is_tasking = tasking_agent.read().as_ref() == Some(&agent_id);
                     let agent_id_for_ctx = agent_id.clone();

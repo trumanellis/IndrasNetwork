@@ -15,7 +15,7 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 use indras_network::IndrasNetwork;
 
-use crate::state::{AppState, BraidFocus, ContextMenu, DragPayload, ModalFile, PeerDisplayInfo, RealmCategory, RealmId};
+use crate::state::{agent_class_for, AppState, BraidFocus, ContextMenu, DragPayload, ModalFile, PeerDisplayInfo, RealmCategory, RealmId};
 use crate::team::WorkspaceHandle;
 use crate::vault_manager::VaultManager;
 use super::agent_lane::AgentRoster;
@@ -343,7 +343,7 @@ pub fn RealmColumn(
                                                         };
                                                         let files_for_project = realm_files.clone();
                                                         // Agent pips for this project (mini peer-bar style).
-                                                        let agent_letters: Vec<(String, String)> = vault_manager
+                                                        let agent_letters: Vec<(String, String, &'static str)> = vault_manager
                                                             .read()
                                                             .as_ref()
                                                             .and_then(|vm| vm.project_path(&id, &pid))
@@ -360,7 +360,8 @@ pub fn RealmColumn(
                                                                             .unwrap_or('?')
                                                                             .to_uppercase()
                                                                             .to_string();
-                                                                        (name, letter)
+                                                                        let color = agent_class_for(&name);
+                                                                        (name, letter, color)
                                                                     })
                                                                     .collect()
                                                             })
@@ -376,12 +377,13 @@ pub fn RealmColumn(
                                                                 },
                                                                 span { class: "project-row-bullet", "\u{2937}" }
                                                                 span { class: "project-row-name", "{pname}" }
-                                                                for (i, (aname, letter)) in agent_letters.iter().enumerate() {
+                                                                for (i, (aname, letter, color)) in agent_letters.iter().enumerate() {
                                                                     {
                                                                         let key = format!("{}-{}", aname, i);
+                                                                        let cls = format!("agent-pip {}", color);
                                                                         rsx! {
                                                                             span {
-                                                                                class: "agent-pip",
+                                                                                class: "{cls}",
                                                                                 key: "{key}",
                                                                                 title: "{aname}",
                                                                                 "{letter}"
