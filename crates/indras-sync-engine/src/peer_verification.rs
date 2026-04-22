@@ -14,9 +14,11 @@
 
 use std::sync::Arc;
 
-use indras_network::{IndrasNetwork, RealmId};
+use indras_network::home_realm::home_realm_id;
+use indras_network::{IndrasNetwork, MemberId, RealmId};
 
 use crate::device_roster::{DeviceRoster, DEVICE_ROSTER_DOC_KEY};
+use crate::peer_key_directory::PeerKeyDirectory;
 
 /// Check whether a device's PQ verifying-key bytes are trusted by
 /// the account whose home realm is `account_home_realm_id`.
@@ -89,4 +91,44 @@ mod tests {
         roster.upsert(revoked);
         assert!(!roster.device_is_trusted(&device.verifying_key_bytes()));
     }
+}
+
+/// Given a peer we share a DM realm with, verify that their claimed
+/// PQ identity (UserId) has a trusted, non-revoked device cert in
+/// the peer's own account-home `DeviceRoster`.
+///
+/// Returns `false` whenever any link in the chain is missing:
+/// - peer hasn't published their PQ verifying key into the DM
+///   realm's peer-keys directory,
+/// - peer's home realm hasn't been reached by this node yet,
+/// - the roster doc isn't present or has an empty `account_root_ref`,
+/// - the cert is revoked or missing.
+///
+/// Caller semantics are "fail closed" — skip the claim on `false`
+/// and retry the next time state updates.
+pub async fn gate_peer_via_home_roster(
+    network: &Arc<IndrasNetwork>,
+    dm_realm_id: &RealmId,
+    peer_member_id: &MemberId,
+    peer_user_id: &[u8; 32],
+) -> bool {
+    // 1. Fetch the peer's PQ verifying-key bytes from the DM realm's
+    //    peer-keys directory (published at vault setup).
+    let Some(dm_realm) = network.get_realm_by_id(dm_realm_id) else {
+        return false;
+    };
+    let Ok(key_dir) = dm_realm.document::<PeerKeyDirectory>("peer-keys").await else {
+        return false;
+    };
+    let vk_bytes = {
+        let snap = key_dir.read().await;
+        match snap.get(peer_user_id) {
+            Some(pk) => pk.to_bytes(),
+            None => return false,
+        }
+    };
+
+    // 2. Compute the peer's home-realm id and pull their roster.
+    let home_id = home_realm_id(*peer_member_id);
+    verify_peer_device(network, &home_id, &vk_bytes).await
 }

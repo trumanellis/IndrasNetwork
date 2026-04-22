@@ -1147,9 +1147,9 @@ pub async fn poll_recovery_releases(network: Arc<IndrasNetwork>) -> RecoveryProg
     let mut source_accounts = BTreeSet::new();
 
     for realm_id in network.conversation_realms() {
-        if network.dm_peer_for_realm(&realm_id).is_none() {
+        let Some(peer_mid) = network.dm_peer_for_realm(&realm_id) else {
             continue;
-        }
+        };
         let Some(realm) = network.get_realm_by_id(&realm_id) else {
             continue;
         };
@@ -1161,6 +1161,21 @@ pub async fn poll_recovery_releases(network: Arc<IndrasNetwork>) -> RecoveryProg
         };
         let snap = doc.read().await.clone();
         if snap.approved_at_millis == 0 || snap.encrypted_share_bytes.is_empty() {
+            continue;
+        }
+        // Plan-C gate: require the releasing steward's device to
+        // carry a non-revoked, root-signed cert in their own home-
+        // realm DeviceRoster. Fail closed — a missing roster or a
+        // revoked cert skips this release; the poll loop will
+        // retry once more state lands.
+        if !indras_sync_engine::peer_verification::gate_peer_via_home_roster(
+            &network,
+            &realm_id,
+            &peer_mid,
+            &snap.steward_uid,
+        )
+        .await
+        {
             continue;
         }
         released_by.insert(hex::encode(snap.steward_uid));
@@ -1192,9 +1207,9 @@ pub async fn assemble_and_authenticate(
     // Collect EncryptedStewardShare payloads from every DM realm.
     let mut encrypted_shares = Vec::new();
     for realm_id in network.conversation_realms() {
-        if network.dm_peer_for_realm(&realm_id).is_none() {
+        let Some(peer_mid) = network.dm_peer_for_realm(&realm_id) else {
             continue;
-        }
+        };
         let Some(realm) = network.get_realm_by_id(&realm_id) else {
             continue;
         };
@@ -1206,6 +1221,18 @@ pub async fn assemble_and_authenticate(
         };
         let snap = doc.read().await.clone();
         if snap.approved_at_millis == 0 || snap.encrypted_share_bytes.is_empty() {
+            continue;
+        }
+        // Gate the release on the steward's own device roster —
+        // refuse to decrypt shares from revoked or unknown devices.
+        if !indras_sync_engine::peer_verification::gate_peer_via_home_roster(
+            &network,
+            &realm_id,
+            &peer_mid,
+            &snap.steward_uid,
+        )
+        .await
+        {
             continue;
         }
         encrypted_shares.push(snap.encrypted_share_bytes);
