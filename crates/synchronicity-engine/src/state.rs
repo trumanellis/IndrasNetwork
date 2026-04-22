@@ -523,6 +523,14 @@ pub struct AppState {
     /// other peers. Refreshed on app start and whenever the
     /// Backup-plan overlay opens. Drives the status-bar badge.
     pub held_backups_count: usize,
+    /// In-memory copy of the Plan-B account wrapping key. Populated
+    /// after `finalize_steward_split` (when first enrolling) or
+    /// `assemble_and_authenticate` (after a successful recovery).
+    /// Used by `publish_file_shards` to seal per-file keys on save.
+    /// Never serialized to disk — if the session ends before a
+    /// re-split, backup shard publication pauses until the next
+    /// steward-quorum event repopulates it.
+    pub backup_wrapping_key: Option<[u8; 32]>,
     /// Currently-open peer profile popup, keyed by (peer member id, DM realm id).
     /// `None` = popup closed.
     pub profile_popup_target: Option<([u8; 32], RealmId)>,
@@ -592,6 +600,7 @@ impl AppState {
             show_steward_inbox: false,
             steward_inbox_pending: 0,
             held_backups_count: crate::recovery_bridge::load_held_backups().count(),
+            backup_wrapping_key: None,
             profile_popup_target: None,
             peer_liveness: None,
             relay_config: RelayConfig::load(),

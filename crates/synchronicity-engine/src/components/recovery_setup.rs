@@ -92,11 +92,15 @@ pub fn RecoverySetupOverlay(
                 let sig_clone = sig.clone();
                 spawn(async move {
                     match recovery_bridge::finalize_steward_split(net, accepted_clone, k_value).await {
-                        Ok(n) => {
+                        Ok((n, wrapping_key)) => {
                             status.set(Some((
                                 format!("Backup ready. Sent pieces to {n} friends."),
                                 false,
                             )));
+                            // Stash the wrapping key so file saves can
+                            // seal shards against it without needing a
+                            // fresh steward split every time.
+                            state.write().backup_wrapping_key = Some(wrapping_key);
                             last_finalized_sig.set(sig_clone);
                         }
                         Err(e) => {

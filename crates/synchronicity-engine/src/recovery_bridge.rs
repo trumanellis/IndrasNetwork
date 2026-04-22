@@ -706,7 +706,7 @@ pub async fn finalize_steward_split(
     network: Arc<IndrasNetwork>,
     accepted: Vec<AcceptedSteward>,
     threshold_k: u8,
-) -> Result<usize, String> {
+) -> Result<(usize, [u8; 32]), String> {
     if threshold_k < 2 {
         return Err("Need at least 2 friends to agree.".to_string());
     }
@@ -833,7 +833,7 @@ pub async fn finalize_steward_split(
         account_root_cache::clear_pending_root(&data_dir_owned);
     }
 
-    Ok(delivered)
+    Ok((delivered, subkey))
 }
 
 // ──────────────────────────────────────────────────────────────────
@@ -1181,7 +1181,7 @@ pub async fn poll_recovery_releases(network: Arc<IndrasNetwork>) -> RecoveryProg
 pub async fn assemble_and_authenticate(
     network: Arc<IndrasNetwork>,
     threshold_k: u8,
-) -> Result<(), String> {
+) -> Result<[u8; 32], String> {
     if threshold_k < 2 {
         return Err("Need at least 2 pieces.".to_string());
     }
@@ -1284,7 +1284,7 @@ pub async fn assemble_and_authenticate(
                         // device cert. No keystore re-auth needed —
                         // identity is now rooted in the roster, not
                         // the encrypted-at-rest PQ keys.
-                        return Ok(());
+                        return Ok(subkey);
                     }
                     Err(_) => {
                         // Envelope is present but the reassembled key
@@ -1331,7 +1331,7 @@ pub async fn assemble_and_authenticate(
     // Cache the subkey so this device can re-split without the story.
     let _ = save_subkey_cache(&data_dir, &subkey);
 
-    Ok(())
+    Ok(subkey)
 }
 
 fn recovery_protocol_key_request(uid: &[u8; 32]) -> String {
@@ -1569,4 +1569,302 @@ pub async fn list_incoming_backup_roles(
         }
     }
     out
+}
+
+/// Publish one encrypted, erasure-coded shard of `file_bytes` into
+/// each backup peer's DM realm. Uses the caller-supplied
+/// `wrapping_key` (the Plan-B account wrapping key) to seal the
+/// per-file symmetric key so the same key W that gates recovery
+/// also gates file retrieval.
+///
+/// Returns the count of peers that actually received a shard —
+/// unreachable peers are silently skipped. `data_threshold` must be
+/// <= `peer_user_id_hexes.len()`.
+pub async fn publish_file_shards(
+    network: Arc<IndrasNetwork>,
+    peer_user_id_hexes: &[String],
+    wrapping_key: &[u8; 32],
+    file_bytes: &[u8],
+    file_label: String,
+    data_threshold: u8,
+) -> Result<usize, String> {
+    use indras_sync_engine::file_shard::{
+        file_shard_doc_key, prepare_file_shards, FileShard,
+    };
+
+    let total_peers = peer_user_id_hexes.len() as u8;
+    if data_threshold == 0 {
+        return Err("Shard threshold must be at least 1.".to_string());
+    }
+    if total_peers < data_threshold {
+        return Err(format!(
+            "Need at least {} backup peers; only {} provided.",
+            data_threshold, total_peers
+        ));
+    }
+
+    let file_id = *blake3::hash(file_bytes).as_bytes();
+    let now = chrono::Utc::now().timestamp_millis();
+    let prepared = prepare_file_shards(
+        file_bytes,
+        &file_id,
+        file_label.clone(),
+        wrapping_key,
+        data_threshold,
+        total_peers,
+        now,
+    )
+    .map_err(|e| format!("Shard encode failed: {e}"))?;
+
+    // Each peer gets one shard (matching the index).
+    let mut delivered = 0usize;
+    for (idx, (shard, peer_hex)) in prepared
+        .shards
+        .into_iter()
+        .zip(peer_user_id_hexes.iter())
+        .enumerate()
+    {
+        let Some(peer_uid) = decode_user_id(peer_hex) else {
+            continue;
+        };
+        let Some(realm_id) = dm_realm_for_uid(&network, &peer_uid).await else {
+            continue;
+        };
+        let Some(realm) = network.get_realm_by_id(&realm_id) else {
+            continue;
+        };
+        let key = file_shard_doc_key(&file_id, idx as u8);
+        let Ok(doc) = realm.document::<FileShard>(&key).await else {
+            continue;
+        };
+        if doc.update(move |d| *d = shard).await.is_ok() {
+            delivered += 1;
+        }
+    }
+
+    // Update the home-realm backup index so future devices know
+    // this file_id is out there and worth re-pulling.
+    if delivered > 0 {
+        use indras_sync_engine::file_backup_index::{
+            FileBackupEntry, FileBackupIndex, FILE_BACKUP_INDEX_DOC_KEY,
+        };
+        if let Ok(home) = network.home_realm().await {
+            if let Ok(doc) = home
+                .document::<FileBackupIndex>(FILE_BACKUP_INDEX_DOC_KEY)
+                .await
+            {
+                let entry = FileBackupEntry {
+                    file_id,
+                    label: file_label,
+                    total_shards: total_peers,
+                    data_threshold,
+                    last_updated_at_millis: now,
+                    tombstoned: false,
+                };
+                let _ = doc.update(move |idx| idx.upsert(entry)).await;
+            }
+        }
+    }
+
+    Ok(delivered)
+}
+
+/// Walk every file in the given vault directory and publish one
+/// encrypted shard per file to each backup peer. Coarse-grained
+/// MVP wiring — re-publishes every file on every call rather than
+/// watching for diffs. Good enough for a user-triggered "Back up
+/// my files" button; a finer-grained save-hook can replace it
+/// later.
+///
+/// Skips hidden files (leading `.`) and non-regular files. Empty
+/// vault is a no-op.
+pub async fn publish_vault_backup(
+    network: Arc<IndrasNetwork>,
+    wrapping_key: &[u8; 32],
+    vault_path: &std::path::Path,
+    peer_user_id_hexes: Vec<String>,
+    data_threshold: u8,
+) -> Result<PublishVaultSummary, String> {
+    let total_peers = peer_user_id_hexes.len() as u8;
+    if total_peers < data_threshold {
+        return Err(format!(
+            "Need at least {} backup peers; only {} provided.",
+            data_threshold, total_peers
+        ));
+    }
+    if !vault_path.is_dir() {
+        return Ok(PublishVaultSummary::default());
+    }
+
+    let mut summary = PublishVaultSummary::default();
+    let entries = std::fs::read_dir(vault_path)
+        .map_err(|e| format!("read vault dir: {e}"))?;
+    for entry in entries {
+        let Ok(entry) = entry else { continue };
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if name.starts_with('.') || !path.is_file() {
+            continue;
+        }
+        let bytes = match std::fs::read(&path) {
+            Ok(b) => b,
+            Err(_) => {
+                summary.failed.push(name.to_string());
+                continue;
+            }
+        };
+        match publish_file_shards(
+            network.clone(),
+            &peer_user_id_hexes,
+            wrapping_key,
+            &bytes,
+            name.to_string(),
+            data_threshold,
+        )
+        .await
+        {
+            Ok(delivered) => {
+                summary.files_published += 1;
+                summary.total_shards_delivered += delivered;
+            }
+            Err(_) => summary.failed.push(name.to_string()),
+        }
+    }
+    Ok(summary)
+}
+
+/// Outcome of a full-vault backup pass.
+#[derive(Debug, Clone, Default)]
+pub struct PublishVaultSummary {
+    pub files_published: usize,
+    pub total_shards_delivered: usize,
+    pub failed: Vec<String>,
+}
+
+/// Restore files from backup peers into `vault_path`.
+///
+/// Reads the account's home-realm [`FileBackupIndex`] to learn
+/// which `file_id`s to expect, pulls shards from every DM realm,
+/// and for each file with >= K intact shards reconstructs the
+/// original plaintext and writes it under `{label}` inside the
+/// vault. Missing files (below threshold) are left out of the
+/// summary's `restored` list but do not fail the call.
+///
+/// Idempotent: running again after partial recovery picks up any
+/// files that now have enough shards. Writes use
+/// `{vault_path}/{label}`; if `label` is an absolute or parent-
+/// escaping path we substitute a sanitized `{file_id_hex8}.bin`
+/// name so a hostile sender can't land files outside the vault.
+pub async fn repull_vault_backup(
+    network: Arc<IndrasNetwork>,
+    wrapping_key: &[u8; 32],
+    vault_path: &std::path::Path,
+) -> Result<RepullSummary, String> {
+    use indras_sync_engine::file_backup_index::{FileBackupIndex, FILE_BACKUP_INDEX_DOC_KEY};
+    use indras_sync_engine::file_shard::{
+        file_shard_doc_key, reconstruct_file, FileShard,
+    };
+
+    let home = network
+        .home_realm()
+        .await
+        .map_err(|e| format!("home realm unavailable: {e}"))?;
+    let index = {
+        let Ok(doc) = home
+            .document::<FileBackupIndex>(FILE_BACKUP_INDEX_DOC_KEY)
+            .await
+        else {
+            return Ok(RepullSummary::default());
+        };
+        doc.read().await.clone()
+    };
+
+    std::fs::create_dir_all(vault_path).map_err(|e| format!("create vault dir: {e}"))?;
+
+    let mut summary = RepullSummary::default();
+    for entry in index.active() {
+        let total = entry.total_shards as usize;
+        let mut collected: Vec<Option<FileShard>> = vec![None; total];
+        // Scan every DM realm for shards of this file_id.
+        for realm_id in network.conversation_realms() {
+            if network.dm_peer_for_realm(&realm_id).is_none() {
+                continue;
+            }
+            let Some(realm) = network.get_realm_by_id(&realm_id) else {
+                continue;
+            };
+            for idx in 0..total {
+                if collected[idx].is_some() {
+                    continue;
+                }
+                let key = file_shard_doc_key(&entry.file_id, idx as u8);
+                let Ok(doc) = realm.document::<FileShard>(&key).await else {
+                    continue;
+                };
+                let snap = doc.read().await.clone();
+                if snap.created_at_millis > 0 && !snap.shard_bytes.is_empty() {
+                    collected[idx] = Some(snap);
+                }
+            }
+        }
+
+        let present = collected.iter().filter(|s| s.is_some()).count();
+        if present < entry.data_threshold as usize {
+            summary.missing.push(entry.label.clone());
+            continue;
+        }
+
+        match reconstruct_file(collected, wrapping_key) {
+            Ok(bytes) => {
+                let safe_label = sanitize_label(&entry.label, &entry.file_id);
+                let out_path = vault_path.join(&safe_label);
+                if let Some(parent) = out_path.parent() {
+                    if parent != vault_path {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                }
+                match std::fs::write(&out_path, &bytes) {
+                    Ok(()) => {
+                        summary.restored.push(safe_label);
+                    }
+                    Err(e) => {
+                        summary.failed.push(format!("{}: {e}", entry.label));
+                    }
+                }
+            }
+            Err(e) => summary.failed.push(format!("{}: {e}", entry.label)),
+        }
+    }
+    Ok(summary)
+}
+
+/// Summary of a `repull_vault_backup` pass.
+#[derive(Debug, Clone, Default)]
+pub struct RepullSummary {
+    /// File labels (as landed on disk) that reconstructed cleanly.
+    pub restored: Vec<String>,
+    /// Files whose shard count is still below threshold.
+    pub missing: Vec<String>,
+    /// Files that had enough shards but failed to decrypt or write.
+    pub failed: Vec<String>,
+}
+
+/// Coerce an index label into a safe filename within the vault
+/// directory. Rejects parent-escaping and absolute paths.
+fn sanitize_label(label: &str, file_id: &[u8; 32]) -> String {
+    let trimmed = label.trim();
+    if trimmed.is_empty()
+        || trimmed.starts_with('/')
+        || trimmed.starts_with('\\')
+        || trimmed.contains("..")
+    {
+        let hex = hex::encode(file_id);
+        return format!("{}.bin", &hex[..8]);
+    }
+    trimmed
+        .chars()
+        .map(|c| if "/\\\0".contains(c) { '_' } else { c })
+        .collect()
 }

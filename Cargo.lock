@@ -8158,6 +8158,7 @@ name = "synchronicity-engine"
 version = "1.0.0"
 dependencies = [
  "base64",
+ "blake3",
  "chrono",
  "dashmap",
  "dioxus",

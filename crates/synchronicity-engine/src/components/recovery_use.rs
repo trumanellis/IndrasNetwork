@@ -75,7 +75,8 @@ pub fn RecoveryUseOverlay(
                         let k = *threshold.read();
                         let net2 = net.clone();
                         match recovery_bridge::assemble_and_authenticate(net2, k).await {
-                            Ok(()) => {
+                            Ok(wrapping_key) => {
+                                state.write().backup_wrapping_key = Some(wrapping_key);
                                 phase.set(RecoveryPhase::Done);
                                 status.set(Some((
                                     "You're back in. Your identity is unlocked.".to_string(),
