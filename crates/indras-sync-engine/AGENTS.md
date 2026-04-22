@@ -43,6 +43,15 @@ realm.create_intention("Review doc", "Please review", None).await?;
 | `proof_folder.rs` | `ProofFolder`, `ProofFolderDocument`, `ProofFolderArtifact`, `ProofFolderError`, `ProofFolderId` | Proof-of-service folders |
 | `story_auth.rs` | `StoryAuth`, `AuthResult` | Story-based authentication |
 | `steward_recovery.rs` | `StewardId`, `StewardManifest`, `StewardAssignment`, `PreparedRecovery`, `prepare_recovery`, `recover_encryption_subkey`, `save_manifest`, `load_manifest` | Shamir K-of-N steward recovery for the encryption subkey; offline orchestration + JSON manifest |
+| `steward_enrollment.rs` | `StewardInvitation`, `StewardResponse`, `EnrollmentStatus`, `invite_doc_key`, `response_doc_key` | Plan-A handshake: invitation + acceptance CRDT docs over DM realms |
+| `share_delivery.rs` | `ShareDelivery`, `HeldBackup`, `StewardHoldings`, `share_delivery_doc_key` | Plan-A encrypted-share delivery doc + steward-side holdings cache |
+| `recovery_protocol.rs` | `RecoveryRequest`, `ShareRelease`, `recovery_request_doc_key`, `share_release_doc_key` | Plan-A recovery-request + release CRDT docs |
+| `device_roster.rs` | `DeviceRoster`, `DEVICE_ROSTER_DOC_KEY` | Plan-B per-account device-cert roster (home-realm doc) |
+| `account_root_cache.rs` | `save_pending_root`, `load_pending_root`, `clear_pending_root` | Plan-B temporary root-sk stash between creation and first split |
+| `account_root_envelope.rs` | `AccountRootEnvelope`, `seal_account_root`, `unseal_account_root` | Plan-B ChaCha20-Poly1305 envelope for the root sk under a Shamir-split wrapping key |
+| `peer_verification.rs` | `verify_peer_device`, `load_device_roster` | Plan-B peer-admission helpers gating on the roster |
+| `backup_peers.rs` | `BackupPeerAssignment`, `BackupPeerPlan`, `backup_role_doc_key`, `DEFAULT_BACKUP_RESPONSIBILITY` | Plan-C Backup-Peer role CRDT + top-N selection ranking |
+| `file_shard.rs` | `FileShard`, `PreparedShardSet`, `prepare_file_shards`, `reconstruct_file`, `file_shard_doc_key` | Plan-C erasure-coded file-shard pipeline with per-file / account-wrapping double encryption |
 | `rehearsal.rs` | `RehearsalState` | Story rehearsal state |
 | `bioregion_catalog.rs` | - | Bioregional delegation catalog |
 | `content.rs` | `SyncContent` | Extended content type for sync engine |
