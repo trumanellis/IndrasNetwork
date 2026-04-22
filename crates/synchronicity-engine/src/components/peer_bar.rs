@@ -50,10 +50,10 @@ pub fn PeerBar(
                 }
             }
             button {
-                class: "peer-add-btn",
+                class: "peer-add-dot",
                 title: "Add Contact",
                 onclick: move |_| on_add_contact.call(()),
-                "+ add contact"
+                "+"
             }
             span { class: "peer-bar-counter", "{counter_text}" }
         }
