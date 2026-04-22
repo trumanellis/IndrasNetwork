@@ -693,7 +693,14 @@ body > * {
 }
 
 /* ============================================================
-   HOME VAULT LAYOUT
+   HOME VAULT — shell / main / workspace / 4-col responsive
+   Based on design/braid-prototype.html (.main / .workspace / .columns).
+
+   Responsive:
+     >= 1000px  →  4 columns in one row
+     >= 500px   →  2×2 grid
+     <  500px   →  1 column × 4 rows (stacked, vertical scroll)
+   Minimum track: 250px per column at 4-col, 250px per cell at 2×2.
    ============================================================ */
 .home-vault {
   display: grid;
@@ -702,32 +709,69 @@ body > * {
   overflow: hidden;
 }
 
-/* ============================================================
-   VAULT COLUMNS — 4-column Finder layout
-   ============================================================ */
+.home-vault-main {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: 1fr;
+  min-height: 0;
+  min-width: 0;
+  position: relative;
+}
+
+/* The missing wrapper — breaks min-content cascade so the grid
+   tracks don't get inflated by Private's rich header row.
+   `display: grid` + `grid-template-rows: 1fr` forces `.vault-columns`
+   to receive a concrete 100% height instead of an auto-resolved one. */
+.workspace {
+  display: grid;
+  grid-template-rows: 1fr;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+/* 2×2 grid — always, regardless of viewport width. */
 .vault-columns {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: 50% 50%;
+  grid-template-rows: 50% 50%;
   height: 100%;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
   overflow: hidden;
 }
 
 .vault-column {
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  min-height: 0;
   border-right: 1px solid var(--bd);
-  overflow: hidden;
+  border-bottom: 1px solid var(--bd);
   background: var(--bg);
+  position: relative;
+  overflow: hidden;
 }
-
-.vault-column:last-child {
+.vault-column:nth-child(2),
+.vault-column:nth-child(4) {
   border-right: none;
+}
+.vault-column:nth-child(3),
+.vault-column:nth-child(4) {
+  border-bottom: none;
 }
 
 .vault-column-body {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
+}
+.vault-column-body::-webkit-scrollbar { width: 6px; }
+.vault-column-body::-webkit-scrollbar-thumb {
+  background: var(--surface);
+  border-radius: 3px;
 }
 
 .column-header {
@@ -2415,10 +2459,6 @@ body > * {
    RESPONSIVE
    ============================================================ */
 @media (max-width: 768px) {
-  .vault-columns {
-    grid-template-columns: 1fr 1fr;
-  }
-
   .file-modal {
     width: 95vw;
     padding: 24px;
@@ -4065,14 +4105,6 @@ body > * {
    `evidence` so they do not collide with existing classes.
    ═══════════════════════════════════════════════════════════════════ */
 
-/* Outer main area layout — columns on the left, drawer docked right. */
-.home-vault-main {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  min-height: 0;
-  flex: 1;
-}
-
 /* ── Braid Drawer shell ────────────────────────────────────────────── */
 .braid-drawer {
   width: 440px;
@@ -4467,10 +4499,17 @@ body > * {
 
 .shell {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: 46px 40px 1fr auto;
   height: 100vh;
+  width: 100vw;
+  min-width: 0;
   position: relative;
   z-index: 1;
+  overflow: hidden;
+}
+.shell > * {
+  min-width: 0;
 }
 
 /* ── Top bar ──────────────────────────────────────────────────────── */
@@ -4704,10 +4743,6 @@ body > * {
   margin-left: auto;
   white-space: nowrap;
 }
-
-/* Hide the legacy vault-info-bar if anything still renders it — the
-   new topbar replaces it entirely. */
-.home-vault-main { flex: 1; min-height: 0; }
 
 /* ── Agent Lane (Private column) ─────────────────────────────────── */
 /* Rendered only when AgentBraid has diverged heads. Port of

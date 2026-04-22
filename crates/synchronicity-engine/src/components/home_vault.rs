@@ -641,7 +641,9 @@ pub fn HomeVault(
                 on_add_contact: move |_| { state.write().show_contact_invite = true; }
             }
             div { class: "home-vault-main",
-                super::vault_columns::VaultColumns { state, network, vault_manager, peers: peers, workspace_handles }
+                div { class: "workspace",
+                    super::vault_columns::VaultColumns { state, network, vault_manager, peers: peers, workspace_handles }
+                }
                 super::braid_drawer::BraidDrawer { state, vault_manager, workspace_handles }
             }
             super::status_bar::StatusBar { state }
