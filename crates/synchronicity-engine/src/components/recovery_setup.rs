@@ -35,6 +35,8 @@ pub fn RecoverySetupOverlay(
     // Fingerprint of the last accepted-set we finalized a split for.
     // Prevents re-splitting on every CRDT tick when nothing changed.
     let mut last_finalized_sig = use_signal(String::new);
+    let mut files_publishing = use_signal(|| false);
+    let mut files_summary = use_signal(|| None::<(usize, usize)>);
 
     // Refresh the enrollment list on open. CRDT sync will bring peer
     // responses in as they arrive, but this effect only refires on
@@ -317,6 +319,77 @@ pub fn RecoverySetupOverlay(
                         } else {
                             div { class: "recovery-plan-empty",
                                 "Ask at least {k_value} friends to cover your backup."
+                            }
+                        }
+                    }
+
+                    // ── Optional: back up files to the same friends ──
+                    if ready_for_quorum && state.read().backup_wrapping_key.is_some() {
+                        section { class: "recovery-section",
+                            div { class: "recovery-section-num", "04 · Back up your files (optional)" }
+                            div { class: "recovery-section-hint",
+                                "Give your friends sealed pieces of your files too. "
+                                "Each friend holds one piece — none of them can read what's inside. "
+                                "If you lose your device, your files come back automatically."
+                            }
+                            if let Some((published, total_shards)) = *files_summary.read() {
+                                div { class: "recovery-plan-ready",
+                                    "✓ Backed up {published} files across your friends "
+                                    "({total_shards} pieces delivered)."
+                                }
+                            }
+                            button {
+                                class: "se-btn-outline",
+                                disabled: *files_publishing.read(),
+                                onclick: move |_| {
+                                    let Some(net) = network.read().clone() else { return };
+                                    let wrapping_key = match state.read().backup_wrapping_key {
+                                        Some(k) => k,
+                                        None => return,
+                                    };
+                                    let vault_path = state.read().vault_path.clone();
+                                    let peer_uids: Vec<String> = accepted_peers
+                                        .iter()
+                                        .map(|p| p.peer_user_id_hex.clone())
+                                        .collect();
+                                    let threshold = k_value;
+                                    files_publishing.set(true);
+                                    files_summary.set(None);
+                                    spawn(async move {
+                                        match recovery_bridge::publish_vault_backup(
+                                            net, &wrapping_key, &vault_path, peer_uids, threshold,
+                                        )
+                                        .await
+                                        {
+                                            Ok(summary) => {
+                                                files_summary.set(Some((
+                                                    summary.files_published,
+                                                    summary.total_shards_delivered,
+                                                )));
+                                                if !summary.failed.is_empty() {
+                                                    status.set(Some((
+                                                        format!(
+                                                            "Backed up {}, but {} failed: {}",
+                                                            summary.files_published,
+                                                            summary.failed.len(),
+                                                            summary.failed.join(", ")
+                                                        ),
+                                                        true,
+                                                    )));
+                                                }
+                                            }
+                                            Err(e) => {
+                                                status.set(Some((e, true)));
+                                            }
+                                        }
+                                        files_publishing.set(false);
+                                    });
+                                },
+                                if *files_publishing.read() {
+                                    "Backing up..."
+                                } else {
+                                    "Back up my files now"
+                                }
                             }
                         }
                     }

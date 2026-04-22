@@ -79,9 +79,48 @@ pub fn RecoveryUseOverlay(
                                 state.write().backup_wrapping_key = Some(wrapping_key);
                                 phase.set(RecoveryPhase::Done);
                                 status.set(Some((
-                                    "You're back in. Your identity is unlocked.".to_string(),
+                                    "You're back in. Your identity is unlocked. \
+                                     Pulling your files from friends…"
+                                        .to_string(),
                                     false,
                                 )));
+                                // Fire-and-forget vault restore. Progress is
+                                // reflected via status once the pull completes.
+                                let net3 = net.clone();
+                                let vault_path = state.read().vault_path.clone();
+                                spawn(async move {
+                                    match recovery_bridge::repull_vault_backup(
+                                        net3, &wrapping_key, &vault_path,
+                                    )
+                                    .await
+                                    {
+                                        Ok(summary) => {
+                                            let restored = summary.restored.len();
+                                            let missing = summary.missing.len();
+                                            let msg = if restored == 0 && missing == 0 {
+                                                "You're back in. No backed-up files yet."
+                                                    .to_string()
+                                            } else if missing == 0 {
+                                                format!(
+                                                    "You're back in. Restored {} file(s) from your friends.",
+                                                    restored
+                                                )
+                                            } else {
+                                                format!(
+                                                    "You're back in. Restored {} file(s); {} still missing (friends offline).",
+                                                    restored, missing
+                                                )
+                                            };
+                                            status.set(Some((msg, false)));
+                                        }
+                                        Err(e) => {
+                                            status.set(Some((
+                                                format!("Restore had trouble: {e}"),
+                                                true,
+                                            )));
+                                        }
+                                    }
+                                });
                             }
                             Err(e) => {
                                 status.set(Some((e, true)));
