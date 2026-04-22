@@ -37,6 +37,11 @@ pub fn inbox_key_seed(member_id: &MemberId) -> [u8; 32] {
 /// A notification sent to a peer's inbox when someone connects to them.
 ///
 /// Serialized as the payload of a message on the inbox realm.
+///
+/// Carries the sender's PQ verifying key plus a signature over the
+/// other fields so receivers can confirm the notify wasn't forged
+/// by someone who merely knew the target's `MemberId`. Signature
+/// verification gates admission in the inbox handler.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectionNotify {
     /// The sender's member ID.
@@ -49,6 +54,15 @@ pub struct ConnectionNotify {
     pub timestamp_millis: u64,
     /// Optional endpoint address for direct QUIC connection.
     pub endpoint_addr: Option<Vec<u8>>,
+    /// Sender's PQ (Dilithium3) verifying-key bytes. Callers set
+    /// this via [`ConnectionNotify::sign`]; unsigned notifies leave
+    /// it empty and will fail [`verify`].
+    #[serde(default)]
+    pub sender_pq_vk: Vec<u8>,
+    /// Dilithium3 signature over the canonical byte encoding of
+    /// the sibling fields. Empty until [`ConnectionNotify::sign`].
+    #[serde(default)]
+    pub signature: Vec<u8>,
 }
 
 impl ConnectionNotify {
@@ -64,6 +78,8 @@ impl ConnectionNotify {
             display_name: None,
             timestamp_millis: now,
             endpoint_addr: None,
+            sender_pq_vk: Vec::new(),
+            signature: Vec::new(),
         }
     }
 
@@ -77,6 +93,61 @@ impl ConnectionNotify {
     pub fn with_endpoint_addr(mut self, addr: Vec<u8>) -> Self {
         self.endpoint_addr = Some(addr);
         self
+    }
+
+    /// Sign the notify under the given PQ identity. Call this just
+    /// before serialisation; any subsequent mutation invalidates
+    /// the signature.
+    pub fn sign(mut self, identity: &indras_crypto::pq_identity::PQIdentity) -> Self {
+        let msg = self.canonical_bytes_for_signing();
+        let sig = identity.sign(&msg);
+        self.sender_pq_vk = identity.verifying_key_bytes();
+        self.signature = sig.to_bytes().to_vec();
+        self
+    }
+
+    /// Verify that this notify was signed by a holder of
+    /// `sender_pq_vk`. Returns `false` on any shape / signature
+    /// mismatch — receivers drop rather than admit.
+    pub fn verify(&self) -> bool {
+        use indras_crypto::pq_identity::{PQPublicIdentity, PQSignature};
+        if self.sender_pq_vk.is_empty() || self.signature.is_empty() {
+            return false;
+        }
+        let Ok(pk) = PQPublicIdentity::from_bytes(&self.sender_pq_vk) else {
+            return false;
+        };
+        let Ok(sig) = PQSignature::from_bytes(self.signature.clone()) else {
+            return false;
+        };
+        pk.verify(&self.canonical_bytes_for_signing(), &sig)
+    }
+
+    /// Blake3 digest of the sender's PQ verifying key — a stable
+    /// 32-byte UserId matching what peer-keys directories publish.
+    /// Returns `None` when the notify is unsigned.
+    pub fn sender_user_id(&self) -> Option<[u8; 32]> {
+        if self.sender_pq_vk.is_empty() {
+            return None;
+        }
+        Some(*blake3::hash(&self.sender_pq_vk).as_bytes())
+    }
+
+    /// Domain-separated serialisation the signature binds to.
+    fn canonical_bytes_for_signing(&self) -> Vec<u8> {
+        const DOMAIN: &[u8] = b"indras:connection-notify:v1";
+        let mut out = Vec::with_capacity(DOMAIN.len() + 128);
+        out.extend_from_slice(DOMAIN);
+        out.extend_from_slice(&self.sender_id);
+        out.extend_from_slice(self.dm_realm_id.as_bytes());
+        out.extend_from_slice(&self.timestamp_millis.to_le_bytes());
+        let name_bytes = self.display_name.as_deref().unwrap_or("").as_bytes();
+        out.extend_from_slice(&(name_bytes.len() as u32).to_le_bytes());
+        out.extend_from_slice(name_bytes);
+        let endpoint_bytes = self.endpoint_addr.as_deref().unwrap_or(&[]);
+        out.extend_from_slice(&(endpoint_bytes.len() as u32).to_le_bytes());
+        out.extend_from_slice(endpoint_bytes);
+        out
     }
 }
 
@@ -521,6 +592,49 @@ mod tests {
             }
             _ => panic!("expected Connection variant"),
         }
+    }
+
+    #[test]
+    fn test_connection_notify_signed_verify_roundtrip() {
+        use indras_crypto::pq_identity::PQIdentity;
+        let artifact = indras_artifacts::dm_story_id(zephyr_id(), nova_id());
+        let dm_id = crate::artifact_sync::artifact_interface_id(&artifact);
+        let identity = PQIdentity::generate();
+
+        let notify = ConnectionNotify::new(zephyr_id(), dm_id)
+            .with_name("Zephyr")
+            .with_endpoint_addr(vec![1, 2, 3])
+            .sign(&identity);
+        assert!(notify.verify(), "signed notify must verify");
+        assert_eq!(
+            notify.sender_user_id().unwrap(),
+            *blake3::hash(&identity.verifying_key_bytes()).as_bytes()
+        );
+
+        // Serialise + deserialise preserves the signature.
+        let msg = InboxMessage::Connection(notify.clone());
+        let bytes = msg.to_bytes().unwrap();
+        let deserialized = InboxMessage::from_bytes(&bytes).unwrap();
+        let round = match deserialized {
+            InboxMessage::Connection(n) => n,
+            _ => panic!("expected Connection"),
+        };
+        assert!(round.verify(), "roundtripped notify must verify");
+
+        // Any field mutation after signing invalidates the sig.
+        let mut tampered = notify.clone();
+        tampered.display_name = Some("Impostor".into());
+        assert!(!tampered.verify(), "mutated notify must not verify");
+
+        // An unsigned notify fails closed.
+        let unsigned = ConnectionNotify::new(zephyr_id(), dm_id);
+        assert!(!unsigned.verify());
+
+        // Wrong-key signature is rejected.
+        let attacker = PQIdentity::generate();
+        let mut forged = notify.clone();
+        forged.sender_pq_vk = attacker.verifying_key_bytes();
+        assert!(!forged.verify());
     }
 
     #[test]

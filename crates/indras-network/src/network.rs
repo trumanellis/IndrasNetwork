@@ -698,6 +698,19 @@ impl IndrasNetwork {
                         continue;
                     }
 
+                    // Plan-C admission gate: verify the sender's PQ
+                    // signature before creating any state. An unsigned
+                    // or invalid notify means either a stale/forged
+                    // payload or a pre-signed-protocol peer — either
+                    // way we drop rather than admit.
+                    if !notify.verify() {
+                        tracing::warn!(
+                            peer = %hex::encode(&notify.sender_id[..8]),
+                            "Inbox: rejecting unsigned / invalidly-signed ConnectionNotify"
+                        );
+                        continue;
+                    }
+
                     // Upgrade the weak reference — if the node is gone, exit
                     let inner = match inner_weak.upgrade() {
                         Some(arc) => arc,
@@ -817,6 +830,7 @@ impl IndrasNetwork {
                                         reply = reply.with_endpoint_addr(addr_bytes);
                                     }
                                 }
+                                let reply = reply.sign(inner.pq_identity());
                                 if let Ok(payload) = InboxMessage::Connection(reply).to_bytes() {
                                     let _ = inner.send_message(&sender_inbox_id, payload).await;
                                 }
@@ -1516,6 +1530,7 @@ impl IndrasNetwork {
                 notify = notify.with_endpoint_addr(addr_bytes);
             }
         }
+        let notify = notify.sign(self.inner.pq_identity());
 
         let payload = match InboxMessage::Connection(notify).to_bytes() {
             Ok(p) => p,
@@ -1648,6 +1663,7 @@ impl IndrasNetwork {
                 notify = notify.with_endpoint_addr(addr_bytes);
             }
         }
+        let notify = notify.sign(self.inner.pq_identity());
 
         // Single send attempt (polling loop will call us again in 30s if needed)
         if let Ok(payload) = InboxMessage::Connection(notify).to_bytes() {
